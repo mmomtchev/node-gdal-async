@@ -50,10 +50,18 @@ describe('gdal.CoordinateTransformation', () => {
       assert.closeTo(pt.x, 1564201.4044502454, 0.1)
       assert.closeTo(pt.y, 3370263.469590679, 0.1)
     })
+    
+    
     it('should throw on invalid arguments', () => {
       assert.throws(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ct.transformPoint({ x: 'a', y: 30 } as any)
+      })
+    })
+    it('should throw on invalid arguments with proj error code', () => {
+      assert.throws(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ct.transformPointWithErrorCode({ x: 'a', y: 30 } as any)
       })
     })
   })
