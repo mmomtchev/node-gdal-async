@@ -17,7 +17,6 @@ void CoordinateTransformation::Initialize(Local<Object> target) {
 
   Nan::SetPrototypeMethod(lcons, "toString", toString);
   Nan::SetPrototypeMethod(lcons, "transformPoint", transformPoint);
-   Nan::SetPrototypeMethod(lcons, "transformPointWithErrorCode", transformPointWithErrorCode);
 
   Nan::Set(target, Nan::New("CoordinateTransformation").ToLocalChecked(), Nan::GetFunction(lcons).ToLocalChecked());
 
@@ -202,8 +201,10 @@ NAN_METHOD(CoordinateTransformation::transformPoint) {
     NODE_ARG_DOUBLE_OPT(2, "z", z);
   }
 
-  if (!transform->this_->Transform(1, &x, &y, &z)) {
-    Nan::ThrowError("Error transforming point");
+  int proj_error_code = 0;
+  !transform->this_->TransformWithErrorCodes(1, &x, &y, &z, nullptr, &proj_error_code);
+  if (proj_error_code != 0) {
+    Nan::ThrowError(("Error transforming point with proj error code: " + std::to_string(proj_error_code)).c_str());
     return;
   }
 
@@ -215,71 +216,6 @@ NAN_METHOD(CoordinateTransformation::transformPoint) {
   info.GetReturnValue().Set(result);
 }
 
-/**
- * Transform point from source to destination space and throw proj error code.
- *
- * @example
- *
- * pt = transform.transformPointWithErrorCode(0, 0, 0);
- *
- * @method transformPointWithErrorCode
- * @instance
- * @memberof CoordinateTransformation
- * @param {number} x
- * @param {number} y
- * @param {number} [z]
- * @return {xyz} A regular object containing `x`, `y`, `z` properties.
- */
 
-/**
- * Transform point from source to destination space and throw proj error code.
- *
- * @example
- *
- * pt = transform.transformPointWithErrorCode({x: 0, y: 0, z: 0});
- *
- * @method transformPointWithErrorCode
- * @instance
- * @memberof CoordinateTransformation
- * @param {xyz} point
- * @return {xyz} A regular object containing `x`, `y`, `z` properties.
- */
-NAN_METHOD(CoordinateTransformation::transformPointWithErrorCode) {
-  CoordinateTransformation *transform = Nan::ObjectWrap::Unwrap<CoordinateTransformation>(info.This());
-
-  double x, y, z = 0;
-
-  if (info.Length() == 1 && info[0]->IsObject()) {
-    Local<Object> obj = info[0].As<Object>();
-    Local<Value> arg_x = Nan::Get(obj, Nan::New("x").ToLocalChecked()).ToLocalChecked();
-    Local<Value> arg_y = Nan::Get(obj, Nan::New("y").ToLocalChecked()).ToLocalChecked();
-    Local<Value> arg_z = Nan::Get(obj, Nan::New("z").ToLocalChecked()).ToLocalChecked();
-    if (!arg_x->IsNumber() || !arg_y->IsNumber()) {
-      Nan::ThrowError("point must contain numerical properties x and y");
-      return;
-    }
-    x = static_cast<double>(Nan::To<double>(arg_x).ToChecked());
-    y = static_cast<double>(Nan::To<double>(arg_y).ToChecked());
-    if (arg_z->IsNumber()) { z = static_cast<double>(Nan::To<double>(arg_z).ToChecked()); }
-  } else {
-    NODE_ARG_DOUBLE(0, "x", x);
-    NODE_ARG_DOUBLE(1, "y", y);
-    NODE_ARG_DOUBLE_OPT(2, "z", z);
-  }
-
-  int porj_error_code = 0;
-  transform->this_->TransformWithErrorCodes(1, &x, &y, &z, nullptr, &porj_error_code);
-  if (porj_error_code != 0) {
-    Nan::ThrowError(("Error transforming point with proj error code: " + std::to_string(porj_error_code)).c_str());
-    return;
-  }
-
-  Local<Object> result = Nan::New<Object>();
-  Nan::Set(result, Nan::New("x").ToLocalChecked(), Nan::New<Number>(x));
-  Nan::Set(result, Nan::New("y").ToLocalChecked(), Nan::New<Number>(y));
-  Nan::Set(result, Nan::New("z").ToLocalChecked(), Nan::New<Number>(z));
-
-  info.GetReturnValue().Set(result);
-}
 
 } // namespace node_gdal

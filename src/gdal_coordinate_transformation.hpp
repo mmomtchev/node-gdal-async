@@ -29,7 +29,6 @@ class CoordinateTransformation : public Nan::ObjectWrap {
   static Local<Value> New(OGRCoordinateTransformation *transform);
   static NAN_METHOD(toString);
   static NAN_METHOD(transformPoint);
-  static NAN_METHOD(transformPointWithErrorCode);
 
   CoordinateTransformation();
   CoordinateTransformation(OGRCoordinateTransformation *srs);
