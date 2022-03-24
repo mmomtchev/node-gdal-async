@@ -50,13 +50,16 @@ describe('gdal.CoordinateTransformation', () => {
       assert.closeTo(pt.x, 1564201.4044502454, 0.1)
       assert.closeTo(pt.y, 3370263.469590679, 0.1)
     })
-    
-    
+    it('with bundled GDAL, should throw on invalid coordinates', () => {
+      assert.throws(() => {
+        ct.transformPoint({ x: 400, y: 120 })
+      }, /Error transforming point: Invalid coordinate/)
+    })
     it('should throw on invalid arguments', () => {
       assert.throws(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ct.transformPoint({ x: 'a', y: 30 } as any)
-      })
+      }, /point must contain numerical properties x and y/)
     })
   })
 })

@@ -131,7 +131,8 @@
 						"BUNDLED_GDAL=1"
 					],
 					"dependencies": [
-						"deps/libgdal/libgdal.gyp:libgdal"
+						"deps/libgdal/libgdal.gyp:libgdal",
+						"deps/libproj/libproj.gyp:libproj"
 					]
 				}, {
 					"conditions": [
