@@ -137,7 +137,7 @@ NAN_METHOD(LayerFields::indexOf) {
 /**
  * Returns a field definition.
  *
- * @throws Error
+ * @throws {Error}
  * @method get
  * @instance
  * @memberof LayerFields
@@ -179,7 +179,7 @@ NAN_METHOD(LayerFields::get) {
 /**
  * Returns a list of field names.
  *
- * @throws Error
+ * @throws {Error}
  * @method getNames
  * @instance
  * @memberof LayerFields
@@ -215,7 +215,7 @@ NAN_METHOD(LayerFields::getNames) {
 /**
  * Removes a field.
  *
- * @throws Error
+ * @throws {Error}
  * @method remove
  * @instance
  * @memberof LayerFields
@@ -257,7 +257,7 @@ NAN_METHOD(LayerFields::remove) {
 /**
  * Adds field(s).
  *
- * @throws Error
+ * @throws {Error}
  * @method add
  * @instance
  * @memberof LayerFields
@@ -324,7 +324,7 @@ NAN_METHOD(LayerFields::add) {
  * // reverse field order
  * layer.fields.reorder([2,1,0]);
  *
- * @throws Error
+ * @throws {Error}
  * @method reorder
  * @instance
  * @memberof LayerFields

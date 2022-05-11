@@ -89,7 +89,7 @@ NAN_METHOD(LayerFeatures::toString) {
  * @instance
  * @memberof LayerFeatures
  * @param {number} id The feature ID of the feature to read.
- * @throws Error
+ * @throws {Error}
  * @return {Feature}
  */
 
@@ -106,7 +106,7 @@ NAN_METHOD(LayerFeatures::toString) {
  * @memberof LayerFeatures
  * @param {number} id The feature ID of the feature to read.
  * @param {callback<Feature>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<Feature>}
  */
 GDAL_ASYNCABLE_DEFINE(LayerFeatures::get) {
@@ -239,7 +239,7 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::next) {
  * @method add
  * @instance
  * @memberof LayerFeatures
- * @throws Error
+ * @throws {Error}
  * @param {Feature} feature
  */
 
@@ -258,7 +258,7 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::next) {
  * @method addAsync
  * @instance
  * @memberof LayerFeatures
- * @throws Error
+ * @throws {Error}
  * @param {Feature} feature
  * @param {callback<void>} [callback=undefined]
  * @return {Promise<void>}
@@ -350,7 +350,7 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::count) {
  * @method set
  * @instance
  * @memberof LayerFeatures
- * @throws Error
+ * @throws {Error}
  * @param {Feature} feature
  */
 
@@ -360,7 +360,7 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::count) {
  * @method set
  * @instance
  * @memberof LayerFeatures
- * @throws Error
+ * @throws {Error}
  * @param {number} id
  * @param {Feature} feature
  */
@@ -372,7 +372,7 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::count) {
  * @method setAsync
  * @instance
  * @memberof LayerFeatures
- * @throws Error
+ * @throws {Error}
  * @param {number} id
  * @param {Feature} feature
  * @param {callback<Feature>} [callback=undefined]
@@ -442,7 +442,7 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::set) {
  * @method remove
  * @instance
  * @memberof LayerFeatures
- * @throws Error
+ * @throws {Error}
  * @param {number} id
  */
 
@@ -453,7 +453,7 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::set) {
  * @method removeAsync
  * @instance
  * @memberof LayerFeatures
- * @throws Error
+ * @throws {Error}
  * @param {number} id
  * @param {callback<void>} [callback=undefined]
  * @return {Promise<void>}

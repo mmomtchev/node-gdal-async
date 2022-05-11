@@ -67,8 +67,8 @@ void VSI::Initialize(Local<Object> target) {
  * @method stat
  * @memberof fs
  * @param {string} filename
- * @param {boolean} [bigint=false] Return BigInt numbers. JavaScript numbers are safe for integers up to 2^53.
- * @throws Error
+ * @param {false} [bigint=false] Return BigInt numbers. JavaScript numbers are safe for integers up to 2^53.
+ * @throws {Error}
  * @returns {VSIStat}
  */
 
@@ -79,8 +79,8 @@ void VSI::Initialize(Local<Object> target) {
  * @method stat
  * @memberof fs
  * @param {string} filename
- * @param {true} True Return BigInt numbers. JavaScript numbers are safe for integers up to 2^53.
- * @throws Error
+ * @param {true} bigint Return BigInt numbers. JavaScript numbers are safe for integers up to 2^53.
+ * @throws {Error}
  * @returns {VSIStat64}
  */
 
@@ -92,8 +92,8 @@ void VSI::Initialize(Local<Object> target) {
  * @method statAsync
  * @memberof fs
  * @param {string} filename
- * @param {boolean} [bigint=false] Return BigInt numbers. JavaScript numbers are safe for integers up to 2^53.
- * @throws Error
+ * @param {false} [bigint=false] Return BigInt numbers. JavaScript numbers are safe for integers up to 2^53.
+ * @throws {Error}
  * @param {callback<VSIStat>} [callback=undefined]
  * @returns {Promise<VSIStat>}
  */
@@ -106,8 +106,8 @@ void VSI::Initialize(Local<Object> target) {
  * @method statAsync
  * @memberof fs
  * @param {string} filename
- * @param {true} True Return BigInt numbers. JavaScript numbers are safe for integers up to 2^53.
- * @throws Error
+ * @param {true} bigint Return BigInt numbers. JavaScript numbers are safe for integers up to 2^53.
+ * @throws {Error}
  * @param {callback<VSIStat>} [callback=undefined]
  * @returns {Promise<VSIStat>}
  */
@@ -204,7 +204,7 @@ GDAL_ASYNCABLE_DEFINE(VSI::stat) {
  * @method readDir
  * @memberof fs
  * @param {string} directory
- * @throws Error
+ * @throws {Error}
  * @returns {string[]}
  */
 
@@ -216,7 +216,7 @@ GDAL_ASYNCABLE_DEFINE(VSI::stat) {
  * @method readDirAsync
  * @memberof fs
  * @param {string} directory
- * @throws Error
+ * @throws {Error}
  * @param {callback<string[]>} [callback=undefined]
  * @returns {Promise<string[]>}
  */

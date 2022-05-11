@@ -97,7 +97,7 @@ NAN_METHOD(GeometryCollectionChildren::count) {
  * @instance
  * @memberof GeometryCollectionChildren
  * @param {number} index 0-based index
- * @throws Error
+ * @throws {Error}
  * @return {Geometry}
  */
 NAN_METHOD(GeometryCollectionChildren::get) {

@@ -105,7 +105,7 @@ NAN_METHOD(PolygonRings::count) {
  * @instance
  * @memberof PolygonRings
  * @param {number} index
- * @throws Error
+ * @throws {Error}
  * @return {LinearRing}
  */
 NAN_METHOD(PolygonRings::get) {

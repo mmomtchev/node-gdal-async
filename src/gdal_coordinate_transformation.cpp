@@ -46,7 +46,7 @@ CoordinateTransformation::~CoordinateTransformation() {
 /**
  * Object for transforming between coordinate systems.
  *
- * @throws Error
+ * @throws {Error}
  * @constructor
  * @class CoordinateTransformation
  * @param {SpatialReference} source

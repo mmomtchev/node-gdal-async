@@ -77,7 +77,7 @@ NAN_METHOD(RasterBandOverviews::toString) {
  * @method get
  * @instance
  * @memberof RasterBandOverviews
- * @throws Error
+ * @throws {Error}
  * @param {number} index 0-based index
  * @return {RasterBand}
  */
@@ -89,7 +89,7 @@ NAN_METHOD(RasterBandOverviews::toString) {
  * @method getAsync
  * @instance
  * @memberof RasterBandOverviews
- * @throws Error
+ * @throws {Error}
  * @param {number} index 0-based index
  * @param {callback<RasterBand>} [callback=undefined]
  * @return {Promise<RasterBand>}

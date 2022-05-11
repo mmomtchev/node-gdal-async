@@ -83,7 +83,7 @@ NAN_METHOD(GDALDrivers::toString) {
  * @instance
  * @memberof GDALDrivers
  * @param {number|string} index 0-based index or driver name
- * @throws Error
+ * @throws {Error}
  * @return {Driver}
  */
 NAN_METHOD(GDALDrivers::get) {

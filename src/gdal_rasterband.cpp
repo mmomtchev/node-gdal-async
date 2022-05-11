@@ -207,7 +207,7 @@ NODE_WRAPPED_METHOD_WITH_RESULT_LOCKED(RasterBand, getMaskFlags, Integer, GetMas
 /**
  * Adds a mask band to the current band.
  *
- * @throws Error
+ * @throws {Error}
  * @method createMaskBand
  * @instance
  * @memberof RasterBand
@@ -242,11 +242,11 @@ NAN_METHOD(RasterBand::getMaskBand) {
 /**
  * Fill this band with a constant value.
  *
- * @throws Error
+ * @throws {Error}
  * @method fill
  * @instance
  * @memberof RasterBand
- * @throws Error
+ * @throws {Error}
  * @param {number} real_value
  * @param {number} [imaginary_value]
  */
@@ -255,11 +255,11 @@ NAN_METHOD(RasterBand::getMaskBand) {
  * Fill this band with a constant value.
  * @async
  *
- * @throws Error
+ * @throws {Error}
  * @method fillAsync
  * @instance
  * @memberof RasterBand
- * @throws Error
+ * @throws {Error}
  * @param {number} real_value
  * @param {number} [imaginary_value]
  * @param {callback<void>} [callback=undefined]
@@ -313,7 +313,7 @@ void popStatsErrorHandler() {
  *
  * Requires GDAL>=3.3 with MDArray support, won't be defined otherwise
  *
- * @throws Error
+ * @throws {Error}
  * @method asMDArray
  * @instance
  * @memberof RasterBand
@@ -343,7 +343,7 @@ NAN_METHOD(RasterBand::asMDArray) {
  * `allow_approximation` argument can be set to `true` in which case overviews,
  * or a subset of image tiles may be used in computing the statistics.
  *
- * @throws Error
+ * @throws {Error}
  * @method getStatistics
  * @instance
  * @memberof RasterBand
@@ -400,7 +400,7 @@ NAN_METHOD(RasterBand::getStatistics) {
  * `allow_approximation` argument can be set to `true` in which case overviews,
  * or a subset of image tiles may be used in computing the statistics.
  *
- * @throws Error
+ * @throws {Error}
  * @method computeStatistics
  * @instance
  * @memberof RasterBand
@@ -420,7 +420,7 @@ NAN_METHOD(RasterBand::getStatistics) {
  * `allow_approximation` argument can be set to `true` in which case overviews,
  * or a subset of image tiles may be used in computing the statistics.
  *
- * @throws Error
+ * @throws {Error}
  * @method computeStatisticsAsync
  * @instance
  * @memberof RasterBand
@@ -476,7 +476,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBand::computeStatistics) {
  * Set statistics on the band. This method can be used to store
  * min/max/mean/standard deviation statistics.
  *
- * @throws Error
+ * @throws {Error}
  * @method setStatistics
  * @instance
  * @memberof RasterBand

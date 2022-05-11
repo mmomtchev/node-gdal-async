@@ -90,7 +90,7 @@ NAN_METHOD(DatasetLayers::toString) {
  * @instance
  * @memberof DatasetLayers
  * @param {string|number} key Layer name or ID.
- * @throws Error
+ * @throws {Error}
  * @return {Layer}
  */
 
@@ -103,7 +103,7 @@ NAN_METHOD(DatasetLayers::toString) {
  * @memberof DatasetLayers
  * @param {string|number} key Layer name or ID.
  * @param {callback<Layer>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<Layer>}
  */
 
@@ -164,7 +164,7 @@ GDAL_ASYNCABLE_DEFINE(DatasetLayers::get) {
  * @method create
  * @instance
  * @memberof DatasetLayers
- * @throws Error
+ * @throws {Error}
  * @param {string} name Layer name
  * @param {SpatialReference|null} [srs=null] Layer projection
  * @param {number|Function|null} [geomType=null] Geometry type or constructor ({@link wkbGeometryType|see geometry types})
@@ -186,7 +186,7 @@ GDAL_ASYNCABLE_DEFINE(DatasetLayers::get) {
  * @method createAsync
  * @instance
  * @memberof DatasetLayers
- * @throws Error
+ * @throws {Error}
  * @param {string} name Layer name
  * @param {SpatialReference|null} [srs=null] Layer projection
  * @param {number|Function|null} [geomType=null] Geometry type or constructor ({@link wkbGeometryType|see geometry types})
@@ -354,7 +354,7 @@ GDAL_ASYNCABLE_DEFINE(DatasetLayers::copy) {
  * @method remove
  * @instance
  * @memberof DatasetLayers
- * @throws Error
+ * @throws {Error}
  * @param {number} index
  */
 
@@ -365,7 +365,7 @@ GDAL_ASYNCABLE_DEFINE(DatasetLayers::copy) {
  * @method removeAsync
  * @instance
  * @memberof DatasetLayers
- * @throws Error
+ * @throws {Error}
  * @param {number} index
  * @param {callback<void>} [callback=undefined]
  * @return {Promise<void>}

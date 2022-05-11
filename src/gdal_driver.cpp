@@ -121,7 +121,7 @@ NAN_GETTER(Driver::descriptionGetter) {
 }
 
 /**
- * @throws Error
+ * @throws {Error}
  * @method deleteDataset
  * @instance
  * @memberof Driver
@@ -148,7 +148,7 @@ auto DatasetRval = [](GDALDataset *ds, const GetFromPersistentFunc &) { return D
 /**
  * Create a new dataset with this driver.
  *
- * @throws Error
+ * @throws {Error}
  * @method create
  * @instance
  * @memberof Driver
@@ -162,14 +162,14 @@ auto DatasetRval = [](GDALDataset *ds, const GetFromPersistentFunc &) { return D
  * vector datasets) (see {@link GDT|data types}
  * @param {StringOptions} [creation_options] An array or object containing
  * driver-specific dataset creation options
- * @throws
+ * @throws {Error}
  * @return {Dataset}
  */
 
 /**
  * Asynchronously create a new dataset with this driver.
  *
- * @throws Error
+ * @throws {Error}
  * @method createAsync
  * @instance
  * @memberof Driver
@@ -184,7 +184,7 @@ auto DatasetRval = [](GDALDataset *ds, const GetFromPersistentFunc &) { return D
  * @param {StringOptions} [creation_options] An array or object containing
  * driver-specific dataset creation options
  * @param {callback<Dataset>} [callback=undefined]
- * @throws
+ * @throws {Error}
  * @return {Promise<Dataset>}
  */
 GDAL_ASYNCABLE_DEFINE(Driver::create) {
@@ -241,7 +241,7 @@ GDAL_ASYNCABLE_DEFINE(Driver::create) {
 /**
  * Create a copy of a dataset.
  *
- * @throws Error
+ * @throws {Error}
  * @method createCopy
  * @instance
  * @memberof Driver
@@ -257,7 +257,7 @@ GDAL_ASYNCABLE_DEFINE(Driver::create) {
 /**
  * Asynchronously create a copy of a dataset.
  *
- * @throws Error
+ * @throws {Error}
  * @method createCopyAsync
  * @instance
  * @memberof Driver
@@ -331,7 +331,7 @@ GDAL_ASYNCABLE_DEFINE(Driver::createCopy) {
 /**
  * Copy the files of a dataset.
  *
- * @throws Error
+ * @throws {Error}
  * @method copyFiles
  * @instance
  * @memberof Driver
@@ -358,7 +358,7 @@ NAN_METHOD(Driver::copyFiles) {
 /**
  * Renames the dataset.
  *
- * @throws Error
+ * @throws {Error}
  * @method rename
  * @instance
  * @memberof Driver
@@ -385,7 +385,7 @@ NAN_METHOD(Driver::rename) {
 /**
  * Returns metadata about the driver.
  *
- * @throws Error
+ * @throws {Error}
  * @method getMetadata
  * @instance
  * @memberof Driver
@@ -409,7 +409,7 @@ NAN_METHOD(Driver::getMetadata) {
 /**
  * Opens a dataset.
  *
- * @throws Error
+ * @throws {Error}
  * @method open
  * @instance
  * @memberof Driver
@@ -423,7 +423,7 @@ NAN_METHOD(Driver::getMetadata) {
 /**
  * Opens a dataset.
  *
- * @throws Error
+ * @throws {Error}
  * @method openAsync
  * @instance
  * @memberof Driver

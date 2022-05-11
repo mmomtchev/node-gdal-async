@@ -32,7 +32,7 @@ void Algorithms::Initialize(Local<Object> target) {
 /**
  * Fill raster regions by interpolation from edges.
  *
- * @throws Error
+ * @throws {Error}
  * @method fillNodata
  * @static
  * @param {FillOptions} options
@@ -46,7 +46,7 @@ void Algorithms::Initialize(Local<Object> target) {
  * Fill raster regions by interpolation from edges.
  * @async
  *
- * @throws Error
+ * @throws {Error}
  * @method fillNodataAsync
  * @static
  * @param {FillOptions} options
@@ -112,7 +112,7 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::fillNodata) {
  * passed in vector layer. Also, a NODATA value may be specified to identify
  * pixels that should not be considered in contour line generation.
  *
- * @throws Error
+ * @throws {Error}
  * @method contourGenerate
  * @static
  * @param {ContourOptions} options
@@ -136,7 +136,7 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::fillNodata) {
  * passed in vector layer. Also, a NODATA value may be specified to identify
  * pixels that should not be considered in contour line generation.
  *
- * @throws Error
+ * @throws {Error}
  * @method contourGenerateAsync
  * @static
  * @param {ContourOptions} options
@@ -246,7 +246,7 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::contourGenerate) {
 /**
  * Removes small raster polygons.
  *
- * @throws Error
+ * @throws {Error}
  * @method sieveFilter
  * @static
  * @param {SieveOptions} options
@@ -262,7 +262,7 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::contourGenerate) {
  * Removes small raster polygons.
  * @async
  *
- * @throws Error
+ * @throws {Error}
  * @method sieveFilterAsync
  * @static
  * @param {SieveOptions} options
@@ -329,7 +329,7 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::sieveFilter) {
 /**
  * Compute checksum for image region.
  *
- * @throws Error
+ * @throws {Error}
  * @method checksumImage
  * @static
  * @param {RasterBand} src
@@ -343,7 +343,7 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::sieveFilter) {
 /**
  * Compute checksum for image region.
  *
- * @throws Error
+ * @throws {Error}
  * @method checksumImageAsync
  * @static
  * @param {RasterBand} src
@@ -415,7 +415,7 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::checksumImage) {
  * indicating the pixel value of that polygon. A raster mask may also be
  * provided to determine which pixels are eligible for processing.
  *
- * @throws Error
+ * @throws {Error}
  * @method polygonize
  * @static
  * @param {PolygonizeOptions} options
@@ -435,7 +435,7 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::checksumImage) {
  * provided to determine which pixels are eligible for processing.
  * @async
  *
- * @throws Error
+ * @throws {Error}
  * @method polygonizeAsync
  * @static
  * @param {PolygonizeOptions} options
@@ -557,7 +557,7 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::_acquireLocks) {
  * You can check the `gdal-exprtk` plugin for an implementation
  * which uses ExprTk expressions.
  *
- * @throws Error
+ * @throws {Error}
  * @method addPixelFunc
  * @static
  * @param {string} name
@@ -773,7 +773,7 @@ static CPLErr pixelFunc(
  * };
  * gdal.addPixelFunc('sum2', gdal.toPixelFunc(sum2));
  *
- * @throws Error
+ * @throws {Error}
  * @method toPixelFunc
  * @static
  * @param {(sources: TypedArray[], buffer: TypedArray, args: Record<string, string|number>, width: number, height: number) => void} pixelFn JavaScript pixel function

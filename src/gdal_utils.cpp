@@ -34,7 +34,7 @@ void Utils::Initialize(Local<Object> target) {
  * const ds = gdal.open('input.tif')
  * const out = gdal.translate('/vsimem/temp.tif', ds, [ '-b', '1' ])
  *
- * @throws Error
+ * @throws {Error}
  * @method translate
  * @static
  * @param {string} destination destination filename
@@ -47,12 +47,12 @@ void Utils::Initialize(Local<Object> target) {
 
 /**
  * Library version of gdal_translate.
- * {{{async}}}
+ * @async
  *
  * @example
  * const ds = gdal.open('input.tif')
  * const out = gdal.translate('/vsimem/temp.tif', ds, [ '-b', '1' ])
- * @throws Error
+ * @throws {Error}
  *
  * @method translateAsync
  * @static
@@ -112,7 +112,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::translate) {
  * const ds = gdal.open('input.geojson')
  * const out = gdal.vectorTranslate('/vsimem/temp.gpkg', [ '-of', 'GPKG' ], ds)
  *
- * @throws Error
+ * @throws {Error}
  * @method vectorTranslate
  * @static
  * @param {string|Dataset} destination destination
@@ -125,12 +125,12 @@ GDAL_ASYNCABLE_DEFINE(Utils::translate) {
 
 /**
  * Library version of ogr2ogr.
- * {{{async}}}
+ * @async
  *
  * @example
  * const ds = gdal.open('input.geojson')
  * const out = gdal.vectorTranslate('/vsimem/temp.gpkg', [ '-of', 'GPKG' ], ds)
- * @throws Error
+ * @throws {Error}
  *
  * @method vectorTranslateAsync
  * @static
@@ -214,7 +214,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::vectorTranslate) {
  * const ds = gdal.open('input.tif')
  * const output = gdal.info('/vsimem/temp.tif')
  *
- * @throws Error
+ * @throws {Error}
  * @method info
  * @static
  * @param {Dataset} dataset
@@ -224,12 +224,12 @@ GDAL_ASYNCABLE_DEFINE(Utils::vectorTranslate) {
 
 /**
  * Library version of gdalinfo.
- * {{{async}}}
+ * @async
  *
  * @example
  * const ds = gdal.open('input.tif')
  * const output = gdal.info('/vsimem/temp.tif')
- * @throws Error
+ * @throws {Error}
  *
  * @method infoAsync
  * @static
@@ -277,7 +277,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::info) {
  * const ds = gdal.open('input.tif')
  * const output = gdal.warp('/vsimem/output.tiff', null, [ ds ], [ '-t_srs', 'epsg:3587' ])
  *
- * @throws Error
+ * @throws {Error}
  * @method warp
  * @static
  * @param {string|null} dst_path destination path, null for an in-memory operation
@@ -291,12 +291,12 @@ GDAL_ASYNCABLE_DEFINE(Utils::info) {
 
 /**
  * Library version of gdalwarp.
- * {{{async}}}
+ * @async
  *
  * @example
  * const ds = await gdal.openAsync('input.tif')
  * const output = await gdal.warpAsync('/vsimem/output.tiff', null, [ ds ], [ '-t_srs', 'epsg:3587' ])
- * @throws Error
+ * @throws {Error}
  *
  * @method warpAsync
  * @static
@@ -395,7 +395,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::warp) {
  *    [ gdal.open('input1.tif'), gdal.open('input2.tif') ],
  *    [ '-resolution', 'highest' ] );
  *
- * @throws Error
+ * @throws {Error}
  * @method buildVRT
  * @static
  * @param {string|null} dst_path destination path, null for an in-memory operation
@@ -408,7 +408,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::warp) {
 
 /**
  * Library version of gdalbuildvrt.
- * {{{async}}}
+ * @async
  *
  * @example
  * const ds1 = await gdal.buildVRTAsync('/vsimem/target.tiff',
@@ -419,7 +419,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::warp) {
  *    [ await gdal.openAsync('input1.tif'), await gdal.openAsync('input2.tif') ],
  *    [ '-resolution', 'highest' ] );
  *
- * @throws Error
+ * @throws {Error}
  *
  * @method buildVRTAsync
  * @static
@@ -521,7 +521,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::buildvrt) {
  *    src_ds,
  *    [ '-b', '1' ] );
  *
- * @throws Error
+ * @throws {Error}
  * @method rasterize
  * @static
  * @param {string|Dataset} destination
@@ -534,7 +534,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::buildvrt) {
 
 /**
  * Library version of gdal_rasterize.
- * {{{async}}}
+ * @async
  *
  * @example
  * const ds1 = await gdal.rasterizeAsync('/vsimem/target.tiff',
@@ -545,7 +545,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::buildvrt) {
  *    src_ds,
  *    [ '-b', '1' ] );
  *
- * @throws Error
+ * @throws {Error}
  * @method rasterizeAsync
  * @static
  * @param {string|Dataset} destination

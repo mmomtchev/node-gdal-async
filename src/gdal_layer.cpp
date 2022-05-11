@@ -162,7 +162,7 @@ NAN_METHOD(Layer::toString) {
 /**
  * Flush pending changes to disk.
  *
- * @throws Error
+ * @throws {Error}
  * @method flush
  * @instance
  * @memberof Layer
@@ -172,7 +172,7 @@ NAN_METHOD(Layer::toString) {
  * Flush pending changes to disk.
  * @async
  *
- * @throws Error
+ * @throws {Error}
  * @method flushAsync
  * @instance
  * @memberof Layer
@@ -196,7 +196,7 @@ NODE_WRAPPED_METHOD_WITH_RESULT_1_STRING_PARAM_LOCKED(Layer, testCapability, Boo
 /**
  * Fetch the extent of this layer.
  *
- * @throws Error
+ * @throws {Error}
  * @method getExtent
  * @instance
  * @memberof Layer
@@ -235,7 +235,7 @@ NAN_METHOD(Layer::getExtent) {
 /**
  * This method returns the current spatial filter for this layer.
  *
- * @throws Error
+ * @throws {Error}
  * @method getSpatialFilter
  * @instance
  * @memberof Layer
@@ -266,7 +266,7 @@ NAN_METHOD(Layer::getSpatialFilter) {
  *
  * layer.setSpatialFilter(geometry);
  *
- * @throws Error
+ * @throws {Error}
  * @method setSpatialFilter
  * @instance
  * @memberof Layer
@@ -284,7 +284,7 @@ NAN_METHOD(Layer::getSpatialFilter) {
  *
  * layer.setSpatialFilter(minX, minY, maxX, maxY);
  *
- * @throws Error
+ * @throws {Error}
  * @method setSpatialFilter
  * @instance
  * @memberof Layer
@@ -346,7 +346,7 @@ NAN_METHOD(Layer::setSpatialFilter) {
  *
  * layer.setAttributeFilter('population > 1000000 and population < 5000000');
  *
- * @throws Error
+ * @throws {Error}
  * @method setAttributeFilter
  * @instance
  * @memberof Layer

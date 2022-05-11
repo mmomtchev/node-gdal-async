@@ -139,7 +139,7 @@ NAN_METHOD(LineStringPoints::resize) {
  * @instance
  * @memberof LineStringPoints
  * @param {number} index 0-based index
- * @throws Error
+ * @throws {Error}
  * @return {Point}
  */
 NAN_METHOD(LineStringPoints::get) {
@@ -173,7 +173,7 @@ NAN_METHOD(LineStringPoints::get) {
  * @method set
  * @instance
  * @memberof LineStringPoints
- * @throws Error
+ * @throws {Error}
  * @param {number} index 0-based index
  * @param {Point|xyz} point
  */
@@ -182,7 +182,7 @@ NAN_METHOD(LineStringPoints::get) {
  * @method set
  * @instance
  * @memberof LineStringPoints
- * @throws Error
+ * @throws {Error}
  * @param {number} index 0-based index
  * @param {number} x
  * @param {number} y
@@ -278,7 +278,7 @@ NAN_METHOD(LineStringPoints::set) {
  * @method add
  * @instance
  * @memberof LineStringPoints
- * @throws Error
+ * @throws {Error}
  * @param {Point|xyz|(Point|xyz)[]} points
  */
 
@@ -287,7 +287,7 @@ NAN_METHOD(LineStringPoints::set) {
  * @method add
  * @instance
  * @memberof LineStringPoints
- * @throws Error
+ * @throws {Error}
  * @param {number} x
  * @param {number} y
  * @param {number} [z]

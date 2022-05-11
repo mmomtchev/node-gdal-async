@@ -217,7 +217,7 @@ findHighest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDi
  * @method read
  * @instance
  * @memberof MDArray
- * @throws Error
+ * @throws {Error}
  * @param {MDArrayOptions} options
  * @param {number[]} options.origin An array of the starting indices
  * @param {number[]} options.span An array specifying the number of elements to read in each dimension
@@ -240,7 +240,7 @@ findHighest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDi
  * @method readAsync
  * @instance
  * @memberof MDArray
- * @throws Error
+ * @throws {Error}
  * @param {MDArrayOptions} options
  * @param {number[]} options.origin An array of the starting indices
  * @param {number[]} options.span An array specifying the number of elements to read in each dimension
@@ -362,7 +362,7 @@ GDAL_ASYNCABLE_DEFINE(MDArray::read) {
  * @method getView
  * @instance
  * @memberof MDArray
- * @throws Error
+ * @throws {Error}
  * @param {string} view
  * @return {MDArray}
  */
@@ -393,7 +393,7 @@ NAN_METHOD(MDArray::getView) {
  * @method getMask
  * @instance
  * @memberof MDArray
- * @throws Error
+ * @throws {Error}
  * @return {MDArray}
  */
 NAN_METHOD(MDArray::getMask) {
@@ -421,7 +421,7 @@ NAN_METHOD(MDArray::getMask) {
  * @memberof MDArray
  * @param {number|string} x dimension to be used as X axis
  * @param {number|string} y dimension to be used as Y axis
- * @throws Error
+ * @throws {Error}
  * @return {Dataset}
  */
 NAN_METHOD(MDArray::asDataset) {
@@ -449,7 +449,7 @@ NAN_METHOD(MDArray::asDataset) {
 /**
  * Spatial reference associated with MDArray
  *
- * @throws Error
+ * @throws {Error}
  * @kind member
  * @name srs
  * @instance

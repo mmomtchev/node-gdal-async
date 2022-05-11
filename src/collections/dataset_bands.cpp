@@ -86,7 +86,7 @@ NAN_METHOD(DatasetBands::toString) {
  * @instance
  * @memberof DatasetBands
  * @param {number} id
- * @throws Error
+ * @throws {Error}
  * @return {RasterBand}
  */
 
@@ -100,7 +100,7 @@ NAN_METHOD(DatasetBands::toString) {
  *
  * @param {number} id
  * @param {callback<RasterBand>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<RasterBand>}
  */
 GDAL_ASYNCABLE_DEFINE(DatasetBands::get) {
@@ -136,7 +136,7 @@ GDAL_ASYNCABLE_DEFINE(DatasetBands::get) {
  * @method create
  * @instance
  * @memberof DatasetBands
- * @throws Error
+ * @throws {Error}
  * @param {string} dataType Type of band ({@link GDT|see GDT constants})
  * @param {object|string[]} [options] Creation options
  * @return {RasterBand}
@@ -149,7 +149,7 @@ GDAL_ASYNCABLE_DEFINE(DatasetBands::get) {
  * @method createAsync
  * @instance
  * @memberof DatasetBands
- * @throws Error
+ * @throws {Error}
  * @param {string} dataType Type of band ({@link GDT|see GDT constants})
  * @param {object|string[]} [options] Creation options
  * @param {callback<RasterBand>} [callback=undefined]

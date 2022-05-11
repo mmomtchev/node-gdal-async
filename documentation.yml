@@ -23,6 +23,78 @@ defaultGlobals: false
 toc:
   - name: gdal
     file: gdal-async.md
+  - name: Major Objects
+    description: Classes for GDAL Major Objects
+    children:
+      - Dataset
+      - DatasetBands
+      - Driver
+      - GDALDrivers
+      - RasterBand
+      - RasterBandPixels
+      - RasterBandOverviews
+      - ColorTable
+      - Layer
+      - DatasetLayers
+      - SpatialReference
+      - CoordinateTransformation
+
+  - name: Features
+    description: Classes for working with vector features
+    children:
+      - LayerFields
+      - LayerFeatures
+      - Feature
+      - FeatureDefn
+      - FeatureDefnFields
+      - FeatureFields
+      - FieldDefn
+
+  - name: Geometries
+    description: Classes representing vector geometries
+    children:
+      - Geometry
+      - GeometryCollection
+      - GeometryCollectionChildren
+      - CircularString
+      - CompoundCurve
+      - CompoundCurveCurves
+      - LinearRing
+      - LineString
+      - LineStringPoints
+      - MultiCurve
+      - MultiLineString
+      - MultiPoint
+      - MultiPolygon
+      - Point
+      - Polygon
+      - PolygonRings
+      - SimpleCurve
+      - Envelope
+      - Envelope3D
+
+  - name: Multi-Dimensional Model
+    description: Classes for working with the Multi-Dimensional Data Model
+    children:
+      - ArrayAttributes
+      - ArrayDimensions
+      - Attribute
+      - Dimension
+      - Group
+      - GroupArrays
+      - GroupAttributes
+      - GroupDimensions
+      - GroupGroups
+      - MDArray
+
+  - name: Streams
+    description: Raster Data Integration with Node.js Streams
+    children:
+      - RasterMuxStream
+      - RasterReadStream
+      - RasterTransform
+      - RasterWriteStream
+
   - name: Constants
     description: All constants
     children:
@@ -222,21 +294,40 @@ toc:
       - CreateOptions
       - FillOptions
       - MDArrayOptions
+      - PixelFunction
       - PolygonizeOptions
       - ProgressCb
       - ProgressOptions
       - ReprojectOptions
       - SieveOptions
+      - StringOptions
       - UtilOptions
+      - VRTBandDescriptor
+      - VRTDescriptor
       - WarpOptions
       - WarpOutput
+
+  - name: Global Parameters
+    children:
+      - version
+      - bundled
+      - drivers
+      - lastError
+      - verbose
+      - eventLoopWarning
+
   - name: Utilities
     children:
+      - addPixelFunc
+      - buildVRT
+      - buildVRTAsync
       - calcAsync
       - checksumImage
       - checksumImageAsync
       - contourGenerate
       - contourGenerateAsync
+      - createPixelFunc
+      - createPixelFuncWithArgs
       - decToDMS
       - fillNodata
       - fillNodataAsync
@@ -248,6 +339,8 @@ toc:
       - polygonize
       - polygonizeAsync
       - quiet
+      - rasterize
+      - rasterizeAsync
       - reprojectImage
       - reprojectImageAsync
       - setPROJSearchPaths
@@ -256,12 +349,14 @@ toc:
       - suggestedWarpOutput
       - suggestedWarpOutputAsync
       - toDataType
+      - toPixelFunc
       - translate
       - translateAsync
       - vectorTranslate
       - vectorTranslateAsync
       - warp
       - warpAsync
+      - wrapVRT
 
 documentation-polyglot:
   extensions: [ .cpp, .hpp, .h ]
@@ -276,3 +371,6 @@ documentation-polyglot:
       - NODE_WRAPPED_METHOD_.+\(.+,\s*(.+),\s*.+,\s*.+,\s*.+,\s*.+,\s*\)
       - NAN_GETTER\s*\(.+::([a-zA-Z0-9_]+)\)
       - GDAL_ASYNCABLE_GETTER_DECLARE\s*\(.+::([a-zA-Z0-9_]+)\)
+
+documentation-stylist:
+  crossLinksDupeWarning: false

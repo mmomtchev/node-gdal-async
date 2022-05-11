@@ -108,6 +108,9 @@ function defaultForEach(callback) {
 
 /**
  * @callback mapCb
+ * @param {T} object
+ * @param {number} index
+ * @returns {U}
  * @typedef {(obj: T, index: number) => U} mapCb<T,U>
  */
 function defaultMap(callback) {

@@ -128,7 +128,7 @@ NAN_METHOD(Attribute::toString) {
  * @name value
  * @instance
  * @memberof Attribute
- * @throws Error
+ * @throws {Error}
  * @type {string|number}
  */
 NAN_GETTER(Attribute::valueGetter) {

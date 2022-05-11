@@ -574,7 +574,7 @@ NODE_WRAPPED_METHOD_WITH_1_DOUBLE_PARAM(Geometry, segmentize, segmentize, "segme
  * having the source spatial reference system of the {@link CoordinateTransformation}
  * object, and the actual SRS of the geometry will be ignored.
  *
- * @throws Error
+ * @throws {Error}
  * @method transform
  * @instance
  * @memberof Geometry
@@ -585,7 +585,7 @@ NODE_WRAPPED_METHOD_WITH_1_DOUBLE_PARAM(Geometry, segmentize, segmentize, "segme
  * Apply arbitrary coordinate transformation to the geometry.
  * @async
  *
- * @throws Error
+ * @throws {Error}
  * @method transformAsync
  * @instance
  * @memberof Geometry
@@ -600,7 +600,7 @@ NODE_WRAPPED_ASYNC_METHOD_WITH_OGRERR_RESULT_1_WRAPPED_PARAM(
 /**
  * Transforms the geometry to match the provided {@link SpatialReference}
  *
- * @throws Error
+ * @throws {Error}
  * @method transformTo
  * @instance
  * @memberof Geometry
@@ -611,7 +611,7 @@ NODE_WRAPPED_ASYNC_METHOD_WITH_OGRERR_RESULT_1_WRAPPED_PARAM(
  * Transforms the geometry to match the provided {@link SpatialReference}
  * @async
  *
- * @throws Error
+ * @throws {Error}
  * @method transformToAsync
  * @instance
  * @memberof Geometry
@@ -642,7 +642,7 @@ NAN_METHOD(Geometry::clone) {
  * @method convexHull
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @return {Geometry}
  */
 
@@ -653,7 +653,7 @@ NAN_METHOD(Geometry::clone) {
  * @method convexHullAsync
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @param {callback<Geometry>} [callback=undefined]
  * @return {Promise<Geometry>}
  */
@@ -678,7 +678,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::convexHull) {
  * @method boundary
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @return {Geometry}
  */
 
@@ -689,7 +689,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::convexHull) {
  * @method boundaryAsync
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @param {callback<Geometry>} [callback=undefined]
  * @return {Promise<Geometry>}
  */
@@ -715,7 +715,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::boundary) {
  * @instance
  * @memberof Geometry
  * @param {Geometry} geometry
- * @throws Error
+ * @throws {Error}
  * @return {Geometry}
  */
 
@@ -728,7 +728,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::boundary) {
  * @memberof Geometry
  * @param {Geometry} geometry
  * @param {callback<Geometry>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<Geometry>}
  */
 
@@ -759,7 +759,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::intersection) {
  * @instance
  * @memberof Geometry
  * @param {Geometry} geometry
- * @throws Error
+ * @throws {Error}
  * @return {Geometry}
  */
 
@@ -772,7 +772,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::intersection) {
  * @memberof Geometry
  * @param {Geometry} geometry
  * @param {callback<Geometry>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<Geometry>}
  */
 
@@ -803,7 +803,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::unionGeometry) {
  * @instance
  * @memberof Geometry
  * @param {Geometry} geometry
- * @throws Error
+ * @throws {Error}
  * @return {Geometry}
  */
 
@@ -816,7 +816,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::unionGeometry) {
  * @memberof Geometry
  * @param {Geometry} geometry
  * @param {callback<Geometry>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<Geometry>}
  */
 
@@ -847,7 +847,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::difference) {
  * @instance
  * @memberof Geometry
  * @param {Geometry} geometry
- * @throws Error
+ * @throws {Error}
  * @return {Geometry}
  */
 
@@ -860,7 +860,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::difference) {
  * @memberof Geometry
  * @param {Geometry} geometry
  * @param {callback<Geometry>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<Geometry>}
  */
 
@@ -891,7 +891,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::symDifference) {
  * @instance
  * @memberof Geometry
  * @param {number} tolerance
- * @throws Error
+ * @throws {Error}
  * @return {Geometry}
  */
 
@@ -904,7 +904,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::symDifference) {
  * @memberof Geometry
  * @param {number} tolerance
  * @param {callback<Geometry>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<Geometry>}
  */
 
@@ -934,7 +934,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::simplify) {
  * @instance
  * @memberof Geometry
  * @param {number} tolerance
- * @throws Error
+ * @throws {Error}
  * @return {Geometry}
  */
 
@@ -947,7 +947,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::simplify) {
  * @memberof Geometry
  * @param {number} tolerance
  * @param {callback<Geometry>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<Geometry>}
  */
 
@@ -978,7 +978,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::simplifyPreserveTopology) {
  * @memberof Geometry
  * @param {number} distance
  * @param {number} segments
- * @throws Error
+ * @throws {Error}
  * @return {Geometry}
  */
 
@@ -992,7 +992,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::simplifyPreserveTopology) {
  * @param {number} distance
  * @param {number} segments
  * @param {callback<Geometry>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<Geometry>}
  */
 
@@ -1027,7 +1027,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::buffer) {
  * @method makeValid
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @return {Geometry}
  */
 
@@ -1065,7 +1065,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::makeValid) {
  * @method toWKT
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @return {string}
  */
 
@@ -1077,7 +1077,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::makeValid) {
  * @instance
  * @memberof Geometry
  * @param {callback<string>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<string>}
  */
 
@@ -1117,7 +1117,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::exportToWKT) {
  * @memberof Geometry
  * @param {string} [byte_order="MSB"] {@link wkbByteOrder|see options}
  * @param {string} [variant="OGC"] ({@link wkbVariant|see options})
- * @throws Error
+ * @throws {Error}
  * @return {Buffer}
  */
 
@@ -1131,7 +1131,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::exportToWKT) {
  * @param {string} [byte_order="MSB"] {@link wkbByteOrder|see options}
  * @param {string} [variant="OGC"] ({@link wkbVariant|see options})
  * @param {callback<Buffer>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<Buffer>}
  */
 
@@ -1214,7 +1214,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::exportToWKB) {
  * @method toKML
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @return {string}
  */
 
@@ -1226,7 +1226,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::exportToWKB) {
  * @instance
  * @memberof Geometry
  * @param {callback<string>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<string>}
  */
 
@@ -1262,7 +1262,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::exportToKML) {
  * @method toGML
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @return {string}
  */
 
@@ -1274,7 +1274,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::exportToKML) {
  * @instance
  * @memberof Geometry
  * @param {callback<string>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<string>}
  */
 
@@ -1310,7 +1310,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::exportToGML) {
  * @method toJSON
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @return {string}
  */
 
@@ -1322,7 +1322,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::exportToGML) {
  * @instance
  * @memberof Geometry
  * @param {callback<string>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<string>}
  */
 
@@ -1358,7 +1358,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::exportToJSON) {
  * @method centroid
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @return {Point}
  */
 
@@ -1370,7 +1370,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::exportToJSON) {
  * @instance
  * @memberof Geometry
  * @param {callback<Geometry>} [callback=undefined]
- * @throws Error
+ * @throws {Error}
  * @return {Promise<Geometry>}
  */
 
@@ -1536,7 +1536,7 @@ NODE_WRAPPED_ASYNC_METHOD(Geometry, flattenTo2D, flattenTo2D);
  * @method fromWKT
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @param {string} wkt
  * @param {SpatialReference} [srs]
  * @return {Geometry}
@@ -1550,7 +1550,7 @@ NODE_WRAPPED_ASYNC_METHOD(Geometry, flattenTo2D, flattenTo2D);
  * @method fromWKTAsync
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @param {string} wkt
  * @param {SpatialReference} [srs]
  * @param {callback<Geometry>} [callback=undefined]
@@ -1588,7 +1588,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::createFromWkt) {
  * @method fromWKB
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @param {Buffer} wkb
  * @param {SpatialReference} [srs]
  * @return {Geometry}
@@ -1602,7 +1602,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::createFromWkt) {
  * @method fromWKBAsync
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @param {Buffer} wkb
  * @param {SpatialReference} [srs]
  * @param {callback<Geometry>} [callback=undefined]
@@ -1654,7 +1654,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::createFromWkb) {
  * @method fromGeoJson
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @param {object} geojson
  * @return {Geometry}
  */
@@ -1672,7 +1672,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::createFromWkb) {
  * @method fromGeoJsonAsync
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @param {object} geojson
  * @param {callback<Geometry>} [callback=undefined]
  * @return {Promise<Geometry>}
@@ -1717,7 +1717,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::createFromGeoJson) {
  * @method fromGeoJsonBuffer
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @param {Buffer} geojson
  * @return {Geometry}
  */
@@ -1730,7 +1730,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::createFromGeoJson) {
  * @method fromGeoJsonBufferAsync
  * @instance
  * @memberof Geometry
- * @throws Error
+ * @throws {Error}
  * @param {Buffer} geojson
  * @param {callback<Geometry>} [callback=undefined]
  * @return {Promise<Geometry>}

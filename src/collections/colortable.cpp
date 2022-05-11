@@ -169,7 +169,7 @@ NAN_METHOD(ColorTable::clone) {
  * @instance
  * @memberof ColorTable
  * @param {ColorTable} other
- * @throws Error
+ * @throws {Error}
  * @return {boolean}
  */
 NAN_METHOD(ColorTable::isSame) {
@@ -192,7 +192,7 @@ NAN_METHOD(ColorTable::isSame) {
  * @instance
  * @memberof ColorTable
  * @param {number} index
- * @throws Error
+ * @throws {Error}
  * @return {Color}
  */
 NAN_METHOD(ColorTable::get) {
@@ -236,7 +236,7 @@ NAN_METHOD(ColorTable::get) {
  * @method set
  * @instance
  * @memberof ColorTable
- * @throws Error
+ * @throws {Error}
  * @param {number} index
  * @param {Color} color
  * @return {void}
@@ -272,7 +272,7 @@ NAN_METHOD(ColorTable::set) {
  * @method ramp
  * @instance
  * @memberof ColorTable
- * @throws Error
+ * @throws {Error}
  * @param {number} start_index
  * @param {Color} start_color
  * @param {number} end_index

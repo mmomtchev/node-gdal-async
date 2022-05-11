@@ -319,7 +319,7 @@ NAN_METHOD(Dataset::close) {
 /**
  * Flushes all changes to disk.
  *
- * @throws Error
+ * @throws {Error}
  * @method flush
  * @instance
  * @memberof Dataset
@@ -332,7 +332,7 @@ NAN_METHOD(Dataset::close) {
  * @method flushAsync
  * @instance
  * @memberof Dataset
- * @throws Error
+ * @throws {Error}
  * @param {callback<void>} [callback=undefined]
  * @return {Promise<void>}
  */
@@ -353,7 +353,7 @@ GDAL_ASYNCABLE_DEFINE(Dataset::flush) {
 /**
  * Execute an SQL statement against the data store.
  *
- * @throws Error
+ * @throws {Error}
  * @method executeSQL
  * @instance
  * @memberof Dataset
@@ -372,7 +372,7 @@ GDAL_ASYNCABLE_DEFINE(Dataset::flush) {
  * Execute an SQL statement against the data store.
  * @async
  *
- * @throws Error
+ * @throws {Error}
  * @method executeSQLAsync
  * @instance
  * @memberof Dataset
@@ -518,7 +518,7 @@ NAN_METHOD(Dataset::getGCPs) {
 /**
  * Sets GCPs.
  *
- * @throws Error
+ * @throws {Error}
  * @method setGCPs
  * @instance
  * @memberof Dataset
@@ -584,7 +584,7 @@ NAN_METHOD(Dataset::setGCPs) {
 /**
  * Builds dataset overviews.
  *
- * @throws Error
+ * @throws {Error}
  * @method buildOverviews
  * @instance
  * @memberof Dataset
@@ -600,7 +600,7 @@ NAN_METHOD(Dataset::setGCPs) {
  * Builds dataset overviews.
  * @async
  *
- * @throws Error
+ * @throws {Error}
  * @method buildOverviewsAsync
  * @instance
  * @memberof Dataset
@@ -779,7 +779,7 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::rasterSizeGetter) {
 /**
  * Spatial reference associated with raster dataset
  *
- * @throws Error
+ * @throws {Error}
  * @kind member
  * @name srs
  * @instance
@@ -791,7 +791,7 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::rasterSizeGetter) {
  * Spatial reference associated with raster dataset
  * @asyncGetter
  *
- * @throws Error
+ * @throws {Error}
  * @kind member
  * @name srsAsync
  * @instance

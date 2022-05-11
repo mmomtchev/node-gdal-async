@@ -110,7 +110,7 @@ NAN_METHOD(RasterBandPixels::toString) {
  * @memberof RasterBandPixels
  * @param {number} x
  * @param {number} y
- * @throws Error
+ * @throws {Error}
  * @return {number}
  */
 
@@ -279,7 +279,7 @@ static inline int findHighest(int w, int h, int px, int ln, int offset) {
  * @method read
  * @instance
  * @memberof RasterBandPixels
- * @throws Error
+ * @throws {Error}
  * @param {number} x
  * @param {number} y
  * @param {number} width
@@ -443,7 +443,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
  * @method write
  * @instance
  * @memberof RasterBandPixels
- * @throws Error
+ * @throws {Error}
  * @param {number} x
  * @param {number} y
  * @param {number} width
@@ -568,7 +568,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::write) {
  * @method readBlock
  * @instance
  * @memberof RasterBandPixels
- * @throws Error
+ * @throws {Error}
  * @param {number} x
  * @param {number} y
  * @param {TypedArray} [data] The TypedArray (https://developer.mozilla.org/en-US/docs/Web/API/ArrayBufferView#Typed_array_subclasses) to put the data in. A new array is created if not given.
@@ -582,7 +582,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::write) {
  * @method readBlockAsync
  * @instance
  * @memberof RasterBandPixels
- * @throws Error
+ * @throws {Error}
  * @param {number} x
  * @param {number} y
  * @param {TypedArray} [data] The TypedArray (https://developer.mozilla.org/en-US/docs/Web/API/ArrayBufferView#Typed_array_subclasses) to put the data in. A new array is created if not given.
@@ -643,7 +643,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::readBlock) {
  * @method writeBlock
  * @instance
  * @memberof RasterBandPixels
- * @throws Error
+ * @throws {Error}
  * @param {number} x
  * @param {number} y
  * @param {TypedArray} data The TypedArray (https://developer.mozilla.org/en-US/docs/Web/API/ArrayBufferView#Typed_array_subclasses) of values to write to the band.
@@ -656,7 +656,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::readBlock) {
  * @method writeBlockAsync
  * @instance
  * @memberof RasterBandPixels
- * @throws Error
+ * @throws {Error}
  * @param {number} x
  * @param {number} y
  * @param {TypedArray} data The TypedArray (https://developer.mozilla.org/en-US/docs/Web/API/ArrayBufferView#Typed_array_subclasses) of values to write to the band.
@@ -705,7 +705,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::writeBlock) {
  * @method clampBlock
  * @instance
  * @memberof RasterBandPixels
- * @throws Error
+ * @throws {Error}
  * @param {number} x
  * @param {number} y
  * @return {xyz} A size object.
@@ -719,7 +719,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::writeBlock) {
  * @method clampBlockAsync
  * @instance
  * @memberof RasterBandPixels
- * @throws Error
+ * @throws {Error}
  * @param {number} x
  * @param {number} y
  * @param {callback<xyz>} [callback=undefined]

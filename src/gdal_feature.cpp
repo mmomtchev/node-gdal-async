@@ -218,7 +218,7 @@ NAN_METHOD(Feature::getFieldDefn) {
 /**
  * Sets the feature's geometry.
  *
- * @throws Error
+ * @throws {Error}
  * @method setGeometry
  * @instance
  * @memberof Feature
@@ -298,7 +298,7 @@ NAN_METHOD(Feature::destroy) {
  * feature1.fields.set([5, 'test', 3.14]);
  * feature2.setFrom(feature1);
  *
- * @throws Error
+ * @throws {Error}
  * @method setFrom
  * @instance
  * @memberof Feature

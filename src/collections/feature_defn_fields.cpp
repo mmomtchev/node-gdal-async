@@ -132,7 +132,7 @@ NAN_METHOD(FeatureDefnFields::indexOf) {
  * @instance
  * @memberof FeatureDefnFields
  * @param {string|number} key Field name or index
- * @throws Error
+ * @throws {Error}
  * @return {FieldDefn}
  */
 NAN_METHOD(FeatureDefnFields::get) {
@@ -194,7 +194,7 @@ NAN_METHOD(FeatureDefnFields::getNames) {
  * @method remove
  * @instance
  * @memberof FeatureDefnFields
- * @throws Error
+ * @throws {Error}
  * @param {string|number} key Field name or index
  */
 NAN_METHOD(FeatureDefnFields::remove) {
@@ -230,7 +230,7 @@ NAN_METHOD(FeatureDefnFields::remove) {
  * @method add
  * @instance
  * @memberof FeatureDefnFields
- * @throws Error
+ * @throws {Error}
  * @param {FieldDefn|FieldDefn[]} fields
  */
 NAN_METHOD(FeatureDefnFields::add) {
@@ -284,7 +284,7 @@ NAN_METHOD(FeatureDefnFields::add) {
  * @method reorder
  * @instance
  * @memberof FeatureDefnFields
- * @throws Error
+ * @throws {Error}
  * @param {number[]} map An array representing the new field order.
  */
 NAN_METHOD(FeatureDefnFields::reorder) {

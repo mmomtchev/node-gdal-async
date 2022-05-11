@@ -110,7 +110,7 @@ inline bool setField(OGRFeature *f, int field_index, Local<Value> val) {
  * @method set
  * @instance
  * @memberof FeatureFields
- * @throws Error
+ * @throws {Error}
  * @param {string|number} key Field name or index
  * @param {any} value
  */
@@ -119,7 +119,7 @@ inline bool setField(OGRFeature *f, int field_index, Local<Value> val) {
  * @method set
  * @instance
  * @memberof FeatureFields
- * @throws Error
+ * @throws {Error}
  * @param {object} fields
  */
 NAN_METHOD(FeatureFields::set) {
@@ -219,7 +219,7 @@ NAN_METHOD(FeatureFields::set) {
  * @method reset
  * @instance
  * @memberof FeatureFields
- * @throws Error
+ * @throws {Error}
  * @param {object} [values]
  * @return {void}
  */
@@ -328,7 +328,7 @@ NAN_METHOD(FeatureFields::indexOf) {
 /**
  * Outputs the field data as a pure JS object.
  *
- * @throws Error
+ * @throws {Error}
  * @method toObject
  * @instance
  * @memberof FeatureFields
@@ -372,7 +372,7 @@ NAN_METHOD(FeatureFields::toObject) {
 /**
  * Outputs the field values as a pure JS array.
  *
- * @throws Error
+ * @throws {Error}
  * @method toArray
  * @instance
  * @memberof FeatureFields
@@ -441,7 +441,7 @@ Local<Value> FeatureFields::get(OGRFeature *f, int field_index) {
  * @instance
  * @memberof FeatureFields
  * @param {string|number} key Feature name or index.
- * @throws Error
+ * @throws {Error}
  * @return {any}
  */
 NAN_METHOD(FeatureFields::get) {
@@ -474,7 +474,7 @@ NAN_METHOD(FeatureFields::get) {
  * @method getNames
  * @instance
  * @memberof FeatureFields
- * @throws Error
+ * @throws {Error}
  * @return {string[]} List of field names.
  */
 NAN_METHOD(FeatureFields::getNames) {

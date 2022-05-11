@@ -103,7 +103,7 @@ NAN_METHOD(CompoundCurveCurves::count) {
  * @instance
  * @memberof CompoundCurveCurves
  * @param {number} index
- * @throws Error
+ * @throws {Error}
  * @return {CompoundCurve|SimpleCurve}
  */
 NAN_METHOD(CompoundCurveCurves::get) {

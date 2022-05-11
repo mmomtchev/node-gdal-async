@@ -187,7 +187,7 @@ CPLErr GDALReprojectImageMulti(
 /**
  * Reprojects a dataset.
  *
- * @throws Error
+ * @throws {Error}
  * @method reprojectImage
  * @static
  * @param {ReprojectOptions} options
@@ -214,7 +214,7 @@ CPLErr GDALReprojectImageMulti(
  * Reprojects a dataset.
  * @async
  *
- * @throws Error
+ * @throws {Error}
  * @method reprojectImageAsync
  * @static
  * @param {ReprojectOptions} options
@@ -348,7 +348,7 @@ GDAL_ASYNCABLE_DEFINE(Warper::reprojectImage) {
  * Used to determine the bounds and resolution of the output virtual file which
  * should be large enough to include all the input image.
  *
- * @throws Error
+ * @throws {Error}
  * @method suggestedWarpOutput
  * @static
  * @param {WarpOptions} options Warp options
@@ -365,7 +365,7 @@ GDAL_ASYNCABLE_DEFINE(Warper::reprojectImage) {
  * should be large enough to include all the input image.
  * @async
  *
- * @throws Error
+ * @throws {Error}
  * @method suggestedWarpOutputAsync
  * @static
  * @param {WarpOptions} options Warp options
