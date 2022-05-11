@@ -246,7 +246,7 @@ GDAL_ASYNCABLE_DEFINE(DatasetBands::count) {
 }
 
 /**
- * Parent dataset
+ * Returns the parent dataset.
  *
  * @readonly
  * @kind member

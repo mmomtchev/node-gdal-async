@@ -759,7 +759,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::clampBlock) {
 }
 
 /**
- * Parent raster band
+ * Returns the parent raster band.
  *
  * @readonly
  * @kind member

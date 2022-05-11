@@ -389,7 +389,7 @@ NAN_METHOD(LayerFields::reorder) {
 }
 
 /**
- * Parent layer
+ * Returns the parent layer.
  *
  * @readonly
  * @kind member

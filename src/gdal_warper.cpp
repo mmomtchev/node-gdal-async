@@ -35,7 +35,7 @@ void Warper::Initialize(Local<Object> target) {
 
 /*
  * GDALReprojectImage() method with a ChunkAndWarpImage replaced with
- * ChunkAndWarpMulti
+ * ChunkAndWarpMulti.
  */
 CPLErr GDALReprojectImageMulti(
   GDALDatasetH hSrcDS,

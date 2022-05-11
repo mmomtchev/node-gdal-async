@@ -3,7 +3,7 @@
 namespace node_gdal {
 
 /**
- * GDAL VSI layer file operations
+ * GDAL VSI layer file operations.
  *
  * @namespace fs
  */

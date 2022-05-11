@@ -3,7 +3,7 @@
 namespace node_gdal {
 
 /**
- * File operations specific to in-memory `/vsimem/` files
+ * File operations specific to in-memory `/vsimem/` files.
  *
  * @namespace vsimem
  */
@@ -160,9 +160,9 @@ NAN_METHOD(Memfile::vsimemCopy) {
 }
 
 /*
- * This creates an anonymous vsimem file from a Buffer
- * It is automatically deleted when the Buffer goes out of scope
- * This is not a public method as it is not always safe
+ * This creates an anonymous vsimem file from a Buffer.
+ * It is automatically deleted when the Buffer goes out of scope.
+ * This is not a public method as it is not always safe.
  */
 NAN_METHOD(Memfile::vsimemAnonymous) {
   Local<Object> buffer;

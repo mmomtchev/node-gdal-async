@@ -92,7 +92,7 @@ int GroupGroups::__count(std::shared_ptr<GDALGroup> parent) {
  */
 
 /**
- * Parent dataset
+ * Returns the parent dataset.
  *
  * @readonly
  * @kind member

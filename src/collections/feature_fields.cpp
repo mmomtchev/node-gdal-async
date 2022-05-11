@@ -614,7 +614,7 @@ Local<Value> FeatureFields::getFieldAsDateTime(OGRFeature *feature, int field_in
 }
 
 /**
- * Parent feature
+ * Returns the parent feature.
  *
  * @readonly
  * @kind member

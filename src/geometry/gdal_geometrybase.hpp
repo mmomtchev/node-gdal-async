@@ -16,9 +16,9 @@ using namespace node;
 namespace node_gdal {
 
 /*
- * Geometry class inheritance hierarchy
+ * Geometry class inheritance hierarchy.
  * It uses CRTP - https://en.wikipedia.org/wiki/Curiously_recurring_template_pattern
- * to get around the fact that the methods exposed to JS are static and cannot be virtual
+ * to get around the fact that the methods exposed to JS are static and cannot be virtual.
  *
  *
  * C++

@@ -340,7 +340,7 @@ NAN_METHOD(FeatureDefnFields::reorder) {
 }
 
 /**
- * Parent feature definition.
+ * Returns the parent feature definition.
  *
  * @readonly
  * @kind member

@@ -194,7 +194,7 @@ static NAN_METHOD(Log) {
 }
 
 /*
- * Common code for sync and async opening
+ * Common code for sync and async opening.
  */
 GDAL_ASYNCABLE_GLOBAL(gdal_open);
 GDAL_ASYNCABLE_DEFINE(gdal_open) {
@@ -271,7 +271,7 @@ static NAN_METHOD(getConfigOption) {
  */
 
 /**
- * Convert decimal degrees to degrees, minutes, and seconds string
+ * Convert decimal degrees to degrees, minutes, and seconds string.
  *
  * @static
  * @method decToDMS

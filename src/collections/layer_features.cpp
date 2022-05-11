@@ -487,7 +487,7 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::remove) {
 }
 
 /**
- * Parent layer
+ * Returns the parent layer.
  *
  * @kind member
  * @name layer

@@ -777,7 +777,7 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::rasterSizeGetter) {
 }
 
 /**
- * Spatial reference associated with raster dataset
+ * Spatial reference associated with raster dataset.
  *
  * @throws {Error}
  * @kind member
@@ -788,7 +788,7 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::rasterSizeGetter) {
  */
 
 /**
- * Spatial reference associated with raster dataset
+ * Spatial reference associated with raster dataset.
  * @asyncGetter
  *
  * @throws {Error}

@@ -1506,7 +1506,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::getEnvelope3D) {
 }
 
 /**
- * Convert geometry to strictly 2D
+ * Convert geometry to strictly 2D.
  *
  * @method flattenTo2D
  * @instance
@@ -1515,7 +1515,7 @@ GDAL_ASYNCABLE_DEFINE(Geometry::getEnvelope3D) {
  */
 
 /**
- * Convert geometry to strictly 2D
+ * Convert geometry to strictly 2D.
  * @async
  *
  * @method flattenTo2DAsync

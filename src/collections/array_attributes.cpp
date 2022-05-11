@@ -84,7 +84,7 @@ int ArrayAttributes::__count(std::shared_ptr<GDALMDArray> parent) {
  */
 
 /**
- * Attributes' names
+ * Attributes' names.
  *
  * @readonly
  * @kind member
@@ -95,7 +95,7 @@ int ArrayAttributes::__count(std::shared_ptr<GDALMDArray> parent) {
  */
 
 /**
- * Parent dataset
+ * Returns the parent dataset.
  *
  * @readonly
  * @name ds

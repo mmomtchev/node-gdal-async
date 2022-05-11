@@ -206,7 +206,7 @@ findHighest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDi
  */
 
 /**
- * Read data from the MDArray
+ * Read data from the MDArray.
  *
  * This will extract the context of a (hyper-)rectangle from the array into a buffer.
  * If the buffer can be passed as an argument or it can be allocated by the function.
@@ -355,7 +355,7 @@ GDAL_ASYNCABLE_DEFINE(MDArray::read) {
 }
 
 /**
- * Get a partial view of the MDArray
+ * Get a partial view of the MDArray.
  *
  * The slice expression uses the same syntax as NumPy basic slicing and indexing. See (https://www.numpy.org/devdocs/reference/arrays.indexing.html#basic-slicing-and-indexing). Or it can use field access by name. See (https://www.numpy.org/devdocs/reference/arrays.indexing.html#field-access).
  *
@@ -447,7 +447,7 @@ NAN_METHOD(MDArray::asDataset) {
 }
 
 /**
- * Spatial reference associated with MDArray
+ * Spatial reference associated with MDArray.
  *
  * @throws {Error}
  * @kind member
@@ -616,7 +616,7 @@ NAN_GETTER(MDArray::descriptionGetter) {
 }
 
 /**
- * The flattened length of the array
+ * The flattened length of the array.
  *
  * @readonly
  * @kind member

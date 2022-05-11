@@ -504,7 +504,7 @@ NAN_METHOD(RasterBand::setStatistics) {
 }
 
 /**
- * Returns band metadata
+ * Returns band metadata.
  *
  * @method getMetadata
  * @instance

@@ -122,9 +122,9 @@ static inline void sortUnique(vector<long> &uids) {
 }
 
 /*
- * Lock a Dataset by uid, throws when the Dataset has been destroyed
- * There is a single global condition which allows to avoid active spinning
- * Every time a Dataset releases a lock it must broadcast the condition
+ * Lock a Dataset by uid, throws when the Dataset has been destroyed.
+ * There is a single global condition which allows to avoid active spinning.
+ * Every time a Dataset releases a lock it must broadcast the condition.
  */
 AsyncLock ObjectStore::lockDataset(long uid) {
   if (uid == 0) return nullptr;
@@ -139,7 +139,7 @@ AsyncLock ObjectStore::lockDataset(long uid) {
 }
 
 /*
- * Lock several Datasets by uid avoiding deadlocks, same semantics as the previous one
+ * Lock several Datasets by uid avoiding deadlocks, same semantics as the previous one.
  */
 vector<AsyncLock> ObjectStore::lockDatasets(vector<long> uids) {
   // There is lots of copying around here but these vectors are never longer than 3 elements
@@ -156,7 +156,7 @@ vector<AsyncLock> ObjectStore::lockDatasets(vector<long> uids) {
 }
 
 /*
- * Acquire the lock only if it is free, do not block
+ * Acquire the lock only if it is free, do not block.
  */
 AsyncLock ObjectStore::tryLockDataset(long uid) {
   if (uid == 0) return nullptr;
@@ -194,7 +194,7 @@ vector<AsyncLock> ObjectStore::_tryLockDatasets(vector<long> uids) {
 }
 
 /*
- * Try to acquire several locks avoiding deadlocks without blocking
+ * Try to acquire several locks avoiding deadlocks without blocking.
  */
 vector<AsyncLock> ObjectStore::tryLockDatasets(vector<long> uids) {
   // There is lots of copying around here but these vectors are never longer than 3 elements

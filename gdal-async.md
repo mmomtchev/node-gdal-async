@@ -22,8 +22,8 @@ for (let i = t; i < len; i++) {
 }
 ```
 
-see `ASYNCIO.md` for some performance considerations when designing code
-that will run multiple parallel operations on the same dataset
+See `ASYNCIO.md` for some performance considerations when designing code
+that will run multiple parallel operations on the same dataset.
 
 <iframe
 src="http://ghbtns.com/github-btn.html?user=mmomtchev&repo=node-gdal-async&type=watch&count=true"

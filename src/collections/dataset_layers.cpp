@@ -399,7 +399,7 @@ GDAL_ASYNCABLE_DEFINE(DatasetLayers::remove) {
 }
 
 /**
- * Parent dataset
+ * Returns the parent dataset.
  *
  * @readonly
  * @kind member
