@@ -374,3 +374,7 @@ documentation-polyglot:
 
 documentation-stylist:
   crossLinksDupeWarning: false
+  srcLinkBase: https://github.com/mmomtchev/node-gdal-async/blob/master/
+  classes:
+    paramsParameterData: green
+  extraCss: scripts/gdal-doc.css
