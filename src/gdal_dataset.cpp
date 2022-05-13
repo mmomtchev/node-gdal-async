@@ -286,6 +286,7 @@ NAN_METHOD(Dataset::getGCPProjection) {
 /**
  * Closes the dataset to further operations. It releases all memory and ressources held
  * by the dataset.
+ *
  * This is normally an instantenous atomic operation that won't block the event loop
  * except if there is an operation running on this dataset in asynchronous context - in this case
  * this call will block until that operation finishes.
@@ -297,7 +298,7 @@ NAN_METHOD(Dataset::getGCPProjection) {
  * Implementing an asynchronous delete is difficult since all V8 object creation/deletion
  * must take place on the main thread.
  *
- * flush[Async]() ensures that, when writing, all data has been written.
+ * flush()/flushAsync() ensure that, when writing, all data has been written.
  *
  * @method close
  * @instance
