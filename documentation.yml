@@ -372,9 +372,10 @@ documentation-polyglot:
       - NAN_GETTER\s*\(.+::([a-zA-Z0-9_]+)\)
       - GDAL_ASYNCABLE_GETTER_DECLARE\s*\(.+::([a-zA-Z0-9_]+)\)
 
-documentation-stylist:
+documentation-hipster:
   crossLinksDupeWarning: false
   srcLinkBase: https://github.com/mmomtchev/node-gdal-async/blob/master/
   classes:
     paramsParameterData: green
   extraCss: scripts/gdal-doc.css
+  externalCrossLinks: scripts/externalCrossLinks.js

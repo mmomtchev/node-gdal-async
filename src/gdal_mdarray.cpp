@@ -223,7 +223,7 @@ findHighest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDi
  * @param {number[]} options.span An array specifying the number of elements to read in each dimension
  * @param {number[]} [options.stride] An array of strides for the output array, mandatory if the array is specified
  * @param {string} [options.data_type] See {@link GDT|GDT constants}
- * @param {TypedArray} [options.data] The TypedArray (https://developer.mozilla.org/en-US/docs/Web/API/ArrayBufferView#Typed_array_subclasses) to put the data in. A new array is created if not given.
+ * @param {TypedArray} [options.data] The `TypedArray` to put the data in. A new array is created if not given.
  * @return {TypedArray}
  */
 
@@ -246,10 +246,10 @@ findHighest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDi
  * @param {number[]} options.span An array specifying the number of elements to read in each dimension
  * @param {number[]} [options.stride] An array of strides for the output array, mandatory if the array is specified
  * @param {string} [options.data_type] See {@link GDT|GDT constants}
- * @param {TypedArray} [options.data] The TypedArray (https://developer.mozilla.org/en-US/docs/Web/API/ArrayBufferView#Typed_array_subclasses) to put the data in. A new array is created if not given.
+ * @param {TypedArray} [options.data] The `TypedArray` to put the data in. A new array is created if not given.
  * @param {ProgressCb} [options.progress_cb]
  * @param {callback<TypedArray>} [callback=undefined]
- * @return {Promise<TypedArray>} A TypedArray (https://developer.mozilla.org/en-US/docs/Web/API/ArrayBufferView#Typed_array_subclasses) of values.
+ * @return {Promise<TypedArray>} A `TypedArray` of values.
  */
 GDAL_ASYNCABLE_DEFINE(MDArray::read) {
 
