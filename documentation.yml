@@ -13,8 +13,8 @@ sortOrder:
     - enum
     - constant
     - property
-    - function
     - member
+    - function
   - memberof
   - alpha
 
