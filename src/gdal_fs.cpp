@@ -79,7 +79,7 @@ void VSI::Initialize(Local<Object> target) {
  * @method stat
  * @memberof fs
  * @param {string} filename
- * @param {true} bigint Return BigInt numbers. JavaScript numbers are safe for integers up to 2^53.
+ * @param {true} True Return BigInt numbers. JavaScript numbers are safe for integers up to 2^53.
  * @throws {Error}
  * @returns {VSIStat64}
  */
@@ -106,7 +106,7 @@ void VSI::Initialize(Local<Object> target) {
  * @method statAsync
  * @memberof fs
  * @param {string} filename
- * @param {true} bigint Return BigInt numbers. JavaScript numbers are safe for integers up to 2^53.
+ * @param {true} True Return BigInt numbers. JavaScript numbers are safe for integers up to 2^53.
  * @throws {Error}
  * @param {callback<VSIStat>} [callback=undefined]
  * @returns {Promise<VSIStat>}
