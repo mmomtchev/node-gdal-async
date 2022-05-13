@@ -110,7 +110,7 @@
     "chai": "^4.2.0",
     "chai-as-promised": "^7.1.1",
     "documentation-polyglot": "^1.0.1",
-    "documentation-hipster": "^0.1.0",
+    "documentation-hipster": "^1.0.0",
     "eslint": "^8.15.0",
     "eslint-plugin-array-func": "^3.0.0",
     "eslint-plugin-mocha": "^10.0.4",
