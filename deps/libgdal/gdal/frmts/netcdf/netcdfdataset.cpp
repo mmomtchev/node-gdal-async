@@ -1085,15 +1085,8 @@ CPLErr netCDFRasterBand::SetMetadataItem( const char* pszName,
                                           const char* pszValue,
                                           const char* pszDomain )
 {
-    if( GetAccess() != GA_Update )
-    {
-        CPLError(CE_Failure, CPLE_AppDefined,
-                  "netCDFRasterBand::SetMetadataItem() can only be "
-                  "called in update mode");
-        return CE_Failure;
-    }
-
-    if( (pszDomain == nullptr || pszDomain[0] == '\0') && pszValue != nullptr )
+    if( GetAccess() == GA_Update &&
+        (pszDomain == nullptr || pszDomain[0] == '\0') && pszValue != nullptr )
     {
         // Same logic as in CopyMetadata()
 
@@ -1130,7 +1123,8 @@ CPLErr netCDFRasterBand::SetMetadataItem( const char* pszName,
 
 CPLErr netCDFRasterBand::SetMetadata( char** papszMD, const char* pszDomain )
 {
-    if( pszDomain == nullptr || pszDomain[0] == '\0' )
+    if( GetAccess() == GA_Update &&
+        (pszDomain == nullptr || pszDomain[0] == '\0') )
     {
         // We don't handle metadata item removal for now
         for( const char* const*  papszIter = papszMD; papszIter && *papszIter; ++papszIter )
@@ -2920,15 +2914,8 @@ CPLErr netCDFDataset::SetMetadataItem( const char* pszName,
                                           const char* pszValue,
                                           const char* pszDomain )
 {
-    if( GetAccess() != GA_Update )
-    {
-        CPLError(CE_Failure, CPLE_AppDefined,
-                  "netCDFDataset::SetMetadataItem() can only be "
-                  "called in update mode");
-        return CE_Failure;
-    }
-
-    if( (pszDomain == nullptr || pszDomain[0] == '\0') && pszValue != nullptr )
+    if( GetAccess() == GA_Update &&
+        (pszDomain == nullptr || pszDomain[0] == '\0') && pszValue != nullptr )
     {
         std::string osName(pszName);
 
@@ -2961,7 +2948,8 @@ CPLErr netCDFDataset::SetMetadataItem( const char* pszName,
 
 CPLErr netCDFDataset::SetMetadata( char** papszMD, const char* pszDomain )
 {
-    if( pszDomain == nullptr || pszDomain[0] == '\0' )
+    if( GetAccess() == GA_Update &&
+        (pszDomain == nullptr || pszDomain[0] == '\0') )
     {
         // We don't handle metadata item removal for now
         for( const char* const*  papszIter = papszMD; papszIter && *papszIter; ++papszIter )
@@ -4015,12 +4003,19 @@ void netCDFDataset::SetProjectionFromVar( int nGroupId, int nVarId,
                     !NCDFIsVarLatitude(nGroupId, nVarDimXID, nullptr) &&
                     !NCDFIsVarProjectionY(nGroupId, nVarDimXID, nullptr) )
                 {
-                    CPLDebug("netCDF",
-                             "Georeferencing ignored due to non-specific "
-                             "enough X axis name. "
-                             "Set GDAL_NETCDF_IGNORE_XY_AXIS_NAME_CHECKS=YES "
-                             "as configuration option to bypass this check");
-                    nVarDimXID = -1;
+                    char szVarNameX[NC_MAX_NAME + 1];
+                    CPL_IGNORE_RET_VAL(nc_inq_varname(nGroupId, nVarDimXID, szVarNameX));
+                    if( !(ndims == 1 &&
+                          (EQUAL(szVarNameX, CF_LONGITUDE_STD_NAME) ||
+                           EQUAL(szVarNameX, CF_LONGITUDE_VAR_NAME))) )
+                    {
+                        CPLDebug("netCDF",
+                                 "Georeferencing ignored due to non-specific "
+                                 "enough X axis name. "
+                                 "Set GDAL_NETCDF_IGNORE_XY_AXIS_NAME_CHECKS=YES "
+                                 "as configuration option to bypass this check");
+                        nVarDimXID = -1;
+                    }
                 }
             }
         }
@@ -4039,12 +4034,19 @@ void netCDFDataset::SetProjectionFromVar( int nGroupId, int nVarId,
                     !NCDFIsVarLongitude(nGroupId, nVarDimYID, nullptr) &&
                     !NCDFIsVarProjectionX(nGroupId, nVarDimYID, nullptr) )
                 {
-                    CPLDebug("netCDF",
-                             "Georeferencing ignored due to non-specific "
-                             "enough Y axis name. "
-                             "Set GDAL_NETCDF_IGNORE_XY_AXIS_NAME_CHECKS=YES "
-                             "as configuration option to bypass this check");
-                    nVarDimYID = -1;
+                    char szVarNameY[NC_MAX_NAME + 1];
+                    CPL_IGNORE_RET_VAL(nc_inq_varname(nGroupId, nVarDimYID, szVarNameY));
+                    if( !(ndims == 1 &&
+                          (EQUAL(szVarNameY, CF_LATITUDE_STD_NAME) ||
+                           EQUAL(szVarNameY, CF_LATITUDE_VAR_NAME))) )
+                    {
+                        CPLDebug("netCDF",
+                                 "Georeferencing ignored due to non-specific "
+                                 "enough Y axis name. "
+                                 "Set GDAL_NETCDF_IGNORE_XY_AXIS_NAME_CHECKS=YES "
+                                 "as configuration option to bypass this check");
+                        nVarDimYID = -1;
+                    }
                 }
             }
         }
@@ -4612,9 +4614,20 @@ void netCDFDataset::SetProjectionFromVar( int nGroupId, int nVarId,
         return;
 
     // Process geolocation arrays from CF "coordinates" attribute.
-    if( ProcessCFGeolocation(nGroupId, nVarId) )
+    std::string osGeolocXName, osGeolocYName;
+    if( ProcessCFGeolocation(nGroupId, nVarId, osGeolocXName, osGeolocYName) )
     {
-        if( !oSRS.IsGeographic() && !oSRS.IsProjected() && !bSwitchedXY )
+        bool bCanCancelGT = true;
+        if( (nVarDimXID != -1) && (nVarDimYID != -1) )
+        {
+            char szVarNameX[NC_MAX_NAME + 1];
+            CPL_IGNORE_RET_VAL(nc_inq_varname(nGroupId, nVarDimXID, szVarNameX));
+            char szVarNameY[NC_MAX_NAME + 1];
+            CPL_IGNORE_RET_VAL(nc_inq_varname(nGroupId, nVarDimYID, szVarNameY));
+            bCanCancelGT = !(osGeolocXName == szVarNameX &&
+                             osGeolocYName == szVarNameY);
+        }
+        if( bCanCancelGT && !oSRS.IsGeographic() && !oSRS.IsProjected() && !bSwitchedXY )
         {
             bGotCfGT = false;
         }
@@ -4696,7 +4709,8 @@ void netCDFDataset::SetProjectionFromVar( int nGroupId, int nVarId,
     SetProjectionFromVar(nGroupId, nVarId, bReadSRSOnly, nullptr, nullptr, nullptr);
 }
 
-int netCDFDataset::ProcessCFGeolocation( int nGroupId, int nVarId )
+int netCDFDataset::ProcessCFGeolocation( int nGroupId, int nVarId,
+                                         std::string& osGeolocXNameOut, std::string& osGeolocYNameOut )
 {
     bool bAddGeoloc = false;
     char *pszTemp = nullptr;
@@ -4745,6 +4759,9 @@ int netCDFDataset::ProcessCFGeolocation( int nGroupId, int nVarId )
             // Add GEOLOCATION metadata.
             if( !EQUAL(szGeolocXName, "") && !EQUAL(szGeolocYName, "") )
             {
+                osGeolocXNameOut = szGeolocXName;
+                osGeolocYNameOut = szGeolocYName;
+
                 char *pszGeolocXFullName = nullptr;
                 char *pszGeolocYFullName = nullptr;
                 if( NCDFResolveVarFullName(nGroupId, szGeolocXName,

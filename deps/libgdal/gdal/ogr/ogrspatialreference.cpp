@@ -191,9 +191,7 @@ OGRSpatialReference::Private::Private():
 {
     // Get the default value for m_axisMappingStrategy from the
     // OSR_DEFAULT_AXIS_MAPPING_STRATEGY configuration option, if set.
-    static const OSRAxisMappingStrategy defaultAxisMappingStrategy = GetDefaultAxisMappingStrategy();
-
-    m_axisMappingStrategy = defaultAxisMappingStrategy;
+    m_axisMappingStrategy = GetDefaultAxisMappingStrategy();
 }
 
 OGRSpatialReference::Private::~Private()
@@ -3544,7 +3542,10 @@ static void RemoveIDFromMemberOfEnsembles(CPLJSONObject& obj)
     {
         for( auto& subObj: obj.ToArray() )
         {
-            subObj.Delete("id");
+            if( subObj.GetType() == CPLJSONObject::Type::Object )
+            {
+                subObj.Delete("id");
+            }
         }
     }
 }
@@ -5433,16 +5434,24 @@ int OGRSpatialReference::FindProjParm( const char *pszParameter,
 /* -------------------------------------------------------------------- */
 /*      Search for requested parameter.                                 */
 /* -------------------------------------------------------------------- */
+    bool bIsWKT2 = false;
     for( int iChild = 0; iChild < poPROJCS->GetChildCount(); iChild++ )
     {
         const OGR_SRSNode *poParameter = poPROJCS->GetChild(iChild);
 
-        if( EQUAL(poParameter->GetValue(), "PARAMETER")
-            && poParameter->GetChildCount() >= 2
-            && EQUAL(poPROJCS->GetChild(iChild)->GetChild(0)->GetValue(),
-                     pszParameter) )
+        if( poParameter->GetChildCount() >= 2 )
         {
-            return iChild;
+            const char* pszValue = poParameter->GetValue();
+            if( EQUAL(pszValue, "PARAMETER")
+                && EQUAL(poPROJCS->GetChild(iChild)->GetChild(0)->GetValue(),
+                         pszParameter) )
+            {
+                return iChild;
+            }
+            else if( EQUAL(pszValue, "METHOD") )
+            {
+                bIsWKT2 = true;
+            }
         }
     }
 
@@ -5451,11 +5460,25 @@ int OGRSpatialReference::FindProjParm( const char *pszParameter,
 /* -------------------------------------------------------------------- */
     if( EQUAL(pszParameter, SRS_PP_LATITUDE_OF_ORIGIN) )
     {
+        if( bIsWKT2 )
+        {
+            int iChild = FindProjParm(EPSG_NAME_PARAMETER_LATITUDE_OF_NATURAL_ORIGIN, poPROJCS );
+            if( iChild == -1 )
+                iChild = FindProjParm(EPSG_NAME_PARAMETER_LATITUDE_PROJECTION_CENTRE, poPROJCS );
+            return iChild;
+        }
         return FindProjParm( SRS_PP_LATITUDE_OF_CENTER, poPROJCS );
     }
 
     if( EQUAL(pszParameter, SRS_PP_CENTRAL_MERIDIAN) )
     {
+        if( bIsWKT2 )
+        {
+            int iChild = FindProjParm(EPSG_NAME_PARAMETER_LONGITUDE_OF_NATURAL_ORIGIN, poPROJCS );
+            if( iChild == -1 )
+                iChild = FindProjParm(EPSG_NAME_PARAMETER_LONGITUDE_PROJECTION_CENTRE, poPROJCS );
+            return iChild;
+        }
         int iChild = FindProjParm(SRS_PP_LONGITUDE_OF_CENTER, poPROJCS );
         if( iChild == -1 )
             iChild = FindProjParm(SRS_PP_LONGITUDE_OF_ORIGIN, poPROJCS );

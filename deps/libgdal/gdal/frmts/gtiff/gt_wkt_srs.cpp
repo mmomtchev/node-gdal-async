@@ -402,6 +402,43 @@ static void FillCompoundCRSWithManualVertCS( GTIF *hGTIF,
 }
 
 /************************************************************************/
+/*                    GTIFGetEPSGOfficialName()                         */
+/************************************************************************/
+
+static char* GTIFGetEPSGOfficialName(GTIF *hGTIF, PJ_TYPE searchType,
+                                     const char* pszName)
+{
+    char* pszRet = nullptr;
+    /* Search in database the corresponding EPSG 'official' name */
+    auto ctx = static_cast<PJ_CONTEXT*>(
+        GTIFGetPROJContext(hGTIF, true, nullptr));
+    auto list = proj_create_from_name(ctx, "EPSG", pszName,
+                                      &searchType, 1,
+                                      false, /* approximate match */
+                                      1,
+                                      nullptr);
+    if( list )
+    {
+        const auto listSize = proj_list_get_count(list);
+        if( listSize == 1 )
+        {
+            auto obj = proj_list_get(ctx, list, 0);
+            if( obj )
+            {
+                const char* pszOfficialName = proj_get_name(obj);
+                if( pszOfficialName )
+                {
+                    pszRet = CPLStrdup(pszOfficialName);
+                }
+            }
+            proj_destroy(obj);
+        }
+        proj_list_destroy(list);
+    }
+    return pszRet;
+}
+
+/************************************************************************/
 /*                      GTIFGetOGISDefnAsOSR()                          */
 /************************************************************************/
 
@@ -826,6 +863,42 @@ OGRSpatialReferenceH GTIFGetOGISDefnAsOSR( GTIF *hGTIF, GTIFDefn * psDefn )
         GTIFToCPLRecycleString( &pszGeogName );
     }
 
+    if( pszGeogName && STARTS_WITH(pszGeogName, "GCS_") )
+    {
+        // Morph from potential ESRI name
+        char* pszOfficialName = GTIFGetEPSGOfficialName(
+            hGTIF, PJ_TYPE_GEOGRAPHIC_2D_CRS, pszGeogName);
+        if( pszOfficialName )
+        {
+            CPLFree(pszGeogName);
+            pszGeogName = pszOfficialName;
+        }
+    }
+
+    if( pszDatumName && strchr(pszDatumName, '_') )
+    {
+        // Morph from potential ESRI name
+        char* pszOfficialName = GTIFGetEPSGOfficialName(
+            hGTIF, PJ_TYPE_GEODETIC_REFERENCE_FRAME, pszDatumName);
+        if( pszOfficialName )
+        {
+            CPLFree(pszDatumName);
+            pszDatumName = pszOfficialName;
+        }
+    }
+
+    if( pszSpheroidName && strchr(pszSpheroidName, '_') )
+    {
+        // Morph from potential ESRI name
+        char* pszOfficialName = GTIFGetEPSGOfficialName(
+            hGTIF, PJ_TYPE_ELLIPSOID, pszSpheroidName);
+        if( pszOfficialName )
+        {
+            CPLFree(pszSpheroidName);
+            pszSpheroidName = pszOfficialName;
+        }
+    }
+
     if( !pszDatumName )
     {
 #if LIBGEOTIFF_VERSION >= 1600
@@ -983,7 +1056,7 @@ OGRSpatialReferenceH GTIFGetOGISDefnAsOSR( GTIF *hGTIF, GTIFDefn * psDefn )
             }
 
             if( bTryCompareToEPSG &&
-                !oSRSGeog.IsSameGeogCS(&oSRS) && EQUAL(osGTiffSRSSource.c_str(), "") )
+                !oSRSGeog.IsSameGeogCS(&oSRS) && osGTiffSRSSource.empty() )
             {
                 // See https://github.com/OSGeo/gdal/issues/5399
                 // where a file has inconsistent GeogSemiMinorAxisGeoKey / GeogInvFlatteningGeoKey
@@ -1004,7 +1077,15 @@ OGRSpatialReferenceH GTIFGetOGISDefnAsOSR( GTIF *hGTIF, GTIFDefn * psDefn )
             {
                 oSRS.CopyGeogCSFrom(&oSRSGeog);
             }
-            else if( bGCSCodeValid && EQUAL(osGTiffSRSSource.c_str(), "") )
+            else if (osGTiffSRSSource.empty() && oSRSGeog.IsDynamic() &&
+                     psDefn->Model == ModelTypeGeographic )
+            {
+                // We should perhaps be more careful and detect overrides
+                // of geokeys...
+                oSRS = oSRSGeog;
+                bSetDatumEllipsoidCode = false;
+            }
+            else if( bGCSCodeValid && osGTiffSRSSource.empty() )
             {
                 oSRS.SetAuthority( "GEOGCS", "EPSG", nGCS );
             }
@@ -1475,6 +1556,17 @@ OGRSpatialReferenceH GTIFGetOGISDefnAsOSR( GTIF *hGTIF, GTIFDefn * psDefn )
             else if( EQUAL( pszProjCRSName,
                             "Google Maps Global Mercator" ) )
                 oSRS.importFromEPSG(900913);
+            else if( strchr(pszProjCRSName, '_') )
+            {
+                // Morph from potential ESRI name
+                char* pszOfficialName = GTIFGetEPSGOfficialName(
+                    hGTIF, PJ_TYPE_PROJECTED_CRS, pszProjCRSName);
+                if( pszOfficialName )
+                {
+                    oSRS.SetProjCS( pszOfficialName );
+                    CPLFree(pszOfficialName);
+                }
+            }
         }
     }
 

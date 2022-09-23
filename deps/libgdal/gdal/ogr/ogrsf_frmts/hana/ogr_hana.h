@@ -305,7 +305,7 @@ protected:
     odbc::StatementRef CreateStatement();
     odbc::PreparedStatementRef PrepareStatement(const char* sql);
     void Commit();
-    void ExecuteSQL(const char* sql);
+    void ExecuteSQL(const CPLString& sql);
 
     OGRSpatialReference* GetSrsById(int srid);
     int GetSrsId(OGRSpatialReference* srs);
@@ -328,6 +328,8 @@ protected:
         int authorityCode,
         const CPLString& wkt,
         const CPLString& proj4);
+
+    std::pair<OGRErr, CPLString> LaunderName(const char* name);
 
     bool IsTransactionStarted() const { return isTransactionStarted_; }
 

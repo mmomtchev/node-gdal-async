@@ -1553,6 +1553,8 @@ int OGRProjCT::Initialize( const OGRSpatialReference * poSourceIn,
             {
                 proj_destroy(srcCRS);
                 proj_destroy(targetCRS);
+                if( area )
+                    proj_area_destroy(area);
                 return FALSE;
             }
             CPLStringList aosOptions;
@@ -2891,7 +2893,7 @@ bool OGRProjCT::ContainsNorthPole(
     auto inverseCT = GetInverse();
     if (!inverseCT)
         return false;
-    inverseCT->TransformWithErrorCodes(
+    bool success = inverseCT->TransformWithErrorCodes(
         1,
         &pole_x,
         &pole_y,
@@ -2899,6 +2901,8 @@ bool OGRProjCT::ContainsNorthPole(
         nullptr,
         nullptr
     );
+    if (success && CPLGetLastErrorType() != CE_None)
+        CPLErrorReset();
     delete inverseCT;
     if (xmin < pole_x && pole_x < xmax && ymax > pole_y && pole_y > ymin)
         return true;
@@ -2926,7 +2930,7 @@ bool OGRProjCT::ContainsSouthPole(
     auto inverseCT = GetInverse();
     if (!inverseCT)
         return false;
-    inverseCT->TransformWithErrorCodes(
+    bool success = inverseCT->TransformWithErrorCodes(
         1,
         &pole_x,
         &pole_y,
@@ -2934,6 +2938,8 @@ bool OGRProjCT::ContainsSouthPole(
         nullptr,
         nullptr
     );
+    if (success && CPLGetLastErrorType() != CE_None)
+        CPLErrorReset();
     delete inverseCT;
     if (xmin < pole_x && pole_x < xmax && ymax > pole_y && pole_y > ymin)
         return true;
@@ -2952,6 +2958,7 @@ int OGRProjCT::TransformBounds(
     double* out_ymax,
     const int densify_pts
 ) {
+    CPLErrorReset();
 
     if ( bNoTransform ) {
         *out_xmin = xmin;
@@ -3035,6 +3042,7 @@ int OGRProjCT::TransformBounds(
     bool north_pole_in_bounds = false;
     bool south_pole_in_bounds = false;
     if (degree_output) {
+        CPLErrorHandlerPusher oErrorHandlerPusher(CPLQuietErrorHandler);
         north_pole_in_bounds = ContainsNorthPole(
             xmin,
             ymin,
@@ -3042,6 +3050,9 @@ int OGRProjCT::TransformBounds(
             ymax,
             output_lon_lat_order
         );
+        if (CPLGetLastErrorType() != CE_None) {
+            return false;
+        }
         south_pole_in_bounds = ContainsSouthPole(
             xmin,
             ymin,
@@ -3049,6 +3060,9 @@ int OGRProjCT::TransformBounds(
             ymax,
             output_lon_lat_order
         );
+        if (CPLGetLastErrorType() != CE_None) {
+            return false;
+        }
     }
 
     if (degree_input && xmax < xmin) {
@@ -3091,20 +3105,89 @@ int OGRProjCT::TransformBounds(
         x_boundary_array[iii + side_pts * 3] = xmax - iii * delta_x;
     }
 
-    TransformWithErrorCodes(
-        boundary_len,
-        &x_boundary_array[0],
-        &y_boundary_array[0],
-        nullptr,
-        nullptr,
-        nullptr
-    );
+    {
+        CPLErrorHandlerPusher oErrorHandlerPusher(CPLQuietErrorHandler);
+        bool success = TransformWithErrorCodes(
+            boundary_len,
+            &x_boundary_array[0],
+            &y_boundary_array[0],
+            nullptr,
+            nullptr,
+            nullptr
+        );
+        if (success && CPLGetLastErrorType() != CE_None) {
+            CPLErrorReset();
+        } else if (!success) {
+            return false;
+        }
+    }
 
     if (!degree_output) {
         *out_xmin = simple_min(&x_boundary_array[0], boundary_len);
         *out_xmax = simple_max(&x_boundary_array[0], boundary_len);
         *out_ymin = simple_min(&y_boundary_array[0], boundary_len);
         *out_ymax = simple_max(&y_boundary_array[0], boundary_len);
+
+        // For a projected CRS with a central meridian != 0, try to reproject
+        // the points with long = +/- 180deg of the central meridian and at lat = latitude_of_origin
+        // And also do the same for long = central_meridian and lat = +/- 90deg
+        // Helps for example for EPSG:4326 to ESRI:53037
+        if( poSRSTarget->IsProjected() )
+        {
+            const double dfLon0 = poSRSTarget->GetNormProjParm( SRS_PP_CENTRAL_MERIDIAN, 0.0 );
+            if( dfLon0 != 0 )
+            {
+                const double dfLat0 = poSRSTarget->GetNormProjParm( SRS_PP_LATITUDE_OF_ORIGIN, 0.0 );
+
+                auto poBaseTarget = std::unique_ptr<OGRSpatialReference>(poSRSTarget->CloneGeogCS());
+                poBaseTarget->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+
+                constexpr double EPS = 1e-8;
+                for(int iSign = -1; iSign <= 1; iSign+=2)
+                {
+                    double dfX = fmod(dfLon0 + iSign * (180 - EPS) + 180, 360) - 180;
+                    double dfY = dfLat0;
+
+                    auto poCTBaseTargetToSrc = std::unique_ptr<OGRCoordinateTransformation>(
+                        OGRCreateCoordinateTransformation(poBaseTarget.get(), poSRSSource));
+                    if( poCTBaseTargetToSrc )
+                    {
+                        if( poCTBaseTargetToSrc->TransformWithErrorCodes(
+                            1, &dfX, &dfY, nullptr, nullptr, nullptr) &&
+                            dfX >= xmin && dfY >= ymin && dfX <= xmax && dfY <= ymax &&
+                            TransformWithErrorCodes(1, &dfX, &dfY, nullptr, nullptr, nullptr) )
+                        {
+                            *out_xmin = std::min(*out_xmin, dfX);
+                            *out_ymin = std::min(*out_ymin, dfY);
+                            *out_xmax = std::max(*out_xmax, dfX);
+                            *out_ymax = std::max(*out_ymax, dfY);
+                        }
+                    }
+                }
+                for(int iSign = -1; iSign <= 1; iSign+=2)
+                {
+                    double dfX = dfLon0;
+                    double dfY = iSign * (90 - EPS);
+
+                    auto poCTBaseTargetToSrc = std::unique_ptr<OGRCoordinateTransformation>(
+                        OGRCreateCoordinateTransformation(poBaseTarget.get(), poSRSSource));
+                    if( poCTBaseTargetToSrc )
+                    {
+                        if( poCTBaseTargetToSrc->TransformWithErrorCodes(
+                            1, &dfX, &dfY, nullptr, nullptr, nullptr) &&
+                            dfX >= xmin && dfY >= ymin && dfX <= xmax && dfY <= ymax &&
+                            TransformWithErrorCodes(1, &dfX, &dfY, nullptr, nullptr, nullptr) )
+                        {
+                            *out_xmin = std::min(*out_xmin, dfX);
+                            *out_ymin = std::min(*out_ymin, dfY);
+                            *out_xmax = std::max(*out_xmax, dfX);
+                            *out_ymax = std::max(*out_ymax, dfY);
+                        }
+                    }
+                }
+            }
+        }
+
     } else if (north_pole_in_bounds && output_lon_lat_order) {
         *out_xmin = -180;
         *out_ymin = simple_min(&y_boundary_array[0], boundary_len);
@@ -3136,7 +3219,9 @@ int OGRProjCT::TransformBounds(
         *out_ymin = antimeridian_min(&y_boundary_array[0], boundary_len);
         *out_ymax = antimeridian_max(&y_boundary_array[0], boundary_len);
     }
-    return true;
+
+    return *out_xmin != HUGE_VAL && *out_ymin != HUGE_VAL &&
+           *out_xmax != HUGE_VAL && *out_ymax != HUGE_VAL;
 }
 
 

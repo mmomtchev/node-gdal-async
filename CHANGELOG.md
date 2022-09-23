@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.5.2] WIP
 
+### Added
+ - GDAL 3.5.2
+
 ### Changed
   - Fix #38, integrate the fix for GDAL[#5028] (https://github.com/OSGeo/gdal/issues/5028)
 

@@ -1416,6 +1416,7 @@ class CPL_DLL GDALAllValidMaskBand : public GDALRasterBand
 
 class CPL_DLL GDALNoDataMaskBand : public GDALRasterBand
 {
+    friend class GDALRasterBand;
     double          dfNoDataValue = 0;
     int64_t         nNoDataValueInt64 = 0;
     uint64_t        nNoDataValueUInt64 = 0;
@@ -2665,6 +2666,13 @@ protected:
 
 public:
     GDALMDArrayRegularlySpaced(
+                const std::string& osParentName,
+                const std::string& osName,
+                const std::shared_ptr<GDALDimension>& poDim,
+                double dfStart, double dfIncrement,
+                double dfOffsetInIncrement);
+
+    static std::shared_ptr<GDALMDArrayRegularlySpaced> Create(
                 const std::string& osParentName,
                 const std::string& osName,
                 const std::shared_ptr<GDALDimension>& poDim,

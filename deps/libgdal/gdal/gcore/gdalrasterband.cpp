@@ -3252,10 +3252,25 @@ CPLErr GDALRasterBand::GetHistogram( double dfMin, double dfMax,
         return CE_Failure;
     }
 
+    // Written this way to deal with NaN
+    if( !(dfMax > dfMin) )
+    {
+        ReportError( CE_Failure, CPLE_IllegalArg,
+                     "dfMax should be strictly greater than dfMin" );
+        return CE_Failure;
+    }
+
     GDALRasterIOExtraArg sExtraArg;
     INIT_RASTERIO_EXTRA_ARG(sExtraArg);
 
-    const double dfScale = (dfMax > dfMin) ? nBuckets / (dfMax - dfMin) : 0.0;
+    const double dfScale = nBuckets / (dfMax - dfMin);
+    if( dfScale == 0 || !std::isfinite(dfScale) )
+    {
+        ReportError( CE_Failure, CPLE_IllegalArg,
+                     "dfMin and dfMax should be finite values such that "
+                     "nBuckets / (dfMax - dfMin) is non-zero" );
+        return CE_Failure;
+    }
     memset( panHistogram, 0, sizeof(GUIntBig) * nBuckets );
 
     int bGotNoDataValue = FALSE;
@@ -3342,6 +3357,12 @@ CPLErr GDALRasterBand::GetHistogram( double dfMin, double dfMax,
                   case GDT_Int32:
                     dfValue = static_cast<GInt32 *>(pData)[iOffset];
                     break;
+                  case GDT_UInt64:
+                    dfValue = static_cast<double>(static_cast<GUInt64 *>(pData)[iOffset]);
+                    break;
+                  case GDT_Int64:
+                    dfValue = static_cast<double>(static_cast<GInt64 *>(pData)[iOffset]);
+                    break;
                   case GDT_Float32:
                   {
                     const float fValue = static_cast<float *>(pData)[iOffset];
@@ -3408,22 +3429,23 @@ CPLErr GDALRasterBand::GetHistogram( double dfMin, double dfMax,
                     bGotNoDataValue && ARE_REAL_EQUAL(dfValue, dfNoDataValue) )
                     continue;
 
-                const int nIndex =
-                    static_cast<int>(floor((dfValue - dfMin) * dfScale));
+                // Given that dfValue and dfMin are not NaN, and dfScale > 0 and finite,
+                // the result of the multiplication cannot be NaN
+                const double dfIndex = floor((dfValue - dfMin) * dfScale);
 
-                if( nIndex < 0 )
+                if( dfIndex < 0 )
                 {
                     if( bIncludeOutOfRange )
                         panHistogram[0]++;
                 }
-                else if( nIndex >= nBuckets )
+                else if( dfIndex >= nBuckets )
                 {
                     if( bIncludeOutOfRange )
                         ++panHistogram[nBuckets-1];
                 }
                 else
                 {
-                    ++panHistogram[nIndex];
+                    ++panHistogram[static_cast<int>(dfIndex)];
                 }
             }
         }
@@ -3530,6 +3552,12 @@ CPLErr GDALRasterBand::GetHistogram( double dfMin, double dfMax,
                       case GDT_Int32:
                         dfValue = static_cast<GInt32 *>(pData)[iOffset];
                         break;
+                      case GDT_UInt64:
+                        dfValue = static_cast<double>(static_cast<GUInt64 *>(pData)[iOffset]);
+                        break;
+                      case GDT_Int64:
+                        dfValue = static_cast<double>(static_cast<GInt64 *>(pData)[iOffset]);
+                        break;
                       case GDT_Float32:
                       {
                         const float fValue = static_cast<float *>(pData)[iOffset];
@@ -3593,22 +3621,23 @@ CPLErr GDALRasterBand::GetHistogram( double dfMin, double dfMax,
                         ARE_REAL_EQUAL(dfValue, dfNoDataValue) )
                         continue;
 
-                    const int nIndex =
-                        static_cast<int>(floor((dfValue - dfMin) * dfScale));
+                    // Given that dfValue and dfMin are not NaN, and dfScale > 0 and finite,
+                    // the result of the multiplication cannot be NaN
+                    const double dfIndex = floor((dfValue - dfMin) * dfScale);
 
-                    if( nIndex < 0 )
+                    if( dfIndex < 0 )
                     {
                         if( bIncludeOutOfRange )
-                            ++panHistogram[0];
+                            panHistogram[0]++;
                     }
-                    else if( nIndex >= nBuckets )
+                    else if( dfIndex >= nBuckets )
                     {
                         if( bIncludeOutOfRange )
                             ++panHistogram[nBuckets-1];
                     }
                     else
                     {
-                        panHistogram[nIndex]++;
+                        ++panHistogram[static_cast<int>(dfIndex)];
                     }
                 }
             }
@@ -6244,8 +6273,68 @@ CPLErr CPL_STDCALL GDALSetDefaultRAT( GDALRasterBandH hBand,
 GDALRasterBand *GDALRasterBand::GetMaskBand()
 
 {
+    const auto HasNoData = [this]() {
+        int bHaveNoDataRaw = FALSE;
+        bool bHaveNoData = false;
+        if( eDataType == GDT_Int64 )
+        {
+            CPL_IGNORE_RET_VAL(GetNoDataValueAsInt64(&bHaveNoDataRaw));
+            bHaveNoData = CPL_TO_BOOL(bHaveNoDataRaw);
+        }
+        else if( eDataType == GDT_UInt64 )
+        {
+            CPL_IGNORE_RET_VAL(GetNoDataValueAsUInt64(&bHaveNoDataRaw));
+            bHaveNoData = CPL_TO_BOOL(bHaveNoDataRaw);
+        }
+        else
+        {
+            const double dfNoDataValue = GetNoDataValue( &bHaveNoDataRaw );
+            if( bHaveNoDataRaw &&
+                GDALNoDataMaskBand::IsNoDataInRange(dfNoDataValue, eDataType) )
+            {
+                bHaveNoData = true;
+            }
+        }
+        return bHaveNoData;
+    };
+
     if( poMask != nullptr )
-        return poMask;
+    {
+        if( bOwnMask )
+        {
+            if( dynamic_cast<GDALAllValidMaskBand*>(poMask) != nullptr )
+            {
+                if( HasNoData() )
+                {
+                    InvalidateMaskBand();
+                }
+            }
+            else if( auto poNoDataMaskBand = dynamic_cast<GDALNoDataMaskBand*>(poMask) )
+            {
+                int bHaveNoDataRaw = FALSE;
+                bool bIsSame = false;
+                if( eDataType == GDT_Int64 )
+                    bIsSame = poNoDataMaskBand->nNoDataValueInt64 == GetNoDataValueAsInt64(&bHaveNoDataRaw) && bHaveNoDataRaw;
+                else if( eDataType == GDT_UInt64 )
+                    bIsSame = poNoDataMaskBand->nNoDataValueUInt64 == GetNoDataValueAsUInt64(&bHaveNoDataRaw) && bHaveNoDataRaw;
+                else
+                {
+                    const double dfNoDataValue = GetNoDataValue(&bHaveNoDataRaw);
+                    if( bHaveNoDataRaw )
+                    {
+                        bIsSame = std::isnan(dfNoDataValue) ?
+                            std::isnan(poNoDataMaskBand->dfNoDataValue) :
+                            poNoDataMaskBand->dfNoDataValue == dfNoDataValue;
+                    }
+                }
+                if( !bIsSame )
+                    InvalidateMaskBand();
+            }
+        }
+
+        if( poMask != nullptr )
+            return poMask;
+    }
 
 /* -------------------------------------------------------------------- */
 /*      Check for a mask in a .msk file.                                */
@@ -6329,28 +6418,7 @@ GDALRasterBand *GDALRasterBand::GetMaskBand()
 /* -------------------------------------------------------------------- */
 /*      Check for nodata case.                                          */
 /* -------------------------------------------------------------------- */
-    int bHaveNoDataRaw = FALSE;
-    bool bHaveNoData = false;
-    if( eDataType == GDT_Int64 )
-    {
-        CPL_IGNORE_RET_VAL(GetNoDataValueAsInt64(&bHaveNoDataRaw));
-        bHaveNoData = CPL_TO_BOOL(bHaveNoDataRaw);
-    }
-    else if( eDataType == GDT_UInt64 )
-    {
-        CPL_IGNORE_RET_VAL(GetNoDataValueAsUInt64(&bHaveNoDataRaw));
-        bHaveNoData = CPL_TO_BOOL(bHaveNoDataRaw);
-    }
-    else
-    {
-        const double dfNoDataValue = GetNoDataValue( &bHaveNoDataRaw );
-        if( bHaveNoDataRaw &&
-            GDALNoDataMaskBand::IsNoDataInRange(dfNoDataValue, eDataType) )
-        {
-            bHaveNoData = true;
-        }
-    }
-    if( bHaveNoData )
+    if( HasNoData() )
     {
         nMaskFlags = GMF_NODATA;
         try
@@ -7596,13 +7664,13 @@ protected:
         if( m_poDS->GetGeoTransform(adfGeoTransform) == CE_None &&
             adfGeoTransform[2] == 0 && adfGeoTransform[4] == 0 )
         {
-            m_varX = std::make_shared<GDALMDArrayRegularlySpaced>(
+            m_varX = GDALMDArrayRegularlySpaced::Create(
                 "/", "X", m_dims[1],
                 adfGeoTransform[0],
                 adfGeoTransform[1], 0.5);
             m_dims[1]->SetIndexingVariable(m_varX);
 
-            m_varY = std::make_shared<GDALMDArrayRegularlySpaced>(
+            m_varY = GDALMDArrayRegularlySpaced::Create(
                 "/", "Y", m_dims[0],
                 adfGeoTransform[3],
                 adfGeoTransform[5], 0.5);

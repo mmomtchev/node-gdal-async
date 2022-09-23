@@ -935,7 +935,7 @@ GDALSuggestedWarpOutput2( GDALDatasetH hSrcDS,
 /* -------------------------------------------------------------------- */
             const GDALReprojectionTransformInfo* psRTI =
                 static_cast<const GDALReprojectionTransformInfo*>(pGIPTI->pReprojectArg);
-            const auto poTargetCRS = psRTI->poForwardTransform->GetTargetCS();
+            const OGRSpatialReference* poTargetCRS = psRTI->poForwardTransform->GetTargetCS();
             if( poTargetCRS != nullptr &&
                 psRTI->poReverseTransform != nullptr &&
                 poTargetCRS->IsGeographic() &&
@@ -986,6 +986,44 @@ GDALSuggestedWarpOutput2( GDALDatasetH hSrcDS,
                 {
                     poSetter.reset();
                     GDALRefreshGenImgProjTransformer(pTransformArg);
+                    pGIPTI =
+                        static_cast<const GDALGenImgProjTransformInfo*>(pTransformArg);
+                    psRTI =
+                        static_cast<const GDALReprojectionTransformInfo*>(pGIPTI->pReprojectArg);
+                    poTargetCRS = psRTI->poForwardTransform->GetTargetCS();
+                }
+            }
+
+            // Use TransformBounds() to handle more particular cases
+            const auto poSourceCRS = psRTI->poForwardTransform->GetSourceCS();
+            if( poSourceCRS != nullptr &&
+                poTargetCRS != nullptr &&
+                pGIPTI->adfSrcGeoTransform[1] != 0 &&
+                pGIPTI->adfSrcGeoTransform[2] == 0 &&
+                pGIPTI->adfSrcGeoTransform[4] == 0 &&
+                pGIPTI->adfSrcGeoTransform[5] != 0 )
+            {
+                const double dfULX = pGIPTI->adfSrcGeoTransform[0];
+                const double dfULY = pGIPTI->adfSrcGeoTransform[3];
+                const double dfLRX = dfULX + pGIPTI->adfSrcGeoTransform[1] * nInXSize;
+                const double dfLRY = dfULY + pGIPTI->adfSrcGeoTransform[5] * nInYSize;
+                const double dfMinSrcX = std::min(dfULX, dfLRX);
+                const double dfMinSrcY = std::min(dfULY, dfLRY);
+                const double dfMaxSrcX = std::max(dfULX, dfLRX);
+                const double dfMaxSrcY = std::max(dfULY, dfLRY);
+                double dfTmpMinXOut = std::numeric_limits<double>::max();
+                double dfTmpMinYOut = std::numeric_limits<double>::max();
+                double dfTmpMaxXOut = std::numeric_limits<double>::min();
+                double dfTmpMaxYOut = std::numeric_limits<double>::min();
+                if( psRTI->poForwardTransform->TransformBounds(
+                    dfMinSrcX, dfMinSrcY, dfMaxSrcX, dfMaxSrcY,
+                    &dfTmpMinXOut, &dfTmpMinYOut, &dfTmpMaxXOut, &dfTmpMaxYOut,
+                    2) ) // minimum number of points as we already have a logic above to sample
+                {
+                    dfMinXOut = std::min(dfMinXOut, dfTmpMinXOut);
+                    dfMinYOut = std::min(dfMinYOut, dfTmpMinYOut);
+                    dfMaxXOut = std::max(dfMaxXOut, dfTmpMaxXOut);
+                    dfMaxYOut = std::max(dfMaxYOut, dfTmpMaxYOut);
                 }
             }
         }
@@ -1669,6 +1707,28 @@ bool GDALComputeAreaOfInterest(OGRSpatialReference* poSRS,
  * GeoTIFF datasets should be used to store the backmap. The default is NO, that
  * is to use in-memory arrays, unless the number of pixels of the geolocation
  * array is greater than 16 megapixels.
+ * <li> GEOLOC_ARRAY/SRC_GEOLOC_ARRAY=filename. (GDAL &gt;= 3.5.2)
+ * Name of a GDAL dataset containing a geolocation array and associated metadata.
+ * This is an alternative to having geolocation information described in the
+ * GEOLOCATION metadata domain of the source dataset. The dataset specified may
+ * have a GEOLOCATION metadata domain containing appropriate metadata, however
+ * default values are assigned for all omitted items. X_BAND defaults to 1 and
+ * Y_BAND to 2, however the dataset must contain exactly 2 bands. PIXEL_OFFSET
+ * and LINE_OFFSET default to 0. PIXEL_STEP and LINE_STEP default to the ratio
+ * of the width/height of the source dataset divided by the with/height of the
+ * geolocation array. SRS defaults to the geolocation array dataset's spatial
+ * reference system if set, otherwise WGS84 is used.
+ * GEOREFERENCING_CONVENTION is selected from the main metadata domain if it
+ * is omitted from the GEOLOCATION domain, and if not available
+ * TOP_LEFT_CORNER is assigned as a default.
+ * If GEOLOC_ARRAY is set SRC_METHOD
+ * defaults to GEOLOC_ARRAY.
+ * <li>DST_GEOLOC_ARRAY=filename. (GDAL &gt;= 3.5.2) Name of a
+ * GDAL dataset that contains at least 2 bands with the X and Y geolocation bands.
+ * This is an alternative to having geolocation information described in the
+ * GEOLOCATION metadata domain of the destination dataset.
+ * See SRC_GEOLOC_ARRAY description for details, assumptions, and defaults.
+ * If this option is set, DST_METHOD=GEOLOC_ARRAY will be assumed if not set.
  * </ul>
  *
  * The use case for the *_APPROX_ERROR_* options is when defining an approximate
@@ -1697,7 +1757,7 @@ GDALCreateGenImgProjTransformer2( GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
                                   char **papszOptions )
 
 {
-    char **papszMD = nullptr;
+    CSLConstList papszMD = nullptr;
     GDALRPCInfoV2 sRPCInfo;
     const char *pszMethod = CSLFetchNameValue( papszOptions, "SRC_METHOD" );
     if( pszMethod == nullptr )
@@ -1767,6 +1827,13 @@ GDALCreateGenImgProjTransformer2( GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
             return nullptr;
         }
     }
+
+    const char* pszSrcGeolocArray = CSLFetchNameValueDef(
+        papszOptions, "SRC_GEOLOC_ARRAY",
+        CSLFetchNameValue(papszOptions, "GEOLOC_ARRAY"));
+    if( pszMethod == nullptr && pszSrcGeolocArray != nullptr )
+        pszMethod = "GEOLOC_ARRAY";
+
 /* -------------------------------------------------------------------- */
 /*      Initialize the transform info.                                  */
 /* -------------------------------------------------------------------- */
@@ -1792,13 +1859,7 @@ GDALCreateGenImgProjTransformer2( GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
     }
     else if( (pszMethod == nullptr || EQUAL(pszMethod, "GEOTRANSFORM"))
              && GDALGetGeoTransform( hSrcDS, psInfo->adfSrcGeoTransform )
-             == CE_None
-             && (psInfo->adfSrcGeoTransform[0] != 0.0
-                 || psInfo->adfSrcGeoTransform[1] != 1.0
-                 || psInfo->adfSrcGeoTransform[2] != 0.0
-                 || psInfo->adfSrcGeoTransform[3] != 0.0
-                 || psInfo->adfSrcGeoTransform[4] != 0.0
-                 || psInfo->adfSrcGeoTransform[5] != 1.0) )
+             == CE_None )
     {
         if( !GDALInvGeoTransform( psInfo->adfSrcGeoTransform,
                                   psInfo->adfSrcInvGeoTransform ) )
@@ -1906,11 +1967,31 @@ GDALCreateGenImgProjTransformer2( GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
     }
 
     else if( (pszMethod == nullptr || EQUAL(pszMethod, "GEOLOC_ARRAY"))
-             && (papszMD = GDALGetMetadata( hSrcDS, "GEOLOCATION" )) != nullptr )
+             && ((papszMD = GDALGetMetadata( hSrcDS, "GEOLOCATION" )) != nullptr ||
+                 pszSrcGeolocArray != nullptr) )
     {
+        CPLStringList aosGeolocMD; // keep in this scope
+        if( pszSrcGeolocArray != nullptr )
+        {
+            if( papszMD != nullptr )
+            {
+                CPLError(CE_Warning, CPLE_AppDefined,
+                         "Both GEOLOCATION metadata domain on the source dataset "
+                         "and [SRC_]GEOLOC_ARRAY transformer option are set. "
+                         "Only using the later.");
+            }
+            aosGeolocMD = GDALCreateGeolocationMetadata(hSrcDS, pszSrcGeolocArray,
+                                                        /* bIsSource= */ true);
+            if( aosGeolocMD.empty() )
+            {
+                GDALDestroyGenImgProjTransformer( psInfo );
+                return nullptr;
+            }
+            papszMD = aosGeolocMD.List();
+        }
+
         psInfo->pSrcTransformArg =
             GDALCreateGeoLocTransformerEx( hSrcDS, papszMD, FALSE, nullptr, papszOptions );
-
         if( psInfo->pSrcTransformArg == nullptr )
         {
             GDALDestroyGenImgProjTransformer( psInfo );
@@ -1942,12 +2023,11 @@ GDALCreateGenImgProjTransformer2( GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
     else
     {
         CPLError(CE_Failure, CPLE_AppDefined,
-                 "The transformation is already \"north up\" or "
-                 "a transformation between pixel/line and georeferenced "
-                 "coordinates cannot be computed for %s. "
+                 "Unable to compute a transformation between pixel/line "
+                 "and georeferenced coordinates for %s. "
                  "There is no affine transformation and no GCPs. "
-                 "Specify transformation option SRC_METHOD=NO_GEOTRANSFORM to "
-                 "bypass this check.",
+                 "Specify transformation option SRC_METHOD=NO_GEOTRANSFORM "
+                 "to bypass this check.",
                  GDALGetDescription(hSrcDS));
 
         GDALDestroyGenImgProjTransformer( psInfo );
@@ -1986,6 +2066,10 @@ GDALCreateGenImgProjTransformer2( GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
 /*      If we have no destination use a unit transform.                 */
 /* -------------------------------------------------------------------- */
     const char *pszDstMethod = CSLFetchNameValue( papszOptions, "DST_METHOD" );
+    const char* pszDstGeolocArray = CSLFetchNameValue(
+        papszOptions, "DST_GEOLOC_ARRAY");
+    if( pszDstMethod == nullptr && pszDstGeolocArray != nullptr )
+        pszDstMethod = "GEOLOC_ARRAY";
 
     if( !hDstDS || (pszDstMethod != nullptr &&
                     EQUAL(pszDstMethod, "NO_GEOTRANSFORM"))  )
@@ -2092,11 +2176,31 @@ GDALCreateGenImgProjTransformer2( GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
         }
     }
     else if( (pszDstMethod == nullptr || EQUAL(pszDstMethod, "GEOLOC_ARRAY"))
-             && (papszMD = GDALGetMetadata( hDstDS, "GEOLOCATION" )) != nullptr )
+             && ((papszMD = GDALGetMetadata( hDstDS, "GEOLOCATION" )) != nullptr ||
+                 pszDstGeolocArray != nullptr) )
     {
+        CPLStringList aosGeolocMD; // keep in this scope
+        if( pszDstGeolocArray != nullptr )
+        {
+            if( papszMD != nullptr )
+            {
+                CPLError(CE_Warning, CPLE_AppDefined,
+                         "Both GEOLOCATION metadata domain on the target dataset "
+                         "and DST_GEOLOC_ARRAY transformer option are set. "
+                         "Only using the later.");
+            }
+            aosGeolocMD = GDALCreateGeolocationMetadata(hDstDS, pszDstGeolocArray,
+                                                             /* bIsSource= */ false);
+            if( aosGeolocMD.empty() )
+            {
+                GDALDestroyGenImgProjTransformer( psInfo );
+                return nullptr;
+            }
+            papszMD = aosGeolocMD.List();
+        }
+
         psInfo->pDstTransformArg =
             GDALCreateGeoLocTransformerEx( hDstDS, papszMD, FALSE, nullptr, papszOptions );
-
         if( psInfo->pDstTransformArg == nullptr )
         {
             GDALDestroyGenImgProjTransformer( psInfo );
@@ -2218,6 +2322,7 @@ GDALCreateGenImgProjTransformer2( GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
         if( pszSrcCoordEpoch )
         {
             aosOptions.SetNameValue("SRC_COORDINATE_EPOCH", pszSrcCoordEpoch);
+            oSrcSRS.SetCoordinateEpoch(CPLAtof(pszSrcCoordEpoch));
         }
 
         const char* pszDstCoordEpoch = CSLFetchNameValue(papszOptions,
@@ -2225,6 +2330,7 @@ GDALCreateGenImgProjTransformer2( GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
         if( pszDstCoordEpoch )
         {
             aosOptions.SetNameValue("DST_COORDINATE_EPOCH", pszDstCoordEpoch);
+            oDstSRS.SetCoordinateEpoch(CPLAtof(pszDstCoordEpoch));
         }
 
         psInfo->pReprojectArg =
