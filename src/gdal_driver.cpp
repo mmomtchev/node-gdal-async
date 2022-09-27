@@ -158,7 +158,7 @@ auto DatasetRval = [](GDALDataset *ds, const GetFromPersistentFunc &) { return D
  * @param {number} [y_size=0] raster height in pixels (ignored for vector
  * datasets)
  * @param {number} [band_count=0]
- * @param {number} [data_type=GDT_Byte] pixel data type (ignored for
+ * @param {string} [data_type=GDT_Byte] pixel data type (ignored for
  * vector datasets) (see {@link GDT|data types}
  * @param {StringOptions} [creation_options] An array or object containing
  * driver-specific dataset creation options
@@ -179,7 +179,7 @@ auto DatasetRval = [](GDALDataset *ds, const GetFromPersistentFunc &) { return D
  * @param {number} [y_size=0] raster height in pixels (ignored for vector
  * datasets)
  * @param {number} [band_count=0]
- * @param {number} [data_type=GDT_Byte] pixel data type (ignored for
+ * @param {string} [data_type=GDT_Byte] pixel data type (ignored for
  * vector datasets) (see {@link GDT|data types}
  * @param {StringOptions} [creation_options] An array or object containing
  * driver-specific dataset creation options

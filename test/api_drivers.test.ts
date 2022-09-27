@@ -195,6 +195,17 @@ describe('gdal.drivers', () => {
     })
   })
 
+  describe('create()', () => {
+    it('should operate normally', () => {
+      const driver = gdal.drivers.get('GTiff')
+      const outputFilename = '/vsimem/gdal_driver_create.tiff'
+      const ds = driver.create(outputFilename, 50, 50, 1, gdal.GDT_Byte)
+      assert.equal(ds.driver.description, 'GTiff')
+      ds.close()
+      assert.equal(gdal.open('/vsimem/gdal_driver_create.tiff').rasterSize.x, 50)
+    })
+  })
+
   describe('createCopy()', () => {
     it('should operate normally', () => {
       const driver = gdal.drivers.get('MEM')
