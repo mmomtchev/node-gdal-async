@@ -20,7 +20,7 @@ if [ -n "${CCACHE_DIR}" ]; then
 else
   echo -e "${SEP}Host has no ccache installed${SEP}"
 fi
-rsync -r /src/ /target/src --exclude=build --exclude=test/data --exclude node_modules
+rsync -lr /src/ /target/src --exclude=build --exclude=test/data --exclude node_modules
 cd /target/src
 rm -rf lib/binding package-lock.json
 git checkout test/data
