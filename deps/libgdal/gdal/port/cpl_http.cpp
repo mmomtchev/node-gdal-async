@@ -74,7 +74,6 @@
 
 #endif // HAVE_CURL
 
-CPL_CVSID("$Id$")
 
 // list of named persistent http sessions
 
@@ -961,20 +960,36 @@ int CPLHTTPPopFetchCallback(void)
  *     Default to NO.</li>
  * <li>USE_CAPI_STORE=YES/NO (GDAL >= 2.3, Windows only): whether CA certificates from
  *     the Windows certificate store. Defaults to NO.</li>
+ * <li>TCP_KEEPALIVE=YES/NO (GDAL >= 3.6): whether to enable TCP keep-alive.
+ *     Defaults to NO</li>
+ * <li>TCP_KEEPIDLE=integer, in seconds (GDAL >= 3.6): keep-alive idle time.
+ *     Defaults to 60. Only taken into account if TCP_KEEPALIVE=YES.</li>
+ * <li>TCP_KEEPINTVL=integer, in seconds (GDAL >= 3.6): interval time between
+ *     keep-alive probes.
+ *     Defaults to 60. Only taken into account if TCP_KEEPALIVE=YES.</li>
  * </ul>
  *
  * Alternatively, if not defined in the papszOptions arguments, the
  * CONNECTTIMEOUT, TIMEOUT,
  * LOW_SPEED_TIME, LOW_SPEED_LIMIT, USERPWD, PROXY, HTTPS_PROXY, PROXYUSERPWD, PROXYAUTH, NETRC,
  * MAX_RETRY and RETRY_DELAY, HEADER_FILE, HTTP_VERSION, SSL_VERIFYSTATUS, USE_CAPI_STORE,
- * GSSAPI_DELEGATION
+ * GSSAPI_DELEGATION, TCP_KEEPALIVE, TCP_KEEPIDLE, TCP_KEEPINTVL
  * values are searched in the configuration
  * options respectively named GDAL_HTTP_CONNECTTIMEOUT, GDAL_HTTP_TIMEOUT,
  * GDAL_HTTP_LOW_SPEED_TIME, GDAL_HTTP_LOW_SPEED_LIMIT, GDAL_HTTP_USERPWD,
  * GDAL_HTTP_PROXY, GDAL_HTTPS_PROXY, GDAL_HTTP_PROXYUSERPWD, GDAL_PROXY_AUTH,
  * GDAL_HTTP_NETRC, GDAL_HTTP_MAX_RETRY, GDAL_HTTP_RETRY_DELAY,
  * GDAL_HTTP_HEADER_FILE, GDAL_HTTP_VERSION, GDAL_HTTP_SSL_VERIFYSTATUS,
- * GDAL_HTTP_USE_CAPI_STORE, GDAL_GSSAPI_DELEGATION
+ * GDAL_HTTP_USE_CAPI_STORE, GDAL_GSSAPI_DELEGATION,
+ * GDAL_HTTP_TCP_KEEPALIVE, GDAL_HTTP_TCP_KEEPIDLE, GDAL_HTTP_TCP_KEEPINTVL.
+ *
+ * Starting with GDAL 3.6, the GDAL_HTTP_HEADERS configuration option can also be
+ * used to specify a comma separated list of key: value pairs. This is an
+ * alternative to the GDAL_HTTP_HEADER_FILE mechanism. If a comma or a double-quote
+ * character is needed in the value, then the key: value pair must be
+ * enclosed in double-quote characters. In that situation, backslash and double
+ * quote character must be backslash-escaped.
+ * e.g GDAL_HTTP_HEADERS=Foo: Bar,"Baz: escaped backslash \\, escaped double-quote \", end of value",Another: Header
  *
  * @return a CPLHTTPResult* structure that must be freed by
  * CPLHTTPDestroyResult(), or NULL if libcurl support is disabled
@@ -1845,6 +1860,47 @@ static const char* CPLFindWin32CurlCaBundleCrt()
 #endif // WIN32
 
 /************************************************************************/
+/*                     CPLHTTPCurlDebugFunction()                       */
+/************************************************************************/
+
+static
+int CPLHTTPCurlDebugFunction(CURL *handle, curl_infotype type,
+                             char *data, size_t size,
+                             void *userp)
+{
+    (void)handle;
+    (void)userp;
+
+    const char* pszDebugKey = nullptr;
+    if( type == CURLINFO_TEXT )
+    {
+        pszDebugKey = "CURL_INFO_TEXT";
+    }
+    else if( type == CURLINFO_HEADER_OUT )
+    {
+        pszDebugKey = "CURL_INFO_HEADER_OUT";
+    }
+    else if( type == CURLINFO_HEADER_IN )
+    {
+        pszDebugKey = "CURL_INFO_HEADER_IN";
+    }
+    else if( type == CURLINFO_DATA_IN &&
+             CPLTestBool(CPLGetConfigOption("CPL_CURL_VERBOSE_DATA_IN", "NO")) )
+    {
+        pszDebugKey = "CURL_INFO_DATA_IN";
+    }
+
+    if( pszDebugKey )
+    {
+        std::string osMsg(data, size);
+        if( !osMsg.empty() && osMsg.back() == '\n' )
+            osMsg.resize(osMsg.size()-1);
+        CPLDebug(pszDebugKey, "%s", osMsg.c_str());
+    }
+    return 0;
+}
+
+/************************************************************************/
 /*                         CPLHTTPSetOptions()                          */
 /************************************************************************/
 
@@ -1864,7 +1920,15 @@ void *CPLHTTPSetOptions(void *pcurl, const char* pszURL,
     unchecked_curl_easy_setopt(http_handle, CURLOPT_URL, pszURL);
 
     if( CPLTestBool(CPLGetConfigOption("CPL_CURL_VERBOSE", "NO")) )
+    {
         unchecked_curl_easy_setopt(http_handle, CURLOPT_VERBOSE, 1);
+
+        if( CPLGetConfigOption("CPL_DEBUG", nullptr) != nullptr )
+        {
+            unchecked_curl_easy_setopt(http_handle, CURLOPT_DEBUGFUNCTION,
+                                       CPLHTTPCurlDebugFunction);
+        }
+    }
 
     const char *pszHttpVersion =
         CSLFetchNameValue( papszOptions, "HTTP_VERSION");
@@ -2260,6 +2324,32 @@ void *CPLHTTPSetOptions(void *pcurl, const char* pszURL,
     if( pszCookieJar != nullptr )
         unchecked_curl_easy_setopt(http_handle, CURLOPT_COOKIEJAR, pszCookieJar);
 
+    // TCP keep-alive
+    const char *pszTCPKeepAlive = CSLFetchNameValue(papszOptions, "TCP_KEEPALIVE");
+    if( pszTCPKeepAlive == nullptr )
+        pszTCPKeepAlive = CPLGetConfigOption("GDAL_HTTP_TCP_KEEPALIVE", "YES");
+    if( pszTCPKeepAlive != nullptr && CPLTestBool(pszTCPKeepAlive) )
+    {
+        // Set keep-alive interval.
+        int nKeepAliveInterval = 60;
+        const char *pszKeepAliveInterval = CSLFetchNameValue(papszOptions, "TCP_KEEPINTVL");
+        if( pszKeepAliveInterval == nullptr )
+            pszKeepAliveInterval = CPLGetConfigOption("GDAL_HTTP_TCP_KEEPINTVL", nullptr);
+        if( pszKeepAliveInterval != nullptr )
+            nKeepAliveInterval = atoi(pszKeepAliveInterval);
+
+        // Set keep-alive idle wait time.
+        int nKeepAliveIdle = 60;
+        const char *pszKeepAliveIdle = CSLFetchNameValue(papszOptions, "TCP_KEEPIDLE");
+        if( pszKeepAliveIdle == nullptr )
+            pszKeepAliveIdle = CPLGetConfigOption("GDAL_HTTP_TCP_KEEPIDLE", nullptr);
+        if( pszKeepAliveIdle != nullptr )
+            nKeepAliveIdle = atoi(pszKeepAliveIdle);
+
+        unchecked_curl_easy_setopt(http_handle, CURLOPT_TCP_KEEPALIVE, 1L);
+        unchecked_curl_easy_setopt(http_handle, CURLOPT_TCP_KEEPINTVL, nKeepAliveInterval);
+        unchecked_curl_easy_setopt(http_handle, CURLOPT_TCP_KEEPIDLE, nKeepAliveIdle);
+    }
 
     struct curl_slist* headers = nullptr;
     const char *pszHeaderFile = CSLFetchNameValue( papszOptions, "HEADER_FILE" );
@@ -2290,6 +2380,17 @@ void *CPLHTTPSetOptions(void *pcurl, const char* pszURL,
             }
             VSIFCloseL(fp);
         }
+    }
+
+    const char* pszHeaders = CPLGetConfigOption("GDAL_HTTP_HEADERS", nullptr);
+    if( pszHeaders )
+    {
+         const CPLStringList aosTokens(
+             CSLTokenizeString2( pszHeaders, ",", CSLT_HONOURSTRINGS ));
+         for( int i = 0; i < aosTokens.size(); ++i )
+         {
+             headers = curl_slist_append(headers, aosTokens[i]);
+         }
     }
 
     return headers;

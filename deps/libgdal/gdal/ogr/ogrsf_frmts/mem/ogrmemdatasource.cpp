@@ -35,7 +35,6 @@
 #include "ogr_spatialref.h"
 #include "ogrsf_frmts.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                          OGRMemDataSource()                          */
@@ -136,6 +135,8 @@ int OGRMemDataSource::TestCapability( const char *pszCap )
     else if( EQUAL(pszCap, ODsCCurveGeometries) )
         return TRUE;
     else if( EQUAL(pszCap, ODsCMeasuredGeometries) )
+        return TRUE;
+    else if( EQUAL(pszCap, ODsCZGeometries) )
         return TRUE;
     else if( EQUAL(pszCap, ODsCRandomLayerWrite) )
         return TRUE;

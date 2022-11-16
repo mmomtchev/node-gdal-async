@@ -31,7 +31,6 @@
 #include "cpl_string.h"
 #include "ogr_ili2.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                           OGRILI2Layer()                              */
@@ -325,6 +324,8 @@ OGRErr OGRILI2Layer::ICreateFeature( OGRFeature *poFeature ) {
 
 int OGRILI2Layer::TestCapability( CPL_UNUSED const char * pszCap ) {
     if( EQUAL(pszCap,OLCCurveGeometries) )
+        return TRUE;
+    else if( EQUAL(pszCap,OLCZGeometries) )
         return TRUE;
 
     return FALSE;

@@ -36,7 +36,6 @@
 #include <algorithm>
 #include <set>
 
-CPL_CVSID("$Id$")
 
 namespace OGRODS {
 
@@ -279,11 +278,13 @@ int OGRODSDataSource::TestCapability( const char * pszCap )
     else if( EQUAL(pszCap,ODsCRandomLayerWrite) )
         return bUpdatable;
     else if( EQUAL(pszCap,ODsCMeasuredGeometries) )
-        return TRUE;
+        return true;
+    else if( EQUAL(pszCap,ODsCZGeometries) )
+        return true;
     else if( EQUAL(pszCap,ODsCCurveGeometries) )
-        return TRUE;
+        return true;
     else
-        return FALSE;
+        return false;
 }
 
 /************************************************************************/
@@ -726,6 +727,7 @@ static void ReserveAndLimitFieldCount(OGRLayer* poLayer,
                  "to allow more fields.",
                  static_cast<int>(aosValues.size()),
                  nMaxCols);
+        // coverity[tainted_data]
         aosValues.resize(nMaxCols);
     }
 

@@ -30,7 +30,6 @@
 #include "cpl_conv.h"
 #include "cpl_string.h"
 
-CPL_CVSID("$Id$")
 
 constexpr int anEPSGOracleMapping[] =
 {
@@ -674,6 +673,8 @@ int OGROCIDataSource::TestCapability( const char * pszCap )
         return TRUE;
     else if( EQUAL(pszCap,ODsCRandomLayerWrite) )
         return bDSUpdate;
+    else if( EQUAL(pszCap,ODsCZGeometries) )
+        return TRUE;
     else
         return FALSE;
 }

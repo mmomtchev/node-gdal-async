@@ -34,9 +34,13 @@
 #include "cpl_error.h"
 #include "ogr_p.h"
 
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+
 #define PQexec this_is_an_error
 
-CPL_CVSID("$Id$")
 
 #define UNSUPPORTED_OP_READ_ONLY "%s : unsupported operation on a read-only datasource."
 
@@ -768,6 +772,7 @@ void OGRPGTableLayer::SetTableDefinition(const char* pszFIDColumnName,
     {
         m_osFirstGeometryFieldName = pszGFldName;
     }
+    m_osLCOGeomType = pszGeomType;
 }
 
 /************************************************************************/
@@ -2033,7 +2038,8 @@ int OGRPGTableLayer::TestCapability( const char * pszCap )
             EQUAL(pszCap,OLCCreateField) ||
             EQUAL(pszCap,OLCCreateGeomField) ||
             EQUAL(pszCap,OLCDeleteField) ||
-            EQUAL(pszCap,OLCAlterFieldDefn)||
+            EQUAL(pszCap,OLCAlterFieldDefn) ||
+            EQUAL(pszCap,OLCAlterGeomFieldDefn) ||
             EQUAL(pszCap,OLCRename) )
             return TRUE;
 
@@ -2096,6 +2102,9 @@ int OGRPGTableLayer::TestCapability( const char * pszCap )
         return TRUE;
 
     else if( EQUAL(pszCap,OLCMeasuredGeometries) )
+        return TRUE;
+
+    else if( EQUAL(pszCap,OLCZGeometries) )
         return TRUE;
 
     else
@@ -2346,7 +2355,7 @@ OGRErr OGRPGTableLayer::CreateGeomField( OGRGeomFieldDefn *poGeomFieldIn,
     if( EQUAL(poGeomField->GetNameRef(), "") )
     {
         if( poFeatureDefn->GetGeomFieldCount() == 0 )
-            poGeomField->SetName( "wkb_geometry" );
+            poGeomField->SetName( EQUAL(m_osLCOGeomType.c_str(), "geography") ? "the_geog" : "wkb_geometry" );
         else
             poGeomField->SetName(
                 CPLSPrintf("wkb_geometry%d", poFeatureDefn->GetGeomFieldCount()+1) );
@@ -2394,7 +2403,7 @@ OGRErr OGRPGTableLayer::CreateGeomField( OGRGeomFieldDefn *poGeomFieldIn,
     poGeomField->SetNullable( poGeomFieldIn->IsNullable() );
     poGeomField->nSRSId = nSRSId;
     poGeomField->GeometryTypeFlags = GeometryTypeFlags;
-    poGeomField->ePostgisType = GEOM_TYPE_GEOMETRY;
+    poGeomField->ePostgisType = EQUAL(m_osLCOGeomType.c_str(), "geography") ? GEOM_TYPE_GEOGRAPHY : GEOM_TYPE_GEOMETRY;
 
 /* -------------------------------------------------------------------- */
 /*      Create the new field.                                           */
@@ -2721,6 +2730,229 @@ OGRErr OGRPGTableLayer::AlterFieldDefn( int iField, OGRFieldDefn* poNewFieldDefn
         poFieldDefn->SetDefault(oField.GetDefault());
     if (nFlagsIn & ALTER_UNIQUE_FLAG)
         poFieldDefn->SetUnique(oField.IsUnique());
+
+    return OGRERR_NONE;
+}
+
+/************************************************************************/
+/*                         AlterGeomFieldDefn()                         */
+/************************************************************************/
+
+OGRErr OGRPGTableLayer::AlterGeomFieldDefn( int iGeomFieldToAlter,
+                                            const OGRGeomFieldDefn* poNewGeomFieldDefn,
+                                            int nFlagsIn )
+{
+    PGconn              *hPGConn = poDS->GetPGConn();
+    CPLString           osCommand;
+
+    if( !bUpdateAccess )
+    {
+        CPLError( CE_Failure, CPLE_NotSupported,
+                  UNSUPPORTED_OP_READ_ONLY,
+                  "AlterGeomFieldDefn");
+        return OGRERR_FAILURE;
+    }
+
+    if (iGeomFieldToAlter < 0 || iGeomFieldToAlter >= GetLayerDefn()->GetGeomFieldCount())
+    {
+        CPLError( CE_Failure, CPLE_NotSupported,
+                  "Invalid field index");
+        return OGRERR_FAILURE;
+    }
+
+    if( bDeferredCreation && RunDeferredCreationIfNecessary() != OGRERR_NONE )
+        return OGRERR_FAILURE;
+    poDS->EndCopy();
+
+    auto poGeomFieldDefn =
+        cpl::down_cast<OGRPGGeomFieldDefn*>(poFeatureDefn->GetGeomFieldDefn(iGeomFieldToAlter));
+
+    if( nFlagsIn & ALTER_GEOM_FIELD_DEFN_SRS_COORD_EPOCH_FLAG )
+    {
+        const auto poNewSRSRef = poNewGeomFieldDefn->GetSpatialRef();
+        if( poNewSRSRef && poNewSRSRef->GetCoordinateEpoch() > 0 )
+        {
+            CPLError(CE_Failure, CPLE_NotSupported,
+                     "Setting a coordinate epoch is not supported for "
+                     "PostGIS");
+            return OGRERR_FAILURE;
+        }
+    }
+
+    const OGRGeomFieldDefn oGeomField( poNewGeomFieldDefn );
+    poDS->SoftStartTransaction();
+
+    int nGeomTypeFlags = poGeomFieldDefn->GeometryTypeFlags;
+
+    if( (nFlagsIn & ALTER_GEOM_FIELD_DEFN_TYPE_FLAG) &&
+        poGeomFieldDefn->GetType() != poNewGeomFieldDefn->GetType() )
+    {
+        const char *pszGeometryType = OGRToOGCGeomType(poNewGeomFieldDefn->GetType());
+        std::string osType;
+        if( poGeomFieldDefn->ePostgisType == GEOM_TYPE_GEOMETRY )
+            osType += "geometry(";
+        else
+            osType += "geography(";
+        osType += pszGeometryType;
+        nGeomTypeFlags = 0;
+        if( OGR_GT_HasZ(poNewGeomFieldDefn->GetType()) )
+            nGeomTypeFlags |= OGRGeometry::OGR_G_3D;
+        if( OGR_GT_HasM(poNewGeomFieldDefn->GetType()) )
+            nGeomTypeFlags |= OGRGeometry::OGR_G_MEASURED;
+        if( nGeomTypeFlags & OGRGeometry::OGR_G_3D )
+            osType += "Z";
+        else if( nGeomTypeFlags & OGRGeometry::OGR_G_MEASURED )
+            osType += "M";
+        if( poGeomFieldDefn->nSRSId > 0 )
+            osType += CPLSPrintf(",%d", poGeomFieldDefn->nSRSId);
+        osType += ")";
+
+        osCommand.Printf( "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
+                    pszSqlTableName,
+                    OGRPGEscapeColumnName(poGeomFieldDefn->GetNameRef()).c_str(),
+                    osType.c_str() );
+
+        PGresult* hResult = OGRPG_PQexec(hPGConn, osCommand);
+        if( PQresultStatus(hResult) != PGRES_COMMAND_OK )
+        {
+            CPLError( CE_Failure, CPLE_AppDefined,
+                    "%s\n%s",
+                    osCommand.c_str(),
+                    PQerrorMessage(hPGConn) );
+
+            OGRPGClearResult( hResult );
+
+            poDS->SoftRollbackTransaction();
+
+            return OGRERR_FAILURE;
+        }
+        OGRPGClearResult( hResult );
+    }
+
+    const auto poOldSRS = poGeomFieldDefn->GetSpatialRef();
+    int nSRID = poGeomFieldDefn->nSRSId;
+
+    if( (nFlagsIn & ALTER_GEOM_FIELD_DEFN_SRS_FLAG) )
+    {
+        const auto poNewSRS = poNewGeomFieldDefn->GetSpatialRef();
+        const char* const apszOptions[] =
+        {
+            "IGNORE_DATA_AXIS_TO_SRS_AXIS_MAPPING=YES",
+            nullptr
+        };
+        if( (poOldSRS == nullptr && poNewSRS != nullptr) ||
+            (poOldSRS != nullptr && poNewSRS == nullptr) ||
+            (poOldSRS != nullptr && poNewSRS != nullptr &&
+             !poOldSRS->IsSame(poNewSRS, apszOptions)) )
+        {
+            if( poNewSRS )
+                nSRID = poDS->FetchSRSId(poNewSRS);
+            else
+                nSRID = 0;
+
+            osCommand.Printf( "SELECT UpdateGeometrySRID(%s,%s,%s,%d)",
+                  OGRPGEscapeString(hPGConn, pszSchemaName).c_str(),
+                  OGRPGEscapeString(hPGConn, pszTableName).c_str(),
+                  OGRPGEscapeString(hPGConn, poGeomFieldDefn->GetNameRef()).c_str(),
+                  nSRID);
+
+            PGresult* hResult = OGRPG_PQexec(hPGConn, osCommand);
+            if( PQresultStatus(hResult) != PGRES_TUPLES_OK )
+            {
+                CPLError( CE_Failure, CPLE_AppDefined,
+                        "%s\n%s",
+                        osCommand.c_str(),
+                        PQerrorMessage(hPGConn) );
+
+                OGRPGClearResult( hResult );
+
+                poDS->SoftRollbackTransaction();
+
+                return OGRERR_FAILURE;
+            }
+            OGRPGClearResult( hResult );
+        }
+    }
+
+    if( (nFlagsIn & ALTER_GEOM_FIELD_DEFN_NULLABLE_FLAG) &&
+        poGeomFieldDefn->IsNullable() != poNewGeomFieldDefn->IsNullable() )
+    {
+        if( poNewGeomFieldDefn->IsNullable() )
+            osCommand.Printf( "ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL",
+                    pszSqlTableName,
+                    OGRPGEscapeColumnName(poGeomFieldDefn->GetNameRef()).c_str() );
+        else
+            osCommand.Printf( "ALTER TABLE %s ALTER COLUMN %s SET NOT NULL",
+                    pszSqlTableName,
+                    OGRPGEscapeColumnName(poGeomFieldDefn->GetNameRef()).c_str() );
+
+        PGresult* hResult = OGRPG_PQexec(hPGConn, osCommand);
+        if( PQresultStatus(hResult) != PGRES_COMMAND_OK )
+        {
+            CPLError( CE_Failure, CPLE_AppDefined,
+                    "%s\n%s",
+                    osCommand.c_str(),
+                    PQerrorMessage(hPGConn) );
+
+            OGRPGClearResult( hResult );
+
+            poDS->SoftRollbackTransaction();
+
+            return OGRERR_FAILURE;
+        }
+        OGRPGClearResult( hResult );
+    }
+
+    if( (nFlagsIn & ALTER_GEOM_FIELD_DEFN_NAME_FLAG) &&
+        strcmp(poGeomFieldDefn->GetNameRef(), poNewGeomFieldDefn->GetNameRef()) != 0 )
+    {
+        osCommand.Printf( "ALTER TABLE %s RENAME COLUMN %s TO %s",
+                        pszSqlTableName,
+                        OGRPGEscapeColumnName(poGeomFieldDefn->GetNameRef()).c_str(),
+                        OGRPGEscapeColumnName(oGeomField.GetNameRef()).c_str() );
+        PGresult* hResult = OGRPG_PQexec(hPGConn, osCommand);
+        if( PQresultStatus(hResult) != PGRES_COMMAND_OK )
+        {
+            CPLError( CE_Failure, CPLE_AppDefined,
+                    "%s\n%s",
+                    osCommand.c_str(),
+                    PQerrorMessage(hPGConn) );
+
+            OGRPGClearResult( hResult );
+
+            poDS->SoftRollbackTransaction();
+
+            return OGRERR_FAILURE;
+        }
+        OGRPGClearResult( hResult );
+    }
+
+    poDS->SoftCommitTransaction();
+
+    if (nFlagsIn & ALTER_GEOM_FIELD_DEFN_NAME_FLAG)
+        poGeomFieldDefn->SetName(oGeomField.GetNameRef());
+    if (nFlagsIn & ALTER_GEOM_FIELD_DEFN_TYPE_FLAG)
+    {
+        poGeomFieldDefn->GeometryTypeFlags = nGeomTypeFlags;
+        poGeomFieldDefn->SetType(oGeomField.GetType());
+    }
+    if (nFlagsIn & ALTER_GEOM_FIELD_DEFN_NULLABLE_FLAG)
+        poGeomFieldDefn->SetNullable(oGeomField.IsNullable());
+    if (nFlagsIn & ALTER_GEOM_FIELD_DEFN_SRS_FLAG)
+    {
+        const auto poSRSRef = oGeomField.GetSpatialRef();
+        if( poSRSRef )
+        {
+            auto poSRSNew = poSRSRef->Clone();
+            poGeomFieldDefn->SetSpatialRef(poSRSNew);
+            poSRSNew->Release();
+        }
+        else
+        {
+            poGeomFieldDefn->SetSpatialRef(nullptr);
+        }
+        poGeomFieldDefn->nSRSId = nSRID;
+    }
 
     return OGRERR_NONE;
 }
@@ -3378,4 +3610,196 @@ OGRErr OGRPGTableLayer::RunDeferredCreationIfNecessary()
         SetMetadata( papszMD );
 
     return OGRERR_NONE;
+}
+
+/************************************************************************/
+/*                         GetGeometryTypes()                           */
+/************************************************************************/
+
+OGRGeometryTypeCounter* OGRPGTableLayer::GetGeometryTypes(
+                        int iGeomField, int nFlagsGGT, int& nEntryCountOut,
+                        GDALProgressFunc pfnProgress, void* pProgressData)
+{
+    if( iGeomField < 0 || iGeomField >= GetLayerDefn()->GetGeomFieldCount() )
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "Invalid geometry field index : %d", iGeomField);
+        nEntryCountOut = 0;
+        return nullptr;
+    }
+
+    if( bDeferredCreation && RunDeferredCreationIfNecessary() != OGRERR_NONE )
+    {
+        nEntryCountOut = 0;
+        return nullptr;
+    }
+    poDS->EndCopy();
+
+    const OGRPGGeomFieldDefn* poGeomFieldDefn =
+        GetLayerDefn()->GetGeomFieldDefn(iGeomField);
+    const auto osEscapedGeom = OGRPGEscapeColumnName(poGeomFieldDefn->GetNameRef());
+    CPLString osSQL;
+    if( (nFlagsGGT & OGR_GGT_GEOMCOLLECTIONZ_TINZ) != 0 )
+    {
+        CPLString osFilter;
+        osFilter.Printf(
+            "(ST_Zmflag(%s) = 2 AND "
+            "((GeometryType(%s) = 'GEOMETRYCOLLECTION' AND "
+            "ST_NumGeometries(%s) >= 1 AND "
+            "geometrytype(ST_GeometryN(%s, 1)) = 'TIN') OR "
+            "GeometryType(%s) = 'TIN'))",
+            osEscapedGeom.c_str(),
+            osEscapedGeom.c_str(),
+            osEscapedGeom.c_str(),
+            osEscapedGeom.c_str(),
+            osEscapedGeom.c_str());
+
+        std::string l_osWHERE(osWHERE);
+        if( l_osWHERE.empty() )
+            l_osWHERE = " WHERE ";
+        else
+            l_osWHERE += " AND ";
+        l_osWHERE += "(NOT (";
+        l_osWHERE += osFilter;
+        l_osWHERE += ") OR ";
+        l_osWHERE += osEscapedGeom;
+        l_osWHERE += " IS NULL)";
+
+        std::string l_osWHEREFilter(osWHERE);
+        if( l_osWHEREFilter.empty() )
+            l_osWHEREFilter = " WHERE ";
+        else
+            l_osWHEREFilter += " AND ";
+        l_osWHEREFilter += osFilter;
+
+        osSQL.Printf(
+                 "(SELECT GeometryType(%s), ST_Zmflag(%s), COUNT(*) FROM %s %s "
+                 "GROUP BY GeometryType(%s), ST_Zmflag(%s)) UNION ALL "
+                 "(SELECT * FROM (SELECT 'TIN', 2, COUNT(*) AS count FROM %s %s) "
+                 "tinsubselect WHERE tinsubselect.count != 0)",
+                 osEscapedGeom.c_str(),
+                 osEscapedGeom.c_str(),
+                 pszSqlTableName,
+                 l_osWHERE.c_str(),
+                 osEscapedGeom.c_str(),
+                 osEscapedGeom.c_str(),
+                 pszSqlTableName,
+                 l_osWHEREFilter.c_str());
+    }
+    else if( (nFlagsGGT & OGR_GGT_STOP_IF_MIXED) != 0 )
+    {
+        std::string l_osWHERE(osWHERE);
+        if( l_osWHERE.empty() )
+            l_osWHERE = " WHERE ";
+        else
+            l_osWHERE += " AND ";
+        l_osWHERE += osEscapedGeom;
+        l_osWHERE += " IS NOT NULL";
+
+        std::string l_osWHERE_NULL(osWHERE);
+        if( l_osWHERE_NULL.empty() )
+            l_osWHERE_NULL = " WHERE ";
+        else
+            l_osWHERE_NULL += " AND ";
+        l_osWHERE_NULL += osEscapedGeom;
+        l_osWHERE_NULL += " IS NULL";
+
+        osSQL.Printf(
+                 "(SELECT DISTINCT GeometryType(%s), ST_Zmflag(%s), 0 FROM %s %s LIMIT 2) "
+                 "UNION ALL (SELECT NULL, NULL, 0 FROM %s %s LIMIT 1)",
+                 osEscapedGeom.c_str(),
+                 osEscapedGeom.c_str(),
+                 pszSqlTableName,
+                 l_osWHERE.c_str(),
+                 pszSqlTableName,
+                 l_osWHERE_NULL.c_str());
+    }
+    else
+    {
+        const bool bDebug = CPLTestBool(CPLGetConfigOption("OGR_PG_DEBUG_GGT_CANCEL", "NO"));
+        osSQL.Printf(
+                 "SELECT GeometryType(%s), ST_Zmflag(%s), COUNT(*)%s FROM %s %s "
+                 "GROUP BY GeometryType(%s), ST_Zmflag(%s)",
+                 osEscapedGeom.c_str(),
+                 osEscapedGeom.c_str(),
+                 bDebug ? ", pg_sleep(1)" : "",
+                 pszSqlTableName,
+                 osWHERE.c_str(),
+                 osEscapedGeom.c_str(),
+                 osEscapedGeom.c_str());
+    }
+
+    std::thread thread;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool stopThread = false;
+    if( pfnProgress && pfnProgress != GDALDummyProgress )
+    {
+        thread = std::thread([&]() {
+            std::unique_lock<std::mutex> lock(mutex);
+            while(!stopThread)
+            {
+                if( !pfnProgress(0.0, "", pProgressData) )
+                    poDS->AbortSQL();
+                cv.wait_for(lock, std::chrono::milliseconds(100));
+            }
+        });
+    }
+
+    PGconn      *hPGConn = poDS->GetPGConn();
+    PGresult* hResult = OGRPG_PQexec(hPGConn, osSQL.c_str() );
+
+    if( pfnProgress && pfnProgress != GDALDummyProgress )
+    {
+        {
+            std::unique_lock<std::mutex> lock(mutex);
+            stopThread = true;
+            cv.notify_one();
+        }
+        thread.join();
+    }
+
+    nEntryCountOut = 0;
+    OGRGeometryTypeCounter* pasRet = nullptr;
+    if( hResult
+        && PQresultStatus(hResult) == PGRES_TUPLES_OK  )
+    {
+        const int nTuples = PQntuples( hResult );
+        nEntryCountOut = nTuples;
+        pasRet = static_cast<OGRGeometryTypeCounter*>(
+            CPLCalloc(1 + nEntryCountOut, sizeof(OGRGeometryTypeCounter)));
+        for( int i = 0; i < nTuples; ++i )
+        {
+            const char* pszGeomType = PQgetvalue(hResult,i,0);
+            const char* pszZMFlag = PQgetvalue(hResult,i,1);
+            const char* pszCount = PQgetvalue(hResult,i,2);
+            if( pszCount )
+            {
+                if( pszGeomType == nullptr || pszGeomType[0] == '\0' )
+                {
+                    pasRet[i].eGeomType = wkbNone;
+                }
+                else if( pszZMFlag != nullptr )
+                {
+                    const int nZMFlag = atoi(pszZMFlag);
+                    pasRet[i].eGeomType = OGRFromOGCGeomType(pszGeomType);
+                    int nModifier = 0;
+                    if( nZMFlag == 1 )
+                        nModifier = OGRGeometry::OGR_G_MEASURED;
+                    else if( nZMFlag == 2 )
+                        nModifier = OGRGeometry::OGR_G_3D;
+                    else if( nZMFlag == 3 )
+                        nModifier = OGRGeometry::OGR_G_MEASURED | OGRGeometry::OGR_G_3D;
+                    pasRet[i].eGeomType = OGR_GT_SetModifier(pasRet[i].eGeomType,
+                                                             nModifier & OGRGeometry::OGR_G_3D,
+                                                             nModifier & OGRGeometry::OGR_G_MEASURED);
+                }
+                pasRet[i].nCount = static_cast<int64_t>(std::strtoll(pszCount, nullptr, 10));
+            }
+        }
+    }
+
+    OGRPGClearResult( hResult );
+
+    return pasRet;
 }

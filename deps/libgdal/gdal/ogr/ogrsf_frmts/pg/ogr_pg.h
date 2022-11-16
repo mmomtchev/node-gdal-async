@@ -330,6 +330,8 @@ class OGRPGTableLayer final: public OGRPGLayer
 
     std::vector<bool>   m_abGeneratedColumns{};
 
+    std::string         m_osLCOGeomType{};
+
     virtual CPLString   GetFromClauseForGetExtent() override { return pszSqlTableName; }
 
     OGRErr              RunAddGeometryColumn( const OGRPGGeomFieldDefn *poGeomField );
@@ -370,6 +372,9 @@ public:
                                          int bApproxOK = TRUE ) override;
     virtual OGRErr      DeleteField( int iField ) override;
     virtual OGRErr      AlterFieldDefn( int iField, OGRFieldDefn* poNewFieldDefn, int nFlags ) override;
+    virtual OGRErr      AlterGeomFieldDefn( int iGeomFieldToAlter,
+                                            const OGRGeomFieldDefn* poNewGeomFieldDefn,
+                                            int nFlagsIn ) override;
 
     virtual int         TestCapability( const char * ) override;
 
@@ -388,6 +393,9 @@ public:
     virtual CPLErr      SetMetadataItem(const char* pszName, const char* pszValue, const char* pszDomain = "") override;
 
     virtual OGRErr      Rename(const char* pszNewName) override;
+
+    OGRGeometryTypeCounter* GetGeometryTypes(int iGeomField, int nFlagsGGT, int& nEntryCountOut,
+                                             GDALProgressFunc pfnProgress, void* pProgressData) override;
 
     // follow methods are not base class overrides
     void                SetLaunderFlag( int bFlag )
@@ -555,7 +563,7 @@ class OGRPGDataSource final: public OGRDataSource
 
     PGconn              *GetPGConn() { return hPGConn; }
 
-    int                 FetchSRSId( OGRSpatialReference * poSRS );
+    int                 FetchSRSId( const OGRSpatialReference * poSRS );
     OGRSpatialReference *FetchSRS( int nSRSId );
     static OGRErr              InitializeMetadataTables();
 

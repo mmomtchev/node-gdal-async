@@ -29,16 +29,16 @@
 #include "cpl_string.h"
 #include "ogr_api.h"
 #include "ogr_srs_api.h"
+#include "memdataset.h"
 
 #include "rasterlitedataset.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                  RasterliteGetTileDriverOptions ()                   */
 /************************************************************************/
 
-static char** RasterliteAddTileDriverOptionsForDriver(char** papszOptions,
+static char** RasterliteAddTileDriverOptionsForDriver(CSLConstList papszOptions,
                                                     char** papszTileDriverOptions,
                                                     const char* pszOptionName,
                                                     const char* pszExpectedDriverName)
@@ -63,7 +63,7 @@ static char** RasterliteAddTileDriverOptionsForDriver(char** papszOptions,
     return papszTileDriverOptions;
 }
 
-char** RasterliteGetTileDriverOptions(char** papszOptions)
+char** RasterliteGetTileDriverOptions(CSLConstList papszOptions)
 {
     const char* pszDriverName =
         CSLFetchNameValueDef(papszOptions, "DRIVER", "GTiff");
@@ -600,33 +600,21 @@ RasterliteCreateCopy( const char * pszFilename, GDALDataset *poSrcDS,
                 break;
             }
 
-            GDALDatasetH hMemDS = GDALCreate(hMemDriver, "MEM:::",
-                                              nReqXSize, nReqYSize, 0,
-                                              eDataType, nullptr);
-            if (hMemDS == nullptr)
-            {
-                eErr = CE_Failure;
-                break;
-            }
-
+            auto poMEMDS = std::unique_ptr<MEMDataset>(
+                MEMDataset::Create("", nReqXSize, nReqYSize, 0, eDataType, nullptr));
             for( int iBand = 0; iBand < nBands; iBand ++)
             {
-                char szTmp[64];
-                memset(szTmp, 0, sizeof(szTmp));
-                CPLPrintPointer(szTmp,
-                                pabyMEMDSBuffer + iBand * nDataTypeSize *
-                                nReqXSize * nReqYSize, sizeof(szTmp));
-                char** papszMEMDSOptions
-                    = CSLSetNameValue(nullptr, "DATAPOINTER", szTmp);
-                GDALAddBand(hMemDS, eDataType, papszMEMDSOptions);
-                CSLDestroy(papszMEMDSOptions);
+                auto hBand = MEMCreateRasterBandEx( poMEMDS.get(), iBand + 1,
+                                                    pabyMEMDSBuffer + iBand * nDataTypeSize *
+                                                        nReqXSize * nReqYSize,
+                                                    eDataType, 0, 0, false );
+                poMEMDS->AddMEMBand(hBand);
             }
 
             GDALDatasetH hOutDS = GDALCreateCopy(hTileDriver,
-                                        osTempFileName.c_str(), hMemDS, FALSE,
+                                        osTempFileName.c_str(), poMEMDS.get(), FALSE,
                                         papszTileDriverOptions, nullptr, nullptr);
 
-            GDALClose(hMemDS);
             if ( !hOutDS )
             {
                 eErr = CE_Failure;

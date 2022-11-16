@@ -47,7 +47,6 @@
 #include "kmlvector.h"
 #include "ogrsf_frmts.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                         OGRKMLDataSource()                           */
@@ -447,6 +446,8 @@ int OGRKMLDataSource::TestCapability( const char * pszCap )
 
 {
     if( EQUAL(pszCap, ODsCCreateLayer) )
+        return TRUE;
+    else if( EQUAL(pszCap, ODsCZGeometries) )
         return TRUE;
 
     return FALSE;

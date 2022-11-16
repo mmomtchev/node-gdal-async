@@ -70,7 +70,6 @@ CPL_C_END
 #include "ogr_spatialref.h"
 #include "memdataset.h"
 
-CPL_CVSID("$Id$")
 
 static CPLMutex *hGRIBMutex = nullptr;
 
@@ -80,6 +79,8 @@ static CPLMutex *hGRIBMutex = nullptr;
 
 static CPLString ConvertUnitInText( bool bMetricUnits, const char *pszTxt )
 {
+    if( pszTxt == nullptr )
+        return CPLString();
     if( !bMetricUnits )
         return pszTxt;
 
@@ -1192,8 +1193,13 @@ class InventoryWrapperSidecar : public gdal::grib::InventoryWrapper
             else
             {
                 inv_[i].subgNum =
-                    static_cast<unsigned short>(strtol(aosNum[1], &endptr, 10));
+                    static_cast<int>(strtol(aosNum[1], &endptr, 10));
                 if (*endptr != 0) goto err_sidecar;
+                if( inv_[i].subgNum <= 0 )
+                    goto err_sidecar;
+                // .idx file use a 1-based indexing, whereas DEGRIB uses a
+                // 0-based one
+                -- inv_[i].subgNum;
             }
 
             inv_[i].start = strtoll(aosTokens[1], &endptr, 10);

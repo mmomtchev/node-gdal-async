@@ -29,6 +29,7 @@
 #include "ogr_spatialref.h"
 
 #include <algorithm>
+#include <limits>
 #include <mutex>
 
 #include "openexr_headers.h"
@@ -1289,8 +1290,8 @@ GDALDataset *GDALEXRDataset::CreateCopy( const char* pszFilename,
                 std::vector<int> anBands;
                 for( int iBand = 0; iBand < nBands; iBand++ )
                     anBands.push_back(iBand+1);
-                CPLSetThreadLocalConfigOption("GDAL_TIFF_OVR_BLOCKSIZE",
-                                              CPLSPrintf("%d", nBlockXSize));
+                CPLConfigOptionSetter oSetter("GDAL_TIFF_OVR_BLOCKSIZE",
+                                              CPLSPrintf("%d", nBlockXSize), false);
                 const CPLString osTmpOvrFileRadix(CPLSPrintf("%s_tmp",pszFilename));
                 osTmpOvrFile = osTmpOvrFileRadix + ".ovr";
                 progress.reset(GDALCreateScaledProgress(0.5, 0.8, pfnProgress, pProgressData));
@@ -1300,15 +1301,12 @@ GDALDataset *GDALEXRDataset::CreateCopy( const char* pszFilename,
                                     static_cast<int>(anOvrFactors.size()),
                                     &anOvrFactors[0],
                                     nBands, &anBands[0],
-                                    GDALScaledProgress, progress.get()) != CE_None )
+                                    GDALScaledProgress, progress.get(),
+                                    nullptr) != CE_None )
                 {
-                    CPLSetThreadLocalConfigOption("GDAL_TIFF_OVR_BLOCKSIZE",
-                                                  nullptr);
                     VSIUnlink(osTmpOvrFile);
                     return nullptr;
                 }
-                CPLSetThreadLocalConfigOption("GDAL_TIFF_OVR_BLOCKSIZE",
-                                              nullptr);
 
                 // Transfer overviews from temporary file to main image
                 std::unique_ptr<GDALDataset> poOvrDS(GDALDataset::Open(osTmpOvrFile));

@@ -48,7 +48,6 @@
 #include "ogr_spatialref.h"
 #include "ogrsf_frmts.h"
 
-CPL_CVSID("$Id$")
 
 /* Function utility to dump OGRGeometry to KML text. */
 char *OGR_G_ExportToKML( OGRGeometryH hGeometry, const char* pszAltitudeMode );
@@ -617,6 +616,8 @@ int OGRKMLLayer::TestCapability( const char * pszCap )
     }
 
     else if (EQUAL(pszCap, OLCStringsAsUTF8))
+        return TRUE;
+    else if (EQUAL(pszCap, OLCZGeometries))
         return TRUE;
 
     return FALSE;

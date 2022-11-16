@@ -33,6 +33,7 @@
 #include "cpl_time.h"
 
 #include <cinttypes>
+#include <limits>
 
 static constexpr int                        TZFLAG_UNINITIALIZED = -1;
 static constexpr int                        TZFLAG_MIXED = -2;
@@ -868,7 +869,6 @@ OGRErr OGRArrowWriterLayer::ICreateFeature( OGRFeature* poFeature )
         }
 
         const auto poFieldDefn = m_poFeatureDefn->GetFieldDefn(i);
-        std::shared_ptr<arrow::ArrayBuilder> builder;
         const auto eSubDT = poFieldDefn->GetSubType();
         switch( poFieldDefn->GetType() )
         {

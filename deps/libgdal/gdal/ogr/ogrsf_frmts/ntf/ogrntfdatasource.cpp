@@ -30,7 +30,6 @@
 #include "cpl_conv.h"
 #include "cpl_string.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                          OGRNTFDataSource()                          */
@@ -114,10 +113,13 @@ OGRNTFDataSource::~OGRNTFDataSource()
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRNTFDataSource::TestCapability( const char * )
+int OGRNTFDataSource::TestCapability( const char * pszCap )
 
 {
-    return FALSE;
+    if( EQUAL(pszCap, ODsCZGeometries) )
+        return true;
+
+    return false;
 }
 
 /************************************************************************/

@@ -58,7 +58,6 @@
 
 #include "cpl_json_header.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                             OGRFeature()                             */
@@ -5668,8 +5667,7 @@ OGRBoolean OGRFeature::Equal( const OGRFeature * poFeature ) const
                 }
                 else if( std::isnan(dfVal2) )
                 {
-                    if( !std::isnan(dfVal1) )
-                        return FALSE;
+                    return FALSE;
                 }
                 else if ( dfVal1 != dfVal2 )
                 {
@@ -5738,8 +5736,7 @@ OGRBoolean OGRFeature::Equal( const OGRFeature * poFeature ) const
                     }
                     else if( std::isnan(dfVal2) )
                     {
-                        if( !std::isnan(dfVal1) )
-                            return FALSE;
+                        return FALSE;
                     }
                     else if ( dfVal1 != dfVal2 )
                     {
@@ -6641,10 +6638,11 @@ void OGRFeature::FillUnsetWithDefault( int bNotNullableOnly,
     {
         if( IsFieldSet(i) )
             continue;
-        if( bNotNullableOnly && poDefn->GetFieldDefn(i)->IsNullable() )
+        const auto poFieldDefn = poDefn->GetFieldDefn(i);
+        if( bNotNullableOnly && poFieldDefn->IsNullable() )
             continue;
-        const char* pszDefault = poDefn->GetFieldDefn(i)->GetDefault();
-        OGRFieldType eType = poDefn->GetFieldDefn(i)->GetType();
+        const char* pszDefault = poFieldDefn->GetDefault();
+        OGRFieldType eType = poFieldDefn->GetType();
         if( pszDefault != nullptr )
         {
             if( eType == OFTDate || eType == OFTTime || eType == OFTDateTime )
@@ -6689,7 +6687,7 @@ void OGRFeature::FillUnsetWithDefault( int bNotNullableOnly,
                 SetField(i, pszTmp);
                 CPLFree(pszTmp);
             }
-            else
+            else if ( !poFieldDefn->IsDefaultDriverSpecific() )
                 SetField(i, pszDefault);
         }
     }
@@ -7302,7 +7300,7 @@ OGRFeature::FieldValue::FieldValue(OGRFeature* poFeature,
 {
 }
 
-OGRFeature::FieldValue& OGRFeature::FieldValue::operator=
+OGRFeature::FieldValue& OGRFeature::FieldValue::Assign
                                                     (const FieldValue& oOther)
 {
     if( &oOther != this &&
@@ -7351,19 +7349,33 @@ OGRFeature::FieldValue& OGRFeature::FieldValue::operator=
         }
         else if( eOtherType == OFTIntegerList )
         {
-            return operator= (oOther.GetAsIntegerList());
+            operator= (oOther.GetAsIntegerList());
         }
         else if( eOtherType == OFTInteger64List )
         {
-            return operator= (oOther.GetAsInteger64List());
+            operator= (oOther.GetAsInteger64List());
         }
         else if( eOtherType == OFTRealList )
         {
-            return operator= (oOther.GetAsDoubleList());
+            operator= (oOther.GetAsDoubleList());
         }
     }
     return *this;
 }
+
+OGRFeature::FieldValue& OGRFeature::FieldValue::operator=
+                                                    (const FieldValue& oOther)
+{
+    return Assign(oOther);
+}
+
+//! @cond Doxygen_Suppress
+OGRFeature::FieldValue& OGRFeature::FieldValue::operator=
+                                                    (FieldValue&& oOther)
+{
+    return Assign(oOther);
+}
+//! @endcond
 
 OGRFeature::FieldValue& OGRFeature::FieldValue::operator= (int nVal)
 {

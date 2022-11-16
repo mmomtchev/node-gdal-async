@@ -34,7 +34,6 @@
 
 #include <limits>
 
-CPL_CVSID("$Id$")
 
 // Enable if you want to see lots of BMP debugging output.
 // #define BMP_DEBUG
@@ -99,8 +98,11 @@ typedef struct
 
 typedef struct                  // This structure contains the x, y, and z
 {                               // coordinates of the three colors that correspond
+    // cppcheck-suppress unusedStructMember
     BMPCIEXYZ   iCIERed;        // to the red, green, and blue endpoints for
+    // cppcheck-suppress unusedStructMember
     BMPCIEXYZ   iCIEGreen;      // a specified logical color space.
+    // cppcheck-suppress unusedStructMember
     BMPCIEXYZ   iCIEBlue;
 } BMPCIEXYZTriple;
 
@@ -158,6 +160,7 @@ typedef struct
                                 // component of each pixel.
     // cppcheck-suppress unusedStructMember
     BMPLCSType  iCSType;        // Colour space of the DIB.
+    // cppcheck-suppress unusedStructMember
     BMPCIEXYZTriple sEndpoints; // This member is ignored unless the iCSType member
                                 // specifies BMPLT_CALIBRATED_RGB.
     // cppcheck-suppress unusedStructMember

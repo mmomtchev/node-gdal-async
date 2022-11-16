@@ -89,8 +89,11 @@ MRFDataset::MRFDataset() :
     poColorTable(nullptr),
     Quality(0),
     pzscctx(nullptr),
-    pzsdctx(nullptr)
+    pzsdctx(nullptr),
+    read_timer(),
+    write_timer(0)
 {
+    m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     //                X0   Xx   Xy  Y0    Yx   Yy
     double gt[6] = { 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 };
 
@@ -147,7 +150,13 @@ int MRFDataset::CloseDependentDatasets() {
     return bHasDroppedRef;
 }
 
-MRFDataset::~MRFDataset() {   // Make sure everything gets written
+MRFDataset::~MRFDataset() { // Make sure everything gets written
+    if (0 != write_timer.count())
+        CPLDebug("MRF_Timing", "Compression took %fms", 1e-6 * write_timer.count());
+
+    if (0 != read_timer.count())
+        CPLDebug("MRF_Timing", "Decompression took %fms", 1e-6 * read_timer.count());
+
     if (eAccess != GA_ReadOnly && !bCrystalized)
         if (!MRFDataset::Crystalize()) {
             // Can't return error code from a destructor, just emit the error
@@ -209,9 +218,10 @@ CPLErr MRFDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSiz
 
 CPLErr MRFDataset::IBuildOverviews(
     const char* pszResampling,
-    int nOverviews, int* panOverviewList,
-    int nBandsIn, int* panBandList,
-    GDALProgressFunc pfnProgress, void* pProgressData)
+    int nOverviews, const int* panOverviewList,
+    int nBandsIn, const int* panBandList,
+    GDALProgressFunc pfnProgress, void* pProgressData,
+    CSLConstList papszOptions)
 
 {
     CPLErr       eErr = CE_None;
@@ -227,7 +237,7 @@ CPLErr MRFDataset::IBuildOverviews(
         CPLDebug("MRF", "File open read-only, creating overviews externally.");
         return GDALDataset::IBuildOverviews(
             pszResampling, nOverviews, panOverviewList,
-            nBands, panBandList, pfnProgress, pProgressData);
+            nBands, panBandList, pfnProgress, pProgressData, papszOptions);
     }
 
     /* -------------------------------------------------------------------- */
@@ -241,8 +251,9 @@ CPLErr MRFDataset::IBuildOverviews(
         if (current.size.l == 0)
             return GDALDataset::IBuildOverviews(pszResampling,
                 nOverviews, panOverviewList,
-                nBands, panBandList, pfnProgress, pProgressData);
-        return CleanOverviews();
+                nBands, panBandList, pfnProgress, pProgressData, papszOptions);
+        // We should clean overviews, but this is not possible in an MRF
+        return CE_None;
     }
 
     // Array of source bands
@@ -395,7 +406,7 @@ CPLErr MRFDataset::IBuildOverviews(
                 // Could rewrite this loop so this function only gets called once
                 //
                 GDALRegenerateOverviewsMultiBand(nBands, papoBandList, 1, papapoOverviewBands,
-                    pszResampling, pfnProgress, pProgressData);
+                    pszResampling, pfnProgress, pProgressData, papszOptions);
             }
         }
     }
@@ -653,7 +664,9 @@ CPLErr MRFDataset::LevelInit(const int l) {
     current = srcband->img;
     current.size.c = cds->current.size.c;
     scale = cds->scale;
-    SetProjection(cds->GetProjectionRef());
+    const auto poSRS = cds->GetSpatialRef();
+    if( poSRS )
+        m_oSRS = *poSRS;
 
     SetMetadataItem("INTERLEAVE", OrderName(current.order), "IMAGE_STRUCTURE");
     SetMetadataItem("COMPRESSION", CompName(current.comp), "IMAGE_STRUCTURE");
@@ -1248,19 +1261,9 @@ CPLErr MRFDataset::Initialize(CPLXMLNode* config)
         bGeoTransformValid = TRUE;
     }
 
-    OGRSpatialReference oSRS;
     const char* pszRawProjFromXML = CPLGetXMLValue(config, "GeoTags.Projection", "");
-    if (strlen(pszRawProjFromXML) == 0 || oSRS.SetFromUserInput(pszRawProjFromXML, OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) != OGRERR_NONE)
-        SetProjection("");
-    else {
-        char* pszRawProj = nullptr;
-        if (oSRS.exportToWkt(&pszRawProj) != OGRERR_NONE) {
-            CPLFree(pszRawProj);
-            pszRawProj = CPLStrdup("");
-        }
-        SetProjection(pszRawProj);
-        CPLFree(pszRawProj);
-    }
+    if (strlen(pszRawProjFromXML) != 0 )
+        m_oSRS.SetFromUserInput(pszRawProjFromXML, OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get());
 
     // Copy the full size to current, data and index are not yet open
     current = full;
@@ -1565,9 +1568,9 @@ GDALDataset* MRFDataset::CreateCopy(const char* pszFilename,
         if (CE_None == poSrcDS->GetGeoTransform(gt))
             poDS->SetGeoTransform(gt);
 
-        const char* pszProj = poSrcDS->GetProjectionRef();
-        if (pszProj && pszProj[0])
-            poDS->SetProjection(pszProj);
+        const auto poSRS = poSrcDS->GetSpatialRef();
+        if( poSRS )
+            poDS->m_oSRS = *poSRS;
 
         // Color palette if we only have one band
         if (1 == nBands && GCI_PaletteIndex == poSrcBand1->GetColorInterpretation())

@@ -46,7 +46,6 @@ constexpr int RECORD_SIZE = 512;
 #include "ogr_spatialref.h"
 #include "rawdataset.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /* ==================================================================== */
@@ -64,7 +63,7 @@ class ISIS2Dataset final: public RawDataset
     int         bGotTransform;
     double      adfGeoTransform[6];
 
-    CPLString   osProjection;
+    OGRSpatialReference m_oSRS{};
 
     int parse_label(const char *file, char *keyword, char *value);
     int strstrip(char instr[], char outstr[], int position);
@@ -84,10 +83,7 @@ public:
     virtual ~ISIS2Dataset();
 
     virtual CPLErr GetGeoTransform( double * padfTransform ) override;
-    virtual const char *_GetProjectionRef(void) override;
-    const OGRSpatialReference* GetSpatialRef() const override {
-        return GetSpatialRefFromOldGetProjectionRef();
-    }
+    const OGRSpatialReference* GetSpatialRef() const override;
 
     virtual char **GetFileList() override;
 
@@ -118,6 +114,7 @@ ISIS2Dataset::ISIS2Dataset() :
     fpImage(nullptr),
     bGotTransform(FALSE)
 {
+    m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     adfGeoTransform[0] = 0.0;
     adfGeoTransform[1] = 1.0;
     adfGeoTransform[2] = 0.0;
@@ -154,16 +151,14 @@ char **ISIS2Dataset::GetFileList()
 }
 
 /************************************************************************/
-/*                          GetProjectionRef()                          */
+/*                         GetSpatialRef()                              */
 /************************************************************************/
 
-const char *ISIS2Dataset::_GetProjectionRef()
-
+const OGRSpatialReference* ISIS2Dataset::GetSpatialRef() const
 {
-    if( !osProjection.empty() )
-        return osProjection;
-
-    return GDALPamDataset::_GetProjectionRef();
+    if( !m_oSRS.IsEmpty() )
+        return &m_oSRS;
+    return GDALPamDataset::GetSpatialRef();
 }
 
 /************************************************************************/
@@ -212,12 +207,11 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
     VSILFILE *fpQube = poOpenInfo->fpL;
     poOpenInfo->fpL = nullptr;
 
-    ISIS2Dataset *poDS = new ISIS2Dataset();
+    auto poDS = cpl::make_unique<ISIS2Dataset>();
 
     if( ! poDS->oKeywords.Ingest( fpQube, 0 ) )
     {
         VSIFCloseL( fpQube );
-        delete poDS;
         return nullptr;
     }
 
@@ -232,7 +226,7 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
     // ^QUBE = "ui31s015.img" - which implies no label or skip value
 
     const char *pszQube = poDS->GetKeyword( "^QUBE" );
-    GUIntBig nQube = 0;
+    int nQube = 0;
     int bByteLocation = FALSE;
     CPLString osTargetFile = poOpenInfo->pszFilename;
 
@@ -282,7 +276,6 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
                   "*** ISIS 2 cube file has invalid SUFFIX_ITEMS parameters:\n"
                   "*** gdal isis2 driver requires (0, 0, 0), thus no sideplanes or backplanes\n"
                   "found: (%i, %i, %i)\n\n", s_ix, s_iy, s_iz );
-        delete poDS;
         return nullptr;
     }
 
@@ -303,7 +296,6 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
     else {
         CPLError( CE_Failure, CPLE_OpenFailed,
                   "%s layout not supported. Abort\n\n", value);
-        delete poDS;
         return nullptr;
     }
 
@@ -316,7 +308,6 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
     const int record_bytes = atoi(poDS->GetKeyword("RECORD_BYTES"));
     if( record_bytes < 0 )
     {
-        delete poDS;
         return nullptr;
     }
 
@@ -376,7 +367,6 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
         CPLError( CE_Failure, CPLE_AppDefined,
                   "Itype of %d is not supported in ISIS 2.",
                   itype);
-        delete poDS;
         return nullptr;
     }
 
@@ -454,6 +444,7 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
     CPLDebug("ISIS2","using projection %s", map_proj_name.c_str() );
 
     OGRSpatialReference oSRS;
+    oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     bool bProjectionSet = true;
 
     //Set oSRS projection and parameters
@@ -572,10 +563,7 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
         }
 
         // translate back into a projection string.
-        char *pszResult = nullptr;
-        oSRS.exportToWkt( &pszResult );
-        poDS->osProjection = pszResult;
-        CPLFree( pszResult );
+        poDS->m_oSRS = oSRS;
     }
 
 /* END ISIS2 Label Read */
@@ -589,7 +577,6 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
     if( !GDALCheckDatasetDimensions(nCols, nRows) ||
         !GDALCheckBandCount(nBands, false) )
     {
-        delete poDS;
         return nullptr;
     }
 
@@ -613,7 +600,6 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
         CPLError( CE_Failure, CPLE_OpenFailed,
                   "Failed to open %s with write permission.\n%s",
                   osTargetFile.c_str(), VSIStrerror( errno ) );
-        delete poDS;
         return nullptr;
     }
 
@@ -631,7 +617,6 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
         nPixelOffset = nItemSize * nBands;
         if( nPixelOffset > INT_MAX / nBands )
         {
-            delete poDS;
             return nullptr;
         }
         nLineOffset = nPixelOffset * nCols;
@@ -642,7 +627,6 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
         nPixelOffset = nItemSize;
         if( nPixelOffset > INT_MAX / nCols )
         {
-            delete poDS;
             return nullptr;
         }
         nLineOffset = nPixelOffset * nCols;
@@ -654,7 +638,6 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
         if( nPixelOffset > INT_MAX / nBands ||
             nPixelOffset * nBands > INT_MAX / nCols )
         {
-            delete poDS;
             return nullptr;
         }
         nLineOffset = nItemSize * nBands * nCols;
@@ -668,7 +651,7 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
     for( int i = 0; i < poDS->nBands; i++ )
     {
         RawRasterBand *poBand =
-            new RawRasterBand( poDS, i+1, poDS->fpImage,
+            new RawRasterBand( poDS.get(), i+1, poDS->fpImage,
                                nSkipBytes + nBandOffset * i,
                                nPixelOffset, nLineOffset, eDataType,
 #ifdef CPL_LSB
@@ -704,14 +687,7 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
 
         char **papszLines = CSLLoad( pszPrjFile );
 
-        OGRSpatialReference oSRS2;
-        if( oSRS2.importFromESRI( papszLines ) == OGRERR_NONE )
-        {
-            char *pszResult = nullptr;
-            oSRS2.exportToWkt( &pszResult );
-            poDS->osProjection = pszResult;
-            CPLFree( pszResult );
-        }
+        poDS->m_oSRS.importFromESRI( papszLines );
 
         CSLDestroy( papszLines );
     }
@@ -746,9 +722,9 @@ GDALDataset *ISIS2Dataset::Open( GDALOpenInfo * poOpenInfo )
 /* -------------------------------------------------------------------- */
 /*      Check for overviews.                                            */
 /* -------------------------------------------------------------------- */
-    poDS->oOvManager.Initialize( poDS, poOpenInfo->pszFilename );
+    poDS->oOvManager.Initialize( poDS.get(), poOpenInfo->pszFilename );
 
-    return poDS;
+    return poDS.release();
 }
 
 /************************************************************************/

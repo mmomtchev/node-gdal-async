@@ -29,7 +29,6 @@
 #include "ntf.h"
 #include "cpl_conv.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                            OGRNTFLayer()                             */
@@ -179,9 +178,12 @@ OGRFeature *OGRNTFLayer::GetNextFeature()
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRNTFLayer::TestCapability( const char * /* pszCap */ )
+int OGRNTFLayer::TestCapability( const char * pszCap )
 
 {
+    if (EQUAL(pszCap, OLCZGeometries))
+        return TRUE;
+
     return FALSE;
 }
 

@@ -31,7 +31,6 @@
 #include "cpl_conv.h"
 #include "ogr_mysql.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                        OGRMySQLResultLayer()                         */
@@ -316,7 +315,12 @@ GIntBig OGRMySQLResultLayer::GetFeatureCount( int bForce )
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRMySQLResultLayer::TestCapability( CPL_UNUSED const char * pszCap )
+int OGRMySQLResultLayer::TestCapability( const char * pszCap )
 {
-    return FALSE;
+    if( EQUAL(pszCap, OLCMeasuredGeometries) )
+        return true;
+    else if( EQUAL(pszCap, OLCZGeometries) )
+        return true;
+
+    return false;
 }

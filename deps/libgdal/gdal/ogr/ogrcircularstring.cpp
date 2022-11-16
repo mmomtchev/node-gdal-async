@@ -33,6 +33,7 @@
 #include <cstring>
 
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 #include "cpl_error.h"
@@ -40,7 +41,6 @@
 #include "ogr_geometry.h"
 #include "ogr_p.h"
 
-CPL_CVSID("$Id$")
 
 static inline double dist(double x0, double y0, double x1, double y1)
 {

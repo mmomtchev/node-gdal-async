@@ -86,7 +86,7 @@ int GDALJP2AbstractDataset::CloseDependentDatasets()
 /************************************************************************/
 
 void GDALJP2AbstractDataset::LoadJP2Metadata(
-    GDALOpenInfo* poOpenInfo, const char* pszOverrideFilenameIn )
+    GDALOpenInfo* poOpenInfo, const char* pszOverrideFilenameIn, VSILFILE* fpBox )
 {
     const char* pszOverrideFilename = pszOverrideFilenameIn;
     if( pszOverrideFilename == nullptr )
@@ -142,10 +142,10 @@ void GDALJP2AbstractDataset::LoadJP2Metadata(
 /* -------------------------------------------------------------------- */
     GDALJP2Metadata oJP2Geo;
     int nIndexUsed = -1;
-    if( ((poOpenInfo->fpL != nullptr && pszOverrideFilenameIn == nullptr &&
-         oJP2Geo.ReadAndParse(poOpenInfo->fpL, nGEOJP2Index, nGMLJP2Index,
+    if( (((fpBox != nullptr || poOpenInfo->fpL != nullptr) && pszOverrideFilenameIn == nullptr &&
+         oJP2Geo.ReadAndParse(fpBox ? fpBox : poOpenInfo->fpL, nGEOJP2Index, nGMLJP2Index,
                               nMSIGIndex, &nIndexUsed) ) ||
-        (!(poOpenInfo->fpL != nullptr && pszOverrideFilenameIn == nullptr) &&
+        (!((fpBox != nullptr || poOpenInfo->fpL != nullptr) && pszOverrideFilenameIn == nullptr) &&
          oJP2Geo.ReadAndParse( pszOverrideFilename, nGEOJP2Index, nGMLJP2Index,
                                nMSIGIndex, m_nWORLDFILEIndex, &nIndexUsed ))) &&
         (nGMLJP2Index >= 0 || nGEOJP2Index >= 0 || nMSIGIndex >= 0 ||
@@ -661,6 +661,45 @@ int GDALJP2AbstractDataset::GetLayerCount()
 OGRLayer* GDALJP2AbstractDataset::GetLayer( int i )
 {
     return poMemDS != nullptr ? poMemDS->GetLayer(i) : nullptr;
+}
+
+/************************************************************************/
+/*                            GetMetadata()                             */
+/************************************************************************/
+
+char** GDALJP2AbstractDataset::GetMetadata( const char * pszDomain )
+{
+    if( pszDomain && EQUAL(pszDomain, "IMAGE_STRUCTURE") )
+    {
+        if( m_aosImageStructureMetadata.empty() )
+        {
+            VSILFILE* fp = GetFileHandle();
+            m_aosImageStructureMetadata.Assign(
+                CSLDuplicate(GDALGeorefPamDataset::GetMetadata(pszDomain)), true);
+            CPLErrorHandlerPusher oErrorHandler(CPLQuietErrorHandler);
+            CPLErrorStateBackuper oErrorStateBackuper;
+            const char* pszReversibility = GDALGetJPEG2000Reversibility(GetDescription(), fp);
+            if( pszReversibility )
+                m_aosImageStructureMetadata.SetNameValue("COMPRESSION_REVERSIBILITY", pszReversibility);
+        }
+        return m_aosImageStructureMetadata.List();
+    }
+    return GDALGeorefPamDataset::GetMetadata(pszDomain);
+}
+
+/************************************************************************/
+/*                        GetMetadataItem()                             */
+/************************************************************************/
+
+const char* GDALJP2AbstractDataset::GetMetadataItem( const char* pszName, const char * pszDomain )
+{
+    if( pszDomain && EQUAL(pszDomain, "IMAGE_STRUCTURE") &&
+        EQUAL(pszName, "COMPRESSION_REVERSIBILITY") )
+    {
+        char** papszMD = GetMetadata(pszDomain);
+        return CSLFetchNameValue(papszMD, pszName);
+    }
+    return GDALGeorefPamDataset::GetMetadataItem(pszName, pszDomain);
 }
 
 /*! @endcond */

@@ -31,6 +31,7 @@
 #include "cpl_conv.h"
 #include "ogr_cad.h"
 
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
 
@@ -172,11 +173,14 @@ int OGRCADLayer::TestCapability(const char *pszCap)
 {
     if( EQUAL(pszCap, OLCMeasuredGeometries) )
         return true;
+    if( EQUAL(pszCap, OLCZGeometries) )
+        return true;
     if( EQUAL(pszCap, OLCCurveGeometries) )
         return true;
 
     return FALSE;
 }
+
 
 OGRCADLayer::~OGRCADLayer()
 {

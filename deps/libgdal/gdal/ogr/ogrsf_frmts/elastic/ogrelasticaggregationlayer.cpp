@@ -30,9 +30,9 @@
 #include "ogrgeojsonreader.h"
 #include "cpl_json.h"
 
+#include <algorithm>
 #include <set>
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                       OGRElasticAggregationLayer()                   */
@@ -347,7 +347,7 @@ std::string OGRElasticAggregationLayer::BuildRequest()
     geo_centroid.Set("field", m_osGeometryField);
 
     // Add extra fields
-    for( auto oChild: m_oAggregatedFieldsRequest.GetChildren() )
+    for( auto& oChild: m_oAggregatedFieldsRequest.GetChildren() )
     {
         subaggs.Add(oChild.GetName(), oChild);
     }

@@ -37,7 +37,6 @@
 
 #define PQexec this_is_an_error
 
-CPL_CVSID("$Id$")
 
 static void OGRPGNoticeProcessor( void *arg, const char * pszMessage );
 
@@ -2158,6 +2157,8 @@ int OGRPGDataSource::TestCapability( const char * pszCap )
         return TRUE;
     else if ( EQUAL(pszCap,ODsCMeasuredGeometries) )
         return TRUE;
+    else if ( EQUAL(pszCap,ODsCZGeometries) )
+        return TRUE;
     else if( EQUAL(pszCap,ODsCRandomLayerWrite) )
         return TRUE;
     else
@@ -2405,7 +2406,7 @@ OGRSpatialReference *OGRPGDataSource::FetchSRS( int nId )
 /*      it to the table.                                                */
 /************************************************************************/
 
-int OGRPGDataSource::FetchSRSId( OGRSpatialReference * poSRS )
+int OGRPGDataSource::FetchSRSId( const OGRSpatialReference * poSRS )
 
 {
     if( poSRS == nullptr || !m_bHasSpatialRefSys )

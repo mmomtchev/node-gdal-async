@@ -45,13 +45,15 @@
 #include "cpl_string.h"
 #include "cpl_vsi_virtual.h"
 
-CPL_CVSID("$Id$")
 
 #if (defined(DEBUG) || defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)) && !defined(HAVE_FUZZER_FRIENDLY_ARCHIVE)
 /* This is a completely custom archive format that is rather inefficient */
 /* but supports random insertions or deletions, since it doesn't record */
 /* explicit file size or rely on files starting on a particular boundary */
 #define HAVE_FUZZER_FRIENDLY_ARCHIVE 1
+#endif
+
+#ifdef HAVE_FUZZER_FRIENDLY_ARCHIVE
 constexpr int HALF_BUFFER_SIZE = 1024;
 constexpr int BUFFER_SIZE = 2 * HALF_BUFFER_SIZE;
 #endif

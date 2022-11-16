@@ -1,0 +1,1 @@
+../gdal_version.h

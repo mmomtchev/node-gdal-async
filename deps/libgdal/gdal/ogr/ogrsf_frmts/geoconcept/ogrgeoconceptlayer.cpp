@@ -32,7 +32,6 @@
 #include "cpl_string.h"
 #include "ogrgeoconceptlayer.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                         OGRGeoconceptLayer()                         */
@@ -465,6 +464,9 @@ int OGRGeoconceptLayer::TestCapability( const char* pszCap )
         return FALSE;
 
     else if( EQUAL(pszCap,OLCCreateField) )
+        return TRUE;
+
+    else if( EQUAL(pszCap,OLCZGeometries) )
         return TRUE;
 
     return FALSE;

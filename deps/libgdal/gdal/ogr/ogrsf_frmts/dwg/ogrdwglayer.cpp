@@ -31,7 +31,6 @@
 
 #include "ogrdxf_polyline_smooth.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                            OGRDWGLayer()                             */
@@ -1515,6 +1514,8 @@ int OGRDWGLayer::TestCapability( const char * pszCap )
 
 {
     if( EQUAL(pszCap,OLCStringsAsUTF8) )
+        return TRUE;
+    else if( EQUAL(pszCap, OLCZGeometries) )
         return TRUE;
     else
         return FALSE;

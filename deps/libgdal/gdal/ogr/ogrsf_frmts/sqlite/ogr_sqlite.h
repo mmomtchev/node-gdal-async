@@ -591,7 +591,7 @@ class OGRSQLiteDataSource final : public OGRSQLiteBaseDataSource
     CPLStringList       m_aosSubDatasets{};
     bool                m_bGeoTransformValid = false;
     double              m_adfGeoTransform[6];
-    CPLString           m_osProjection{};
+    OGRSpatialReference m_oSRS{};
     bool                m_bPromote1BitAs8Bit = false;
     bool                OpenRaster();
     bool                OpenRasterSubDataset(const char* pszConnectionId);
@@ -649,12 +649,9 @@ class OGRSQLiteDataSource final : public OGRSQLiteBaseDataSource
     virtual char**      GetMetadata(const char* pszDomain = "") override;
 
     virtual CPLErr      GetGeoTransform( double* padfGeoTransform ) override;
-    virtual const char* _GetProjectionRef() override;
-    const OGRSpatialReference* GetSpatialRef() const override {
-        return GetSpatialRefFromOldGetProjectionRef();
-    }
+    const OGRSpatialReference* GetSpatialRef() const override;
 
-    char               *LaunderName( const char * );
+    static char        *LaunderName( const char * );
     int                 FetchSRSId( const OGRSpatialReference * poSRS );
     OGRSpatialReference*FetchSRS( int nSRID );
 
@@ -676,6 +673,10 @@ class OGRSQLiteDataSource final : public OGRSQLiteBaseDataSource
     int                 GetUndefinedSRID() const { return m_nUndefinedSRID; }
     bool                HasGeometryColumns() const { return m_bHaveGeometryColumns; }
 
+    std::vector<std::string> GetRelationshipNames(CSLConstList papszOptions = nullptr) const override;
+
+    const GDALRelationship* GetRelationship(const std::string& name) const override;
+
     void                ReloadLayers();
 
 #ifdef HAVE_RASTERLITE2
@@ -685,8 +686,11 @@ class OGRSQLiteDataSource final : public OGRSQLiteBaseDataSource
     const double*       GetGeoTransform() const { return m_adfGeoTransform; }
     bool                IsRL2MixedResolutions() const { return m_bRL2MixedResolutions; }
 
-    virtual CPLErr IBuildOverviews( const char *, int, int *,
-                                    int, int *, GDALProgressFunc, void * ) override;
+    virtual CPLErr IBuildOverviews( const char *,
+                                    int, const int *,
+                                    int, const int *,
+                                    GDALProgressFunc, void *,
+                                    CSLConstList papszOptions ) override;
 
 #endif
     OGRSQLiteDataSource* GetParentDS() const { return m_poParentDS; }

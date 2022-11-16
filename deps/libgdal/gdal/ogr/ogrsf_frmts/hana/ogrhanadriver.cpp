@@ -31,7 +31,6 @@
 
 #include <memory>
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                         OGRHanaDriverIdentify()                      */
@@ -101,6 +100,11 @@ void RegisterOGRHANA()
     driver->SetDescription("HANA");
     driver->SetMetadataItem(GDAL_DMD_LONGNAME, "SAP HANA");
     driver->SetMetadataItem(GDAL_DCAP_VECTOR, "YES");
+    driver->SetMetadataItem(GDAL_DCAP_CREATE_LAYER, "YES");
+    driver->SetMetadataItem(GDAL_DCAP_DELETE_LAYER, "YES");
+    driver->SetMetadataItem(GDAL_DCAP_CREATE_FIELD, "YES");
+    driver->SetMetadataItem(GDAL_DCAP_DELETE_FIELD, "YES");
+    driver->SetMetadataItem(GDAL_DCAP_MEASURED_GEOMETRIES, "YES");
     driver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "drivers/vector/hana.html");
     driver->SetMetadataItem(
         GDAL_DMD_CONNECTION_PREFIX, OGRHanaDataSource::GetPrefix());
@@ -114,8 +118,12 @@ void RegisterOGRHANA()
     driver->SetMetadataItem(
         GDAL_DMD_CREATIONFIELDDATATYPES,
         OGRHanaDataSource::GetSupportedDataTypes());
+
+    driver->SetMetadataItem(GDAL_DMD_ALTER_FIELD_DEFN_FLAGS, "Name Type WidthPrecision Nullable Default");
+
     driver->SetMetadataItem(GDAL_DCAP_NOTNULL_FIELDS, "YES");
     driver->SetMetadataItem(GDAL_DCAP_DEFAULT_FIELDS, "YES");
+    driver->SetMetadataItem( GDAL_DMD_SUPPORTED_SQL_DIALECTS, "NATIVE OGRSQL SQLITE" );
 
     driver->pfnOpen = OGRHanaDriverOpen;
     driver->pfnIdentify = OGRHanaDriverIdentify;

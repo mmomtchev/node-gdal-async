@@ -33,7 +33,6 @@
 #include "cpl_http.h"
 #include "parsexsd.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                      OGRWFSRecursiveUnlink()                         */
@@ -138,7 +137,7 @@ OGRWFSLayer* OGRWFSLayer::Clone()
     /* Copy existing schema file if already found */
     CPLString osSrcFileName = CPLSPrintf("/vsimem/tempwfs_%p/file.xsd", this);
     CPLString osTargetFileName = CPLSPrintf("/vsimem/tempwfs_%p/file.xsd", poDupLayer);
-    CPLCopyFile(osTargetFileName, osSrcFileName);
+    CPL_IGNORE_RET_VAL(CPLCopyFile(osTargetFileName, osSrcFileName));
 
     return poDupLayer;
 }

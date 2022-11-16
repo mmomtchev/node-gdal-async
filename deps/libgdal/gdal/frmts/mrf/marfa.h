@@ -57,6 +57,7 @@
 #include <ostream>
 #include <iostream>
 #include <sstream>
+#include <chrono>
 #if defined(ZSTD_SUPPORT)
 #include <zstd.h>
 #endif
@@ -109,6 +110,9 @@ enum ILCompression {
 #if defined(ZSTD_SUPPORT)
     IL_ZSTD,
 #endif
+#if defined(QB3_SUPPORT)
+    IL_QB3,
+#endif
     IL_ERR_COMP
 };
 
@@ -136,7 +140,7 @@ typedef struct {
 struct ILSize {
     GInt32 x, y, z, c;
     GIntBig l; // Dual use, sometimes it holds the number of pages
-    ILSize(const int x_ = -1, const int y_ = -1, const int z_ = -1,
+    explicit ILSize(const int x_ = -1, const int y_ = -1, const int z_ = -1,
         const int c_ = -1, const int l_ = -1):
         x(x_), y(y_), z(z_), c(c_), l(l_)
     {}
@@ -324,17 +328,7 @@ public:
     // Stub for delete, GDAL should only overwrite the XML
     static CPLErr Delete(const char *) { return CE_None; }
 
-    virtual const char *_GetProjectionRef() override { return projection; }
-    virtual CPLErr _SetProjection(const char *proj) override {
-        projection = proj;
-        return CE_None;
-    }
-    const OGRSpatialReference* GetSpatialRef() const override {
-        return GetSpatialRefFromOldGetProjectionRef();
-    }
-    CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
-        return OldSetProjectionFromSetSpatialRef(poSRS);
-    }
+    const OGRSpatialReference* GetSpatialRef() const override { return m_oSRS.IsEmpty() ? nullptr: &m_oSRS; }
 
     virtual CPLString const &GetPhotometricInterpretation() { return photometric; }
     virtual CPLErr SetPhotometricInterpretation(const char *photo) {
@@ -355,8 +349,10 @@ public:
     CPLErr SetVersion(int version);
 
     const CPLString GetFname() { return fname; }
+
     // Patches a region of all the next overview, argument counts are in blocks
-    virtual CPLErr PatchOverview(int BlockX, int BlockY, int Width, int Height,
+    // Exported for mrf_insert utility
+    virtual CPL_DLL CPLErr PatchOverview(int BlockX, int BlockY, int Width, int Height,
         int srcLevel = 0, int recursive = false, int sampling_mode = SAMPLING_Avg);
 
     // Creates an XML tree from the current MRF.  If written to a file it becomes an MRF
@@ -387,9 +383,6 @@ protected:
     // Options should be papszOpenOptions, but the dataset already has a member with that name
     CPLErr Initialize(CPLXMLNode *);
 
-    // Do nothing, this is not possible in an MRF
-    CPLErr CleanOverviews() { return CE_None; }
-
     bool IsSingleTile();
 
     // Add uniform scale overlays, returns the new size of the index file
@@ -407,8 +400,11 @@ protected:
         void *, int, int, GDALDataType,
         int, int *, GSpacing, GSpacing, GSpacing, GDALRasterIOExtraArg*) override;
 
-    virtual CPLErr IBuildOverviews(const char*, int, int*, int, int*,
-        GDALProgressFunc, void*) override;
+    virtual CPLErr IBuildOverviews(const char*,
+                                   int, const int*,
+                                   int, const int*,
+                                   GDALProgressFunc, void*,
+                                   CSLConstList papszOptions) override;
 
     virtual int CloseDependentDatasets() override;
 
@@ -493,8 +489,8 @@ protected:
     double GeoTransform[6];
     int bGeoTransformValid;
 
-    // Projection string, WKT
-    CPLString projection;
+    // CRS
+    OGRSpatialReference m_oSRS{};
 
     // Photometric interpretation
     CPLString photometric;
@@ -521,6 +517,8 @@ protected:
         return static_cast<ZSTD_DCtx *>(pzsdctx);
     }
 #endif
+    // Time duration spend for decompression and compression
+    std::chrono::nanoseconds read_timer, write_timer;
 };
 
 class MRFRasterBand CPL_NON_FINAL: public GDALPamRasterBand {
@@ -600,7 +598,7 @@ protected:
     // Read the index record itself, can be overwritten
     //    virtual CPLErr ReadTileIdx(const ILSize &, ILIdx &, GIntBig bias = 0);
 
-    GIntBig bandbit(int b) { return ((GIntBig)1) << b; }
+    static GIntBig bandbit(int b) { return ((GIntBig)1) << b; }
     GIntBig bandbit() { return bandbit(nBand - 1); }
     GIntBig AllBandMask() { return bandbit(poMRFDS->nBands) - 1; }
 
@@ -774,6 +772,18 @@ private:
         static const char L2sig[] = "Lerc2 ";
         return !strncmp(s, L2sig, sizeof(L2sig) - 1);
     }
+};
+#endif
+
+#if defined(QB3_SUPPORT)
+class QB3_Band final : public MRFRasterBand {
+    friend class MRFDataset;
+public:
+    QB3_Band(MRFDataset* pDS, const ILImage& image, int b, int level);
+    virtual ~QB3_Band() {}
+protected:
+    virtual CPLErr Decompress(buf_mgr& dst, buf_mgr& src) override;
+    virtual CPLErr Compress(buf_mgr& dst, buf_mgr& src) override;
 };
 #endif
 

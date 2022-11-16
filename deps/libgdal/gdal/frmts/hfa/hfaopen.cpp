@@ -63,7 +63,6 @@
 #include "ogr_proj_p.h"
 #include "proj.h"
 
-CPL_CVSID("$Id$")
 
 constexpr double R2D = 180.0 / M_PI;
 
@@ -3193,15 +3192,13 @@ int HFAEvaluateXFormStack( int nStepCount, int bForward,
             bForward ? pasPolyList + iStep
                      : pasPolyList + nStepCount - iStep - 1;
 
-        double dfXOut = 0.0;
-        double dfYOut = 0.0;
         if( psStep->order == 1 )
         {
-            dfXOut = psStep->polycoefvector[0] +
+            const double dfXOut = psStep->polycoefvector[0] +
                      psStep->polycoefmtx[0] * *pdfX +
                      psStep->polycoefmtx[2] * *pdfY;
 
-            dfYOut = psStep->polycoefvector[1] +
+            const double dfYOut = psStep->polycoefvector[1] +
                      psStep->polycoefmtx[1] * *pdfX +
                      psStep->polycoefmtx[3] * *pdfY;
 
@@ -3210,13 +3207,13 @@ int HFAEvaluateXFormStack( int nStepCount, int bForward,
         }
         else if( psStep->order == 2 )
         {
-            dfXOut = psStep->polycoefvector[0] +
+            const double dfXOut = psStep->polycoefvector[0] +
                      psStep->polycoefmtx[0] * *pdfX +
                      psStep->polycoefmtx[2] * *pdfY +
                      psStep->polycoefmtx[4] * *pdfX * *pdfX +
                      psStep->polycoefmtx[6] * *pdfX * *pdfY +
                      psStep->polycoefmtx[8] * *pdfY * *pdfY;
-            dfYOut = psStep->polycoefvector[1] +
+            const double dfYOut = psStep->polycoefvector[1] +
                      psStep->polycoefmtx[1] * *pdfX +
                      psStep->polycoefmtx[3] * *pdfY +
                      psStep->polycoefmtx[5] * *pdfX * *pdfX +
@@ -3228,7 +3225,7 @@ int HFAEvaluateXFormStack( int nStepCount, int bForward,
         }
         else if( psStep->order == 3 )
         {
-            dfXOut = psStep->polycoefvector[0] +
+            const double dfXOut = psStep->polycoefvector[0] +
                      psStep->polycoefmtx[0] * *pdfX +
                      psStep->polycoefmtx[2] * *pdfY +
                      psStep->polycoefmtx[4] * *pdfX * *pdfX +
@@ -3238,7 +3235,7 @@ int HFAEvaluateXFormStack( int nStepCount, int bForward,
                      psStep->polycoefmtx[12] * *pdfX * *pdfX * *pdfY +
                      psStep->polycoefmtx[14] * *pdfX * *pdfY * *pdfY +
                      psStep->polycoefmtx[16] * *pdfY * *pdfY * *pdfY;
-            dfYOut = psStep->polycoefvector[1] +
+            const double dfYOut = psStep->polycoefvector[1] +
                      psStep->polycoefmtx[1] * *pdfX +
                      psStep->polycoefmtx[3] * *pdfY +
                      psStep->polycoefmtx[5] * *pdfX * *pdfX +

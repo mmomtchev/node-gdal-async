@@ -34,9 +34,9 @@
 #include "cpl_string.h"
 #include "cpl_error.h"
 
+#include <limits>
 #include <mutex>
 
-CPL_CVSID("$Id$")
 
 #ifndef SQLColumns_TABLE_CAT
 #define SQLColumns_TABLE_CAT 1
@@ -1567,6 +1567,7 @@ void CPLODBCStatement::ClearColumnData()
 /*                               Failed()                               */
 /************************************************************************/
 
+//! @cond Doxygen_Suppress
 /** Failed */
 int CPLODBCStatement::Failed( int nResultCode )
 
@@ -1576,6 +1577,7 @@ int CPLODBCStatement::Failed( int nResultCode )
 
     return TRUE;
 }
+//! @endcond
 
 /************************************************************************/
 /*                         Append(const char *)                         */

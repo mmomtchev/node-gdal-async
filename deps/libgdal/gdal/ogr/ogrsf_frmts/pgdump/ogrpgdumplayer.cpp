@@ -31,7 +31,6 @@
 #include "cpl_string.h"
 #include "ogr_p.h"
 
-CPL_CVSID("$Id$")
 //
 static CPLString OGRPGDumpEscapeStringList(
     char** papszItems, bool bForInsertOrUpdate,
@@ -109,6 +108,7 @@ int OGRPGDumpLayer::TestCapability( const char * pszCap )
         EQUAL(pszCap,OLCCreateField) ||
         EQUAL(pszCap,OLCCreateGeomField) ||
         EQUAL(pszCap,OLCCurveGeometries) ||
+        EQUAL(pszCap,OLCZGeometries) ||
         EQUAL(pszCap,OLCMeasuredGeometries) )
         return TRUE;
     else

@@ -33,7 +33,6 @@
 
 #include <algorithm>
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                          OGRDXFDataSource()                          */
@@ -81,9 +80,12 @@ OGRDXFDataSource::~OGRDXFDataSource()
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRDXFDataSource::TestCapability( CPL_UNUSED const char * pszCap )
+int OGRDXFDataSource::TestCapability( const char * pszCap )
 {
-    return FALSE;
+    if( EQUAL(pszCap, ODsCZGeometries) )
+        return true;
+
+    return false;
 }
 
 /************************************************************************/
@@ -1002,7 +1004,7 @@ size_t OGRDXFDataSource::GetEntryFromAcDsDataSection(
 
     // Keep track of our current position and line number in the file so we can
     // return here later
-    int iPrevOffset = oReader.iSrcBufferFileOffset + oReader.iSrcBufferOffset;
+    unsigned int iPrevOffset = oReader.iSrcBufferFileOffset + oReader.iSrcBufferOffset;
     int nPrevLineNumber = oReader.nLineNumber;
 
     char szLineBuf[4096];

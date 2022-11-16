@@ -447,6 +447,8 @@ endif()
 
 gdal_check_package(BRUNSLI "Enable BRUNSLI for JPEG packing in MRF" CAN_DISABLE RECOMMENDED)
 
+gdal_check_package(libQB3 "Enable QB3 compression in MRF" CONFIG CAN_DISABLE RECOMMENDED)
+
 # Disable by default the use of external shapelib, as currently the SAOffset member that holds file offsets in it is a
 # 'unsigned long', hence 32 bit on 32 bit platforms, whereas we can handle DBFs file > 4 GB. Internal shapelib has not
 # this issue
@@ -630,10 +632,14 @@ gdal_check_package(LZ4 "LZ4 compression" CAN_DISABLE)
 gdal_check_package(Blosc "Blosc compression" CAN_DISABLE)
 
 define_find_package2(JXL jxl/decode.h jxl PKGCONFIG_NAME libjxl)
-gdal_check_package(JXL "JPEG-XL compression (when used with internal libtiff)" CAN_DISABLE)
+gdal_check_package(JXL "JPEG-XL compression" CAN_DISABLE)
+
+define_find_package2(JXL_THREADS jxl/resizable_parallel_runner.h jxl_threads PKGCONFIG_NAME libjxl_threads)
+gdal_check_package(JXL_THREADS "JPEG-XL threading" CAN_DISABLE)
 
 # unused for now gdal_check_package(OpenMP "")
 gdal_check_package(Crnlib "enable gdal_DDS driver" CAN_DISABLE)
+gdal_check_package(basisu "Enable BASISU driver" CONFIG CAN_DISABLE)
 gdal_check_package(IDB "enable ogr_IDB driver" CAN_DISABLE)
 # TODO: implement FindRASDAMAN libs: -lrasodmg -lclientcomm -lcompression -lnetwork -lraslib
 gdal_check_package(RASDAMAN "enable rasdaman driver" CAN_DISABLE)
@@ -683,6 +689,10 @@ gdal_check_package(LURATECH "Enable JP2Lura driver" CAN_DISABLE)
 gdal_check_package(Arrow "Apache Arrow C++ library" CONFIG CAN_DISABLE)
 if (Arrow_FOUND)
     gdal_check_package(Parquet "Apache Parquet C++ library" CONFIG PATHS ${Arrow_DIR} CAN_DISABLE)
+    gdal_check_package(ArrowDataset "Apache ArrowDataset C++ library" CONFIG PATHS ${Arrow_DIR} CAN_DISABLE)
+    if (Parquet_FOUND AND NOT ArrowDataset_FOUND)
+        message(WARNING "Parquet library found, but not ArrowDataset: partitioned datasets will not be supported")
+    endif()
 endif()
 
 # bindings
@@ -695,9 +705,6 @@ set_package_properties(
   TYPE RECOMMENDED)
 
 # finding python in top of project because of common for autotest and bindings
-
-find_package(Perl)
-set_package_properties(Perl PROPERTIES PURPOSE "SWIG_PERL: Perl binding")
 
 find_package(JNI)
 find_package(Java COMPONENTS Runtime Development)

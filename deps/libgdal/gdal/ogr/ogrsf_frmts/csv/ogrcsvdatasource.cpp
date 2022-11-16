@@ -47,7 +47,6 @@
 #include "ogreditablelayer.h"
 #include "ogrsf_frmts.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                     OGRCSVEditableLayerSynchronizer                  */
@@ -443,6 +442,8 @@ int OGRCSVDataSource::TestCapability( const char * pszCap )
         return TRUE;
     else if( EQUAL(pszCap, ODsCMeasuredGeometries) )
         return TRUE;
+    else if( EQUAL(pszCap, ODsCZGeometries) )
+        return TRUE;
     else if( EQUAL(pszCap, ODsCRandomLayerWrite) )
         return bUpdate;
     else
@@ -756,8 +757,12 @@ bool OGRCSVDataSource::OpenTable( const char *pszFilename,
         "OGR_CSV_MAX_LINE_SIZE",
         CSLFetchNameValueDef(papszOpenOptionsIn,
              "MAX_LINE_SIZE", CPLSPrintf("%d", OGR_CSV_DEFAULT_MAX_LINE_SIZE))));
+    size_t nMaxLineSizeAsSize_t = static_cast<size_t>(nMaxLineSize);
     if( nMaxLineSize == 0 )
+    {
         nMaxLineSize = -1;
+        nMaxLineSizeAsSize_t = static_cast<size_t>(-1);
+    }
 
     // Read and parse a line.  Did we get multiple fields?
 
@@ -791,7 +796,7 @@ bool OGRCSVDataSource::OpenTable( const char *pszFilename,
                 // of fields, if using tabulation.
                 VSIRewindL(fp);
                 char **papszTokens =
-                    CSVReadParseLine3L(fp, nMaxLineSize, "\t",
+                    CSVReadParseLine3L(fp, nMaxLineSizeAsSize_t, "\t",
                                        bHonourStrings,
                                        false, // bKeepLeadingAndClosingQuotes
                                        false, // bMergeDelimiter
@@ -800,7 +805,7 @@ bool OGRCSVDataSource::OpenTable( const char *pszFilename,
                 const int nTokens1 = CSLCount(papszTokens);
                 CSLDestroy(papszTokens);
                 papszTokens =
-                    CSVReadParseLine3L(fp, nMaxLineSize, "\t",
+                    CSVReadParseLine3L(fp, nMaxLineSizeAsSize_t, "\t",
                                        bHonourStrings,
                                        false, // bKeepLeadingAndClosingQuotes
                                        false, // bMergeDelimiter
@@ -849,7 +854,7 @@ bool OGRCSVDataSource::OpenTable( const char *pszFilename,
     char szDelimiter[2];
     szDelimiter[0] = chDelimiter;
     szDelimiter[1] = 0;
-    char **papszFields = CSVReadParseLine3L(fp, nMaxLineSize,
+    char **papszFields = CSVReadParseLine3L(fp, nMaxLineSizeAsSize_t,
                                             szDelimiter,
                                             true, // bHonourStrings,
                                             false, // bKeepLeadingAndClosingQuotes

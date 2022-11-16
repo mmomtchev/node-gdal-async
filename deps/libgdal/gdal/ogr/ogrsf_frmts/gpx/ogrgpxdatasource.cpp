@@ -47,7 +47,6 @@
 #include "ogrsf_frmts.h"
 
 
-CPL_CVSID("$Id$")
 
 constexpr int SPACE_FOR_METADATA = 160;
 
@@ -139,8 +138,10 @@ int OGRGPXDataSource::TestCapability( const char * pszCap )
 {
     if( EQUAL(pszCap,ODsCCreateLayer) )
         return TRUE;
-    if( EQUAL(pszCap,ODsCDeleteLayer) )
+    else if( EQUAL(pszCap,ODsCDeleteLayer) )
         return FALSE;
+    else if( EQUAL(pszCap, ODsCZGeometries) )
+        return TRUE;
 
     return FALSE;
 }

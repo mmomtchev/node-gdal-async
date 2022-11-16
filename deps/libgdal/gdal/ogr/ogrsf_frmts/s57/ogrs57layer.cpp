@@ -31,7 +31,6 @@
 #include "cpl_string.h"
 #include "ogr_s57.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                            OGRS57Layer()                             */
@@ -223,6 +222,9 @@ int OGRS57Layer::TestCapability( const char * pszCap )
                (poDS->GetModule(0)->GetOptionFlags()
                     & S57M_RECODE_BY_DSSI);
     }
+
+    if( EQUAL(pszCap, OLCZGeometries) )
+        return true;
 
     return false;
 }

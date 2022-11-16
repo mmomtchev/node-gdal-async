@@ -59,7 +59,6 @@
 static const char UNSUPPORTED_OP_READ_ONLY[] =
   "%s : unsupported operation on a read-only datasource.";
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                        OGRSQLiteTableLayer()                         */
@@ -1155,6 +1154,10 @@ int OGRSQLiteTableLayer::TestCapability( const char * pszCap )
 
     else if( EQUAL(pszCap,OLCMeasuredGeometries) )
         return m_poDS->TestCapability(ODsCMeasuredGeometries);
+
+    else if( EQUAL(pszCap,OLCZGeometries) )
+        return true;
+
     else
         return OGRSQLiteLayer::TestCapability( pszCap );
 }

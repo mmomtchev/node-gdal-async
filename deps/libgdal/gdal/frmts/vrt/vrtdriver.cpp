@@ -34,7 +34,6 @@
 #include "gdal_alg_priv.h"
 #include "gdal_frmts.h"
 
-CPL_CVSID("$Id$")
 
 /*! @cond Doxygen_Suppress */
 
@@ -103,6 +102,7 @@ CPLErr VRTDriver::SetMetadata( char **papszMetadata, const char *pszDomain )
 {
     if( pszDomain && EQUAL(pszDomain,"SourceParsers") )
     {
+        m_oMapSourceParser.clear();
         CSLDestroy( papszSourceParsers );
         papszSourceParsers = CSLDuplicate( papszMetadata );
         return CE_None;
@@ -119,6 +119,10 @@ void VRTDriver::AddSourceParser( const char *pszElementName,
                                  VRTSourceParser pfnParser )
 
 {
+    m_oMapSourceParser[pszElementName] = pfnParser;
+
+    // Below won't work on architectures with "capability pointers"
+
     char szPtrValue[128] = { '\0' };
     void* ptr;
     CPL_STATIC_ASSERT(sizeof(pfnParser) == sizeof(void*));
@@ -147,6 +151,18 @@ VRTSource *VRTDriver::ParseSource( CPLXMLNode *psSrc, const char *pszVRTPath,
                   "Corrupt or empty VRT source XML document." );
         return nullptr;
     }
+
+    if( !m_oMapSourceParser.empty() )
+    {
+        auto oIter = m_oMapSourceParser.find( psSrc->pszValue );
+        if( oIter != m_oMapSourceParser.end() )
+        {
+            return oIter->second( psSrc, pszVRTPath, oMapSharedSources );
+        }
+        return nullptr;
+    }
+
+    // Below won't work on architectures with "capability pointers"
 
     const char *pszParserFunc
         = CSLFetchNameValue( papszSourceParsers, psSrc->pszValue );

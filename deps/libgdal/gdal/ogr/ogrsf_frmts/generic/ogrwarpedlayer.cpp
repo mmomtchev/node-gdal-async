@@ -30,7 +30,6 @@
 
 #include "ogrwarpedlayer.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                          OGRWarpedLayer()                            */
@@ -284,6 +283,25 @@ OGRErr      OGRWarpedLayer::ICreateFeature( OGRFeature *poFeature )
         return OGRERR_FAILURE;
 
     eErr = m_poDecoratedLayer->CreateFeature(poFeatureNew);
+
+    delete poFeatureNew;
+
+    return eErr;
+}
+
+/************************************************************************/
+/*                            IUpsertFeature()                          */
+/************************************************************************/
+
+OGRErr      OGRWarpedLayer::IUpsertFeature( OGRFeature* poFeature )
+{
+    OGRErr eErr;
+
+    OGRFeature* poFeatureNew = WarpedFeatureToSrcFeature(poFeature);
+    if( poFeatureNew == nullptr )
+        return OGRERR_FAILURE;
+
+    eErr = m_poDecoratedLayer->UpsertFeature(poFeatureNew);
 
     delete poFeatureNew;
 

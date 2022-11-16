@@ -57,7 +57,6 @@
 #include "shapefil.h"
 #include "shp_vsi.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                           OGRShapeLayer()                            */
@@ -1662,7 +1661,8 @@ int OGRShapeLayer::TestCapability( const char * pszCap )
     if( EQUAL(pszCap,OLCReorderFields) )
         return bUpdateAccess;
 
-    if( EQUAL(pszCap,OLCAlterFieldDefn) )
+    if( EQUAL(pszCap,OLCAlterFieldDefn) ||
+        EQUAL(pszCap,OLCAlterGeomFieldDefn) )
         return bUpdateAccess;
 
     if( EQUAL(pszCap,OLCRename) )
@@ -1700,6 +1700,9 @@ int OGRShapeLayer::TestCapability( const char * pszCap )
     }
 
     if( EQUAL(pszCap,OLCMeasuredGeometries) )
+        return TRUE;
+
+    if( EQUAL(pszCap,OLCZGeometries) )
         return TRUE;
 
     return FALSE;
@@ -2136,6 +2139,120 @@ OGRErr OGRShapeLayer::AlterFieldDefn( int iField, OGRFieldDefn* poNewFieldDefn,
 }
 
 /************************************************************************/
+/*                         AlterGeomFieldDefn()                         */
+/************************************************************************/
+
+OGRErr OGRShapeLayer::AlterGeomFieldDefn( int iGeomField,
+                                          const OGRGeomFieldDefn* poNewGeomFieldDefn,
+                                          int nFlagsIn )
+{
+    if( !StartUpdate("AlterGeomFieldDefn") )
+        return OGRERR_FAILURE;
+
+    if( iGeomField < 0 || iGeomField >= poFeatureDefn->GetGeomFieldCount() )
+    {
+        CPLError( CE_Failure, CPLE_NotSupported,
+                  "Invalid field index");
+        return OGRERR_FAILURE;
+    }
+
+    auto poFieldDefn = cpl::down_cast<OGRShapeGeomFieldDefn*>(
+        poFeatureDefn->GetGeomFieldDefn(iGeomField));
+
+    if( nFlagsIn & ALTER_GEOM_FIELD_DEFN_NAME_FLAG )
+    {
+        if( strcmp(poNewGeomFieldDefn->GetNameRef(),
+                   poFieldDefn->GetNameRef()) != 0 )
+        {
+            CPLError(CE_Failure, CPLE_NotSupported,
+                     "Altering the geometry field name is not supported for "
+                     "shapefiles");
+            return OGRERR_FAILURE;
+        }
+    }
+
+    if( nFlagsIn & ALTER_GEOM_FIELD_DEFN_TYPE_FLAG )
+    {
+        if( poFieldDefn->GetType() != poNewGeomFieldDefn->GetType() )
+        {
+            CPLError(CE_Failure, CPLE_NotSupported,
+                     "Altering the geometry field type is not supported for "
+                     "shapefiles");
+            return OGRERR_FAILURE;
+        }
+    }
+
+    if( nFlagsIn & ALTER_GEOM_FIELD_DEFN_SRS_COORD_EPOCH_FLAG )
+    {
+        const auto poNewSRSRef = poNewGeomFieldDefn->GetSpatialRef();
+        if( poNewSRSRef && poNewSRSRef->GetCoordinateEpoch() > 0 )
+        {
+            CPLError(CE_Failure, CPLE_NotSupported,
+                     "Setting a coordinate epoch is not supported for "
+                     "shapefiles");
+            return OGRERR_FAILURE;
+        }
+    }
+
+    if( nFlagsIn & ALTER_GEOM_FIELD_DEFN_SRS_FLAG )
+    {
+        if( poFieldDefn->GetPrjFilename().empty() )
+        {
+            poFieldDefn->SetPrjFilename(CPLResetExtension( pszFullName, "prj" ));
+        }
+
+        const auto poNewSRSRef = poNewGeomFieldDefn->GetSpatialRef();
+        if( poNewSRSRef )
+        {
+            char *pszWKT = nullptr;
+            VSILFILE *fp = nullptr;
+            const char* const apszOptions[] = { "FORMAT=WKT1_ESRI", nullptr };
+            if( poNewSRSRef->exportToWkt( &pszWKT, apszOptions ) == OGRERR_NONE
+                && (fp = VSIFOpenL( poFieldDefn->GetPrjFilename().c_str(), "wt" )) != nullptr )
+            {
+                VSIFWriteL( pszWKT, strlen(pszWKT), 1, fp );
+                VSIFCloseL( fp );
+            }
+            else
+            {
+                CPLError(CE_Failure, CPLE_FileIO,
+                         "Cannot write %s",
+                         poFieldDefn->GetPrjFilename().c_str());
+                CPLFree(pszWKT);
+                return OGRERR_FAILURE;
+            }
+
+            CPLFree( pszWKT );
+
+            auto poNewSRS = poNewSRSRef->Clone();
+            poFieldDefn->SetSpatialRef(poNewSRS);
+            poNewSRS->Release();
+        }
+        else
+        {
+            poFieldDefn->SetSpatialRef(nullptr);
+            VSIStatBufL sStat;
+            if( VSIStatL(poFieldDefn->GetPrjFilename().c_str(), &sStat) == 0 &&
+                VSIUnlink(poFieldDefn->GetPrjFilename().c_str()) != 0 )
+            {
+                CPLError(CE_Failure, CPLE_FileIO,
+                         "Cannot delete %s",
+                         poFieldDefn->GetPrjFilename().c_str());
+                return OGRERR_FAILURE;
+            }
+        }
+        poFieldDefn->SetSRSSet();
+    }
+
+    if( nFlagsIn & ALTER_GEOM_FIELD_DEFN_NAME_FLAG )
+        poFieldDefn->SetName(poNewGeomFieldDefn->GetNameRef());
+    if( nFlagsIn & ALTER_GEOM_FIELD_DEFN_NULLABLE_FLAG )
+        poFieldDefn->SetNullable(poNewGeomFieldDefn->IsNullable());
+
+    return OGRERR_NONE;
+}
+
+/************************************************************************/
 /*                           GetSpatialRef()                            */
 /************************************************************************/
 
@@ -2188,82 +2305,13 @@ OGRSpatialReference *OGRShapeGeomFieldDefn::GetSpatialRef() const
         {
             if( CPLTestBool(CPLGetConfigOption("USE_OSR_FIND_MATCHES", "YES")) )
             {
-                int nEntries = 0;
-                int* panConfidence = nullptr;
-                OGRSpatialReferenceH* pahSRS =
-                    poSRS->FindMatches(nullptr, &nEntries, &panConfidence);
-                if( nEntries == 1 && panConfidence[0] >= 90 )
+                auto poSRSMatch = poSRS->FindBestMatch();
+                if( poSRSMatch )
                 {
-                    std::vector<double> adfTOWGS84(7);
-                    if( poSRS->GetTOWGS84(&adfTOWGS84[0], 7) != OGRERR_NONE )
-                    {
-                        adfTOWGS84.clear();
-                    }
-
                     poSRS->Release();
-                    poSRS = reinterpret_cast<OGRSpatialReference*>(pahSRS[0]);
+                    poSRS = poSRSMatch;
                     poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-                    CPLFree(pahSRS);
-
-                    auto poBaseGeogCRS = std::unique_ptr<OGRSpatialReference>(
-                        poSRS->CloneGeogCS());
-
-                    // If the base geographic SRS of the SRS is EPSG:4326
-                    // with TOWGS84[0,0,0,0,0,0], then just use the official
-                    // SRS code
-                    // Same with EPSG:4258 (ETRS89), since it's the only known
-                    // TOWGS84[] style transformation to WGS 84, and given the
-                    // "fuzzy" nature of both ETRS89 and WGS 84, there's little
-                    // chance that a non-NULL TOWGS84[] will emerge.
-                    const char* pszAuthorityName = nullptr;
-                    const char* pszAuthorityCode = nullptr;
-                    const char* pszBaseAuthorityName = nullptr;
-                    const char* pszBaseAuthorityCode = nullptr;
-                    if( adfTOWGS84 == std::vector<double>(7) &&
-                        (pszAuthorityName = poSRS->GetAuthorityName(nullptr)) != nullptr &&
-                        EQUAL(pszAuthorityName, "EPSG") &&
-                        (pszAuthorityCode = poSRS->GetAuthorityCode(nullptr)) != nullptr &&
-                        (pszBaseAuthorityName = poBaseGeogCRS->GetAuthorityName(nullptr)) != nullptr &&
-                        EQUAL(pszBaseAuthorityName, "EPSG") &&
-                        (pszBaseAuthorityCode = poBaseGeogCRS->GetAuthorityCode(nullptr)) != nullptr &&
-                        (EQUAL(pszBaseAuthorityCode, "4326") ||
-                         EQUAL(pszBaseAuthorityCode, "4258")) )
-                    {
-                        poSRS->importFromEPSG(atoi(pszAuthorityCode));
-                    }
                 }
-                else
-                {
-                    // If there are several matches >= 90%, take the only one
-                    // that is EPSG
-                    int iEPSG = -1;
-                    for(int i = 0; i < nEntries; i++ )
-                    {
-                        if( panConfidence[i] >= 90 )
-                        {
-                            const char* pszAuthName =
-                                reinterpret_cast<OGRSpatialReference*>(pahSRS[i])->GetAuthorityName(nullptr);
-                            if( pszAuthName != nullptr && EQUAL(pszAuthName, "EPSG") )
-                            {
-                                if( iEPSG < 0 )
-                                    iEPSG = i;
-                                else
-                                {
-                                    iEPSG = -1;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if( iEPSG >= 0 )
-                    {
-                        poSRS->Release();
-                        poSRS = reinterpret_cast<OGRSpatialReference*>(pahSRS[iEPSG])->Clone();
-                        poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-                    }
-                    OSRFreeSRSArray(pahSRS);
-                }
-                CPLFree(panConfidence);
             }
             else
             {

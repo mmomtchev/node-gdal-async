@@ -31,7 +31,6 @@
 #include <map>
 #include <set>
 
-CPL_CVSID("$Id$")
 
 class OGRDataSourceWithTransaction;
 
@@ -59,6 +58,7 @@ class OGRLayerWithTransaction final: public OGRLayerDecorator
     virtual OGRErr      DeleteField( int iField ) override;
     virtual OGRErr      ReorderFields( int* panMap ) override;
     virtual OGRErr      AlterFieldDefn( int iField, OGRFieldDefn* poNewFieldDefn, int nFlags ) override;
+    virtual OGRErr      AlterGeomFieldDefn( int iField, const OGRGeomFieldDefn* poNewGeomFieldDefn, int nFlags ) override;
 
     virtual OGRErr      CreateGeomField( OGRGeomFieldDefn *poField,
                                      int bApproxOK = TRUE ) override;
@@ -67,6 +67,7 @@ class OGRLayerWithTransaction final: public OGRLayerDecorator
     virtual OGRFeature *GetFeature( GIntBig nFID ) override;
     virtual OGRErr      ISetFeature( OGRFeature *poFeature ) override;
     virtual OGRErr      ICreateFeature( OGRFeature *poFeature ) override;
+    virtual OGRErr      IUpsertFeature( OGRFeature* poFeature ) override;
 
     virtual OGRErr      Rename(const char* pszNewName) override;
 };
@@ -142,6 +143,10 @@ class OGRDataSourceWithTransaction final: public OGRDataSource
                                           std::string& failureReason) override;
     virtual bool        UpdateFieldDomain(std::unique_ptr<OGRFieldDomain>&& domain,
                                           std::string& failureReason) override;
+
+    std::vector<std::string> GetRelationshipNames(CSLConstList papszOptions = nullptr) const override;
+
+    const GDALRelationship* GetRelationship(const std::string& name) const override;
 
     virtual std::shared_ptr<GDALGroup> GetRootGroup() const override;
 
@@ -475,6 +480,18 @@ bool OGRDataSourceWithTransaction::UpdateFieldDomain(std::unique_ptr<OGRFieldDom
     return m_poBaseDataSource->UpdateFieldDomain(std::move(domain), failureReason);
 }
 
+std::vector<std::string> OGRDataSourceWithTransaction::GetRelationshipNames(CSLConstList papszOptions ) const
+{
+    if( !m_poBaseDataSource ) return {};
+    return m_poBaseDataSource->GetRelationshipNames(papszOptions);
+}
+
+const GDALRelationship* OGRDataSourceWithTransaction::GetRelationship(const std::string& name) const
+{
+    if( !m_poBaseDataSource ) return nullptr;
+    return m_poBaseDataSource->GetRelationship(name);
+}
+
 std::shared_ptr<GDALGroup> OGRDataSourceWithTransaction::GetRootGroup() const
 {
     if( !m_poBaseDataSource ) return nullptr;
@@ -613,6 +630,23 @@ OGRErr      OGRLayerWithTransaction::AlterFieldDefn( int iField,
     return eErr;
 }
 
+OGRErr      OGRLayerWithTransaction::AlterGeomFieldDefn( int iGeomField,
+                                                         const OGRGeomFieldDefn* poNewGeomFieldDefn,
+                                                         int nFlagsIn )
+{
+    if( !m_poDecoratedLayer ) return OGRERR_FAILURE;
+    OGRErr eErr = m_poDecoratedLayer->AlterGeomFieldDefn(iGeomField, poNewGeomFieldDefn, nFlagsIn);
+    if( m_poFeatureDefn && eErr == OGRERR_NONE )
+    {
+        const auto poSrcFieldDefn = m_poDecoratedLayer->GetLayerDefn()->GetGeomFieldDefn(iGeomField);
+        auto poDstFieldDefn = m_poFeatureDefn->GetGeomFieldDefn(iGeomField);
+        poDstFieldDefn->SetName(poSrcFieldDefn->GetNameRef());
+        poDstFieldDefn->SetType(poSrcFieldDefn->GetType());
+        poDstFieldDefn->SetSpatialRef(poSrcFieldDefn->GetSpatialRef());
+        poDstFieldDefn->SetNullable(poSrcFieldDefn->IsNullable());
+    }
+    return eErr;
+}
 OGRFeature * OGRLayerWithTransaction::GetNextFeature()
 {
     if( !m_poDecoratedLayer ) return nullptr;
@@ -658,6 +692,17 @@ OGRErr       OGRLayerWithTransaction::ICreateFeature( OGRFeature *poFeature )
     poSrcFeature->SetFID(poFeature->GetFID());
     OGRErr eErr = m_poDecoratedLayer->CreateFeature(poSrcFeature);
     poFeature->SetFID(poSrcFeature->GetFID());
+    delete poSrcFeature;
+    return eErr;
+}
+
+OGRErr       OGRLayerWithTransaction::IUpsertFeature( OGRFeature* poFeature )
+{
+    if( !m_poDecoratedLayer ) return OGRERR_FAILURE;
+    OGRFeature* poSrcFeature = new OGRFeature(m_poDecoratedLayer->GetLayerDefn());
+    poSrcFeature->SetFrom(poFeature);
+    poSrcFeature->SetFID(poFeature->GetFID());
+    OGRErr eErr = m_poDecoratedLayer->UpsertFeature(poSrcFeature);
     delete poSrcFeature;
     return eErr;
 }

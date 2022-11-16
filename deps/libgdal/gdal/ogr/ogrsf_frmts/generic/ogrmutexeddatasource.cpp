@@ -31,7 +31,6 @@
 #include "ogrmutexeddatasource.h"
 #include "cpl_multiproc.h"
 
-CPL_CVSID("$Id$")
 
 OGRMutexedDataSource::OGRMutexedDataSource( OGRDataSource* poBaseDataSource,
                                             int bTakeOwnership,
@@ -268,6 +267,18 @@ bool OGRMutexedDataSource::UpdateFieldDomain(std::unique_ptr<OGRFieldDomain> &&d
 {
     CPLMutexHolderOptionalLockD(m_hGlobalMutex);
     return m_poBaseDataSource->UpdateFieldDomain(std::move(domain), failureReason);
+}
+
+std::vector<std::string> OGRMutexedDataSource::GetRelationshipNames(CSLConstList papszOptions ) const
+{
+    CPLMutexHolderOptionalLockD(m_hGlobalMutex);
+    return m_poBaseDataSource->GetRelationshipNames(papszOptions);
+}
+
+const GDALRelationship* OGRMutexedDataSource::GetRelationship(const std::string& name) const
+{
+    CPLMutexHolderOptionalLockD(m_hGlobalMutex);
+    return m_poBaseDataSource->GetRelationship(name);
 }
 
 std::shared_ptr<GDALGroup> OGRMutexedDataSource::GetRootGroup() const

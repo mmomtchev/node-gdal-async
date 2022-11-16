@@ -39,7 +39,6 @@
 #include "ogrgeojsonutils.h"
 #include "ogrsf_frmts.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                       OGRESRIJSONDriverIdentify()                    */
@@ -89,6 +88,7 @@ void RegisterOGRESRIJSON()
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "ESRIJSON" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "json" );
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/vector/esrijson.html" );
+    poDriver->SetMetadataItem( GDAL_DCAP_Z_GEOMETRIES, "YES" );
 
     poDriver->SetMetadataItem( GDAL_DMD_OPENOPTIONLIST,
 "<OpenOptionList>"
@@ -99,6 +99,7 @@ void RegisterOGRESRIJSON()
                                "<CreationOptionList/>");
 
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
+    poDriver->SetMetadataItem( GDAL_DMD_SUPPORTED_SQL_DIALECTS, "OGRSQL SQLITE" );
 
     poDriver->pfnOpen = OGRESRIJSONDriverOpen;
     poDriver->pfnIdentify = OGRESRIJSONDriverIdentify;

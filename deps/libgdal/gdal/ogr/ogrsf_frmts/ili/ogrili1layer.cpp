@@ -35,7 +35,6 @@
 #include <map>
 #include <vector>
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                           OGRILI1Layer()                              */
@@ -389,7 +388,7 @@ OGRErr OGRILI1Layer::ICreateFeature( OGRFeature *poFeature ) {
               char* pszString
                   = CPLRecode( pszRaw, CPL_ENC_UTF8, CPL_ENC_ISO8859_1 );
               //Replace spaces
-              for(size_t i=0; i<strlen(pszString); i++ ) {
+              for(size_t i=0; pszString[i] != '\0'; i++ ) {
                   if (pszString[i] == ' ') pszString[i] = '_';
               }
               VSIFPrintfL( fp, " %s", pszString );
@@ -420,6 +419,8 @@ OGRErr OGRILI1Layer::ICreateFeature( OGRFeature *poFeature ) {
 
 int OGRILI1Layer::TestCapability( CPL_UNUSED const char * pszCap ) {
     if( EQUAL(pszCap,OLCCurveGeometries) )
+        return TRUE;
+    if( EQUAL(pszCap,OLCZGeometries) )
         return TRUE;
 
     if( EQUAL(pszCap, OLCCreateField) || EQUAL(pszCap, OLCSequentialWrite) )

@@ -32,7 +32,6 @@
 
 #include <algorithm>
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                            OGRGmtLayer()                             */
@@ -1025,6 +1024,9 @@ int OGRGmtLayer::TestCapability( const char * pszCap )
         return bRegionComplete;
 
     if( EQUAL(pszCap,OLCCreateField) )
+        return TRUE;
+
+    if( EQUAL(pszCap,OLCZGeometries) )
         return TRUE;
 
     return FALSE;

@@ -33,7 +33,9 @@
 #include "ogr_p.h"
 #include "ogr_swq.h"
 
+#include <algorithm>
 #include <cinttypes>
+#include <limits>
 
 #define SWQ_ISNOTNULL (-SWQ_ISNULL)
 
@@ -43,7 +45,7 @@
 
 inline
 OGRArrowLayer::OGRArrowLayer(OGRArrowDataset* poDS, const char* pszLayerName):
-            m_poMemoryPool(poDS->GetMemoryPool())
+            m_poArrowDS(poDS), m_poMemoryPool(poDS->GetMemoryPool())
 {
     m_poFeatureDefn = new OGRFeatureDefn(pszLayerName);
     m_poFeatureDefn->SetGeomType(wkbNone);
@@ -89,7 +91,7 @@ std::map<std::string, std::unique_ptr<OGRFieldDefn>> OGRArrowLayer::LoadGDALMeta
                 auto oColumns = oRoot.GetObj("columns");
                 if( oColumns.IsValid() )
                 {
-                    for( const auto oColumn: oColumns.GetChildren() )
+                    for( const auto& oColumn: oColumns.GetChildren() )
                     {
                         const auto osName = oColumn.GetName();
                         const auto osType = oColumn.GetString("type");
@@ -383,6 +385,60 @@ inline bool OGRArrowLayer::MapArrowTypeToOGR(const std::shared_ptr<arrow::DataTy
     }
 
     return bTypeOK;
+}
+
+/************************************************************************/
+/*                         CreateFieldFromSchema()                      */
+/************************************************************************/
+
+inline
+void OGRArrowLayer::CreateFieldFromSchema(
+    const std::shared_ptr<arrow::Field>& field,
+    const std::vector<int>& path,
+    const std::map<std::string, std::unique_ptr<OGRFieldDefn>>& oMapFieldNameToGDALSchemaFieldDefn)
+{
+    OGRFieldDefn oField(field->name().c_str(), OFTString);
+    OGRFieldType eType = OFTString;
+    OGRFieldSubType eSubType = OFSTNone;
+    bool bTypeOK = true;
+
+    auto type = field->type();
+    if( type->id() == arrow::Type::DICTIONARY && path.size() == 1 )
+    {
+        const auto dictionaryType = std::static_pointer_cast<arrow::DictionaryType>(field->type());
+        const auto indexType = dictionaryType->index_type();
+        if( dictionaryType->value_type()->id() == arrow::Type::STRING &&
+            IsIntegerArrowType(indexType->id()) )
+        {
+            std::string osDomainName(field->name() + "Domain");
+            m_poArrowDS->RegisterDomainName(osDomainName, m_poFeatureDefn->GetFieldCount());
+            oField.SetDomainName(osDomainName);
+            type = indexType;
+        }
+        else
+        {
+            bTypeOK = false;
+        }
+    }
+
+    if( type->id() == arrow::Type::STRUCT )
+    {
+        const auto subfields = field->Flatten();
+        auto newpath = path;
+        newpath.push_back(0);
+        for( int j = 0; j < static_cast<int>(subfields.size()); j++ )
+        {
+            const auto& subfield = subfields[j];
+            newpath.back() = j;
+            CreateFieldFromSchema(subfield,
+                                  newpath, oMapFieldNameToGDALSchemaFieldDefn);
+        }
+    }
+    else if( bTypeOK )
+    {
+        MapArrowTypeToOGR(type, field, oField, eType, eSubType,
+                          path, oMapFieldNameToGDALSchemaFieldDefn);
+    }
 }
 
 /************************************************************************/
@@ -2643,7 +2699,7 @@ inline bool OGRArrowLayer::SkipToNextFeatureDueToAttributeFilter() const
 inline
 OGRFeature* OGRArrowLayer::GetNextRawFeature()
 {
-    if( m_bEOF )
+    if( m_bEOF || !m_bSpatialFilterIntersectsLayerExtent )
         return nullptr;
 
     if( m_poBatch == nullptr || m_nIdxInBatch == m_poBatch->num_rows() )
@@ -2871,6 +2927,95 @@ OGRErr OGRArrowLayer::GetExtent(OGREnvelope *psExtent, int bForce)
 }
 
 /************************************************************************/
+/*                       GetExtentFromMetadata()                        */
+/************************************************************************/
+
+inline
+OGRErr OGRArrowLayer::GetExtentFromMetadata(const CPLJSONObject& oJSONDef,
+                                            OGREnvelope *psExtent)
+{
+    const auto oBBox = oJSONDef.GetArray("bbox");
+    if( oBBox.IsValid() && oBBox.Size() == 4 )
+    {
+        psExtent->MinX = oBBox[0].ToDouble();
+        psExtent->MinY = oBBox[1].ToDouble();
+        psExtent->MaxX = oBBox[2].ToDouble();
+        psExtent->MaxY = oBBox[3].ToDouble();
+        if( psExtent->MinX <= psExtent->MaxX )
+            return OGRERR_NONE;
+    }
+    else if( oBBox.IsValid() && oBBox.Size() == 6 )
+    {
+        psExtent->MinX = oBBox[0].ToDouble();
+        psExtent->MinY = oBBox[1].ToDouble();
+        // MinZ skipped
+        psExtent->MaxX = oBBox[3].ToDouble();
+        psExtent->MaxY = oBBox[4].ToDouble();
+        // MaxZ skipped
+        if( psExtent->MinX <= psExtent->MaxX )
+            return OGRERR_NONE;
+    }
+    return OGRERR_FAILURE;
+}
+
+/************************************************************************/
+/*                        SetSpatialFilter()                            */
+/************************************************************************/
+
+inline
+void OGRArrowLayer::SetSpatialFilter( int iGeomField, OGRGeometry * poGeomIn )
+
+{
+    m_bSpatialFilterIntersectsLayerExtent = true;
+    if( iGeomField >= 0 && iGeomField < GetLayerDefn()->GetGeomFieldCount() )
+    {
+        m_iGeomFieldFilter = iGeomField;
+        if( InstallFilter( poGeomIn ) )
+            ResetReading();
+        if( m_poFilterGeom != nullptr )
+        {
+            OGREnvelope sLayerExtent;
+            if( GetFastExtent(iGeomField, &sLayerExtent) )
+            {
+                m_bSpatialFilterIntersectsLayerExtent =
+                    m_sFilterEnvelope.Intersects(sLayerExtent);
+            }
+        }
+    }
+}
+
+/************************************************************************/
+/*                         GetFastExtent()                              */
+/************************************************************************/
+
+inline
+bool OGRArrowLayer::GetFastExtent(int iGeomField, OGREnvelope *psExtent) const
+{
+    {
+        const auto oIter = m_oMapExtents.find(iGeomField);
+        if( oIter != m_oMapExtents.end() )
+        {
+            *psExtent = oIter->second;
+            return true;
+        }
+    }
+
+    const char* pszGeomFieldName =
+        m_poFeatureDefn->GetGeomFieldDefn(iGeomField)->GetNameRef();
+    const auto oIter = m_oMapGeometryColumns.find(pszGeomFieldName);
+    if( oIter != m_oMapGeometryColumns.end() &&
+        CPLTestBool(CPLGetConfigOption(("OGR_" + GetDriverUCName() + "_USE_BBOX").c_str(), "YES")) )
+    {
+        const auto& oJSONDef = oIter->second;
+        if( GetExtentFromMetadata(oJSONDef, psExtent) == OGRERR_NONE )
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+/************************************************************************/
 /*                            GetExtent()                               */
 /************************************************************************/
 
@@ -2887,33 +3032,10 @@ OGRErr OGRArrowLayer::GetExtent(int iGeomField, OGREnvelope *psExtent,
         }
         return OGRERR_FAILURE;
     }
-    auto oIter = m_oMapGeometryColumns.find(
-        m_poFeatureDefn->GetGeomFieldDefn(iGeomField)->GetNameRef() );
-    if( oIter != m_oMapGeometryColumns.end() &&
-        CPLTestBool(CPLGetConfigOption(("OGR_" + GetDriverUCName() + "_USE_BBOX").c_str(), "YES")) )
+
+    if( GetFastExtent(iGeomField, psExtent) )
     {
-        const auto& oJSONDef = oIter->second;
-        const auto oBBox = oJSONDef.GetArray("bbox");
-        if( oBBox.IsValid() && oBBox.Size() == 4 )
-        {
-            psExtent->MinX = oBBox[0].ToDouble();
-            psExtent->MinY = oBBox[1].ToDouble();
-            psExtent->MaxX = oBBox[2].ToDouble();
-            psExtent->MaxY = oBBox[3].ToDouble();
-            if( psExtent->MinX <= psExtent->MaxX )
-                return OGRERR_NONE;
-        }
-        else if( oBBox.IsValid() && oBBox.Size() == 6 )
-        {
-            psExtent->MinX = oBBox[0].ToDouble();
-            psExtent->MinY = oBBox[1].ToDouble();
-            // MinZ skipped
-            psExtent->MaxX = oBBox[3].ToDouble();
-            psExtent->MaxY = oBBox[4].ToDouble();
-            // MaxZ skipped
-            if( psExtent->MinX <= psExtent->MaxX )
-                return OGRERR_NONE;
-        }
+        return OGRERR_NONE;
     }
 
     if( !bForce && !CanRunNonForcedGetExtent() )
@@ -2970,7 +3092,12 @@ OGRErr OGRArrowLayer::GetExtent(int iGeomField, OGREnvelope *psExtent,
                 if( m_bEOF )
                 {
                     ResetReading();
-                    return psExtent->IsInit() ? OGRERR_NONE : OGRERR_FAILURE;
+                    if( psExtent->IsInit() )
+                    {
+                        m_oMapExtents[iGeomField] = *psExtent;
+                        return OGRERR_NONE;
+                    }
+                    return OGRERR_FAILURE;
                 }
                 array = m_poBatchColumns[iCol];
                 CPLAssert( array->type_id() == arrow::Type::BINARY );
@@ -3042,7 +3169,12 @@ begin_multipolygon:
                 if( m_bEOF )
                 {
                     ResetReading();
-                    return psExtent->IsInit() ? OGRERR_NONE : OGRERR_FAILURE;
+                    if( psExtent->IsInit() )
+                    {
+                        m_oMapExtents[iGeomField] = *psExtent;
+                        return OGRERR_NONE;
+                    }
+                    return OGRERR_FAILURE;
                 }
                 goto begin_multipolygon;
             }
@@ -3050,4 +3182,228 @@ begin_multipolygon:
     }
 
     return GetExtentInternal(iGeomField, psExtent, bForce);
+}
+
+/************************************************************************/
+/*                  OverrideArrowSchemaRelease()                        */
+/************************************************************************/
+
+template<class T>
+static void OverrideArrowRelease(OGRArrowDataset* poDS, T* obj)
+{
+    // We override the release callback, since it can use the memory pool,
+    // and we need to make sure it is still alive when the object (ArrowArray
+    // or ArrowSchema) is deleted
+    struct OverriddenPrivate
+    {
+        OverriddenPrivate() = default;
+        OverriddenPrivate(const OverriddenPrivate&) = delete;
+        OverriddenPrivate& operator= (const OverriddenPrivate&) = delete;
+
+        std::shared_ptr<arrow::MemoryPool> poMemoryPool{};
+        void                             (*pfnPreviousRelease)(T*) = nullptr;
+        void*                              pPreviousPrivateData = nullptr;
+    };
+
+    auto overriddenPrivate = new OverriddenPrivate();
+    overriddenPrivate->poMemoryPool = poDS->GetSharedMemoryPool();
+    overriddenPrivate->pPreviousPrivateData = obj->private_data;
+    overriddenPrivate->pfnPreviousRelease = obj->release;
+
+    obj->release = [](T* l_obj)
+    {
+        OverriddenPrivate* myPrivate = static_cast<OverriddenPrivate*>(l_obj->private_data);
+        l_obj->private_data = myPrivate->pPreviousPrivateData;
+        l_obj->release = myPrivate->pfnPreviousRelease;
+        l_obj->release(l_obj);
+        delete myPrivate;
+    };
+    obj->private_data = overriddenPrivate;
+}
+
+/************************************************************************/
+/*                   UseRecordBatchBaseImplementation()                 */
+/************************************************************************/
+
+inline
+bool OGRArrowLayer::UseRecordBatchBaseImplementation() const
+{
+    if( m_poAttrQuery != nullptr ||
+        m_poFilterGeom != nullptr ||
+        CPLTestBool(CPLGetConfigOption("OGR_ARROW_STREAM_BASE_IMPL", "NO")) )
+    {
+        return true;
+    }
+
+    if( EQUAL(m_aosArrowArrayStreamOptions.FetchNameValueDef("GEOMETRY_ENCODING", ""), "WKB") )
+    {
+        const int nGeomFieldCount = m_poFeatureDefn->GetGeomFieldCount();
+        for( int i = 0; i < nGeomFieldCount; i++ )
+        {
+            if( m_aeGeomEncoding[i] != OGRArrowGeomEncoding::WKB )
+                return true;
+        }
+    }
+
+    if( m_bIgnoredFields )
+    {
+        std::vector<int> ignoredState(m_anMapFieldIndexToArrowColumn.size(), -1);
+        for( size_t i = 0; i < m_anMapFieldIndexToArrowColumn.size(); i++ )
+        {
+            const int nArrowCol = m_anMapFieldIndexToArrowColumn[i][0];
+            if( nArrowCol >= static_cast<int>(ignoredState.size()) )
+                ignoredState.resize(nArrowCol + 1, -1);
+            const auto bIsIgnored = m_poFeatureDefn->GetFieldDefn(
+                static_cast<int>(i))->IsIgnored();
+            if( ignoredState[nArrowCol] < 0 )
+            {
+                ignoredState[nArrowCol] = static_cast<int>(bIsIgnored);
+            }
+            else
+            {
+                // struct fields will point to the same arrow column
+                if( ignoredState[nArrowCol] != static_cast<int>(bIsIgnored) )
+                {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+/************************************************************************/
+/*                         GetArrowSchema()                             */
+/************************************************************************/
+
+inline
+int OGRArrowLayer::GetArrowSchema(struct ArrowArrayStream* stream,
+                                   struct ArrowSchema* out_schema)
+{
+    if( UseRecordBatchBaseImplementation() )
+        return OGRLayer::GetArrowSchema(stream, out_schema);
+
+    auto status = arrow::ExportSchema(*m_poSchema, out_schema);
+    if( !status.ok() )
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "ExportSchema() failed with %s",
+                 status.message().c_str());
+        return EIO;
+    }
+
+    CPLAssert( out_schema->n_children == m_poSchema->num_fields() );
+
+    if( m_bIgnoredFields )
+    {
+        // Remove ignored fields from the ArrowSchema.
+
+        struct FieldDesc
+        {
+            bool bIsRegularField = false; // true = attribute field, false = geometry field
+            int  nIdx = -1;
+        };
+        // cppcheck-suppress unreadVariable
+        std::vector<FieldDesc> fieldDesc(out_schema->n_children);
+        for( size_t i = 0; i < m_anMapFieldIndexToArrowColumn.size(); i++ )
+        {
+            const int nArrowCol = m_anMapFieldIndexToArrowColumn[i][0];
+            if( fieldDesc[nArrowCol].nIdx < 0 )
+            {
+                fieldDesc[nArrowCol].bIsRegularField = true;
+                fieldDesc[nArrowCol].nIdx = static_cast<int>(i);
+            }
+        }
+        for( size_t i = 0; i < m_anMapGeomFieldIndexToArrowColumn.size(); i++ )
+        {
+            const int nArrowCol = m_anMapGeomFieldIndexToArrowColumn[i];
+            CPLAssert( fieldDesc[nArrowCol].nIdx < 0 );
+            fieldDesc[nArrowCol].bIsRegularField = false;
+            fieldDesc[nArrowCol].nIdx = static_cast<int>(i);
+        }
+
+        int j = 0;
+        for( int i = 0; i < out_schema->n_children; ++i )
+        {
+            const auto bIsIgnored = fieldDesc[i].bIsRegularField ?
+                m_poFeatureDefn->GetFieldDefn(fieldDesc[i].nIdx)->IsIgnored() :
+                m_poFeatureDefn->GetGeomFieldDefn(fieldDesc[i].nIdx)->IsIgnored();
+            if( bIsIgnored )
+            {
+                out_schema->children[i]->release(out_schema->children[i]);
+            }
+            else
+            {
+                out_schema->children[j] = out_schema->children[i];
+                ++j;
+            }
+        }
+        out_schema->n_children = j;
+    }
+
+    OverrideArrowRelease(m_poArrowDS, out_schema);
+    return 0;
+}
+
+/************************************************************************/
+/*                       GetNextArrowArray()                            */
+/************************************************************************/
+
+inline
+int OGRArrowLayer::GetNextArrowArray(struct ArrowArrayStream* stream,
+                                      struct ArrowArray* out_array)
+{
+    if( UseRecordBatchBaseImplementation() )
+        return OGRLayer::GetNextArrowArray(stream, out_array);
+
+    if( m_bEOF )
+    {
+        memset(out_array, 0, sizeof(*out_array));
+        return 0;
+    }
+
+    if( m_poBatch == nullptr || m_nIdxInBatch == m_poBatch->num_rows() )
+    {
+        m_bEOF = !ReadNextBatch();
+        if( m_bEOF )
+        {
+            memset(out_array, 0, sizeof(*out_array));
+            return 0;
+        }
+    }
+
+    auto status = arrow::ExportRecordBatch(*m_poBatch, out_array, nullptr);
+    m_nIdxInBatch = m_poBatch->num_rows();
+    if( !status.ok() )
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "ExportRecordBatch() failed with %s",
+                 status.message().c_str());
+        return EIO;
+    }
+
+    OverrideArrowRelease(m_poArrowDS, out_array);
+
+    return 0;
+}
+
+/************************************************************************/
+/*                         TestCapability()                             */
+/************************************************************************/
+
+inline
+int OGRArrowLayer::TestCapability(const char* pszCap)
+{
+
+    if( EQUAL(pszCap, OLCStringsAsUTF8) )
+        return true;
+
+    else if ( EQUAL(pszCap, OLCFastGetArrowStream) &&
+              !UseRecordBatchBaseImplementation() )
+    {
+        return true;
+    }
+
+    return false;
 }

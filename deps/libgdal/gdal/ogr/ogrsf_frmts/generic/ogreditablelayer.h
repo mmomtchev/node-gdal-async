@@ -100,6 +100,7 @@ class CPL_DLL OGREditableLayer : public OGRLayerDecorator
     virtual OGRFeature *GetFeature( GIntBig nFID ) override;
     virtual OGRErr      ISetFeature( OGRFeature *poFeature ) override;
     virtual OGRErr      ICreateFeature( OGRFeature *poFeature ) override;
+    virtual OGRErr      IUpsertFeature( OGRFeature* poFeature ) override;
     virtual OGRErr      DeleteFeature( GIntBig nFID ) override;
 
     virtual OGRwkbGeometryType GetGeomType() override;
@@ -118,6 +119,7 @@ class CPL_DLL OGREditableLayer : public OGRLayerDecorator
     virtual OGRErr      DeleteField( int iField ) override;
     virtual OGRErr      ReorderFields( int* panMap ) override;
     virtual OGRErr      AlterFieldDefn( int iField, OGRFieldDefn* poNewFieldDefn, int nFlags ) override;
+    virtual OGRErr      AlterGeomFieldDefn( int iGeomField, const OGRGeomFieldDefn* poNewGeomFieldDefn, int nFlags ) override;
 
     virtual OGRErr      CreateGeomField( OGRGeomFieldDefn *poField,
                                          int bApproxOK = TRUE ) override;

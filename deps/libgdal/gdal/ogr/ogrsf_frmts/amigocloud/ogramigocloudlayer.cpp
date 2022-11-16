@@ -30,7 +30,6 @@
 #include "ogr_p.h"
 #include "ogrgeojsonreader.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                         OGRAmigoCloudLayer()                            */
@@ -274,6 +273,8 @@ int OGRAmigoCloudLayer::TestCapability( const char * pszCap )
 
 {
     if ( EQUAL(pszCap, OLCStringsAsUTF8) )
+        return TRUE;
+    else if ( EQUAL(pszCap, OLCZGeometries) )
         return TRUE;
     return FALSE;
 }

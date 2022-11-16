@@ -31,7 +31,6 @@
 #include "cpl_conv.h"
 #include "ogr_pg.h"
 
-CPL_CVSID("$Id$")
 
 #define PQexec this_is_an_error
 
@@ -254,7 +253,8 @@ int OGRPGResultLayer::TestCapability( const char * pszCap )
     }
     else if( EQUAL(pszCap,OLCStringsAsUTF8) )
         return TRUE;
-
+    else if( EQUAL(pszCap,OLCZGeometries) )
+        return TRUE;
     else
         return FALSE;
 }

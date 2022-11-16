@@ -48,7 +48,6 @@
 #include "ogr_p.h"
 #include "ogr_spatialref.h"
 
-CPL_CVSID("$Id$")
 
 constexpr int FLD_TRACK_FID = 0;
 constexpr int FLD_TRACK_SEG_ID = 1;
@@ -1882,6 +1881,8 @@ int OGRGPXLayer::TestCapability( const char * pszCap )
     else if( EQUAL(pszCap,OLCCreateField) )
         return bWriteMode;
     else if( EQUAL(pszCap,OLCStringsAsUTF8) )
+        return TRUE;
+    else if( EQUAL(pszCap,OLCZGeometries) )
         return TRUE;
 
     else

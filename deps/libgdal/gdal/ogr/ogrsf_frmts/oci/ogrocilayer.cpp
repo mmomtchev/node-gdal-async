@@ -31,7 +31,6 @@
 #include "ogr_oci.h"
 #include "cpl_conv.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                           OGROCILayer()                               */
@@ -871,6 +870,9 @@ int OGROCILayer::TestCapability( const char * pszCap )
         return TRUE;
 
     else if( EQUAL(pszCap,OLCTransactions) )
+        return TRUE;
+
+    else if( EQUAL(pszCap,OLCZGeometries) )
         return TRUE;
 
     else

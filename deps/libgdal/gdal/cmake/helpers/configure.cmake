@@ -41,6 +41,7 @@ check_include_file("dlfcn.h" HAVE_DLFCN_H)
 check_type_size("int" SIZEOF_INT)
 check_type_size("unsigned long" SIZEOF_UNSIGNED_LONG)
 check_type_size("void*" SIZEOF_VOIDP)
+check_type_size("size_t" SIZEOF_SIZE_T)
 
 if(MSVC AND NOT BUILD_SHARED_LIBS)
   set(CPL_DISABLE_DLL 1)
@@ -236,6 +237,20 @@ else ()
   else ()
     set(VSI_FOPEN64 "fopen")
   endif ()
+
+  check_type_size("off_t" SIZEOF_OFF_T)
+
+  check_function_exists(pread64 HAVE_PREAD64)
+  if( NOT HAVE_PREAD64 )
+    check_c_source_compiles(
+      "
+         #include <sys/types.h>
+         #include <sys/uio.h>
+         #include <unistd.h>
+         int main() { pread(0, NULL, 0, 0); return 0; }
+        "
+      HAVE_PREAD_BSD)
+  endif()
 
   check_function_exists(ftruncate64 HAVE_FTRUNCATE64)
   if (HAVE_FTRUNCATE64)

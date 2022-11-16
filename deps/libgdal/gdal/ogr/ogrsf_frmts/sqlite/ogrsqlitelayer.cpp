@@ -40,6 +40,7 @@
 #include "ogr_sqlite.h"
 #include "ogrsqliteutility.h"
 
+#include <algorithm>
 #include <cassert>
 #include <climits>
 #include <cstddef>
@@ -59,7 +60,6 @@
 #include "ogrsf_frmts.h"
 #include "sqlite3.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                           OGRSQLiteLayer()                           */

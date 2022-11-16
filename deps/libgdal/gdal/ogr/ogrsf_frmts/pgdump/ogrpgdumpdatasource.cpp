@@ -31,7 +31,6 @@
 #include "cpl_conv.h"
 #include "cpl_string.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                      OGRPGDumpDataSource()                           */
@@ -457,16 +456,16 @@ OGRPGDumpDataSource::ICreateLayer( const char * pszLayerName,
         if (eType == wkbNone)
             osCommand.Printf(
                 "%s ( "
-                "   %s %s, "
-                "   CONSTRAINT \"%s_pk\" PRIMARY KEY (%s) )",
+                "%s %s, "
+                "CONSTRAINT \"%s_pk\" PRIMARY KEY (%s) )",
                 osCreateTable.c_str(), osFIDColumnNameEscaped.c_str(),
                 pszSerialType, pszTableName, osFIDColumnNameEscaped.c_str() );
         else
             osCommand.Printf(
                 "%s ( "
-                "   %s %s, "
-                "   WKB_GEOMETRY %s, "
-                "   CONSTRAINT \"%s_pk\" PRIMARY KEY (%s) )",
+                "%s %s, "
+                "WKB_GEOMETRY %s, "
+                "CONSTRAINT \"%s_pk\" PRIMARY KEY (%s) )",
                 osCreateTable.c_str(), osFIDColumnNameEscaped.c_str(),
                 pszSerialType, pszGeomType, pszTableName,
                 osFIDColumnNameEscaped.c_str() );
@@ -636,6 +635,8 @@ int OGRPGDumpDataSource::TestCapability( const char * pszCap )
     else if( EQUAL(pszCap,ODsCCurveGeometries) )
         return TRUE;
     else if( EQUAL(pszCap,ODsCMeasuredGeometries) )
+        return TRUE;
+    else if( EQUAL(pszCap,ODsCZGeometries) )
         return TRUE;
     else if( EQUAL(pszCap,ODsCRandomLayerWrite) )
         return TRUE;

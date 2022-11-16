@@ -32,6 +32,8 @@
 #include "cpl_http.h"
 #include "gdal_proxy.h"
 
+#include <limits>
+
 class NGWWrapperRasterBand : public GDALProxyRasterBand
 {
     GDALRasterBand *poBaseBand;
@@ -142,6 +144,10 @@ int OGRNGWDataset::TestCapability( const char *pszCap )
     else if( EQUAL(pszCap, ODsCRandomLayerRead) )
     {
         return stPermissions.bDataCanRead;
+    }
+    else if( EQUAL(pszCap, ODsCZGeometries) )
+    {
+        return TRUE;
     }
     else
     {

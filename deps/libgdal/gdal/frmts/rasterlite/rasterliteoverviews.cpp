@@ -29,10 +29,10 @@
 #include "cpl_string.h"
 #include "ogr_api.h"
 #include "ogr_srs_api.h"
+#include "memdataset.h"
 
 #include "rasterlitedataset.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                         ReloadOverviews()                            */
@@ -273,7 +273,7 @@ CPLErr RasterliteDataset::CleanOverviewLevel(int nOvrFactor)
 
 CPLErr RasterliteDataset::CreateOverviewLevel(const char * pszResampling,
                                               int nOvrFactor,
-                                              char** papszOptions,
+                                              CSLConstList papszOptions,
                                               GDALProgressFunc pfnProgress,
                                               void * pProgressData)
 {
@@ -425,7 +425,7 @@ CPLErr RasterliteDataset::CreateOverviewLevel(const char * pszResampling,
     {
         for( int nBlockXOff = 0; eErr == CE_None && nBlockXOff < nXBlocks; nBlockXOff++ )
         {
-            GDALDatasetH hPrevOvrMemDS = nullptr;
+            std::unique_ptr<MEMDataset> poPrevOvrMemDS;
 
 /* -------------------------------------------------------------------- */
 /*      Create in-memory tile                                           */
@@ -457,27 +457,18 @@ CPLErr RasterliteDataset::CreateOverviewLevel(const char * pszResampling,
                     break;
                 }
 
-                hPrevOvrMemDS = GDALCreate(hMemDriver, "MEM:::",
+                poPrevOvrMemDS.reset(MEMDataset::Create("",
                                            nPrevOvrReqXSize, nPrevOvrReqYSize, 0,
-                                           eDataType, nullptr);
-
-                if (hPrevOvrMemDS == nullptr)
-                {
-                    eErr = CE_Failure;
-                    break;
-                }
+                                           eDataType, nullptr));
 
                 for( int iBand = 0; iBand < nBands; iBand++ )
                 {
-                    char szTmp[64];
-                    memset(szTmp, 0, sizeof(szTmp));
-                    CPLPrintPointer(szTmp,
-                                    pabyPrevOvrMEMDSBuffer + iBand * nDataTypeSize *
-                                    nPrevOvrReqXSize * nPrevOvrReqYSize, sizeof(szTmp));
-                    char** l_papszOptions
-                        = CSLSetNameValue(nullptr, "DATAPOINTER", szTmp);
-                    GDALAddBand(hPrevOvrMemDS, eDataType, l_papszOptions);
-                    CSLDestroy(l_papszOptions);
+                    auto hBand = MEMCreateRasterBandEx(
+                        poPrevOvrMemDS.get(), iBand + 1,
+                        pabyPrevOvrMEMDSBuffer + iBand * nDataTypeSize *
+                            nPrevOvrReqXSize * nPrevOvrReqYSize,
+                        eDataType, 0, 0, false );
+                    poPrevOvrMemDS->AddMEMBand(hBand);
                 }
             }
             else
@@ -495,35 +486,27 @@ CPLErr RasterliteDataset::CreateOverviewLevel(const char * pszResampling,
                 }
             }
 
-            GDALDatasetH hMemDS = GDALCreate(hMemDriver, "MEM:::",
-                                              nReqXSize, nReqYSize, 0,
-                                              eDataType, nullptr);
-            if (hMemDS == nullptr)
-            {
-                eErr = CE_Failure;
-                break;
-            }
-
+            auto poMemDS = std::unique_ptr<MEMDataset>(
+                MEMDataset::Create("", nReqXSize, nReqYSize, 0, eDataType, nullptr));
             for(int iBand = 0; iBand < nBands; iBand ++)
             {
-                char szTmp[64];
-                memset(szTmp, 0, sizeof(szTmp));
-                CPLPrintPointer(szTmp,
-                                pabyMEMDSBuffer + iBand * nDataTypeSize *
-                                nReqXSize * nReqYSize, sizeof(szTmp));
-                char** l_papszOptions
-                    = CSLSetNameValue(nullptr, "DATAPOINTER", szTmp);
-                GDALAddBand(hMemDS, eDataType, l_papszOptions);
-                CSLDestroy(l_papszOptions);
+                auto hBand = MEMCreateRasterBandEx(
+                    poMemDS.get(), iBand + 1,
+                    pabyMEMDSBuffer + iBand * nDataTypeSize *
+                                nReqXSize * nReqYSize,
+                    eDataType, 0, 0, false );
+                poMemDS->AddMEMBand(hBand);
             }
 
-            if( hPrevOvrMemDS != nullptr )
+            auto hMemDS = GDALDataset::ToHandle(poMemDS.get());
+            if( poPrevOvrMemDS != nullptr )
             {
                 for(int iBand = 0; iBand < nBands; iBand ++)
                 {
                     GDALRasterBandH hDstOvrBand = GDALGetRasterBand(hMemDS, iBand+1);
 
-                    eErr = GDALRegenerateOverviews( GDALGetRasterBand(hPrevOvrMemDS, iBand+1),
+                    auto hPrevOvrMEMDS = GDALDataset::ToHandle(poPrevOvrMemDS.get());
+                    eErr = GDALRegenerateOverviews( GDALGetRasterBand(hPrevOvrMEMDS, iBand+1),
                                                     1, &hDstOvrBand,
                                                     pszResampling,
                                                     nullptr, nullptr );
@@ -531,14 +514,14 @@ CPLErr RasterliteDataset::CreateOverviewLevel(const char * pszResampling,
                         break;
                 }
 
-                GDALClose(hPrevOvrMemDS);
+                poPrevOvrMemDS.reset();
             }
 
             GDALDatasetH hOutDS = GDALCreateCopy(hTileDriver,
                                         osTempFileName.c_str(), hMemDS, FALSE,
                                         papszTileDriverOptions, nullptr, nullptr);
 
-            GDALClose(hMemDS);
+            poMemDS.reset();
             if (! hOutDS)
             {
                 eErr = CE_Failure;
@@ -721,10 +704,11 @@ CPLErr RasterliteDataset::CreateOverviewLevel(const char * pszResampling,
 /************************************************************************/
 
 CPLErr RasterliteDataset::IBuildOverviews( const char * pszResampling,
-                                           int nOverviews, int * panOverviewList,
-                                           int nBandsIn, int * panBandList,
+                                           int nOverviews, const int * panOverviewList,
+                                           int nBandsIn, const int * panBandList,
                                            GDALProgressFunc pfnProgress,
-                                           void * pProgressData )
+                                           void * pProgressData,
+                                           CSLConstList papszOptions )
 {
     if (nLevel != 0)
     {
@@ -757,7 +741,8 @@ CPLErr RasterliteDataset::IBuildOverviews( const char * pszResampling,
         bCheckForExistingOverview = FALSE;
         CPLErr eErr = GDALDataset::IBuildOverviews(
                             pszResampling, nOverviews, panOverviewList,
-                            nBandsIn, panBandList, pfnProgress, pProgressData );
+                            nBandsIn, panBandList, pfnProgress, pProgressData,
+                            papszOptions);
         bCheckForExistingOverview = TRUE;
         return eErr;
     }
@@ -781,8 +766,8 @@ CPLErr RasterliteDataset::IBuildOverviews( const char * pszResampling,
     }
 
     const char* pszOvrOptions = CPLGetConfigOption("RASTERLITE_OVR_OPTIONS", nullptr);
-    char** papszOptions = (pszOvrOptions) ? CSLTokenizeString2( pszOvrOptions, ",", 0) : nullptr;
-    GDALValidateCreationOptions( GetDriver(), papszOptions);
+    const CPLStringList aosCreationOptions(pszOvrOptions ? CSLTokenizeString2( pszOvrOptions, ",", 0) : nullptr);
+    GDALValidateCreationOptions( GetDriver(), aosCreationOptions.List());
 
     CPLErr eErr = CE_None;
     for( int i = 0; i < nOverviews && eErr == CE_None; i++)
@@ -792,12 +777,10 @@ CPLErr RasterliteDataset::IBuildOverviews( const char * pszResampling,
 
         eErr = CleanOverviewLevel(panOverviewList[i]);
         if (eErr == CE_None)
-            eErr = CreateOverviewLevel(pszResampling, panOverviewList[i], papszOptions, pfnProgress, pProgressData);
+            eErr = CreateOverviewLevel(pszResampling, panOverviewList[i], aosCreationOptions.List(), pfnProgress, pProgressData);
 
         ReloadOverviews();
     }
-
-    CSLDestroy(papszOptions);
 
     return eErr;
 }

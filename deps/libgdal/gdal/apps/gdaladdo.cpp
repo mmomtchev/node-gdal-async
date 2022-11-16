@@ -32,7 +32,6 @@
 #include "gdal_priv.h"
 #include "commonutils.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                               Usage()                                */
@@ -85,8 +84,8 @@ class GDALError
       CPLErrorNum       m_errNum;
       CPLString         m_osMsg;
 
-      GDALError( CPLErr eErr = CE_None, CPLErrorNum errNum= CPLE_None,
-                 const char * pszMsg = "" ) :
+      explicit GDALError( CPLErr eErr = CE_None, CPLErrorNum errNum= CPLE_None,
+                          const char * pszMsg = "" ) :
           m_eErr(eErr), m_errNum(errNum), m_osMsg(pszMsg ? pszMsg : "")
       {
       }

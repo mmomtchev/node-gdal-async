@@ -35,7 +35,6 @@
 #include "ogr_p.h"
 #include "ogr_api.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                           OGRGMLLayer()                              */
@@ -1141,6 +1140,9 @@ int OGRGMLLayer::TestCapability( const char * pszCap )
 
     else if( EQUAL(pszCap, OLCCurveGeometries) )
         return poDS->IsGML3Output();
+
+    else if( EQUAL(pszCap, OLCZGeometries) )
+        return TRUE;
 
     else
         return FALSE;

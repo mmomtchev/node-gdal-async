@@ -39,7 +39,6 @@
 #include "gdal_frmts.h"
 #include "gdal_priv.h"
 
-CPL_CVSID("$Id$")
 
 constexpr int TYPE_GENERIC = 0;
 constexpr int TYPE_GEOREF = 1;
@@ -105,7 +104,7 @@ public:
         COASPMetadataGeorefGridItem( int nId, int nPixels, int nLines,
                                      double ndLat, double ndLong );
         static const char *GetItemName() { return "georef_grid"; }
-        GDAL_GCP *GetItemValue();
+        static GDAL_GCP *GetItemValue();
         static int GetType() { return TYPE_GEOREF; }
 };
 

@@ -54,11 +54,15 @@ typedef struct _IntOrMap IntOrMap;
 
 struct _IntOrMap
 {
+    // cppcheck-suppress unusedStructMember
     int bIsMap;
     union
     {
+        // cppcheck-suppress unusedStructMember
         int nField;
+        // cppcheck-suppress unusedStructMember
         std::map< CPLString, IntOrMap*>* poMap;
+    // cppcheck-suppress unusedStructMember
     } u;
 };
 } // namespace
@@ -144,6 +148,10 @@ class OGRMongoDBv3Layer final: public OGRLayer
                                                         std::map< CPLString, CPLString>& oMapIndices);
         std::unique_ptr<OGRFeature>     Translate(const bsoncxx::document::view& doc);
         bsoncxx::document::value        BuildQuery();
+        
+        OGRErr                   PrepareForUpdateOrUpsert(const OGRFeature *poFeature);
+        bsoncxx::document::value BuildIDMatchFilter(bsoncxx::document::view view,
+                                                    const OGRFeature *poFeature) const;
 
         void                     SerializeField(bsoncxx::builder::basic::document& b,
                                                 OGRFeature *poFeature,
@@ -183,6 +191,7 @@ class OGRMongoDBv3Layer final: public OGRLayer
             OGRErr          CreateGeomField( OGRGeomFieldDefn *poFieldIn, int ) override;
             OGRErr          ICreateFeature( OGRFeature *poFeature ) override;
             OGRErr          ISetFeature( OGRFeature *poFeature ) override;
+            OGRErr          IUpsertFeature( OGRFeature *poFeature ) override;
 
             OGRErr          SyncToDisk() override;
 
@@ -650,7 +659,11 @@ bool OGRMongoDBv3Layer::ReadOGRMetadata(std::map< CPLString, CPLString>& oMapInd
                             OGRFieldDefn oFieldDefn(std::string(name.get_utf8().value).c_str(), eType);
                             if( subtype && subtype.type() == bsoncxx::type::k_utf8 &&
                                 std::string(subtype.get_utf8().value) == "Boolean" )
+                            {
+                                // cppcheck-suppress danglingTemporaryLifetime
                                 oFieldDefn.SetSubType(OFSTBoolean);
+                            }
+                            // cppcheck-suppress danglingTemporaryLifetime
                             m_poFeatureDefn->AddFieldDefn(&oFieldDefn);
 
                             m_aaosFieldPaths.push_back(aosPaths);
@@ -697,8 +710,10 @@ bool OGRMongoDBv3Layer::ReadOGRMetadata(std::map< CPLString, CPLString>& oMapInd
                             OGRSpatialReference* poSRS = new OGRSpatialReference();
                             poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                             poSRS->SetFromUserInput(SRS_WKT_WGS84_LAT_LONG);
+                            // cppcheck-suppress danglingTemporaryLifetime
                             oFieldDefn.SetSpatialRef(poSRS);
                             poSRS->Release();
+                            // cppcheck-suppress danglingTemporaryLifetime
                             m_poFeatureDefn->AddGeomFieldDefn(&oFieldDefn);
 
                             m_aaosGeomFieldPaths.push_back(aosPaths);
@@ -1826,6 +1841,34 @@ OGRErr OGRMongoDBv3Layer::ICreateFeature( OGRFeature *poFeature )
 
 OGRErr OGRMongoDBv3Layer::ISetFeature( OGRFeature *poFeature )
 {
+    const OGRErr err = PrepareForUpdateOrUpsert(poFeature);
+    if( err != OGRERR_NONE )
+    {
+        return err;
+    }
+
+    try
+    {
+        auto bsonObj( BuildBSONObjFromFeature(poFeature, true) );
+        auto view(bsonObj.view());
+        auto filter( BuildIDMatchFilter(view, poFeature) );
+        auto ret = m_oColl.find_one_and_replace( std::move(filter), std::move(bsonObj) );
+        return ret ? OGRERR_NONE : OGRERR_NON_EXISTING_FEATURE;
+    }
+    catch( const std::exception &ex )
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "%s: %s",
+                 "SetFeature()", ex.what());
+        return OGRERR_FAILURE;
+    }
+}
+
+/************************************************************************/
+/*                      PrepareForUpdateOrUpsert()                      */
+/************************************************************************/
+
+OGRErr OGRMongoDBv3Layer::PrepareForUpdateOrUpsert( const OGRFeature *poFeature )
+{
     if( m_poDS->GetAccess() != GA_Update )
     {
         CPLError(CE_Failure, CPLE_AppDefined, "Dataset opened in read-only mode");
@@ -1842,34 +1885,58 @@ OGRErr OGRMongoDBv3Layer::ISetFeature( OGRFeature *poFeature )
         CPLError(CE_Failure, CPLE_AppDefined, "_id field not set");
         return OGRERR_FAILURE;
     }
+    return OGRERR_NONE;
+}
+
+/************************************************************************/
+/*                         BuildIDMatchFilter()                         */
+/************************************************************************/
+
+bsoncxx::document::value OGRMongoDBv3Layer::BuildIDMatchFilter( bsoncxx::document::view view,
+                                                                const OGRFeature *poFeature ) const
+{
+    bsoncxx::builder::basic::document filterBuilder{};
+    filterBuilder.append( kvp("_id", view["_id"].get_oid().value ) );
+    if( !m_osFID.empty() )
+        filterBuilder.append( kvp( std::string(m_osFID),
+                              static_cast<int64_t>(poFeature->GetFID()) ) );
+
+    return filterBuilder.extract();
+}
+
+/************************************************************************/
+/*                           IUpsertFeature()                           */
+/************************************************************************/
+
+OGRErr OGRMongoDBv3Layer::IUpsertFeature( OGRFeature *poFeature )
+{
+    if( !TestCapability(OLCUpsertFeature) )
+       return OGRERR_FAILURE;
+    
+    const OGRErr err = PrepareForUpdateOrUpsert(poFeature);
+    if( err != OGRERR_NONE )
+    {
+        return err;
+    }
 
     try
     {
         auto bsonObj( BuildBSONObjFromFeature(poFeature, true) );
         auto view(bsonObj.view());
-
-        bsoncxx::builder::basic::document filterBuilder{};
-        filterBuilder.append( kvp("_id", view["_id"].get_oid().value ) );
-        if( !m_osFID.empty() )
-            filterBuilder.append( kvp( std::string(m_osFID),
-                                static_cast<int64_t>(poFeature->GetFID()) ) );
-
-        auto filter(filterBuilder.extract());
-        auto ret = m_oColl.find_one_and_replace( std::move(filter), std::move(bsonObj) );
-        //if( ret )
-        //{
-        //    std::string s(bsoncxx::to_json(ret->view()));
-        //    CPLDebug("MongoDBv3", "%s", s.c_str());
-        //}
-        return ret ? OGRERR_NONE : OGRERR_NON_EXISTING_FEATURE;
+        auto filter( BuildIDMatchFilter(view, poFeature) );
+        m_oColl.find_one_and_update(
+            std::move(filter), std::move(bsonObj),
+            mongocxx::options::find_one_and_update().upsert( true ) );
+        return OGRERR_NONE;
     }
     catch( const std::exception &ex )
     {
         CPLError(CE_Failure, CPLE_AppDefined, "%s: %s",
-                 "SetFeature()", ex.what());
+                 "UpsertFeature()", ex.what());
         return OGRERR_FAILURE;
     }
 }
+
 /************************************************************************/
 /*                            TestCapability()                          */
 /************************************************************************/
@@ -1899,12 +1966,13 @@ int OGRMongoDBv3Layer::TestCapability( const char* pszCap )
     }
     if( EQUAL(pszCap, OLCCreateField) ||
              EQUAL(pszCap, OLCCreateGeomField) ||
+             EQUAL(pszCap, OLCUpsertFeature) ||
              EQUAL(pszCap, OLCSequentialWrite) ||
              EQUAL(pszCap, OLCRandomWrite) )
     {
         return m_poDS->GetAccess() == GA_Update;
     }
-    else if( EQUAL(pszCap,OLCDeleteFeature) )
+    else if (EQUAL(pszCap, OLCDeleteFeature) )
     {
         EstablishFeatureDefn();
         return m_poDS->GetAccess() == GA_Update &&
@@ -2641,8 +2709,12 @@ void RegisterOGRMongoDBv3()
 
     poDriver->SetDescription( "MongoDBv3" );
     poDriver->SetMetadataItem( GDAL_DCAP_VECTOR, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_CREATE_LAYER, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_DELETE_LAYER, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_CREATE_FIELD, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "MongoDB (using libmongocxx v3 client)" );
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/vector/mongodbv3.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_SUPPORTED_SQL_DIALECTS, "OGRSQL SQLITE MongoDB" );
 
     poDriver->SetMetadataItem( GDAL_DMD_CONNECTION_PREFIX, "MongoDBv3:" );
 

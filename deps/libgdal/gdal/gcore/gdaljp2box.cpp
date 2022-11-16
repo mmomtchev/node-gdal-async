@@ -44,7 +44,6 @@
 #include "cpl_string.h"
 #include "cpl_vsi.h"
 
-CPL_CVSID("$Id$")
 
 /*! @cond Doxygen_Suppress */
 
@@ -197,7 +196,7 @@ int GDALJP2Box::ReadBox()
         nDataOffset = nBoxOffset + 16;
     }
 
-    if( nBoxLength == 0 )
+    if( nBoxLength == 0 && m_bAllowGetFileSize )
     {
         if( VSIFSeekL( fpVSIL, 0, SEEK_END ) != 0 )
             return FALSE;
@@ -213,7 +212,7 @@ int GDALJP2Box::ReadBox()
         nDataOffset += 16;
     }
 
-    if( GetDataLength() < 0 )
+    if( m_bAllowGetFileSize && GetDataLength() < 0 )
     {
         CPLDebug("GDALJP2", "Invalid length for box %s", szBoxType);
         return FALSE;
@@ -230,7 +229,7 @@ int GDALJP2Box::IsSuperBox()
 
 {
     if( EQUAL(GetType(),"asoc") || EQUAL(GetType(),"jp2h")
-        || EQUAL(GetType(),"res ") )
+        || EQUAL(GetType(),"res ") || EQUAL(GetType(),"jumb") )
         return TRUE;
 
     return FALSE;
@@ -278,7 +277,7 @@ GByte *GDALJP2Box::ReadBoxData()
 /*                           GetDataLength()                            */
 /************************************************************************/
 
-GIntBig GDALJP2Box::GetDataLength()
+GIntBig GDALJP2Box::GetDataLength() const
 {
     return nBoxLength - (nDataOffset - nBoxOffset);
 }
@@ -356,6 +355,20 @@ void GDALJP2Box::SetType( const char *pszType )
 
     memcpy(szBoxType, pszType, 4);
     szBoxType[4] = '\0';
+}
+
+/************************************************************************/
+/*                          GetWritableBoxData()                        */
+/************************************************************************/
+
+GByte *GDALJP2Box::GetWritableBoxData() const
+{
+    GByte* pabyRet = static_cast<GByte*>(CPLMalloc(static_cast<GUInt32>(nBoxLength)));
+    const GUInt32 nLBox = CPL_MSBWORD32(static_cast<GUInt32>(nBoxLength));
+    memcpy(pabyRet, &nLBox, sizeof(GUInt32));
+    memcpy(pabyRet + 4, szBoxType, 4);
+    memcpy(pabyRet + 8, pabyData, static_cast<GUInt32>(nBoxLength) - 8);
+    return pabyRet;
 }
 
 /************************************************************************/
@@ -446,7 +459,7 @@ GDALJP2Box *GDALJP2Box::CreateUUIDBox(
 /*                           CreateAsocBox()                            */
 /************************************************************************/
 
-GDALJP2Box *GDALJP2Box::CreateAsocBox( int nCount, GDALJP2Box **papoBoxes )
+GDALJP2Box *GDALJP2Box::CreateAsocBox( int nCount, const GDALJP2Box * const *papoBoxes )
 {
     return CreateSuperBox("asoc", nCount, papoBoxes);
 }
@@ -456,7 +469,7 @@ GDALJP2Box *GDALJP2Box::CreateAsocBox( int nCount, GDALJP2Box **papoBoxes )
 /************************************************************************/
 
 GDALJP2Box *GDALJP2Box::CreateSuperBox( const char* pszType,
-                                        int nCount, GDALJP2Box **papoBoxes )
+                                        int nCount, const GDALJP2Box * const *papoBoxes )
 {
     int nDataSize = 0;
 
@@ -536,6 +549,39 @@ GDALJP2Box *GDALJP2Box::CreateLabelledXMLAssoc( const char *pszLabel,
     GDALJP2Box *aoList[2] = { &oLabel, &oXML };
 
     return CreateAsocBox( 2, aoList );
+}
+
+/************************************************************************/
+/*                    CreateJUMBFDescriptionBox()                       */
+/************************************************************************/
+
+GDALJP2Box *GDALJP2Box::CreateJUMBFDescriptionBox( const GByte *pabyUUIDType,
+                                                   const char* pszLabel )
+
+{
+    GDALJP2Box * const poBox = new GDALJP2Box();
+    poBox->SetType( "jumd" );
+
+    poBox->AppendWritableData( 16, pabyUUIDType );
+    poBox->AppendUInt8( 3 ); // requestable field
+    const size_t nLabelLen = strlen(pszLabel) + 1;
+    poBox->AppendWritableData(static_cast<int>(nLabelLen), pszLabel);
+
+    return poBox;
+}
+
+/************************************************************************/
+/*                         CreateJUMBFBox()                             */
+/************************************************************************/
+
+GDALJP2Box *GDALJP2Box::CreateJUMBFBox( const GDALJP2Box* poJUMBFDescriptionBox,
+                                        int nCount,
+                                        const GDALJP2Box * const* papoBoxes )
+{
+    std::vector<const GDALJP2Box*> apoBoxes(1 + nCount);
+    apoBoxes[0] = poJUMBFDescriptionBox;
+    memcpy(&apoBoxes[1], papoBoxes, nCount * sizeof(GDALJP2Box*));
+    return CreateSuperBox("jumb", 1 + nCount, apoBoxes.data());
 }
 
 /*! @endcond */

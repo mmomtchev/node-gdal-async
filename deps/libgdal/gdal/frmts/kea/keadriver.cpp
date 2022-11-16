@@ -30,7 +30,6 @@
 #include "gdal_frmts.h"
 #include "keadataset.h"
 
-CPL_CVSID("$Id$")
 
 // method to register this driver
 void GDALRegister_KEA()
@@ -49,7 +48,7 @@ void GDALRegister_KEA()
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "kea" );
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/kea.html" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES,
-                               "Byte Int16 UInt16 Int32 UInt32 Int64 UInt64"
+                               "Byte Int16 UInt16 Int32 UInt32 Int64 UInt64 "
                                "Float32 Float64" );
     poDriver->SetMetadataItem(
         GDAL_DMD_CREATIONOPTIONLIST,

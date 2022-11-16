@@ -46,7 +46,6 @@
 #include <set>
 #include <vector>
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /* ==================================================================== */
@@ -334,6 +333,7 @@ FITSLayer::FITSLayer(FITSDataset* poDS, int hduNum, const char* pszExtName):
                 OGRFieldDefn oFieldDefn(
                     (aosNames[i] + CPLSPrintf("_bit%d", j)).c_str(),
                     OFTInteger);
+                // cppcheck-suppress danglingTemporaryLifetime
                 m_poFeatureDefn->AddFieldDefn(&oFieldDefn);
 
                 ColDesc oColBit;
@@ -3571,6 +3571,8 @@ void GDALRegister_FITS()
     poDriver->SetDescription( "FITS" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_VECTOR, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_CREATE_LAYER, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_CREATE_FIELD, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "Flexible Image Transport System" );
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC,

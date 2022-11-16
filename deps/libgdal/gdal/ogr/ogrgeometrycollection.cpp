@@ -43,7 +43,6 @@
 #include "ogr_p.h"
 #include "ogr_spatialref.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                       OGRGeometryCollection()                        */
@@ -796,8 +795,10 @@ std::string OGRGeometryCollection::exportToWkt(const OGRWktOptions& opts,
 
 
 //! @cond Doxygen_Suppress
-std::string OGRGeometryCollection::exportToWktInternal(const OGRWktOptions& opts,
-    OGRErr *err, std::string exclude) const
+std::string OGRGeometryCollection::exportToWktInternal(
+    const OGRWktOptions& opts,
+    OGRErr *err,
+    const std::string& exclude) const
 {
     bool first = true;
     const size_t excludeSize = exclude.size();

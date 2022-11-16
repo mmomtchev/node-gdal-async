@@ -47,7 +47,6 @@
 
 #include "cpl_aws.h"
 
-CPL_CVSID("$Id$")
 
 #ifndef HAVE_CURL
 
@@ -662,6 +661,9 @@ class VSIS3FSHandler final : public IVSIS3LikeFSHandler
                             CSLConstList papszOptions ) override;
 
     bool SupportsParallelMultipartUpload() const override { return true; }
+
+    bool SupportsSequentialWrite( const char* /* pszPath */, bool /* bAllowLocalTempFile */ ) override { return true; }
+    bool SupportsRandomWrite( const char* /* pszPath */, bool /* bAllowLocalTempFile */ ) override;
 
     std::string GetStreamingFilename(const std::string& osFilename) const override;
 };
@@ -2024,8 +2026,7 @@ VSIVirtualHandle* VSIS3FSHandler::Open( const char *pszFilename,
 
     if( strchr(pszAccess, 'w') != nullptr || strchr(pszAccess, 'a') != nullptr )
     {
-        if( strchr(pszAccess, '+') != nullptr &&
-            !CPLTestBool(CPLGetConfigOption("CPL_VSIL_USE_TEMP_FILE_FOR_RANDOM_WRITE", "NO")) )
+        if( strchr(pszAccess, '+') != nullptr && !SupportsRandomWrite(pszFilename, true) )
         {
             CPLError(CE_Failure, CPLE_AppDefined,
                         "w+ not supported for /vsis3, unless "
@@ -2082,6 +2083,16 @@ VSIVirtualHandle* VSIS3FSHandler::Open( const char *pszFilename,
 
     return
         VSICurlFilesystemHandlerBase::Open(pszFilename, pszAccess, bSetError, papszOptions);
+}
+
+/************************************************************************/
+/*                        SupportsRandomWrite()                         */
+/************************************************************************/
+
+bool VSIS3FSHandler::SupportsRandomWrite( const char* /* pszPath */, bool bAllowLocalTempFile )
+{
+    return bAllowLocalTempFile &&
+           CPLTestBool(CPLGetConfigOption("CPL_VSIL_USE_TEMP_FILE_FOR_RANDOM_WRITE", "NO"));
 }
 
 /************************************************************************/
@@ -2281,7 +2292,7 @@ int* VSIS3FSHandler::UnlinkBatch( CSLConstList papszFiles )
 int VSIS3FSHandler::RmdirRecursive( const char* pszDirname )
 {
     // Some S3-like APIs do not support DeleteObjects
-    if( CPLTestBool(CPLGetConfigOption("CPL_VSIS3_USE_BASE_RMDIR_RECURSIVE", "NO")) )
+    if( CPLTestBool(VSIGetPathSpecificOption(pszDirname, "CPL_VSIS3_USE_BASE_RMDIR_RECURSIVE", "NO")) )
         return VSIFilesystemHandler::RmdirRecursive(pszDirname);
 
     // For debug / testing only
@@ -2648,7 +2659,7 @@ bool VSIS3FSHandler::SetFileMetadata( const char * pszFilename,
         CPLAddXMLAttributeAndValue(psTagging, "xmlns",
                                     "http://s3.amazonaws.com/doc/2006-03-01/");
         CPLXMLNode* psTagSet = CPLCreateXMLNode(psTagging, CXT_Element, "TagSet");
-        for( int i = 0; papszMetadata && papszMetadata[i]; ++i )
+        for( int i = 0; papszMetadata[i]; ++i )
         {
             char* pszKey = nullptr;
             const char* pszValue = CPLParseNameValue(papszMetadata[i], &pszKey);
@@ -3922,6 +3933,7 @@ bool IVSIS3LikeFSHandler::Sync( const char* pszSource, const char* pszTarget,
         CPLString osUploadID{};
         int nCountValidETags = 0;
         int nExpectedCount = 0;
+        //cppcheck-suppress unusedStructMember
         std::vector<CPLString> aosEtags{};
         vsi_l_offset nTotalSize = 0;
     };

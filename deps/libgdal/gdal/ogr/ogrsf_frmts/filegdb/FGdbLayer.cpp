@@ -47,7 +47,6 @@
 // and requesting each feature in a separate request.
 #define WORKAROUND_CRASH_ON_CDF_WITH_BINARY_FIELD
 
-CPL_CVSID("$Id$")
 
 using std::string;
 using std::wstring;
@@ -2430,6 +2429,26 @@ bool FGdbLayer::Create(FGdbDataSource* pParentDataSource,
         }
     }
 
+    const auto eFlattenType = wkbFlatten(eType);
+    const bool bIsLine = eFlattenType == wkbLineString || eFlattenType == wkbMultiLineString;
+    const bool bIsPolygon = eFlattenType == wkbPolygon || eFlattenType == wkbMultiPolygon;
+
+    const bool bCreateShapeLength =
+        (bIsLine || bIsPolygon) && !m_bCreateMultipatch &&
+        CPLTestBool(CSLFetchNameValueDef(
+            papszOptions, "CREATE_SHAPE_AREA_AND_LENGTH_FIELDS", "NO"));
+    // Setting a non-default value doesn't work
+    const char* pszLengthFieldName = CSLFetchNameValueDef(
+        papszOptions, "LENGTH_FIELD_NAME", "Shape_Length");
+
+    const bool bCreateShapeArea =
+        bIsPolygon && !m_bCreateMultipatch &&
+        CPLTestBool(CSLFetchNameValueDef(
+            papszOptions, "CREATE_SHAPE_AREA_AND_LENGTH_FIELDS", "NO"));
+    // Setting a non-default value doesn't work
+    const char* pszAreaFieldName =  CSLFetchNameValueDef(
+        papszOptions, "AREA_FIELD_NAME", "Shape_Area");
+
     m_bLaunderReservedKeywords =
         CPLFetchBool( papszOptions, "LAUNDER_RESERVED_KEYWORDS", true);
 
@@ -2560,8 +2579,15 @@ bool FGdbLayer::Create(FGdbDataSource* pParentDataSource,
         CPLCreateXMLElementAndValue(defn_xml,"HasSpatialIndex", "true");
 
         /* These field are required for Arcmap to display aliases correctly */
-        CPLCreateXMLNode(defn_xml, CXT_Element, "AreaFieldName");
-        CPLCreateXMLNode(defn_xml, CXT_Element, "LengthFieldName");
+        if( bCreateShapeArea )
+            CPLCreateXMLElementAndValue(defn_xml, "AreaFieldName", pszAreaFieldName);
+        else
+            CPLCreateXMLNode(defn_xml, CXT_Element, "AreaFieldName");
+
+        if( bCreateShapeLength )
+            CPLCreateXMLElementAndValue(defn_xml, "LengthFieldName", pszLengthFieldName);
+        else
+            CPLCreateXMLNode(defn_xml, CXT_Element, "LengthFieldName");
 
         /* We can't know the extent at this point <Extent xsi:nil='true'/> */
         CPLXMLNode *extn_xml = CPLCreateXMLNode(defn_xml, CXT_Element, "Extent");
@@ -2608,7 +2634,23 @@ bool FGdbLayer::Create(FGdbDataSource* pParentDataSource,
     m_bBulkLoadAllowed = CPLTestBool(CPLGetConfigOption("FGDB_BULK_LOAD", "YES"));
 
     /* Store the new FGDB Table pointer and set up the OGRFeatureDefn */
-    return FGdbLayer::Initialize(pParentDataSource, table, wtable_path, L"Table");
+    bool bRet = FGdbLayer::Initialize(pParentDataSource, table, wtable_path, L"Table");
+    if( bRet )
+    {
+        if( bCreateShapeArea )
+        {
+            OGRFieldDefn oField(pszAreaFieldName, OFTReal);
+            oField.SetDefault("FILEGEODATABASE_SHAPE_AREA");
+            bRet &= CreateField(&oField, false) == OGRERR_NONE;
+        }
+        if( bCreateShapeLength )
+        {
+            OGRFieldDefn oField(pszLengthFieldName, OFTReal);
+            oField.SetDefault("FILEGEODATABASE_SHAPE_LENGTH");
+            bRet &= CreateField(&oField, false) == OGRERR_NONE;
+        }
+    }
+    return bRet;
 }
 
 /*************************************************************************/
@@ -2672,6 +2714,8 @@ bool FGdbLayer::Initialize(FGdbDataSource* pParentDataSource, Table* pTable,
 
         m_bTimeInUTC = CPLTestBool(CPLGetXMLValue(pDataElementNode, "IsTimeInUTC", "false"));
 
+        std::string osAreaFieldName;
+        std::string osLengthFieldName;
         for( psNode = pDataElementNode->psChild;
         psNode != nullptr;
         psNode = psNode->psNext )
@@ -2686,6 +2730,14 @@ bool FGdbLayer::Initialize(FGdbDataSource* pParentDataSource, Table* pTable,
                 {
                     m_strShapeFieldName = CPLGetXMLValue(psNode, nullptr, "");
                 }
+                else if (EQUAL(psNode->pszValue,"AreaFieldName") )
+                {
+                    osAreaFieldName = CPLGetXMLValue(psNode, nullptr, "");
+                }
+                else if (EQUAL(psNode->pszValue,"LengthFieldName") )
+                {
+                    osLengthFieldName = CPLGetXMLValue(psNode, nullptr, "");
+                }
                 else if (EQUAL(psNode->pszValue,"Fields") )
                 {
                     if (!GDBToOGRFields(psNode))
@@ -2694,6 +2746,24 @@ bool FGdbLayer::Initialize(FGdbDataSource* pParentDataSource, Table* pTable,
                         break;
                     }
                 }
+            }
+        }
+
+        if( !osAreaFieldName.empty() )
+        {
+            const int nIdx = m_pFeatureDefn->GetFieldIndex(osAreaFieldName.c_str());
+            if( nIdx >= 0 )
+            {
+                m_pFeatureDefn->GetFieldDefn(nIdx)->SetDefault("FILEGEODATABASE_SHAPE_AREA");
+            }
+        }
+
+        if( !osLengthFieldName.empty() )
+        {
+            const int nIdx = m_pFeatureDefn->GetFieldIndex(osLengthFieldName.c_str());
+            if( nIdx >= 0 )
+            {
+                m_pFeatureDefn->GetFieldDefn(nIdx)->SetDefault("FILEGEODATABASE_SHAPE_LENGTH");
             }
         }
 
@@ -3012,9 +3082,9 @@ bool FGdbLayer::GDBToOGRFields(CPLXMLNode* psRoot)
             }
             fieldTemplate.SetSubType(eSubType);
             /* On creation (GDBFieldTypeToWidthPrecision) if string width is 0, we pick up */
-            /* 65535 by default to mean unlimited string length, but we don't want */
+            /* 65536 by default to mean unlimited string length, but we don't want */
             /* to advertise such a big number */
-            if( ogrType == OFTString && nLength < 65535 )
+            if( ogrType == OFTString && nLength < 65536 )
                 fieldTemplate.SetWidth(nLength);
             //fieldTemplate.SetPrecision(nPrecision);
             fieldTemplate.SetNullable(bNullable);
@@ -3941,6 +4011,9 @@ int FGdbLayer::TestCapability( const char* pszCap )
         return TRUE;
 
     else if( EQUAL(pszCap,OLCMeasuredGeometries) )
+        return TRUE;
+
+    else if( EQUAL(pszCap,OLCZGeometries) )
         return TRUE;
 
     else

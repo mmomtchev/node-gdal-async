@@ -41,7 +41,6 @@
 
 /*! @cond Doxygen_Suppress */
 
-CPL_CVSID("$Id$")
 
 #define VRT_PROTOCOL_PREFIX "vrt://"
 
@@ -2157,11 +2156,12 @@ bool VRTDataset::AddVirtualOverview(int nOvFactor, const char* pszResampling)
 CPLErr
 VRTDataset::IBuildOverviews( const char *pszResampling,
                              int nOverviews,
-                             int *panOverviewList,
+                             const int *panOverviewList,
                              int nListBands,
-                             int *panBandList,
+                             const int *panBandList,
                              GDALProgressFunc pfnProgress,
-                             void * pProgressData )
+                             void * pProgressData,
+                             CSLConstList papszOptions )
 {
     if( CPLTestBool(CPLGetConfigOption("VRT_VIRTUAL_OVERVIEWS", "NO")) )
     {
@@ -2220,7 +2220,8 @@ VRTDataset::IBuildOverviews( const char *pszResampling,
                                          nListBands,
                                          panBandList,
                                          pfnProgress,
-                                         pProgressData );
+                                         pProgressData,
+                                         papszOptions );
 
     m_apoOverviews.clear();
     return eErr;

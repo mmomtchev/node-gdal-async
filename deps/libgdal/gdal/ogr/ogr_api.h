@@ -46,6 +46,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 CPL_C_START
 
@@ -188,6 +189,7 @@ int    CPL_DLL OGR_G_Overlaps( OGRGeometryH, OGRGeometryH );
 
 OGRGeometryH CPL_DLL OGR_G_Boundary( OGRGeometryH ) CPL_WARN_UNUSED_RESULT;
 OGRGeometryH CPL_DLL OGR_G_ConvexHull( OGRGeometryH ) CPL_WARN_UNUSED_RESULT;
+OGRGeometryH CPL_DLL OGR_G_ConcaveHull( OGRGeometryH, double dfRatio, bool bAllowHoles ) CPL_WARN_UNUSED_RESULT;
 OGRGeometryH CPL_DLL OGR_G_Buffer( OGRGeometryH, double, int ) CPL_WARN_UNUSED_RESULT;
 OGRGeometryH CPL_DLL OGR_G_Intersection( OGRGeometryH, OGRGeometryH ) CPL_WARN_UNUSED_RESULT;
 OGRGeometryH CPL_DLL OGR_G_Union( OGRGeometryH, OGRGeometryH ) CPL_WARN_UNUSED_RESULT;
@@ -598,6 +600,29 @@ typedef void *OGRSFDriverH;
 
 const char CPL_DLL* OGR_L_GetName( OGRLayerH );
 OGRwkbGeometryType CPL_DLL OGR_L_GetGeomType( OGRLayerH );
+
+/** Result item of OGR_L_GetGeometryTypes */
+typedef struct
+{
+    /** Geometry type */
+    OGRwkbGeometryType eGeomType;
+    /** Number of geometries of type eGeomType */
+    int64_t            nCount;
+} OGRGeometryTypeCounter;
+
+/** Flag for OGR_L_GetGeometryTypes() indicating that
+ * OGRGeometryTypeCounter::nCount value is not needed */
+#define OGR_GGT_COUNT_NOT_NEEDED     0x1
+/** Flag for OGR_L_GetGeometryTypes() indicating that iteration might stop as
+ * sooon as 2 distinct geometry types are found. */
+#define OGR_GGT_STOP_IF_MIXED        0x2
+/** Flag for OGR_L_GetGeometryTypes() indicating that a GeometryCollectionZ
+ * whose first subgeometry is a TinZ should be reported as TinZ */
+#define OGR_GGT_GEOMCOLLECTIONZ_TINZ 0x4
+OGRGeometryTypeCounter CPL_DLL *OGR_L_GetGeometryTypes(
+            OGRLayerH hLayer, int iGeomField, int nFlags, int *pnEntryCount,
+            GDALProgressFunc pfnProgress, void* pProgressData);
+
 OGRGeometryH CPL_DLL OGR_L_GetSpatialFilter( OGRLayerH );
 void   CPL_DLL OGR_L_SetSpatialFilter( OGRLayerH, OGRGeometryH );
 void   CPL_DLL OGR_L_SetSpatialFilterRect( OGRLayerH,
@@ -655,11 +680,19 @@ OGRFeatureH CPL_DLL OGR_L_GetNextFeature( OGRLayerH ) CPL_WARN_UNUSED_RESULT;
         OGR_F_Destroy(hFeat); \
     }
 
+/** Data type for a Arrow C stream Include ogr_recordbatch.h to get the definition. */
+struct ArrowArrayStream;
+
+bool CPL_DLL OGR_L_GetArrowStream(OGRLayerH hLayer,
+                                  struct ArrowArrayStream* out_stream,
+                                  char** papszOptions);
+
 OGRErr CPL_DLL OGR_L_SetNextByIndex( OGRLayerH, GIntBig );
 OGRFeatureH CPL_DLL OGR_L_GetFeature( OGRLayerH, GIntBig )  CPL_WARN_UNUSED_RESULT;
 OGRErr CPL_DLL OGR_L_SetFeature( OGRLayerH, OGRFeatureH ) CPL_WARN_UNUSED_RESULT;
 OGRErr CPL_DLL OGR_L_CreateFeature( OGRLayerH, OGRFeatureH ) CPL_WARN_UNUSED_RESULT;
 OGRErr CPL_DLL OGR_L_DeleteFeature( OGRLayerH, GIntBig ) CPL_WARN_UNUSED_RESULT;
+OGRErr CPL_DLL OGR_L_UpsertFeature( OGRLayerH, OGRFeatureH ) CPL_WARN_UNUSED_RESULT;
 OGRFeatureDefnH CPL_DLL OGR_L_GetLayerDefn( OGRLayerH );
 OGRSpatialReferenceH CPL_DLL OGR_L_GetSpatialRef( OGRLayerH );
 int    CPL_DLL OGR_L_FindFieldIndex( OGRLayerH, const char *, int bExactMatch );
@@ -675,6 +708,7 @@ OGRErr CPL_DLL OGR_L_DeleteField( OGRLayerH, int iField );
 OGRErr CPL_DLL OGR_L_ReorderFields( OGRLayerH, int* panMap );
 OGRErr CPL_DLL OGR_L_ReorderField( OGRLayerH, int iOldFieldPos, int iNewFieldPos );
 OGRErr CPL_DLL OGR_L_AlterFieldDefn( OGRLayerH, int iField, OGRFieldDefnH hNewFieldDefn, int nFlags );
+OGRErr CPL_DLL OGR_L_AlterGeomFieldDefn( OGRLayerH, int iField, OGRGeomFieldDefnH hNewGeomFieldDefn, int nFlags );
 OGRErr CPL_DLL OGR_L_StartTransaction( OGRLayerH )  CPL_WARN_UNUSED_RESULT;
 OGRErr CPL_DLL OGR_L_CommitTransaction( OGRLayerH )  CPL_WARN_UNUSED_RESULT;
 OGRErr CPL_DLL OGR_L_RollbackTransaction( OGRLayerH );

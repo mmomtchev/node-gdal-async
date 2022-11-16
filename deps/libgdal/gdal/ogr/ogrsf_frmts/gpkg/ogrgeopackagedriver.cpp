@@ -30,7 +30,6 @@
 
 #include "tilematrixset.hpp"
 
-CPL_CVSID("$Id$")
 
 // g++ -g -Wall -fPIC -shared -o ogr_geopackage.so -Iport -Igcore -Iogr -Iogr/ogrsf_frmts -Iogr/ogrsf_frmts/gpkg ogr/ogrsf_frmts/gpkg/*.c* -L. -lgdal
 
@@ -45,7 +44,7 @@ static int OGRGeoPackageDriverIdentify( GDALOpenInfo* poOpenInfo, bool bEmitWarn
 
 #ifdef ENABLE_SQL_GPKG_FORMAT
     if( poOpenInfo->pabyHeader &&
-        STARTS_WITH((const char*)poOpenInfo->pabyHeader, "-- SQL GPKG") )
+        STARTS_WITH(reinterpret_cast<const char*>(poOpenInfo->pabyHeader), "-- SQL GPKG") )
     {
         return TRUE;
     }
@@ -53,7 +52,7 @@ static int OGRGeoPackageDriverIdentify( GDALOpenInfo* poOpenInfo, bool bEmitWarn
 
     if ( poOpenInfo->nHeaderBytes < 100 ||
          poOpenInfo->pabyHeader == nullptr ||
-         !STARTS_WITH((const char*)poOpenInfo->pabyHeader, "SQLite format 3") )
+         !STARTS_WITH(reinterpret_cast<const char*>(poOpenInfo->pabyHeader), "SQLite format 3") )
     {
         return FALSE;
     }
@@ -426,7 +425,16 @@ void RegisterOGRGeoPackage()
     poDriver->SetDescription( "GPKG" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_VECTOR, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_CREATE_LAYER, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_DELETE_LAYER, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_CREATE_FIELD, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_DELETE_FIELD, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_REORDER_FIELDS, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_CURVE_GEOMETRIES, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_MEASURED_GEOMETRIES, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_Z_GEOMETRIES, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_SUBDATASETS, "YES" );
+    poDriver->SetMetadataItem( GDAL_DMD_SUPPORTED_SQL_DIALECTS, "NATIVE OGRSQL SQLITE" );
 
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "GeoPackage" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "gpkg" );
@@ -441,7 +449,13 @@ void RegisterOGRGeoPackage()
 "  </Option>"
 "  <Option name='TABLE' type='string' scope='raster' description='Name of tile user-table'/>"
 "  <Option name='ZOOM_LEVEL' type='integer' scope='raster' description='Zoom level of full resolution. If not specified, maximum non-empty zoom level'/>"
-"  <Option name='BAND_COUNT' type='int' min='1' max='4' scope='raster' description='Number of raster bands' default='4'/>"
+"  <Option name='BAND_COUNT' type='string-select' scope='raster' description='Number of raster bands (only for Byte data type)' default='AUTO'>"
+"    <Value>AUTO</Value>"
+"    <Value>1</Value>"
+"    <Value>2</Value>"
+"    <Value>3</Value>"
+"    <Value>4</Value>"
+"  </Option>"
 "  <Option name='MINX' type='float' scope='raster' description='Minimum X of area of interest'/>"
 "  <Option name='MINY' type='float' scope='raster' description='Minimum Y of area of interest'/>"
 "  <Option name='MAXX' type='float' scope='raster' description='Maximum X of area of interest'/>"
@@ -475,14 +489,19 @@ COMPRESSION_OPTIONS
                                "Integer Integer64 Real String Date DateTime "
                                "Binary" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONFIELDDATASUBTYPES, "Boolean Int16 Float32" );
+    poDriver->SetMetadataItem( GDAL_DMD_ALTER_FIELD_DEFN_FLAGS, "Name Type WidthPrecision Nullable Default Unique Domain" );
+
     poDriver->SetMetadataItem( GDAL_DCAP_NOTNULL_FIELDS, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_DEFAULT_FIELDS, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_UNIQUE_FIELDS, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_NOTNULL_GEOMFIELDS, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_MULTIPLE_VECTOR_LAYERS, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_FIELD_DOMAINS, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_RELATIONSHIPS, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_RENAME_LAYERS, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATION_FIELD_DOMAIN_TYPES, "Coded Range Glob" );
+
+    poDriver->SetMetadataItem( GDAL_DMD_ALTER_GEOM_FIELD_DEFN_FLAGS, "Name SRS CoordinateEpoch" );
 
 #ifdef ENABLE_SQL_GPKG_FORMAT
     poDriver->SetMetadataItem("ENABLE_SQL_GPKG_FORMAT", "YES");

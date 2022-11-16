@@ -958,7 +958,7 @@ void HDF5Array::InstantiateDimensions(const std::string& osParentName,
     if( poGroup && !mapDimIndexToDimFullName.empty() )
     {
         auto groupDims = poGroup->GetDimensions();
-        for( auto dim: groupDims )
+        for( auto& dim: groupDims )
         {
             oMapFullNameToDim[dim->GetFullName()] = dim;
         }
@@ -1490,7 +1490,10 @@ static std::vector<unsigned> CreateMapTargetComponentsToSrc(
     {
         char* pszName = H5Tget_member_name(hSrcDataType, i);
         if( pszName )
+        {
             oMapSrcCompNameToIdx[pszName] = i;
+            H5free_memory(pszName);
+        }
     }
 
     std::vector<unsigned> ret;
@@ -1555,15 +1558,19 @@ static void CopyValue(const GByte* pabySrcBuffer, hid_t hSrcDataType,
         {
             const auto& comps = dstDataType.GetComponents();
             CPLAssert( comps.size() == mapDstCompsToSrcComps.size() );
-            const std::vector<unsigned> empty;
             for( size_t iDst = 0; iDst < comps.size(); ++iDst )
             {
                 const unsigned iSrc = mapDstCompsToSrcComps[iDst];
                 auto hMemberType = H5Tget_member_type(hSrcDataType, iSrc);
+                const auto mapDstSubCompsToSrcSubComps =
+                    (H5Tget_class(hMemberType) == H5T_COMPOUND &&
+                     comps[iDst]->GetType().GetClass() == GEDTC_COMPOUND) ?
+                    CreateMapTargetComponentsToSrc(hMemberType, comps[iDst]->GetType()) :
+                    std::vector<unsigned>();
                 CopyValue( pabySrcBuffer + H5Tget_member_offset(hSrcDataType, iSrc),
                            hMemberType,
                            pabyDstBuffer + comps[iDst]->GetOffset(),
-                           comps[iDst]->GetType(), empty );
+                           comps[iDst]->GetType(), mapDstSubCompsToSrcSubComps );
                 H5Tclose(hMemberType);
             }
         }
@@ -1676,16 +1683,11 @@ bool HDF5Array::IRead(const GUInt64* arrayStartIdx,
         anStep[i] = static_cast<hsize_t>(count[i] == 1 ? 1 : arrayStep[i]);
         nEltCount *= count[i];
     }
-    size_t nCurStride = 1;
-    for( size_t i = nDims; i > 0; )
+
+    if( IsTransposedRequest(count, bufferStride) )
     {
-        --i;
-        if( count[i] != 1 && static_cast<size_t>(bufferStride[i]) != nCurStride )
-        {
-            return ReadSlow(arrayStartIdx, count, arrayStep, bufferStride,
-                            bufferDataType, pDstBuffer);
-        }
-        nCurStride *= count[i];
+        return ReadForTransposedRequest(arrayStartIdx, count, arrayStep,
+                                        bufferStride, bufferDataType, pDstBuffer);
     }
 
     hid_t hBufferType = H5I_INVALID_HID;

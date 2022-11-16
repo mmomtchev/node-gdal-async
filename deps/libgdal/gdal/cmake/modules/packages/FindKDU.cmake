@@ -76,7 +76,8 @@ find_path(KDU_INCLUDE_DIR coresys/common/kdu_elementary.h
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(KDU
-                                  REQUIRED_VARS KDU_INCLUDE_DIR KDU_LIBRARY KDU_AUX_LIBRARY)
+                                  REQUIRED_VARS KDU_INCLUDE_DIR KDU_LIBRARY KDU_AUX_LIBRARY
+                                  VERSION_VAR KDU_VERSION_VAR)
 mark_as_advanced(KDU_INCLUDE_DIR KDU_LIBRARY KDU_AUX_LIBRARY)
 
 if(KDU_FOUND)
@@ -99,5 +100,10 @@ if(KDU_FOUND)
         set_target_properties(KDU::KDU PROPERTIES
                               INTERFACE_INCLUDE_DIRECTORIES "${KDU_INCLUDE_DIR}/coresys/common;${KDU_INCLUDE_DIR}/apps/compressed_io;${KDU_INCLUDE_DIR}/apps/jp2;${KDU_INCLUDE_DIR}/apps/image;${KDU_INCLUDE_DIR}/apps/args;${KDU_INCLUDE_DIR}/apps/support;${KDU_INCLUDE_DIR}/apps/kdu_compress"
                               INTERFACE_LINK_LIBRARIES "KDU::KDU_MAIN;KDU::KDU_AUX")
+        if( DEFINED KDU_MAJOR_VERSION AND ${KDU_MAJOR_VERSION}.${KDU_MINOR_VERSION} VERSION_LESS 7.5 )
+            set_property(TARGET KDU::KDU
+                         APPEND PROPERTY
+                         INTERFACE_COMPILE_DEFINITIONS "KDU_MAJOR_VERSION=${KDU_MAJOR_VERSION};KDU_MINOR_VERSION=${KDU_MINOR_VERSION}")
+        endif()
     endif()
 endif()

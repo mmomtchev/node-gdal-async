@@ -30,7 +30,6 @@
 #include "cpl_conv.h"
 #include <cassert>
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                                Open()                                */
@@ -109,6 +108,12 @@ void RegisterOGRWAsP()
 
 {
     OGRSFDriver* poDriver = new OGRWAsPDriver;
+
+    poDriver->SetMetadataItem( GDAL_DCAP_VECTOR, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_CREATE_LAYER, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_CREATE_FIELD, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_Z_GEOMETRIES, "YES" );
+    poDriver->SetMetadataItem( GDAL_DMD_SUPPORTED_SQL_DIALECTS, "OGRSQL SQLITE" );
 
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "WAsP .map format" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "map" );

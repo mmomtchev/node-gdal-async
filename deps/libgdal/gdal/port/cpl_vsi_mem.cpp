@@ -56,7 +56,6 @@
 
 //! @cond Doxygen_Suppress
 
-CPL_CVSID("$Id$")
 
 /*
 ** Notes on Multithreading:
@@ -143,6 +142,9 @@ class VSIMemHandle final : public VSIVirtualHandle
     int Eof() override;
     int Close() override;
     int Truncate( vsi_l_offset nNewSize ) override;
+
+    bool      HasPRead() const override { return true; }
+    size_t    PRead( void* /*pBuffer*/, size_t /* nSize */, vsi_l_offset /*nOffset*/ ) const override;
 };
 
 /************************************************************************/
@@ -402,6 +404,22 @@ size_t VSIMemHandle::Read( void * pBuffer, size_t nSize, size_t nCount )
     m_nOffset += nBytesToRead;
 
     return nCount;
+}
+
+/************************************************************************/
+/*                              PRead()                                 */
+/************************************************************************/
+
+size_t VSIMemHandle::PRead( void* pBuffer, size_t nSize, vsi_l_offset nOffset ) const
+{
+    if( nOffset < poFile->nLength )
+    {
+        const size_t nToCopy = static_cast<size_t>(
+            std::min(static_cast<vsi_l_offset>(poFile->nLength - nOffset), static_cast<vsi_l_offset>(nSize)));
+        memcpy( pBuffer, poFile->pabyData + static_cast<size_t>(nOffset), nToCopy );
+        return nToCopy;
+    }
+    return 0;
 }
 
 /************************************************************************/
@@ -904,6 +922,8 @@ void VSIInstallMemFileHandler()
  * A virtual memory file is created from the passed buffer with the indicated
  * filename.  Under normal conditions the filename would need to be absolute
  * and within the /vsimem/ portion of the filesystem.
+ * Starting with GDAL 3.6, nullptr can also be passed as pszFilename to mean
+ * an anonymous file, that is destroyed when the handle is closed.
  *
  * If bTakeOwnership is TRUE, then the memory file system handler will take
  * ownership of the buffer, freeing it when the file is deleted.  Otherwise
@@ -911,7 +931,7 @@ void VSIInstallMemFileHandler()
  * long as it might be accessed as a file.  In no circumstances does this
  * function take a copy of the pabyData contents.
  *
- * @param pszFilename the filename to be created.
+ * @param pszFilename the filename to be created, or nullptr
  * @param pabyData the data buffer for the file.
  * @param nDataLength the length of buffer in bytes.
  * @param bTakeOwnership TRUE to transfer "ownership" of buffer or FALSE.
@@ -933,13 +953,10 @@ VSILFILE *VSIFileFromMemBuffer( const char *pszFilename,
         static_cast<VSIMemFilesystemHandler *>(
                 VSIFileManager::GetHandler("/vsimem/"));
 
-    if( pszFilename == nullptr )
-        return nullptr;
-
     const CPLString osFilename =
-        VSIMemFilesystemHandler::NormalizePath(pszFilename);
-    if( osFilename.empty() )
-        return nullptr;
+        pszFilename ?
+            VSIMemFilesystemHandler::NormalizePath(pszFilename) :
+        std::string();
 
     std::shared_ptr<VSIMemFile> poFile = std::make_shared<VSIMemFile>();
 
@@ -949,6 +966,7 @@ VSILFILE *VSIFileFromMemBuffer( const char *pszFilename,
     poFile->nLength = nDataLength;
     poFile->nAllocLength = nDataLength;
 
+    if( !osFilename.empty() )
     {
         CPLMutexHolder oHolder( &poHandler->hMutex );
         poHandler->Unlink_unlocked(osFilename);
@@ -960,9 +978,14 @@ VSILFILE *VSIFileFromMemBuffer( const char *pszFilename,
 #endif
     }
 
-    // TODO(schwehr): Fix this so that the using statement is not needed.
-    // Will just adding the bool for bSetError be okay?
-    return reinterpret_cast<VSILFILE *>( poHandler->Open( osFilename, "r+" ) );
+/* -------------------------------------------------------------------- */
+/*      Setup the file handle on this file.                             */
+/* -------------------------------------------------------------------- */
+    VSIMemHandle *poHandle = new VSIMemHandle;
+
+    poHandle->poFile = poFile;
+    poHandle->bUpdate = true;
+    return reinterpret_cast<VSILFILE *>(poHandle);
 }
 
 /************************************************************************/

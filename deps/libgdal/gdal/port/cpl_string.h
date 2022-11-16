@@ -275,6 +275,7 @@ wchar_t CPL_DLL *CPLRecodeToWChar(
     const char *pszSource, const char *pszSrcEncoding,
     const char *pszDstEncoding ) CPL_WARN_UNUSED_RESULT;
 int CPL_DLL CPLIsUTF8( const char* pabyData, int nLen );
+bool CPL_DLL CPLIsASCII( const char* pabyData, size_t nLen );
 char CPL_DLL *CPLForceToASCII(
     const char* pabyData, int nLen,
     char chReplacementChar ) CPL_WARN_UNUSED_RESULT;
@@ -433,8 +434,8 @@ class CPL_DLL CPLStringList
     bool   bOwnList = false;
     bool   bIsSorted = false;
 
-    void   MakeOurOwnCopy();
-    void   EnsureAllocation( int nMaxLength );
+    bool   MakeOurOwnCopy();
+    bool   EnsureAllocation( int nMaxLength );
     int    FindSortedInsertionPoint( const char *pszLine );
 
   public:
@@ -442,6 +443,7 @@ class CPL_DLL CPLStringList
     explicit CPLStringList( char **papszList, int bTakeOwnership=TRUE );
     explicit CPLStringList( CSLConstList papszList );
     CPLStringList( const CPLStringList& oOther );
+    CPLStringList( CPLStringList&& oOther );
     ~CPLStringList();
 
     CPLStringList &Clear();

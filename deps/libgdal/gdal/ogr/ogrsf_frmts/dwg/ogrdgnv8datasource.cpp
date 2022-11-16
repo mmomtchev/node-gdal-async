@@ -30,7 +30,6 @@
 #include "cpl_conv.h"
 #include "cpl_string.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                        OGRDGNV8DataSource()                          */
@@ -175,6 +174,8 @@ int OGRDGNV8DataSource::TestCapability( const char * pszCap )
     if( EQUAL(pszCap,ODsCCreateLayer) )
         return m_bUpdate;
     else if( EQUAL(pszCap,ODsCCurveGeometries) )
+        return TRUE;
+    else if( EQUAL(pszCap,ODsCZGeometries) )
         return TRUE;
 
     return FALSE;

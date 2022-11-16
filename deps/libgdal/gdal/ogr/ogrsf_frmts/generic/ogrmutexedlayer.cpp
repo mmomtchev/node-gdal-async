@@ -31,7 +31,6 @@
 #include "ogrmutexedlayer.h"
 #include "cpl_multiproc.h"
 
-CPL_CVSID("$Id$")
 
 OGRMutexedLayer::OGRMutexedLayer( OGRLayer* poDecoratedLayer,
                                   int bTakeOwnership,
@@ -93,6 +92,19 @@ OGRFeature *OGRMutexedLayer::GetNextFeature()
     return OGRLayerDecorator::GetNextFeature();
 }
 
+GDALDataset *OGRMutexedLayer::GetDataset()
+{
+    CPLMutexHolderOptionalLockD(m_hMutex);
+    return OGRLayerDecorator::GetDataset();
+}
+
+bool OGRMutexedLayer::GetArrowStream(struct ArrowArrayStream* out_stream,
+                                     CSLConstList papszOptions)
+{
+    CPLMutexHolderOptionalLockD(m_hMutex);
+    return OGRLayerDecorator::GetArrowStream(out_stream, papszOptions);
+}
+
 OGRErr      OGRMutexedLayer::SetNextByIndex( GIntBig nIndex )
 {
     CPLMutexHolderOptionalLockD(m_hMutex);
@@ -115,6 +127,12 @@ OGRErr      OGRMutexedLayer::ICreateFeature( OGRFeature *poFeature )
 {
     CPLMutexHolderOptionalLockD(m_hMutex);
     return OGRLayerDecorator::ICreateFeature(poFeature);
+}
+
+OGRErr      OGRMutexedLayer::IUpsertFeature( OGRFeature* poFeature )
+{
+   CPLMutexHolderOptionalLockD(m_hMutex);
+   return OGRLayerDecorator::IUpsertFeature(poFeature);
 }
 
 OGRErr      OGRMutexedLayer::DeleteFeature( GIntBig nFID )
@@ -194,6 +212,12 @@ OGRErr      OGRMutexedLayer::AlterFieldDefn( int iField, OGRFieldDefn* poNewFiel
 {
     CPLMutexHolderOptionalLockD(m_hMutex);
     return OGRLayerDecorator::AlterFieldDefn(iField, poNewFieldDefn, nFlagsIn);
+}
+
+OGRErr      OGRMutexedLayer::AlterGeomFieldDefn( int iGeomField, const OGRGeomFieldDefn* poNewGeomFieldDefn, int nFlagsIn )
+{
+    CPLMutexHolderOptionalLockD(m_hMutex);
+    return OGRLayerDecorator::AlterGeomFieldDefn(iGeomField, poNewGeomFieldDefn, nFlagsIn);
 }
 
 OGRErr      OGRMutexedLayer::SyncToDisk()

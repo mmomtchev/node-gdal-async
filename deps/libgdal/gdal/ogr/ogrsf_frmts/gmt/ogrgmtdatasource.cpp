@@ -30,7 +30,6 @@
 #include "cpl_string.h"
 #include "ogr_gmt.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                          OGRGmtDataSource()                          */
@@ -240,6 +239,8 @@ int OGRGmtDataSource::TestCapability( const char * pszCap )
 
 {
     if( EQUAL(pszCap,ODsCCreateLayer) )
+        return TRUE;
+    else if( EQUAL(pszCap, ODsCZGeometries) )
         return TRUE;
 
     return FALSE;

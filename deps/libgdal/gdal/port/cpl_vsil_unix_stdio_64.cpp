@@ -77,6 +77,9 @@
 #if HAVE_UNISTD_H
 #include <unistd.h>
 #endif
+#ifdef HAVE_PREAD_BSD
+#include <sys/uio.h>
+#endif
 
 #include <limits>
 #include <new>
@@ -88,7 +91,6 @@
 #include "cpl_string.h"
 #include "cpl_vsi_error.h"
 
-CPL_CVSID("$Id$")
 
 #if defined(UNIX_STDIO_64)
 
@@ -181,6 +183,10 @@ public:
     GIntBig GetDiskFreeSpace( const char* pszDirname ) override;
     int SupportsSparseFiles( const char* pszPath ) override;
 
+    bool IsLocal( const char* pszPath ) override;
+    bool SupportsSequentialWrite( const char* pszPath, bool /* bAllowLocalTempFile */ ) override;
+    bool SupportsRandomWrite( const char* pszPath, bool /* bAllowLocalTempFile */ ) override;
+
     VSIDIR* OpenDir( const char *pszPath, int nRecurseDepth,
                              const char* const *papszOptions) override;
 
@@ -228,9 +234,13 @@ class VSIUnixStdioHandle final : public VSIVirtualHandle
     int Close() override;
     int Truncate( vsi_l_offset nNewSize ) override;
     void *GetNativeFileDescriptor() override {
-        return reinterpret_cast<void *>(static_cast<size_t>(fileno(fp))); }
+        return reinterpret_cast<void *>(static_cast<uintptr_t>(fileno(fp))); }
     VSIRangeStatus GetRangeStatus( vsi_l_offset nOffset,
                                    vsi_l_offset nLength ) override;
+#if defined(HAVE_PREAD64) || (defined(HAVE_PREAD_BSD) && SIZEOF_OFF_T == 8)
+    bool      HasPRead() const override;
+    size_t    PRead( void* /*pBuffer*/, size_t /* nSize */, vsi_l_offset /*nOffset*/ ) const override;
+#endif
 };
 
 /************************************************************************/
@@ -608,6 +618,30 @@ VSIRangeStatus VSIUnixStdioHandle::GetRangeStatus( vsi_l_offset
 }
 
 /************************************************************************/
+/*                             HasPRead()                               */
+/************************************************************************/
+
+#if defined(HAVE_PREAD64) || (defined(HAVE_PREAD_BSD) && SIZEOF_OFF_T == 8)
+bool VSIUnixStdioHandle::HasPRead() const
+{
+    return true;
+}
+
+/************************************************************************/
+/*                              PRead()                                 */
+/************************************************************************/
+
+size_t VSIUnixStdioHandle::PRead( void* pBuffer, size_t nSize, vsi_l_offset nOffset ) const
+{
+#ifdef HAVE_PREAD64
+    return pread64( fileno(fp), pBuffer, nSize, nOffset );
+#else
+    return pread( fileno(fp), pBuffer, nSize, static_cast<off_t>(nOffset) );
+#endif
+}
+#endif
+
+/************************************************************************/
 /* ==================================================================== */
 /*                       VSIUnixStdioFilesystemHandler                  */
 /* ==================================================================== */
@@ -886,6 +920,65 @@ int VSIUnixStdioFilesystemHandler::SupportsSparseFiles( const char*
     }
     return FALSE;
 #endif
+}
+
+/************************************************************************/
+/*                          IsLocal()                                   */
+/************************************************************************/
+
+bool VSIUnixStdioFilesystemHandler::IsLocal( const char*
+#ifdef __linux
+                                                        pszPath
+#endif
+                                                        )
+{
+#ifdef __linux
+    struct statfs sStatFS;
+    if( statfs( pszPath, &sStatFS ) == 0 )
+    {
+        // See http://en.wikipedia.org/wiki/Comparison_of_file_systems
+        switch( static_cast<unsigned>(sStatFS.f_type) )
+        {
+            // Codes from http://man7.org/linux/man-pages/man2/statfs.2.html
+            case 0x6969U: // NFS
+            case 0x517bU: // SMB
+            case 0xff534d42U: // CIFS
+            case 0xfe534d42U: // SMB2 (https://github.com/libuv/libuv/blob/97dcdb1926f6aca43171e1614338bcef067abd59/src/unix/fs.c#L960)
+                return false;
+        }
+    }
+#else
+    static bool bMessageEmitted = false;
+    if( !bMessageEmitted )
+    {
+        CPLDebug("VSI",
+                 "Sorry: IsLocal() not implemented "
+                 "for this operating system");
+        bMessageEmitted = true;
+    }
+#endif
+    return true;
+}
+
+/************************************************************************/
+/*                    SupportsSequentialWrite()                         */
+/************************************************************************/
+
+bool VSIUnixStdioFilesystemHandler::SupportsSequentialWrite( const char* pszPath, bool /* bAllowLocalTempFile */ )
+{
+    VSIStatBufL sStat;
+    if( VSIStatL(pszPath, &sStat) == 0 )
+        return access(pszPath, W_OK) == 0;
+    return access(CPLGetDirname(pszPath), W_OK) == 0;
+}
+
+/************************************************************************/
+/*                     SupportsRandomWrite()                            */
+/************************************************************************/
+
+bool VSIUnixStdioFilesystemHandler::SupportsRandomWrite( const char* pszPath, bool /* bAllowLocalTempFile */ )
+{
+    return SupportsSequentialWrite(pszPath, false);
 }
 
 /************************************************************************/

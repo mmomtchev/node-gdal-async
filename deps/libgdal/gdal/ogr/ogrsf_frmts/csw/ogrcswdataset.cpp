@@ -33,7 +33,6 @@
 #include "ogr_p.h"
 #include "gmlutils.h"
 
-CPL_CVSID("$Id$")
 
 extern "C" void RegisterOGRCSW();
 
@@ -112,7 +111,7 @@ class OGRCSWDataSource final: public OGRDataSource
 
     virtual int                 TestCapability( const char * ) override { return FALSE; }
 
-    CPLHTTPResult*              HTTPFetch( const char* pszURL, const char* pszPost );
+    static CPLHTTPResult*       HTTPFetch( const char* pszURL, const char* pszPost );
 
     const CPLString&            GetBaseURL() { return osBaseURL; }
     const CPLString&            GetVersion() { return osVersion; }
@@ -408,7 +407,7 @@ GIntBig OGRCSWLayer::GetFeatureCountWithHits()
             poDS->GetElementSetName().c_str(),
             osQuery.c_str());
 
-    CPLHTTPResult* psResult = poDS->HTTPFetch( poDS->GetBaseURL(), osPost);
+    CPLHTTPResult* psResult = OGRCSWDataSource::HTTPFetch( poDS->GetBaseURL(), osPost);
     if (psResult == nullptr)
     {
         return -1;
@@ -471,7 +470,7 @@ GDALDataset* OGRCSWLayer::FetchGetRecords()
             poDS->GetElementSetName().c_str(),
             osQuery.c_str());
 
-    psResult = poDS->HTTPFetch( poDS->GetBaseURL(), osPost);
+    psResult = OGRCSWDataSource::HTTPFetch( poDS->GetBaseURL(), osPost);
     if (psResult == nullptr)
     {
         return nullptr;
@@ -1062,6 +1061,7 @@ void RegisterOGRCSW()
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/vector/csw.html" );
 
     poDriver->SetMetadataItem( GDAL_DMD_CONNECTION_PREFIX, "CSW:" );
+    poDriver->SetMetadataItem( GDAL_DMD_SUPPORTED_SQL_DIALECTS, "OGRSQL SQLITE" );
 
     poDriver->SetMetadataItem( GDAL_DMD_OPENOPTIONLIST,
 "<OpenOptionList>"

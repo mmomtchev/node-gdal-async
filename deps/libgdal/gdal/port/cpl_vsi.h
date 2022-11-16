@@ -35,6 +35,8 @@
 #include "cpl_port.h"
 #include "cpl_progress.h"
 
+#include <stdbool.h>
+
 /**
  * \file cpl_vsi.h
  *
@@ -219,6 +221,12 @@ int CPL_DLL     VSIIsCaseSensitiveFS( const char * pszFilename );
 
 int CPL_DLL     VSISupportsSparseFiles( const char* pszPath );
 
+bool CPL_DLL    VSIIsLocal( const char* pszPath );
+
+bool CPL_DLL    VSISupportsSequentialWrite( const char* pszPath, bool bAllowLocalTempFile );
+
+bool CPL_DLL    VSISupportsRandomWrite( const char* pszPath, bool bAllowLocalTempFile );
+
 int CPL_DLL     VSIHasOptimizedReadMultiRange( const char* pszPath );
 
 const char CPL_DLL *VSIGetActualURL( const char* pszFilename );
@@ -239,11 +247,29 @@ int CPL_DLL VSISetFileMetadata( const char * pszFilename,
                                 const char* pszDomain,
                                 CSLConstList papszOptions );
 
+void CPL_DLL VSISetPathSpecificOption( const char* pszPathPrefix, const char* pszKey,
+                                       const char* pszValue );
+void CPL_DLL VSIClearPathSpecificOptions(const char* pszPathPrefix );
+const char CPL_DLL* VSIGetPathSpecificOption( const char* pszPath, const char* pszKey,
+                                              const char* pszDefault );
+
 void CPL_DLL VSISetCredential( const char* pszPathPrefix, const char* pszKey,
-                               const char* pszValue );
-void CPL_DLL VSIClearCredentials(const char* pszPathPrefix );
+                               const char* pszValue )
+/*! @cond Doxygen_Suppress */
+    CPL_WARN_DEPRECATED("Use VSISetPathSpecificOption instead")
+/*! @endcond */
+    ;
+void CPL_DLL VSIClearCredentials(const char* pszPathPrefix )
+/*! @cond Doxygen_Suppress */
+    CPL_WARN_DEPRECATED("Use VSIClearPathSpecificOptions instead")
+/*! @endcond */
+    ;
 const char CPL_DLL* VSIGetCredential( const char* pszPath, const char* pszKey,
-                                      const char* pszDefault );
+                                      const char* pszDefault )
+/*! @cond Doxygen_Suppress */
+    CPL_WARN_DEPRECATED("Use VSIGetPathSpecificOption instead")
+/*! @endcond */
+    ;
 
 /* ==================================================================== */
 /*      Memory allocation                                               */

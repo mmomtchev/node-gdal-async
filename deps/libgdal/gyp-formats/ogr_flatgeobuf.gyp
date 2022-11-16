@@ -16,7 +16,6 @@
 			],
 			"include_dirs": [
 				"../gdal/ogr/ogrsf_frmts/flatgeobuf",
-				"../gdal/ogr/ogrsf_frmts/flatgeobuf/flatbuffers",
 				"../gdal/frmts/.",
 				"../gdal/frmts/../generic"
 			]

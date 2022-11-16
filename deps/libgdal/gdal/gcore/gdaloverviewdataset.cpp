@@ -39,7 +39,6 @@
 #include "gdal_mdreader.h"
 #include "gdal_proxy.h"
 
-CPL_CVSID("$Id$")
 
 /** In GDAL, GDALRasterBand::GetOverview() returns a stand-alone band, that may
     have no parent dataset. This can be inconvenient in certain contexts, where
@@ -64,7 +63,7 @@ class GDALOverviewDataset final: public GDALDataset
 
     GDALDataset* poOvrDS = nullptr;  // Will be often NULL.
     int          nOvrLevel = 0;
-    int          bThisLevelOnly = 0;
+    bool         bThisLevelOnly = false;
 
     int          nGCPCount = 0;
     GDAL_GCP    *pasGCPList = nullptr;
@@ -85,7 +84,7 @@ class GDALOverviewDataset final: public GDALDataset
   public:
     GDALOverviewDataset( GDALDataset* poMainDS,
                          int nOvrLevel,
-                         int bThisLevelOnly );
+                         bool bThisLevelOnly );
     ~GDALOverviewDataset() override;
 
     const OGRSpatialReference* GetSpatialRef() const override;
@@ -157,7 +156,7 @@ static GDALRasterBand* GetOverviewEx(GDALRasterBand* poBand, int nLevel)
 // nOvrLevel=-1 means the full resolution dataset (only useful if
 // bThisLevelOnly = false to expose a dataset without its overviews)
 GDALDataset* GDALCreateOverviewDataset( GDALDataset* poMainDS, int nOvrLevel,
-                                        int bThisLevelOnly )
+                                        bool bThisLevelOnly )
 {
     // Sanity checks.
     const int nBands = poMainDS->GetRasterCount();
@@ -188,7 +187,7 @@ GDALDataset* GDALCreateOverviewDataset( GDALDataset* poMainDS, int nOvrLevel,
 
 GDALOverviewDataset::GDALOverviewDataset( GDALDataset* poMainDSIn,
                                           int nOvrLevelIn,
-                                          int bThisLevelOnlyIn ) :
+                                          bool bThisLevelOnlyIn ) :
     poMainDS(poMainDSIn),
     nOvrLevel(nOvrLevelIn),
     bThisLevelOnly(bThisLevelOnlyIn)
@@ -277,6 +276,9 @@ GDALOverviewDataset::~GDALOverviewDataset()
 int GDALOverviewDataset::CloseDependentDatasets()
 {
     bool bRet = false;
+
+    if( poOvrDS )
+        poOvrDS->SetEnableOverviews(true);
 
     if( poMainDS )
     {

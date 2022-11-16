@@ -473,6 +473,13 @@ CPLJSONObject::CPLJSONObject(const CPLJSONObject &other) :
 {
 }
 
+CPLJSONObject::CPLJSONObject(CPLJSONObject &&other) :
+    m_poJsonObject(other.m_poJsonObject),
+    m_osKey(std::move(other.m_osKey))
+{
+    other.m_poJsonObject = nullptr;
+}
+
 CPLJSONObject &CPLJSONObject::operator=(const CPLJSONObject &other)
 {
     if( this == &other )
@@ -1084,6 +1091,7 @@ std::vector<CPLJSONObject> CPLJSONObject::GetChildren() const
     it.key = nullptr;
     it.val = nullptr;
     it.entry = nullptr;
+    // cppcheck-suppress cstyleCast
     json_object_object_foreachC( TO_JSONOBJ(m_poJsonObject), it ) {
         aoChildren.push_back(CPLJSONObject(it.key, it.val));
     }

@@ -37,8 +37,8 @@
 /*                         OGRParquetDataset()                          */
 /************************************************************************/
 
-OGRParquetDataset::OGRParquetDataset(std::unique_ptr<arrow::MemoryPool>&& poMemoryPool):
-    OGRArrowDataset(std::move(poMemoryPool))
+OGRParquetDataset::OGRParquetDataset(const std::shared_ptr<arrow::MemoryPool>& poMemoryPool):
+    OGRArrowDataset(poMemoryPool)
 {
 }
 
@@ -186,7 +186,7 @@ OGRLayer* OGRParquetDataset::ExecuteSQL( const char *pszSQLCommand,
             oSelect.where_expr == nullptr &&
             CPLTestBool(CPLGetConfigOption("OGR_PARQUET_USE_STATISTICS", "YES")) )
         {
-            auto poLayer = cpl::down_cast<OGRParquetLayer *>(
+            auto poLayer = dynamic_cast<OGRParquetLayer *>(
                     GetLayerByName( oSelect.table_defs[0].table_name));
             if( poLayer )
             {
@@ -448,13 +448,17 @@ void OGRParquetDataset::ReleaseResultSet( OGRLayer * poResultsSet )
     delete poResultsSet;
 }
 
+
 /************************************************************************/
 /*                           TestCapability()                           */
 /************************************************************************/
 
 int OGRParquetDataset::TestCapability( const char * pszCap )
+
 {
-    if( EQUAL(pszCap,ODsCMeasuredGeometries) )
+    if( EQUAL(pszCap,ODsCZGeometries) )
+        return true;
+    else if( EQUAL(pszCap,ODsCMeasuredGeometries) )
         return true;
 
     return false;

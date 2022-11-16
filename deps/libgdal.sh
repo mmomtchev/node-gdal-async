@@ -5,7 +5,7 @@ set -eu
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR/libgdal"
 
-GDAL_VERSION=3.5.3
+GDAL_VERSION=3.6.0
 GDAL_VERSION_SUFFIX=
 dir_gdal=./gdal
 dir_formats_gyp=./gyp-formats
@@ -102,7 +102,7 @@ function generate_formats() {
 		files_src_all=`find ${dir_format} | egrep '\.(c|cpp)$' | awk '{print "." $0}'`
 		files_src=''
 		# check to see which .c/.cpp files are mentioned in the makefile
-		makefiles=`find ${dir_format} -name GNUmakefile`
+		makefiles=`find ${dir_format} -name CMakeLists.txt`
 		for file in $files_src_all; do
 			base=`basename $file | cut -f 1 -d '.'`
 			if grep -q ${base}.o ${makefiles}; then
@@ -141,6 +141,9 @@ function generate_formats() {
 		format_list_gyps="$format_list_gyps"$'\n'"$file_gyp:$target_name"
 	done
 }
+
+mkdir -p gdal/gcore/gdal_version_full
+ln -s ../gdal_version.h gdal/gcore/gdal_version_full/
 
 generate_formats "$GDAL_FORMATS" "${dir_gdal}/frmts"
 generate_formats "$OGR_FORMATS" "${dir_gdal}/ogr/ogrsf_frmts" "ogr_"

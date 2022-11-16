@@ -1,5 +1,14 @@
 # CMake4GDAL project is distributed under MIT license. See accompanying file LICENSE.txt.
 
+# Increment the below number each time an ABI incompatible change is done,
+# e.g removing a public function/method, changing its prototype (including
+# adding a default value to a parameter of a C++ method), adding
+# a new member or virtual function in a public C++ class, etc.
+# This will typically happen for each GDAL feature release (change of X or Y in
+# a X.Y.Z numbering scheme), but should not happen for a bugfix release (change of Z)
+# Previous value: 32 for GDAL 3.6
+set(GDAL_SOVERSION 32)
+
 # Switches to control build targets(cached)
 option(ENABLE_GNM "Build GNM (Geography Network Model) component" ON)
 option(ENABLE_PAM "Set ON to enable Persistent Auxiliary Metadata (.aux.xml)" ON)
@@ -208,8 +217,9 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM" OR CMAKE_CXX_COMPILER_ID STREQUAL
     }")
   check_cxx_source_compiles("${TEST_LINK_STDCPP_SOURCE_CODE}" _TEST_LINK_STDCPP)
   if( NOT _TEST_LINK_STDCPP )
-      message(WARNING "Cannot link code using standard C++ library. Automatically adding -lstdc++ to CMAKE_EXE_LINKER_FLAGS")
+      message(WARNING "Cannot link code using standard C++ library. Automatically adding -lstdc++ to CMAKE_EXE_LINKER_FLAGS AND CMAKE_MODULE_LINKER_FLAGS")
       set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lstdc++")
+      set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -lstdc++")
 
       check_cxx_source_compiles("${TEST_LINK_STDCPP_SOURCE_CODE}" _TEST_LINK_STDCPP_AGAIN)
       if( NOT _TEST_LINK_STDCPP_AGAIN )
@@ -275,8 +285,52 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU
   endif ()
 endif ()
 
+macro(set_alternate_linker linker)
+  if( NOT "${USE_ALTERNATE_LINKER}" STREQUAL "${USE_ALTERNATE_LINKER_OLD_CACHED}" )
+    unset(LINKER_EXECUTABLE CACHE)
+  endif()
+  find_program(LINKER_EXECUTABLE ld.${USE_ALTERNATE_LINKER} ${USE_ALTERNATE_LINKER})
+  if(LINKER_EXECUTABLE)
+    if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+      if( "${CMAKE_CXX_COMPILER_VERSION}" VERSION_GREATER_EQUAL 12.0.0)
+        add_link_options("--ld-path=${LINKER_EXECUTABLE}")
+      else()
+        add_link_options("-fuse-ld=${LINKER_EXECUTABLE}")
+      endif()
+    elseif( "${linker}" STREQUAL "mold" AND
+            "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" AND
+            "${CMAKE_CXX_COMPILER_VERSION}" VERSION_LESS 12.1.0)
+      # GCC before 12.1.0: -fuse-ld does not accept mold as a valid argument,
+      # so you need to use -B option instead.
+      get_filename_component(_dir ${LINKER_EXECUTABLE} DIRECTORY)
+      get_filename_component(_dir ${_dir} DIRECTORY)
+      if( EXISTS "${_dir}/libexec/mold/ld" )
+          add_link_options(-B "${_dir}/libexec/mold")
+      else()
+          message(FATAL_ERROR "Cannot find ${_dir}/libexec/mold/ld")
+      endif()
+    else()
+      add_link_options("-fuse-ld=${USE_ALTERNATE_LINKER}")
+    endif()
+    message(STATUS "Using alternative linker: ${LINKER_EXECUTABLE}")
+  else()
+    message(FATAL_ERROR "Cannot find alternative linker ${USE_ALTERNATE_LINKER}")
+  endif()
+endmacro()
+
+# CMake >= 3.13 needed for add_link_options()
+if( (CMAKE_VERSION VERSION_GREATER_EQUAL 3.13) AND ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU") )
+  set(USE_ALTERNATE_LINKER "" CACHE STRING "Use alternate linker. Leave empty for system default; potential alternatives are 'gold', 'lld', 'bfd', 'mold'")
+  if(NOT "${USE_ALTERNATE_LINKER}" STREQUAL "")
+    set_alternate_linker(${USE_ALTERNATE_LINKER})
+  endif()
+  set(USE_ALTERNATE_LINKER_OLD_CACHED
+      ${USE_ALTERNATE_LINKER}
+      CACHE INTERNAL "Previous value of USE_ALTERNATE_LINKER")
+endif()
+
 # Default definitions during build
-add_definitions(-DGDAL_COMPILATION -DGDAL_CMAKE_BUILD)
+add_definitions(-DGDAL_COMPILATION)
 
 if (ENABLE_IPO)
   if (POLICY CMP0069)
@@ -405,6 +459,9 @@ else ()
         ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_BINDIR}
         ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}
       )
+      if( NOT "${CMAKE_INSTALL_PREFIX}" STREQUAL "" )
+          message(WARNING "CMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX} will be ignored and replaced with ${base};${base}/${relDir} due to GDAL_SET_INSTALL_RELATIVE_RPATH being set")
+      endif()
       set(CMAKE_INSTALL_RPATH ${base} ${base}/${relDir})
   endif()
 endif ()
@@ -906,7 +963,7 @@ endif ()
 
 if (NOT GDAL_CMAKE_QUIET AND
     "${CMAKE_BINARY_DIR}" STREQUAL "${CMAKE_SOURCE_DIR}")
-  message(WARNING "In-tree builds, that is running cmake from the top of the source tree are not recommended. You are advised instead to 'mkdir build; cd build; cmake ..'. Using 'make' with the Makefile generator will not work, as it will try the GNUmakefile of autoconf builds. Use 'make -f Makefile' instead.")
+  message(WARNING "In-tree builds, that is running cmake from the top of the source tree are not recommended. You are advised instead to 'mkdir build; cd build; cmake ..'.")
 endif()
 
 if (NOT GDAL_CMAKE_QUIET

@@ -33,7 +33,6 @@
 
 #include <memory>
 
-CPL_CVSID("$Id$")
 
 #define UNSUPPORTED_OP_READ_ONLY "%s : unsupported operation on a read-only datasource."
 
@@ -827,6 +826,8 @@ int OGRMSSQLSpatialTableLayer::TestCapability( const char * pszCap )
     else if (EQUAL(pszCap, OLCCurveGeometries))
         return TRUE;
     else if (EQUAL(pszCap, OLCMeasuredGeometries))
+        return TRUE;
+    else if (EQUAL(pszCap, OLCZGeometries))
         return TRUE;
     else
         return OGRMSSQLSpatialLayer::TestCapability( pszCap );

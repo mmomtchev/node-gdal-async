@@ -43,7 +43,6 @@
 
 extern "C" void GDALRegister_STACTA();
 
-CPL_CVSID("$Id$")
 
 // Implements a driver for
 // https://github.com/stac-extensions/tiled-assets
@@ -352,28 +351,16 @@ CPLErr STACTARawDataset::IRasterIO( GDALRWFlag eRWFlag,
             }
 
 
-            auto poMEMDS = std::unique_ptr<GDALDataset>(
+            auto poMEMDS = std::unique_ptr<MEMDataset>(
                 MEMDataset::Create( "", nXSizeMod, nYSizeMod, 0,
                                     eBandDT, nullptr ));
             for( int i = 0; i < nBandCount; i++ )
             {
-                char szBuffer[32] = { '\0' };
-                int nRet = CPLPrintPointer(
-                        szBuffer,
-                        &abyBuf[0] + i * nDTSize * nXSizeMod * nYSizeMod,
-                        sizeof(szBuffer));
-                szBuffer[nRet] = '\0';
-
-                char szBuffer0[64] = { '\0' };
-                snprintf(szBuffer0, sizeof(szBuffer0), "DATAPOINTER=%s", szBuffer);
-                char szBuffer1[64] = { '\0' };
-                snprintf( szBuffer1, sizeof(szBuffer1),
-                          "PIXELOFFSET=%d", nDTSize );
-                char szBuffer2[64] = { '\0' };
-                snprintf( szBuffer2, sizeof(szBuffer2),
-                          "LINEOFFSET=%d", nDTSize * nXSizeMod );
-                char* apszOptions[4] = { szBuffer0, szBuffer1, szBuffer2, nullptr };
-                poMEMDS->AddBand(eBandDT, apszOptions);
+                auto hBand = MEMCreateRasterBandEx(
+                    poMEMDS.get(), i + 1,
+                    &abyBuf[0] + i * nDTSize * nXSizeMod * nYSizeMod,
+                    eBandDT, 0, 0, false );
+                poMEMDS->AddMEMBand(hBand);
             }
 
             sExtraArgs.eResampleAlg = psExtraArg->eResampleAlg;
@@ -449,11 +436,11 @@ CPLErr STACTARawDataset::IRasterIO( GDALRWFlag eRWFlag,
             const int nBufYSizeEffective =
                 bRequestFitsInSingleMetaTile ? nBufYSize : nTileYSize;
 
-            std::shared_ptr<GDALDataset> poTileDS;
             bool bMissingTile = false;
             do
             {
-                if( !m_poMasterDS->m_oCacheTileDS.tryGet(osURL, poTileDS) )
+                std::unique_ptr<GDALDataset>* ppoTileDS = m_poMasterDS->m_oCacheTileDS.getPtr(osURL);
+                if( ppoTileDS == nullptr )
                 {
                     CPLStringList aosAllowedDrivers;
                     aosAllowedDrivers.AddString("GTiff");
@@ -463,9 +450,9 @@ CPLErr STACTARawDataset::IRasterIO( GDALRWFlag eRWFlag,
                     aosAllowedDrivers.AddString("JP2ECW");
                     aosAllowedDrivers.AddString("JP2MrSID");
                     aosAllowedDrivers.AddString("JP2OpenJPEG");
+                    std::unique_ptr<GDALDataset> poTileDS;
                     if( bDownloadWholeMetaTile &&
-                        (STARTS_WITH(osURL, "/vsis3/") ||
-                        STARTS_WITH(osURL, "/vsicurl/")) )
+                        !VSIIsLocal(osURL.c_str()) )
                     {
                         if( m_poMasterDS->m_bSkipMissingMetaTile )
                             CPLPushErrorHandler(CPLQuietErrorHandler);
@@ -494,7 +481,7 @@ CPLErr STACTARawDataset::IRasterIO( GDALRWFlag eRWFlag,
                         VSIFCloseL(fp);
                         const CPLString osMEMFilename("/vsimem/stacta/" + osURL);
                         VSIFCloseL(VSIFileFromMemBuffer(osMEMFilename, pabyBuf, nSize, TRUE));
-                        poTileDS = std::shared_ptr<GDALDataset>(
+                        poTileDS = std::unique_ptr<GDALDataset>(
                             GDALDataset::Open(osMEMFilename,
                                             GDAL_OF_INTERNAL | GDAL_OF_RASTER,
                                             aosAllowedDrivers.List()));
@@ -511,7 +498,7 @@ CPLErr STACTARawDataset::IRasterIO( GDALRWFlag eRWFlag,
                         aosAllowedDrivers.AddString("HTTP");
                         if( m_poMasterDS->m_bSkipMissingMetaTile )
                             CPLPushErrorHandler(CPLQuietErrorHandler);
-                        poTileDS = std::shared_ptr<GDALDataset>(
+                        poTileDS = std::unique_ptr<GDALDataset>(
                             GDALDataset::Open(osURL,
                                             GDAL_OF_INTERNAL | GDAL_OF_RASTER,
                                             aosAllowedDrivers.List()));
@@ -522,7 +509,7 @@ CPLErr STACTARawDataset::IRasterIO( GDALRWFlag eRWFlag,
                     {
                         if( m_poMasterDS->m_bSkipMissingMetaTile )
                             CPLPushErrorHandler(CPLQuietErrorHandler);
-                        poTileDS = std::shared_ptr<GDALDataset>(
+                        poTileDS = std::unique_ptr<GDALDataset>(
                             GDALDataset::Open(("/vsicurl/" + osURL).c_str(),
                                             GDAL_OF_INTERNAL | GDAL_OF_RASTER,
                                             aosAllowedDrivers.List()));
@@ -533,7 +520,7 @@ CPLErr STACTARawDataset::IRasterIO( GDALRWFlag eRWFlag,
                     {
                         if( m_poMasterDS->m_bSkipMissingMetaTile )
                         {
-                            m_poMasterDS->m_oCacheTileDS.insert(osURL, nullptr);
+                            m_poMasterDS->m_oCacheTileDS.insert(osURL, std::move(poTileDS));
                             bMissingTile = true;
                             break;
                         }
@@ -541,8 +528,9 @@ CPLErr STACTARawDataset::IRasterIO( GDALRWFlag eRWFlag,
                                 "Cannot open %s", osURL.c_str());
                         return CE_Failure;
                     }
-                    m_poMasterDS->m_oCacheTileDS.insert(osURL, poTileDS);
+                    ppoTileDS = &m_poMasterDS->m_oCacheTileDS.insert(osURL, std::move(poTileDS));
                 }
+                std::unique_ptr<GDALDataset>& poTileDS = *ppoTileDS;
                 if( poTileDS == nullptr )
                 {
                     bMissingTile = true;

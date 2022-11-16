@@ -59,7 +59,6 @@
 
 #define DIGIT_ZERO '0'
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                            OGRCSVLayer()                             */
@@ -306,6 +305,7 @@ void OGRCSVLayer::BuildFeatureDefn( const char *pszNfdcGeomField,
 
     nCSVFieldCount = nFieldCount;
 
+    // coverity[tainted_data]
     panGeomFieldIndex = static_cast<int *>(CPLCalloc(nFieldCount, sizeof(int)));
     for( int iField = 0; iField < nFieldCount; iField++ )
     {
@@ -1758,6 +1758,8 @@ int OGRCSVLayer::TestCapability( const char *pszCap )
     else if( EQUAL(pszCap, OLCCurveGeometries) )
         return TRUE;
     else if( EQUAL(pszCap, OLCMeasuredGeometries) )
+        return TRUE;
+    else if( EQUAL(pszCap, OLCZGeometries) )
         return TRUE;
     else
         return FALSE;

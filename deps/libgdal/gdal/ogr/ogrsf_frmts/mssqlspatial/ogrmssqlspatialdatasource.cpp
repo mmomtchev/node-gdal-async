@@ -29,7 +29,6 @@
 
 #include "ogr_mssqlspatial.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                          OGRMSSQLSpatialDataSource()                 */
@@ -183,6 +182,8 @@ int OGRMSSQLSpatialDataSource::TestCapability( const char * pszCap )
     else if (EQUAL(pszCap, ODsCCurveGeometries))
         return TRUE;
     else if (EQUAL(pszCap, ODsCMeasuredGeometries))
+        return TRUE;
+    else if( EQUAL(pszCap, ODsCZGeometries) )
         return TRUE;
     else
         return FALSE;

@@ -379,7 +379,7 @@ GDALdllImageLineAllTouched( int nRasterXSize, int nRasterYSize,
                             const double *padfX, const double *padfY,
                             const double *padfVariant,
                             llPointFunc pfnPointFunc, void *pCBData,
-                            int bAvoidBurningSamePoints )
+                            int bAvoidBurningSamePoints, bool bIntersectOnly)
 
 {
     if( !nPartCount )
@@ -429,6 +429,12 @@ GDALdllImageLineAllTouched( int nRasterXSize, int nRasterYSize,
             // Special case for vertical lines.
             if( floor(dfX) == floor(dfXEnd) || fabs(dfX - dfXEnd) < .01 )
             {
+                if ( bIntersectOnly )
+                {
+                    if( std::abs(dfX - std::round(dfX)) < 0.01 && std::abs(dfXEnd - std::round(dfXEnd)) < 0.01 )
+                        continue;
+                }
+
                 if( dfYEnd < dfY )
                 {
                     std::swap(dfY, dfYEnd );
@@ -498,6 +504,12 @@ GDALdllImageLineAllTouched( int nRasterXSize, int nRasterYSize,
             // Special case for horizontal lines.
             if( floor(dfY) == floor(dfYEnd) || fabs(dfY - dfYEnd) < .01 )
             {
+                if ( bIntersectOnly )
+                {
+                    if( std::abs(dfY - std::round(dfY)) < 0.01 && std::abs(dfYEnd - std::round(dfYEnd)) < 0.01 )
+                        continue;
+                }
+
                 if( dfXEnd < dfX )
                 {
                     std::swap(dfX, dfXEnd);
@@ -573,12 +585,11 @@ GDALdllImageLineAllTouched( int nRasterXSize, int nRasterYSize,
             }
 
             // Clip segment in Y.
-            double dfDiffX = 0.0;
             if( dfYEnd > dfY )
             {
                 if( dfY < 0.0 )
                 {
-                    dfDiffX = (0.0 - dfY) / dfSlope;
+                    const double dfDiffX = (0.0 - dfY) / dfSlope;
                     dfX += dfDiffX;
                     dfVariant += dfDeltaVariant * dfDiffX;
                     dfY = 0.0;
@@ -595,7 +606,7 @@ GDALdllImageLineAllTouched( int nRasterXSize, int nRasterYSize,
             {
                 if( dfY >= nRasterYSize )
                 {
-                  dfDiffX = (nRasterYSize - dfY) / dfSlope;
+                    const double dfDiffX = (nRasterYSize - dfY) / dfSlope;
                     dfX += dfDiffX;
                     dfVariant += dfDeltaVariant * dfDiffX;
                     dfY = nRasterYSize;

@@ -170,14 +170,16 @@ class CPL_DLL OGRSpatialReference
                                      const char *pszCode );
 
   public:
-                OGRSpatialReference(const OGRSpatialReference&);
     explicit    OGRSpatialReference(const char * = nullptr);
+                OGRSpatialReference(const OGRSpatialReference&);
+                OGRSpatialReference(OGRSpatialReference&&);
 
     virtual    ~OGRSpatialReference();
 
     static void DestroySpatialReference(OGRSpatialReference* poSRS);
 
     OGRSpatialReference &operator=(const OGRSpatialReference&);
+    OGRSpatialReference &operator=(OGRSpatialReference&&);
 
     int         Reference();
     int         Dereference();
@@ -212,6 +214,10 @@ class CPL_DLL OGRSpatialReference
         ;
 
     OGRErr      importFromWkt( const char ** );
+/*! @cond Doxygen_Suppress */
+    OGRErr      importFromWkt( const char * pszInput, CSLConstList papszOptions);
+    OGRErr      importFromWkt( const char ** ppszInput, CSLConstList papszOptions);
+/*! @endcond */
     OGRErr      importFromWkt( const char* );
     OGRErr      importFromProj4( const char * );
     OGRErr      importFromEPSG( int );
@@ -416,6 +422,9 @@ class CPL_DLL OGRSpatialReference
     OGRSpatialReferenceH* FindMatches( char** papszOptions,
                                        int* pnEntries,
                                        int** ppanMatchConfidence ) const;
+    OGRSpatialReference*  FindBestMatch(int nMinimumMatchConfidence = 90,
+                                        const char* pszPreferredAuthority = "EPSG",
+                                        CSLConstList papszOptions = nullptr) const;
 
     int         GetEPSGGeogCS() const;
 

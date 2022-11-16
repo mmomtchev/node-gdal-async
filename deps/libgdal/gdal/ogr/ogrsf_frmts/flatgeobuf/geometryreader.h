@@ -41,6 +41,8 @@ class GeometryReader {
         const bool m_hasZ;
         const bool m_hasM;
 
+        const double *m_xy = nullptr;
+        uint32_t m_xylength = 0;
         uint32_t m_length = 0;
         uint32_t m_offset = 0;
 
@@ -59,9 +61,15 @@ class GeometryReader {
         OGRTriangulatedSurface *readTIN();
         OGRTriangle *readTriangle();
 
+        OGRGeometry *readPart(const FlatGeobuf::Geometry *part) {
+            return GeometryReader(part, m_hasZ, m_hasM).read();
+        }
+        OGRGeometry *readPart(const FlatGeobuf::Geometry *part, const FlatGeobuf::GeometryType geometryType) {
+            return GeometryReader(part, geometryType, m_hasZ, m_hasM).read();
+        }
+
         template <class T>
-        T *readSimpleCurve(const bool halfLength = false)
-        {
+        T *readSimpleCurve(const bool halfLength = false) {
             if (halfLength)
                 m_length = m_length / 2;
             const auto csc = new T();

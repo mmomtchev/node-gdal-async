@@ -32,7 +32,6 @@
 #include "ogrwarpedlayer.h"
 #include "ogr_p.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                      OGRUnionLayerGeomFieldDefn()                    */
@@ -875,6 +874,22 @@ OGRErr OGRUnionLayer::ISetFeature( OGRFeature* poFeature )
              "SetFeature() not supported : '%s' source layer does not exist",
              pszSrcLayerName);
     return OGRERR_FAILURE;
+}
+
+/************************************************************************/
+/*                          IUpsertFeature()                            */
+/************************************************************************/
+
+OGRErr OGRUnionLayer::IUpsertFeature( OGRFeature* poFeature )
+{
+   if( GetFeature(poFeature->GetFID()) )
+   {
+      return ISetFeature(poFeature);
+   }
+   else
+   {
+      return ICreateFeature(poFeature);
+   }
 }
 
 /************************************************************************/

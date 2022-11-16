@@ -71,6 +71,11 @@ class CPL_DLL VSIVirtualHandle {
     virtual VSIRangeStatus GetRangeStatus( CPL_UNUSED vsi_l_offset nOffset,
                                            CPL_UNUSED vsi_l_offset nLength )
                                           { return VSI_RANGE_STATUS_UNKNOWN; }
+    virtual bool      HasPRead() const;
+    virtual size_t    PRead( void* pBuffer, size_t nSize, vsi_l_offset nOffset ) const;
+
+    // NOTE: when adding new methods, besides the "actual" implementations,
+    // also consider the VSICachedFile one.
 
     virtual           ~VSIVirtualHandle() { }
 };
@@ -138,6 +143,11 @@ public:
     virtual bool    AbortPendingUploads(const char* /*pszFilename*/) { return true;}
 
     virtual std::string GetStreamingFilename(const std::string& osFilename) const { return osFilename; }
+
+    virtual bool    IsLocal( const char* /* pszPath */ ) { return true; }
+    virtual bool    SupportsSequentialWrite( const char* /* pszPath */, bool /* bAllowLocalTempFile */ ) { return true; }
+    virtual bool    SupportsRandomWrite( const char* /* pszPath */, bool /* bAllowLocalTempFile */ ) { return true; }
+    virtual bool    SupportsRead( const char* /* pszPath */ ) { return true; }
 };
 #endif /* #ifndef DOXYGEN_SKIP */
 
@@ -250,6 +260,10 @@ public:
     virtual char* SplitFilename(const char *pszFilename, CPLString &osFileInArchive, int bCheckMainFileExists);
     virtual VSIArchiveReader* OpenArchiveFile(const char* archiveFilename, const char* fileInArchiveName);
     virtual int FindFileInArchive(const char* archiveFilename, const char* fileInArchiveName, const VSIArchiveEntry** archiveEntry);
+
+    virtual bool    IsLocal( const char* pszPath ) override;
+    virtual bool    SupportsSequentialWrite( const char* /* pszPath */, bool /* bAllowLocalTempFile */ ) override { return false; }
+    virtual bool    SupportsRandomWrite( const char* /* pszPath */, bool /* bAllowLocalTempFile */ ) override { return false; }
 };
 
 /************************************************************************/

@@ -31,7 +31,6 @@
 
 #include "ogr_gpsbabel.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                         OGRGPSBabelDriverIdentify()                  */
@@ -191,9 +190,11 @@ void RegisterOGRGPSBabel()
 
     poDriver->SetDescription( "GPSBabel" );
     poDriver->SetMetadataItem( GDAL_DCAP_VECTOR, "YES" );
+    poDriver->SetMetadataItem( GDAL_DCAP_CREATE_LAYER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "GPSBabel" );
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/vector/gpsbabel.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSIONS, "mps gdb osm tcx igc" );
+    poDriver->SetMetadataItem( GDAL_DMD_SUPPORTED_SQL_DIALECTS, "OGRSQL SQLITE" );
 
     poDriver->SetMetadataItem( GDAL_DMD_CONNECTION_PREFIX, "GPSBABEL:" );
 

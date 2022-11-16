@@ -11,7 +11,9 @@
 				"../gdal/ogr/ogrsf_frmts/openfilegdb/ogropenfilegdbdriver.cpp",
 				"../gdal/ogr/ogrsf_frmts/openfilegdb/ogropenfilegdbdatasource.cpp",
 				"../gdal/ogr/ogrsf_frmts/openfilegdb/filegdbindex.cpp",
-				"../gdal/ogr/ogrsf_frmts/openfilegdb/filegdbtable.cpp"
+				"../gdal/ogr/ogrsf_frmts/openfilegdb/filegdbtable.cpp",
+        "../gdal/ogr/ogrsf_frmts/openfilegdb/ogropenfilegdbdatasource_write.cpp",
+        "../gdal/ogr/ogrsf_frmts/openfilegdb/ogropenfilegdblayer_write.cpp"
 			],
 			"include_dirs": [
 				"../gdal/ogr/ogrsf_frmts/openfilegdb"

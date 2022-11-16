@@ -33,7 +33,6 @@
 #include "ogrgeoconceptdatasource.h"
 #include "ogrgeoconceptlayer.h"
 
-CPL_CVSID("$Id$")
 
 /************************************************************************/
 /*                         OGRGeoconceptDataSource()                    */
@@ -525,6 +524,8 @@ int OGRGeoconceptDataSource::TestCapability( const char * pszCap )
 
 {
     if( EQUAL(pszCap,ODsCCreateLayer) )
+        return TRUE;
+    else if (EQUAL(pszCap, ODsCZGeometries))
         return TRUE;
 
     return FALSE;
