@@ -258,7 +258,7 @@ OGRErr OGRGeoPackageTableLayer::FeatureBindParameters( OGRFeature *poFeature,
          err == SQLITE_OK && i < nFieldCount;
          i++ )
     {
-        if( i == m_iFIDAsRegularColumnIndex )
+        if( i == m_iFIDAsRegularColumnIndex || m_abGeneratedColumns[i] )
             continue;
         if( !poFeature->IsFieldSet(i) )
         {
@@ -532,7 +532,7 @@ CPLString OGRGeoPackageTableLayer::FeatureGenerateInsertSQL( OGRFeature *poFeatu
     /* Add attribute column names (except FID) to the SQL */
     for( int i = 0; i < poFeatureDefn->GetFieldCount(); i++ )
     {
-        if( i == m_iFIDAsRegularColumnIndex )
+        if( i == m_iFIDAsRegularColumnIndex || m_abGeneratedColumns[i] )
             continue;
         if( !bBindUnsetFields && !poFeature->IsFieldSet(i) )
             continue;
@@ -641,7 +641,7 @@ CPLString OGRGeoPackageTableLayer::FeatureGenerateUpdateSQL( OGRFeature *poFeatu
     /* Add attribute column names (except FID) to the SQL */
     for( int i = 0; i < poFeatureDefn->GetFieldCount(); i++ )
     {
-        if( i == m_iFIDAsRegularColumnIndex )
+        if( i == m_iFIDAsRegularColumnIndex || m_abGeneratedColumns[i] )
             continue;
         if( !poFeature->IsFieldSet(i) )
             continue;
@@ -905,7 +905,12 @@ OGRErr OGRGeoPackageTableLayer::ReadTableDefinition()
     /*  #|name|type|notnull|default|pk */
     /*  0|id|integer|0||1 */
     /*  1|name|varchar|0||0 */
+#if SQLITE_VERSION_NUMBER >= 3026000L
+    // SQLite 3.26 or later has table_xinfo() with an extra column to indicate hidden layers
+    char* pszSQL = sqlite3_mprintf("pragma table_xinfo('%q')", m_pszTableName);
+#else
     char* pszSQL = sqlite3_mprintf("pragma table_info('%q')", m_pszTableName);
+#endif
     auto oResultTable = SQLQuery(poDb, pszSQL);
     sqlite3_free(pszSQL);
 
@@ -934,31 +939,57 @@ OGRErr OGRGeoPackageTableLayer::ReadTableDefinition()
     }
 
     bool bHasPreexistingSingleGeomColumn = m_poFeatureDefn->GetGeomFieldCount() ==  1;
+    m_abGeneratedColumns.resize(oResultTable->RowCount());
     for ( int iRecord = 0; iRecord < oResultTable->RowCount(); iRecord++ )
     {
         const char *pszName = oResultTable->GetValue(1, iRecord);
-        const char *pszType = oResultTable->GetValue(2, iRecord);
+        std::string osType = oResultTable->GetValue(2, iRecord);
         int bNotNull = oResultTable->GetValueAsInteger(3, iRecord);
         const char* pszDefault = oResultTable->GetValue(4, iRecord);
         int nPKIDIndex = oResultTable->GetValueAsInteger(5, iRecord);
+#if SQLITE_VERSION_NUMBER >= 3026000L
+        int nHiddenValue = oResultTable->GetValueAsInteger(6, iRecord);
+#endif
+
         OGRFieldSubType eSubType = OFSTNone;
         int nMaxWidth = 0;
         OGRFieldType oType = static_cast<OGRFieldType>(OFTMaxType + 1);
 
-        if ( !EQUAL(pszType, "") || m_bIsTable )
+        // SQLite 3.31 has a " GENERATED ALWAYS" suffix in the type column,
+        // but more recent versions no longer have it.
+        bool bIsGenerated = false;
+        constexpr const char* GENERATED_ALWAYS_SUFFIX = " GENERATED ALWAYS";
+        if( osType.size() > strlen(GENERATED_ALWAYS_SUFFIX) &&
+            CPLString(osType).toupper().compare(
+                osType.size() - strlen(GENERATED_ALWAYS_SUFFIX),
+                strlen(GENERATED_ALWAYS_SUFFIX), GENERATED_ALWAYS_SUFFIX) == 0 )
         {
-            oType = GPkgFieldToOGR(pszType, eSubType, nMaxWidth);
+            bIsGenerated = true;
+            osType.resize(osType.size() - strlen(GENERATED_ALWAYS_SUFFIX));
+        }
+#if SQLITE_VERSION_NUMBER >= 3026000L
+        constexpr int GENERATED_VIRTUAL = 2;
+        constexpr int GENERATED_STORED = 3;
+        if( nHiddenValue == GENERATED_VIRTUAL || nHiddenValue == GENERATED_STORED )
+        {
+            bIsGenerated = true;
+        }
+#endif
+
+        if ( !osType.empty() || m_bIsTable )
+        {
+            oType = GPkgFieldToOGR(osType.c_str(), eSubType, nMaxWidth);
         }
 
         /* Not a standard field type... */
-        if ( !EQUAL(pszType, "") && !EQUAL(pszName, "OGC_FID") &&
+        if ( !osType.empty() && !EQUAL(pszName, "OGC_FID") &&
             ((oType > OFTMaxType && !osGeomColsType.empty() ) ||
              EQUAL(osGeomColumnName, pszName)) )
         {
             /* Maybe it is a geometry type? */
             OGRwkbGeometryType oGeomType;
             if( oType > OFTMaxType )
-                oGeomType = GPkgGeometryTypeToWKB(pszType, bHasZ, bHasM);
+                oGeomType = GPkgGeometryTypeToWKB(osType.c_str(), bHasZ, bHasM);
             else
                 oGeomType = wkbUnknown;
             if ( oGeomType != wkbNone )
@@ -1003,9 +1034,9 @@ OGRErr OGRGeoPackageTableLayer::ReadTableDefinition()
             }
             else
             {
-                // CPLError( CE_Failure, CPLE_AppDefined, "invalid field type '%s'", pszType );
+                // CPLError( CE_Failure, CPLE_AppDefined, "invalid field type '%s'", osType.c_str() );
                 CPLError(CE_Warning, CPLE_AppDefined,
-                         "geometry column '%s' of type '%s' ignored", pszName, pszType);
+                         "geometry column '%s' of type '%s' ignored", pszName, osType.c_str());
             }
         }
         else
@@ -1015,7 +1046,7 @@ OGRErr OGRGeoPackageTableLayer::ReadTableDefinition()
                 CPLDebug("GPKG",
                          "For table %s, unrecognized type name %s for "
                          "column %s. Using string type",
-                         m_pszTableName, pszType, pszName);
+                         m_pszTableName, osType.c_str(), pszName);
                 oType = OFTString;
             }
 
@@ -1092,10 +1123,13 @@ OGRErr OGRGeoPackageTableLayer::ReadTableDefinition()
                         oField.SetDefault(pszDefault);
                     }
                 }
+                m_abGeneratedColumns[m_poFeatureDefn->GetFieldCount()] = bIsGenerated;
                 m_poFeatureDefn->AddFieldDefn(&oField);
             }
         }
     }
+
+    m_abGeneratedColumns.resize(m_poFeatureDefn->GetFieldCount());
 
     /* Wait, we didn't find a FID? Some operations will not be possible */
     if ( m_bIsTable && m_pszFidColumn == nullptr )
@@ -1202,9 +1236,7 @@ OGRGeoPackageTableLayer::~OGRGeoPackageTableLayer()
     if ( m_poGetFeatureStatement )
         sqlite3_finalize(m_poGetFeatureStatement);
 
-   CancelAsyncNextArrowArray();
-
-    delete m_psNextArrayArray;
+    CancelAsyncNextArrowArray();
 }
 
 /************************************************************************/
@@ -1227,10 +1259,24 @@ void OGRGeoPackageTableLayer::CancelAsyncNextArrowArray()
 
     m_poFillArrowArray.reset();
 
-    if( m_psNextArrayArray )
+    while( !m_oQueueArrowArrayPrefetchTasks.empty() )
     {
-        if( m_psNextArrayArray->release )
-            m_psNextArrayArray->release(m_psNextArrayArray);
+        auto task = std::move(m_oQueueArrowArrayPrefetchTasks.front());
+        m_oQueueArrowArrayPrefetchTasks.pop();
+
+        {
+            std::lock_guard<std::mutex> oLock(task->m_oMutex);
+            task->m_bStop = true;
+            task->m_oCV.notify_one();
+        }
+        if( task->m_oThread.joinable() )
+            task->m_oThread.join();
+
+        if( task->m_psArrowArray )
+        {
+            if( task->m_psArrowArray->release )
+                task->m_psArrowArray->release(task->m_psArrowArray.get());
+        }
     }
 }
 
@@ -1470,6 +1516,7 @@ OGRErr OGRGeoPackageTableLayer::CreateField( OGRFieldDefn *poField,
     }
 
     m_poFeatureDefn->AddFieldDefn( &oFieldDefn );
+    m_abGeneratedColumns.resize(m_poFeatureDefn->GetFieldCount());
 
     if( m_pszFidColumn != nullptr &&
         EQUAL( oFieldDefn.GetNameRef(), m_pszFidColumn ) )
@@ -2126,6 +2173,10 @@ OGRErr OGRGeoPackageTableLayer::CreateOrUpsertFeature( OGRFeature *poFeature, bo
             else if( !bUpsert && m_bAllowedRTreeThread && !m_bErrorDuringRTreeThread )
             {
                 GPKGRTreeEntry sEntry;
+#ifdef DEBUG_VERBOSE
+                if( m_aoRTreeEntries.empty() )
+                    CPLDebug("GPKG", "Starting to fill m_aoRTreeEntries at FID " CPL_FRMT_GIB, nFID);
+#endif
                 sEntry.nId = nFID;
                 sEntry.fMinX = rtreeValueDown(oEnv.MinX);
                 sEntry.fMaxX = rtreeValueUp(oEnv.MaxX);
@@ -2179,7 +2230,7 @@ void OGRGeoPackageTableLayer::SetDeferredSpatialIndexCreation( bool bFlag )
         // For unit tests
         if( CPLTestBool(CPLGetConfigOption("OGR_GPKG_THREADED_RTREE_AT_FIRST_FEATURE", "NO")) )
         {
-            m_nRTreeBatchSize = 1;
+            m_nRTreeBatchSize = 10;
             m_nRTreeBatchesBeforeStart = 1;
         }
     }
@@ -2316,11 +2367,21 @@ void OGRGeoPackageTableLayer::AsyncRTreeThreadFunction()
     }
 
     SQLCommand(m_hAsyncDBHandle, "BEGIN");
+    GIntBig nCount = 0;
     while( true )
     {
         const auto aoEntries = m_oQueueRTreeEntries.get_and_pop_front();
         if( aoEntries.empty() )
             break;
+#ifdef DEBUG_VERBOSE
+        CPLDebug("GPKG", "AsyncRTreeThreadFunction(): "
+                 "Processing batch of %d features, "
+                 "starting at FID " CPL_FRMT_GIB " and ending "
+                 "at FID " CPL_FRMT_GIB,
+                 static_cast<int>(aoEntries.size()),
+                 aoEntries.front().nId,
+                 aoEntries.back().nId);
+#endif
         for( const auto& entry: aoEntries )
         {
             if( (entry.nId % 500000) == 0 )
@@ -2335,6 +2396,7 @@ void OGRGeoPackageTableLayer::AsyncRTreeThreadFunction()
             }
             sqlite3_reset(hStmt);
 
+            nCount ++;
             sqlite3_bind_int64(hStmt,1,entry.nId);
             sqlite3_bind_double(hStmt,2,entry.fMinX);
             sqlite3_bind_double(hStmt,3,entry.fMaxX);
@@ -2361,6 +2423,7 @@ void OGRGeoPackageTableLayer::AsyncRTreeThreadFunction()
     }
 
     sqlite3_finalize(hStmt);
+    CPLDebug("GPKG", "AsyncRTreeThreadFunction(): " CPL_FRMT_GIB " rows inserted into RTree", nCount);
 
     if( m_bErrorDuringRTreeThread )
     {
@@ -2789,6 +2852,9 @@ OGRErr OGRGeoPackageTableLayer::DeleteFeature(GIntBig nFID)
 
 bool OGRGeoPackageTableLayer::DoJobAtTransactionCommit()
 {
+    if( m_bAllowedRTreeThread )
+        return true;
+
     bool ret = RunDeferredCreationIfNecessary() == OGRERR_NONE &&
                RunDeferredSpatialIndexUpdate();
     m_nCountInsertInTransaction = 0;
@@ -4104,6 +4170,44 @@ bool OGRGeoPackageTableLayer::HasSpatialIndex()
         m_osFIDForRTree = m_pszFidColumn;
     }
 
+    // Add heuristics to try to detect corrupted RTree generated by GDAL 3.6.0
+    // Cf https://github.com/OSGeo/gdal/pull/6911
+    if( m_bHasSpatialIndex )
+    {
+        const auto nFC = GetTotalFeatureCount();
+        if( nFC >= atoi(CPLGetConfigOption(
+                    "OGR_GPKG_THRESHOLD_DETECT_BROKEN_RTREE", "100000")) )
+        {
+            CPLString osSQL = "SELECT 1 FROM \"";
+            osSQL += SQLEscapeName(pszT);
+            osSQL += "\" WHERE \"";
+            osSQL += SQLEscapeName(GetFIDColumn());
+            osSQL += "\" = ";
+            osSQL += CPLSPrintf(CPL_FRMT_GIB, nFC);
+            osSQL += " AND \"";
+            osSQL += SQLEscapeName(pszC);
+            osSQL += "\" IS NOT NULL AND NOT ST_IsEmpty(\"";
+            osSQL += SQLEscapeName(pszC);
+            osSQL += "\")";
+            if( SQLGetInteger(m_poDS->GetDB(), osSQL, nullptr) == 1 )
+            {
+                osSQL = "SELECT 1 FROM \"";
+                osSQL += SQLEscapeName(m_osRTreeName);
+                osSQL += "\" WHERE id = ";
+                osSQL += CPLSPrintf(CPL_FRMT_GIB, nFC);
+                if( SQLGetInteger(m_poDS->GetDB(), osSQL, nullptr) == 0 )
+                {
+                    CPLError(CE_Warning, CPLE_AppDefined,
+                             "Spatial index (perhaps created with GDAL 3.6.0) "
+                             "of table %s is corrupted. Disabling its use. "
+                             "This file should be recreated or its spatial "
+                             "index recreated", m_pszTableName);
+                    m_bHasSpatialIndex = false;
+                }
+            }
+        }
+    }
+
     return CPL_TO_BOOL(m_bHasSpatialIndex);
 }
 
@@ -5000,6 +5104,16 @@ char **OGRGeoPackageTableLayer::GetMetadata( const char *pszDomain )
         const char* pszMDStandardURI = oResult->GetValue(1, i);
         const char* pszMimeType = oResult->GetValue(2, i);
         //const char* pszReferenceScope = oResult->GetValue(3, i);
+        if( pszMetadata == nullptr ||
+            pszMDStandardURI == nullptr ||
+            pszMimeType == nullptr
+            /* || pszReferenceScope == nullptr */ )
+        {
+            // should not happen as there are NOT NULL constraints
+            // But a database could lack such NOT NULL constraints or have
+            // large values that would cause a memory allocation failure.
+            continue;
+        }
         //int bIsGPKGScope = EQUAL(pszReferenceScope, "geopackage");
         if( EQUAL(pszMDStandardURI, "http://gdal.org") &&
             EQUAL(pszMimeType, "text/xml") )
@@ -5380,6 +5494,18 @@ OGRErr OGRGeoPackageTableLayer::DeleteField( int iFieldToDelete )
         if( eErr == OGRERR_NONE)
         {
             eErr = m_poFeatureDefn->DeleteFieldDefn( iFieldToDelete );
+            if( eErr == OGRERR_NONE )
+            {
+#if SQLITE_VERSION_NUMBER >= 3035005L
+                m_abGeneratedColumns.erase(m_abGeneratedColumns.begin() + iFieldToDelete);
+#else
+                // We have recreated the table from scratch, and lost the
+                // generated column property
+                std::fill(m_abGeneratedColumns.begin(),
+                          m_abGeneratedColumns.end(),
+                          false);
+#endif
+            }
 
             ResetReading();
         }
@@ -6266,6 +6392,15 @@ OGRErr OGRGeoPackageTableLayer::ReorderFields( int* panMap )
         if( eErr == OGRERR_NONE )
             eErr = m_poFeatureDefn->ReorderFieldDefns( panMap );
 
+        if( eErr == OGRERR_NONE )
+        {
+            // We have recreated the table from scratch, and lost the
+            // generated column property
+            std::fill(m_abGeneratedColumns.begin(),
+                      m_abGeneratedColumns.end(),
+                      false);
+        }
+
         ResetReading();
     }
     else
@@ -6304,6 +6439,7 @@ OGRGeometryTypeCounter* OGRGeoPackageTableLayer::GetGeometryTypes(
         return nullptr;
     }
 
+#ifdef SQLITE_HAS_PROGRESS_HANDLER
     struct CancelCallback
     {
         sqlite3*         m_hDB = nullptr;
@@ -6344,6 +6480,10 @@ OGRGeometryTypeCounter* OGRGeoPackageTableLayer::GetGeometryTypes(
     };
 
     CancelCallback oCancelCallback(m_poDS->hDB, pfnProgress, pProgressData);
+#else
+    CPL_IGNORE_RET_VAL(pfnProgress);
+    CPL_IGNORE_RET_VAL(pProgressData);
+#endif
 
     char** papszResult = nullptr;
     char* pszErrMsg = nullptr;
@@ -6919,85 +7059,72 @@ int OGRGeoPackageTableLayer::GetNextArrowArray(struct ArrowArrayStream* stream,
 
     // CPLDebug("GPKG", "iNextShapeId = " CPL_FRMT_GIB, iNextShapeId);
 
-    if( m_oThreadNextArrowArray.joinable() )
-    {
-        m_oThreadNextArrowArray.join();
-        if( m_psNextArrayArray->release )
-        {
-            iNextShapeId += m_psNextArrayArray->length;
-            memcpy(out_array, m_psNextArrayArray, sizeof(*m_psNextArrayArray));
-
-            memset(m_psNextArrayArray, 0, sizeof(*m_psNextArrayArray));
-
-            return 0;
-        }
-    }
-
-    // Try to fetch the next ArrowArray in another thread
     const int nMaxBatchSize = OGRArrowArrayHelper::GetMaxFeaturesInBatch(
                                                 m_aosArrowArrayStreamOptions);
 
-    const auto GetThreadsAvailable = []()
+    // Fetch the answer from a potentially queued asynchronous task
+    if( !m_oQueueArrowArrayPrefetchTasks.empty() )
     {
-        const char* pszMaxThreads = CPLGetConfigOption("GDAL_NUM_THREADS", nullptr);
-        if( pszMaxThreads == nullptr || EQUAL(pszMaxThreads, "ALL_CPUS") )
-            return CPLGetNumCPUs();
-        return atoi(pszMaxThreads);
-    };
+        const size_t nTasks = m_oQueueArrowArrayPrefetchTasks.size();
+        auto task = std::move(m_oQueueArrowArrayPrefetchTasks.front());
+        m_oQueueArrowArrayPrefetchTasks.pop();
 
-    if( m_poDS->GetAccess() == GA_ReadOnly &&
-        iNextShapeId + 2 * static_cast<GIntBig>(nMaxBatchSize) <= m_nTotalFeatureCount &&
-        (m_poOtherDS != nullptr ||
-         (sqlite3_threadsafe() != 0 && GetThreadsAvailable() >= 2)) )
-    {
-        if( m_poOtherDS == nullptr )
+        // Wait for thread to be ready
         {
-            m_poOtherDS = cpl::make_unique<GDALGeoPackageDataset>();
-            GDALOpenInfo oOpenInfo(m_poDS->GetDescription(), GA_ReadOnly);
-            oOpenInfo.papszOpenOptions = m_poDS->GetOpenOptions();
-            oOpenInfo.nOpenFlags = GDAL_OF_VECTOR;
-            // avoid coverity scan false positive about nullptr dereference
-            assert(m_poOtherDS);
-            if( !m_poOtherDS->Open(&oOpenInfo) )
+            std::unique_lock<std::mutex> oLock(task->m_oMutex);
+            while( !task->m_bArrayReady )
             {
-                m_poOtherDS.reset();
+                task->m_oCV.wait(oLock);
             }
+            task->m_bArrayReady = false;
         }
-        if( m_poOtherDS != nullptr )
+
+        const auto stopThread = [&task]()
         {
-            auto poOtherLayer = dynamic_cast<OGRGeoPackageTableLayer*>(
-                                        m_poOtherDS->GetLayerByName(GetName()));
-            if( poOtherLayer &&
-                poOtherLayer->GetLayerDefn()->GetFieldCount() == m_poFeatureDefn->GetFieldCount() )
             {
-                if( m_psNextArrayArray == nullptr )
-                {
-                    m_psNextArrayArray = new struct ArrowArray;
-                    memset(m_psNextArrayArray, 0, sizeof(*m_psNextArrayArray));
+                std::lock_guard<std::mutex> oLock(task->m_oMutex);
+                task->m_bStop = true;
+                task->m_oCV.notify_one();
+            }
+            if( task->m_oThread.joinable() )
+                task->m_oThread.join();
+        };
 
-                    poOtherLayer->m_nTotalFeatureCount = m_nTotalFeatureCount;
-                    poOtherLayer->m_aosArrowArrayStreamOptions = m_aosArrowArrayStreamOptions;
-                    auto poOtherFDefn = poOtherLayer->GetLayerDefn();
-                    for( int i = 0; i < m_poFeatureDefn->GetGeomFieldCount(); ++i )
-                    {
-                        poOtherFDefn->GetGeomFieldDefn(i)->SetIgnored(
-                            m_poFeatureDefn->GetGeomFieldDefn(i)->IsIgnored());
-                    }
-                    for( int i = 0; i < m_poFeatureDefn->GetFieldCount(); ++i )
-                    {
-                        poOtherFDefn->GetFieldDefn(i)->SetIgnored(
-                            m_poFeatureDefn->GetFieldDefn(i)->IsIgnored());
-                    }
-                }
+        if( task->m_iStartShapeId != iNextShapeId )
+        {
+            // Should not normally happen, unless the user messes with
+            // GetNextFeature()
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Worker thread task has not expected m_iStartShapeId value");
+            if( task->m_psArrowArray->release )
+                task->m_psArrowArray->release(task->m_psArrowArray.get());
 
-                CPLAssert( m_psNextArrayArray->release == nullptr );
-                poOtherLayer->iNextShapeId = iNextShapeId + nMaxBatchSize;
+            stopThread();
+        }
+        else if( task->m_psArrowArray->release )
+        {
+            iNextShapeId += task->m_psArrowArray->length;
+
+            // Transfer the task ArrowArray to the client array
+            memcpy(out_array, task->m_psArrowArray.get(), sizeof(struct ArrowArray));
+            memset(task->m_psArrowArray.get(), 0, sizeof(struct ArrowArray));
+
+            // Are the records still available for reading beyond the current
+            // queued tasks ? If so, recycle this task to read them
+            if( task->m_iStartShapeId + static_cast<GIntBig>(nTasks) * nMaxBatchSize <= m_nTotalFeatureCount )
+            {
+                task->m_iStartShapeId += static_cast<GIntBig>(nTasks) * nMaxBatchSize;
+                task->m_poLayer->iNextShapeId = task->m_iStartShapeId;
                 try
                 {
-                    m_oThreadNextArrowArray = std::thread([this, poOtherLayer]()
+                    // Wake-up thread with new task
                     {
-                        poOtherLayer->GetNextArrowArrayInternal(m_psNextArrayArray);
-                    });
+                        std::lock_guard<std::mutex> oLock(task->m_oMutex);
+                        task->m_bFetchRows = true;
+                        task->m_oCV.notify_one();
+                    }
+                    m_oQueueArrowArrayPrefetchTasks.push(std::move(task));
+                    return 0;
                 }
                 catch( const std::exception &e )
                 {
@@ -7005,6 +7132,107 @@ int OGRGeoPackageTableLayer::GetNextArrowArray(struct ArrowArrayStream* stream,
                              "Cannot start worker thread: %s", e.what());
                 }
             }
+            else
+            {
+                stopThread();
+                return 0;
+            }
+        }
+
+        stopThread();
+    }
+
+    const auto GetThreadsAvailable = []()
+    {
+        const char* pszMaxThreads = CPLGetConfigOption("GDAL_NUM_THREADS", nullptr);
+        if( pszMaxThreads == nullptr )
+            return std::min(4, CPLGetNumCPUs());
+        else if( EQUAL(pszMaxThreads, "ALL_CPUS") )
+            return CPLGetNumCPUs();
+        else
+            return atoi(pszMaxThreads);
+    };
+
+    // Start asynchronous tasks to prefetch the next ArrowArray
+    if( m_poDS->GetAccess() == GA_ReadOnly &&
+        m_oQueueArrowArrayPrefetchTasks.empty() &&
+        iNextShapeId + 2 * static_cast<GIntBig>(nMaxBatchSize) <= m_nTotalFeatureCount &&
+        sqlite3_threadsafe() != 0 && GetThreadsAvailable() >= 2 )
+    {
+        const int nMaxTasks =
+            static_cast<int>(std::min<GIntBig>(
+                DIV_ROUND_UP(m_nTotalFeatureCount - iNextShapeId, nMaxBatchSize),
+                             GetThreadsAvailable()));
+        GDALOpenInfo oOpenInfo(m_poDS->GetDescription(), GA_ReadOnly);
+        oOpenInfo.papszOpenOptions = m_poDS->GetOpenOptions();
+        oOpenInfo.nOpenFlags = GDAL_OF_VECTOR;
+        for( int iTask = 0; iTask < nMaxTasks; ++iTask )
+        {
+            auto task = cpl::make_unique<ArrowArrayPrefetchTask>();
+            task->m_iStartShapeId = iNextShapeId + static_cast<GIntBig>(iTask + 1) * nMaxBatchSize;
+            task->m_poDS = cpl::make_unique<GDALGeoPackageDataset>();
+            if( !task->m_poDS->Open(&oOpenInfo) )
+            {
+                break;
+            }
+            auto poOtherLayer = dynamic_cast<OGRGeoPackageTableLayer*>(
+                                        task->m_poDS->GetLayerByName(GetName()));
+            if( poOtherLayer == nullptr ||
+                poOtherLayer->GetLayerDefn()->GetFieldCount() != m_poFeatureDefn->GetFieldCount() )
+            {
+                break;
+            }
+            task->m_poLayer = poOtherLayer;
+            task->m_psArrowArray = cpl::make_unique<struct ArrowArray>();
+            memset(task->m_psArrowArray.get(), 0, sizeof(struct ArrowArray));
+
+            poOtherLayer->m_nTotalFeatureCount = m_nTotalFeatureCount;
+            poOtherLayer->m_aosArrowArrayStreamOptions = m_aosArrowArrayStreamOptions;
+            auto poOtherFDefn = poOtherLayer->GetLayerDefn();
+            for( int i = 0; i < m_poFeatureDefn->GetGeomFieldCount(); ++i )
+            {
+                poOtherFDefn->GetGeomFieldDefn(i)->SetIgnored(
+                    m_poFeatureDefn->GetGeomFieldDefn(i)->IsIgnored());
+            }
+            for( int i = 0; i < m_poFeatureDefn->GetFieldCount(); ++i )
+            {
+                poOtherFDefn->GetFieldDefn(i)->SetIgnored(
+                    m_poFeatureDefn->GetFieldDefn(i)->IsIgnored());
+            }
+
+            poOtherLayer->iNextShapeId = task->m_iStartShapeId;
+
+            auto taskPtr = task.get();
+            auto taskRunner = [taskPtr]()
+            {
+                std::unique_lock<std::mutex> oLock(taskPtr->m_oMutex);
+                do
+                {
+                    taskPtr->m_bFetchRows = false;
+                    taskPtr->m_poLayer->GetNextArrowArrayInternal(taskPtr->m_psArrowArray.get());
+                    taskPtr->m_bArrayReady = true;
+                    taskPtr->m_oCV.notify_one();
+                    // cppcheck-suppress knownConditionTrueFalse
+                    while( !taskPtr->m_bStop && !taskPtr->m_bFetchRows )
+                    {
+                        taskPtr->m_oCV.wait(oLock);
+                    }
+                }
+                while( !taskPtr->m_bStop );
+            };
+
+            task->m_bFetchRows = true;
+            try
+            {
+                task->m_oThread = std::thread(taskRunner);
+            }
+            catch( const std::exception &e )
+            {
+                CPLError(CE_Failure, CPLE_AppDefined,
+                         "Cannot start worker thread: %s", e.what());
+                break;
+            }
+            m_oQueueArrowArrayPrefetchTasks.push(std::move(task));
         }
     }
 

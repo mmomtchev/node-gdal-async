@@ -595,11 +595,18 @@ static bool MustApplyVerticalShift( GDALDatasetH hWrkSrcDS,
         auto hSRS = GDALGetSpatialRef(hWrkSrcDS);
         if( hSRS )
             oSRSSrc = *(OGRSpatialReference::FromHandle(hSRS));
+        else
+            return false;
     }
 
     const char* pszDstWKT = CSLFetchNameValue( psOptions->papszTO, "DST_SRS" );
     if( pszDstWKT )
         oSRSDst.SetFromUserInput( pszDstWKT );
+    else
+        return false;
+
+    if( oSRSSrc.IsSame(&oSRSDst) )
+        return false;
 
     bSrcHasVertAxis =
         oSRSSrc.IsCompound() ||
@@ -646,16 +653,17 @@ static bool ApplyVerticalShift( GDALDatasetH hWrkSrcDS,
     {
         bApplyVShift = true;
         psWO->papszWarpOptions = CSLSetNameValue(psWO->papszWarpOptions,
-                                                 "APPLY_VERTICAL_SHIFT",
-                                                 "YES");
+                                     "APPLY_VERTICAL_SHIFT",
+                                     "YES");
 
         if( CSLFetchNameValue(psWO->papszWarpOptions,
                               "MULT_FACTOR_VERTICAL_SHIFT") == nullptr )
         {
             // Select how to go from input dataset units to meters
+            double dfToMeterSrc = 1.0;
             const char* pszUnit =
                 GDALGetRasterUnitType( GDALGetRasterBand(hWrkSrcDS, 1) );
-            double dfToMeterSrc = 1.0;
+
             if( pszUnit && (EQUAL(pszUnit, "m") ||
                             EQUAL(pszUnit, "meter")||
                             EQUAL(pszUnit, "metre")) )
@@ -666,14 +674,27 @@ static bool ApplyVerticalShift( GDALDatasetH hWrkSrcDS,
             {
                 dfToMeterSrc = CPLAtof(SRS_UL_FOOT_CONV);
             }
-            else
+            else if( pszUnit && (EQUAL(pszUnit, "US survey foot")) )
             {
-                if( pszUnit && !EQUAL(pszUnit, "") )
+                dfToMeterSrc = CPLAtof(SRS_UL_US_FOOT_CONV);
+            }
+            else if( pszUnit && !EQUAL(pszUnit, "") )
+            {
+                if( bSrcHasVertAxis )
+                {
+                    oSRSSrc.GetAxis(nullptr, 2, nullptr, &dfToMeterSrc);
+                    CPLError(CE_Warning, CPLE_AppDefined,
+                             "Unknown units=%s. Using source vertical units.",
+                             pszUnit);
+                }
+                else
                 {
                     CPLError(CE_Warning, CPLE_AppDefined,
-                             "Unknown units=%s", pszUnit);
+                             "Unknown units=%s. Assuming metre.", pszUnit);
                 }
-
+            }
+            else
+            {
                 if( bSrcHasVertAxis )
                     oSRSSrc.GetAxis(nullptr, 2, nullptr, &dfToMeterSrc);
             }
@@ -685,6 +706,8 @@ static bool ApplyVerticalShift( GDALDatasetH hWrkSrcDS,
             if( dfToMeterSrc > 0 && dfToMeterDst > 0 )
             {
                 const double dfMultFactorVerticalShift = dfToMeterSrc / dfToMeterDst;
+                CPLDebug("WARP", "Applying MULT_FACTOR_VERTICAL_SHIFT=%.18g",
+                         dfMultFactorVerticalShift);
                 psWO->papszWarpOptions = CSLSetNameValue(
                     psWO->papszWarpOptions, "MULT_FACTOR_VERTICAL_SHIFT",
                     CPLSPrintf("%.18g", dfMultFactorVerticalShift));
@@ -769,6 +792,10 @@ static GDALDatasetH ApplyVerticalShiftGrid( GDALDatasetH hWrkSrcDS,
                                  EQUAL(pszUnit, "foot")) )
             {
                 dfToMeterSrc = CPLAtof(SRS_UL_FOOT_CONV);
+            }
+            else if( pszUnit && (EQUAL(pszUnit, "US survey foot")) )
+            {
+                dfToMeterSrc = CPLAtof(SRS_UL_US_FOOT_CONV);
             }
             else
             {
@@ -4393,6 +4420,43 @@ TransformCutlineToSource( GDALDatasetH hSrcDS, OGRGeometryH hCutline,
     {
         OGR_G_DestroyGeometry( hMultiPolygon );
         return CE_Failure;
+    }
+
+    // Optimization: if the cutline contains the footprint of the source
+    // dataset, no need to use the cutline.
+    if( OGRGeometryFactory::haveGEOS()
+#ifdef DEBUG
+        // Env var just for debugging purposes
+        && !CPLTestBool(CPLGetConfigOption("GDALWARP_SKIP_CUTLINE_CONTAINMENT_TEST", "NO"))
+#endif
+        )
+    {
+        const double dfCutlineBlendDist = CPLAtof(
+            CSLFetchNameValueDef( *ppapszWarpOptions, "CUTLINE_BLEND_DIST", "0") );
+        OGRLinearRing* poRing = new OGRLinearRing();
+        poRing->addPoint(-dfCutlineBlendDist,
+                         -dfCutlineBlendDist);
+        poRing->addPoint(-dfCutlineBlendDist,
+                         dfCutlineBlendDist + GDALGetRasterYSize(hSrcDS));
+        poRing->addPoint(dfCutlineBlendDist + GDALGetRasterXSize(hSrcDS),
+                         dfCutlineBlendDist + GDALGetRasterYSize(hSrcDS));
+        poRing->addPoint(dfCutlineBlendDist + GDALGetRasterXSize(hSrcDS),
+                         -dfCutlineBlendDist);
+        poRing->addPoint(-dfCutlineBlendDist,
+                         -dfCutlineBlendDist);
+        OGRPolygon oSrcDSFootprint;
+        oSrcDSFootprint.addRingDirectly(poRing);
+        OGREnvelope sSrcDSEnvelope;
+        oSrcDSFootprint.getEnvelope(&sSrcDSEnvelope );
+        OGREnvelope sCutlineEnvelope;
+        OGRGeometry::FromHandle(hMultiPolygon)->getEnvelope(&sCutlineEnvelope );
+        if( sCutlineEnvelope.Contains(sSrcDSEnvelope) &&
+            OGRGeometry::FromHandle(hMultiPolygon)->Contains(&oSrcDSFootprint) )
+        {
+            CPLDebug("WARP", "Source dataset fully contained within cutline.");
+            OGR_G_DestroyGeometry( hMultiPolygon );
+            return CE_None;
+        }
     }
 
 /* -------------------------------------------------------------------- */

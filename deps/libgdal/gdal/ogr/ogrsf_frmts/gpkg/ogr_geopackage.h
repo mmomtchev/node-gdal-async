@@ -39,6 +39,7 @@
 
 #include <condition_variable>
 #include <mutex>
+#include <queue>
 #include <vector>
 #include <set>
 #include <thread>
@@ -117,6 +118,9 @@ class GDALGeoPackageDataset final : public OGRSQLiteBaseDataSource, public GDALG
     friend class GDALGeoPackageRasterBand;
     friend class OGRGeoPackageLayer;
     friend class OGRGeoPackageTableLayer;
+    friend void OGRGeoPackageTransform(sqlite3_context* pContext,
+                                       int argc,
+                                       sqlite3_value** argv);
 
     GUInt32             m_nApplicationId = GPKG_APPLICATION_ID;
     GUInt32             m_nUserVersion = GPKG_1_2_VERSION;
@@ -148,6 +152,12 @@ class GDALGeoPackageDataset final : public OGRSQLiteBaseDataSource, public GDALG
     int                 m_nBandCountFromMetadata = 0;
     std::unique_ptr<GDALColorTable> m_poCTFromMetadata{};
     std::string         m_osTFFromMetadata{};
+    std::string         m_osNodataValueFromMetadata{};
+
+    // Used by OGRGeoPackageTransform
+    int                 m_nLastCachedCTSrcSRId = -1;
+    int                 m_nLastCachedCTDstSRId = -1;
+    std::unique_ptr<OGRCoordinateTransformation> m_poLastCachedCT{};
 
     int                 m_nOverviewCount = 0;
     GDALGeoPackageDataset** m_papoOverviewDS = nullptr;
@@ -517,6 +527,7 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
     bool                        m_bFeatureCountTriggersDeletedInTransaction = false;
 #endif
     CPLString                   m_soColumns{};
+    std::vector<bool>           m_abGeneratedColumns{}; // .size() == m_poFeatureDefn->GetFieldDefnCount()
     CPLString                   m_soFilter{};
     CPLString                   osQuery{};
     CPLString                   m_osRTreeName{};
@@ -614,10 +625,27 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
 
     CPL_DISALLOW_COPY_ASSIGN(OGRGeoPackageTableLayer)
 
+    // Used when m_nIsCompatOfOptimizedGetNextArrowArray == TRUE
+    struct ArrowArrayPrefetchTask
+    {
+        std::thread                              m_oThread{};
+        std::condition_variable                  m_oCV{};
+        std::mutex                               m_oMutex{};
+        bool                                     m_bArrayReady = false;
+        bool                                     m_bFetchRows = false;
+        bool                                     m_bStop = false;
+        std::unique_ptr<GDALGeoPackageDataset>   m_poDS{};
+        OGRGeoPackageTableLayer                 *m_poLayer{};
+        GIntBig                                  m_iStartShapeId = 0;
+        std::unique_ptr<struct ArrowArray>       m_psArrowArray = nullptr;
+    };
+    std::queue<std::unique_ptr<ArrowArrayPrefetchTask>> m_oQueueArrowArrayPrefetchTasks{};
+
+    // Used when m_nIsCompatOfOptimizedGetNextArrowArray == FALSE
     std::thread         m_oThreadNextArrowArray{};
     std::unique_ptr<OGRGPKGTableLayerFillArrowArray> m_poFillArrowArray{};
     std::unique_ptr<GDALGeoPackageDataset> m_poOtherDS{};
-    struct ArrowArray*  m_psNextArrayArray = nullptr;
+
     virtual int GetNextArrowArray(struct ArrowArrayStream*,
                                    struct ArrowArray* out_array) override;
     int                 GetNextArrowArrayInternal(struct ArrowArray* out_array);

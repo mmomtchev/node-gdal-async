@@ -1183,7 +1183,23 @@ void ApplySpatialFilter(OGRLayer* poLayer, OGRGeometry* poSpatialFilter,
        poSpatialFilterReprojected->assignSpatialReference(poSpatSRS);
        OGRSpatialReference* poSpatialFilterTargetSRS  = poSourceSRS ? poSourceSRS : poLayer->GetSpatialRef();
        if( poSpatialFilterTargetSRS )
+       {
+           // When transforming the spatial filter from its spat_srs to the
+           // layer SRS, make sure to densify it sufficiently to avoid issues
+           constexpr double SEGMENT_DISTANCE_METRE = 10 * 1000;
+           if( poSpatSRS->IsGeographic() )
+           {
+               const double LENGTH_OF_ONE_DEGREE = poSpatSRS->GetSemiMajor(nullptr) * M_PI / 180.0;
+               poSpatialFilterReprojected->segmentize(
+                   SEGMENT_DISTANCE_METRE / LENGTH_OF_ONE_DEGREE);
+           }
+           else if( poSpatSRS->IsProjected() )
+           {
+               poSpatialFilterReprojected->segmentize(
+                   SEGMENT_DISTANCE_METRE / poSpatSRS->GetLinearUnits(nullptr));
+           }
            poSpatialFilterReprojected->transformTo(poSpatialFilterTargetSRS);
+       }
        else
            CPLError(CE_Warning, CPLE_AppDefined, "cannot determine layer SRS for %s.", poLayer->GetDescription());
    }
@@ -3913,6 +3929,30 @@ std::unique_ptr<TargetLayerInfo> SetupTargetLayer::Setup(OGRLayer* poSrcLayer,
             return nullptr;
         }
 
+        // Cf https://github.com/OSGeo/gdal/issues/6859
+        // warn if the user requests -t_srs but the driver uses a different SRS.
+        if( m_poOutputSRS != nullptr && !psOptions->bQuiet )
+        {
+            auto poCreatedSRS = poDstLayer->GetSpatialRef();
+            if( poCreatedSRS != nullptr )
+            {
+                const char* const apszOptions[] = {
+                    "IGNORE_DATA_AXIS_TO_SRS_AXIS_MAPPING=YES",
+                    "CRITERION=EQUIVALENT", nullptr };
+                if( !poCreatedSRS->IsSame(m_poOutputSRS, apszOptions) )
+                {
+                    const char* pszTargetSRSName = m_poOutputSRS->GetName();
+                    const char* pszCreatedSRSName = poCreatedSRS->GetName();
+                    CPLError(CE_Warning, CPLE_AppDefined,
+                             "Target SRS %s not taken into account as target "
+                             "driver likely implements on-the-fly reprojection "
+                             "to %s",
+                             pszTargetSRSName ? pszTargetSRSName : "",
+                             pszCreatedSRSName ? pszCreatedSRSName : "");
+                }
+            }
+        }
+
         if( m_bCopyMD )
         {
             char** papszDomains = poSrcLayer->GetMetadataDomainList();
@@ -5037,12 +5077,30 @@ int LayerTranslator::Translate( OGRFeature* poFeatureIn,
                 if (m_poClipSrc)
                 {
                     OGRGeometry* poClipped = poDstGeometry->Intersection(m_poClipSrc);
-                    delete poDstGeometry;
                     if (poClipped == nullptr || poClipped->IsEmpty())
                     {
+                        delete poDstGeometry;
                         delete poClipped;
                         goto end_loop;
                     }
+
+                    const int nDim = poDstGeometry->getDimension();
+                    if (poClipped->getDimension() < nDim &&
+                        wkbFlatten(poDstFDefn->GetGeomFieldDefn(iGeom)->GetType()) != wkbUnknown)
+                    {
+                        CPLDebug("OGR2OGR",
+                                 "Discarding feature " CPL_FRMT_GIB " of layer %s, "
+                                 "as its intersection with -clipsrc is a %s "
+                                 "whereas the input is a %s",
+                                 nSrcFID, poSrcLayer->GetName(),
+                                 OGRToOGCGeomType(poClipped->getGeometryType()),
+                                 OGRToOGCGeomType(poDstGeometry->getGeometryType()));
+                        delete poDstGeometry;
+                        delete poClipped;
+                        goto end_loop;
+                    }
+
+                    delete poDstGeometry;
                     poDstGeometry = poClipped;
                 }
 
@@ -5091,13 +5149,30 @@ int LayerTranslator::Translate( OGRFeature* poFeatureIn,
                     if (m_poClipDst)
                     {
                         OGRGeometry* poClipped = poDstGeometry->Intersection(m_poClipDst);
-                        delete poDstGeometry;
                         if (poClipped == nullptr || poClipped->IsEmpty())
                         {
+                            delete poDstGeometry;
                             delete poClipped;
                             goto end_loop;
                         }
 
+                        const int nDim = poDstGeometry->getDimension();
+                        if (poClipped->getDimension() < nDim &&
+                            wkbFlatten(poDstFDefn->GetGeomFieldDefn(iGeom)->GetType()) != wkbUnknown)
+                        {
+                            CPLDebug("OGR2OGR",
+                                     "Discarding feature " CPL_FRMT_GIB " of layer %s, "
+                                     "as its intersection with -clipdst is a %s "
+                                     "whereas the input is a %s",
+                                     nSrcFID, poSrcLayer->GetName(),
+                                     OGRToOGCGeomType(poClipped->getGeometryType()),
+                                     OGRToOGCGeomType(poDstGeometry->getGeometryType()));
+                            delete poDstGeometry;
+                            delete poClipped;
+                            goto end_loop;
+                        }
+
+                        delete poDstGeometry;
                         poDstGeometry = poClipped;
                     }
 
@@ -5382,6 +5457,7 @@ GDALVectorTranslateOptions *GDALVectorTranslateOptionsNew(char** papszArgv,
     {
         if( EQUAL(papszArgv[i],"-q") || EQUAL(papszArgv[i],"-quiet") )
         {
+            psOptions->bQuiet = true;
             if( psOptionsForBinary )
                 psOptionsForBinary->bQuiet = TRUE;
         }

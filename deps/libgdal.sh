@@ -5,7 +5,7 @@ set -eu
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR/libgdal"
 
-GDAL_VERSION=3.6.0
+GDAL_VERSION=3.6.1
 GDAL_VERSION_SUFFIX=
 dir_gdal=./gdal
 dir_formats_gyp=./gyp-formats
@@ -110,7 +110,7 @@ function generate_formats() {
 			fi
 		done
 		# check for additional include directories
-		add_includes=`cat ${dir_format}/GNUmakefile | grep -oE -- '-I\S+' | sed 's#-I#../gdal/frmts/#g'`
+		add_includes=`cat ${dir_format}/CMakeLists.txt | grep -oE -- '-I\S+' | sed 's#-I#../gdal/frmts/#g'`
 		relative_dir_format="${relative_dir_format}"$'\n'"${add_includes}"
 
 		gyp_template="${format_gyp_template}"
