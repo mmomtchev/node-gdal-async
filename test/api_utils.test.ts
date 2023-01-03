@@ -617,6 +617,27 @@ describe('gdal_utils', () => {
       )
     })
 
+    it('should reject on progress exception', () => {
+      const tempFile = `/vsimem/invalid_calc_${String(Math.random()).substring(2)}.tiff`
+      const T2m = gdal.open(path.resolve(__dirname, 'data','AROME_T2m_10.tiff'))
+      const D2m = gdal.open(path.resolve(__dirname, 'data','AROME_D2m_10.tiff'))
+      const size = T2m.rasterSize
+      const espyFn = (t: number, td: number) => 125 * (t - td)
+      return assert.isRejected(
+        gdal.calcAsync({
+          A: T2m.bands.get(1),
+          B: D2m.bands.get(1)
+        },
+        gdal.open(tempFile, 'w', 'GTiff', size.x, size.y, 1, gdal.GDT_Float64).bands.get(1),
+        espyFn,
+        { progress_cb: () => {
+          throw new Error('progress error')
+        } }
+        ),
+        /progress error/
+      )
+    })
+
     it('should reject when raster sizes do not match', () => {
       const tempFile = `/vsimem/invalid_calc_${String(Math.random()).substring(2)}.tiff`
       const espyFn = (t: number, td: number) => 125 * (t - td)
