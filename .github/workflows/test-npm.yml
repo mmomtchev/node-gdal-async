@@ -53,6 +53,8 @@ jobs:
       uses: actions/setup-node@v3
       with:
         node-version: ${{ matrix.node-version }}
+    - name: Rebuild with npm
+      run: npm install --verbose --force gdal-async@${{ github.event.inputs.version }} --build-from-source
     - name: Set up the unit tests
       run: |
         curl https://codeload.github.com/mmomtchev/node-gdal-async/zip/refs/tags/v${{ github.event.inputs.version }} --output repo.zip
@@ -60,8 +62,6 @@ jobs:
         mv node-gdal-async-${{ github.event.inputs.version }}/package.json .
         mv node-gdal-async-${{ github.event.inputs.version }}/test .
         npm install
-    - name: Rebuild with npm
-      run: npm install --verbose --force gdal-async@${{ github.event.inputs.version }} --build-from-source
     - name: Run the unit tests
       run: |
         cd test
