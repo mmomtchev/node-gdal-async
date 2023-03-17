@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.6.3]
 
+### Added
+ - GDAL 3.6.3
+
 ### Changed
  - Fix [#66](https://github.com/mmomtchev/node-gdal-async/issues/66), include `yatag` as a production dependency
 
