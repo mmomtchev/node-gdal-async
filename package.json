@@ -1,6 +1,6 @@
 {
   "name": "gdal-async",
-  "version": "3.6.3",
+  "version": "3.6.4",
   "description": "Bindings to GDAL (Geospatial Data Abstraction Library) with full async support",
   "license": "Apache-2.0",
   "url": "https://github.com/mmomtchev/node-gdal-async",
