@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
  - GDAL 3.6.4
+ - Node.js 20.x support and precompiled binaries
 
 ## [3.6.3] 2023-03-20
 
