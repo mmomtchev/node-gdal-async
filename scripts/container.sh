@@ -35,7 +35,8 @@ docker build \
         --build-arg VERSION=${VERSION} --build-arg NODEJS=${NODEJS} --build-arg GDAL=${GDAL} \
         -t ${CONTAINER} -f test/platforms/Dockerfile.${DIST} test/platforms
 
-COMMON_ARGS="--user `id -u`:`id -g` --env MOCHA_TEST_NETWORK -v `pwd`:/src:ro"
+PTRACE_ARGS="--cap-add=SYS_PTRACE --security-opt seccomp=unconfined"
+COMMON_ARGS="${PTRACE_ARGS} --user `id -u`:`id -g` --env MOCHA_TEST_NETWORK -v `pwd`:/src:ro"
 
 echo "Checking for ccache"
 if which ccache && test "${OP}" != "publish"; then
