@@ -19,14 +19,11 @@ jobs:
         - ubuntu:22.04
         - debian:buster
         - debian:bullseye
-        - fedora:33
-        - fedora:34
+        - fedora:36
+        - fedora:37
         - centos:stream8
         - amazonlinux:2022
         node-version: [ 14, 16, 18, 20 ]
-        exclude:
-          - linux-version: fedora:33
-            node-version: 20
 
     steps:
     - uses: actions/checkout@v3

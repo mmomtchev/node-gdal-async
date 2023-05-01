@@ -295,7 +295,7 @@ Before submitting pull requests, please update the [tests](test) and make sure t
 $ npm test # test against bundled gdal
 $ npm run test:shared # test against most major versions
 # test against shared gdal on given Linux version and Node.js version
-$ npm run container dev {ubuntu|centos|fedora|debian|archlinux|amazon}:{version} 14|16|18|19|lts shared
+$ npm run container dev {ubuntu|centos|fedora|debian|archlinux|amazon}:{version} 14|16|18|20|lts shared
 ```
 
 ## License
@@ -313,7 +313,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 Release binaries with pre-built bundled GDAL are tested against the full matrix of:
 
 * Node.js versions: 14.x, 16.x, 17.x, 18.x, 20.x
-* OS: Ubuntu 16.04 (EOL), Ubuntu 18.04, Ubuntu 20.04, Ubuntu 22.04, CentOS 8 Stream, Fedora 33, Fedora 34, Debian 10 buster, Debian 11 bullseye, Arch Linux current, Amazon Linux, Windows Server 2019, macOS Catalina 10.15 (EOL), macOS Big Sur 11
+* OS: Ubuntu 16.04 (EOL), Ubuntu 18.04, Ubuntu 20.04, Ubuntu 22.04, CentOS 8 Stream, Fedora 36, Fedora 37, Debian 10 buster, Debian 11 bullseye, Arch Linux current, Amazon Linux, Windows Server 2019, macOS Catalina 10.15 (EOL), macOS Big Sur 11
 
 On Ubuntu 16.04, Amazon Linux, Windows and macOS only the bundled GDAL version is officially supported. On all other platforms both the bundled and the system-installed versions are supported.
 
@@ -331,9 +331,9 @@ Development versions are unit tested for the following targets:
 | Node.js 16.x | Debian 10 buster | system-installed GDAL 2.1.2 (*earliest unit-tested GDAL*) (*earliest supported glibc*)
 | Node.js 16.x | Debian 11 bullseye | system-installed GDAL 3.2.2
 | Node.js 16.x | Debian 11 bullseye | bundled GDAL
-| Node.js 16.x | Fedora 33 | system-installed GDAL 3.1.4
-| Node.js 16.x | Fedora 34 | system-installed GDAL 3.2.2
-| Node.js 16.x | Fedora 34 | bundled GDAL
+| Node.js 16.x | Fedora 36| system-installed GDAL 3.4.3
+| Node.js 16.x | Fedora 37 | system-installed GDAL 3.5.2
+| Node.js 16.x | Fedora 37 | bundled GDAL
 | Node.js 14.x | Ubuntu 20.04 | system-installed GDAL 3.0.4
 | Node.js 16.x | Ubuntu 20.04 | system-installed GDAL 3.0.4
 | Node.js 17.x | Ubuntu 20.04 | system-installed GDAL 3.0.4
