@@ -60,7 +60,7 @@ jobs:
 
     strategy:
       matrix:
-        linux-version: [ 'ubuntu:22.04', 'ubuntu:20.04', 'debian:bullseye', 'fedora:34', 'centos:stream8' ]
+        linux-version: [ 'ubuntu:22.04', 'ubuntu:20.04', 'debian:bullseye', 'fedora:37', 'centos:stream8' ]
 
     steps:
     - uses: actions/checkout@v3
