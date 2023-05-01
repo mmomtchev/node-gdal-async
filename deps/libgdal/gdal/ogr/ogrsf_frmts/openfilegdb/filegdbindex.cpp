@@ -2209,7 +2209,7 @@ bool FileGDBSpatialIndexIteratorImpl::Init()
 
     // Detect broken .spx file such as SWISSTLM3D_2022_LV95_LN02.gdb/a00000019.spx
     // from https://data.geo.admin.ch/ch.swisstopo.swisstlm3d/swisstlm3d_2022-03/swisstlm3d_2022-03_2056_5728.gdb.zip
-    // which advertizes nIndexDepth == 1 whereas it seems to be it should be 2.
+    // which advertises nIndexDepth == 1 whereas it seems to be it should be 2.
     if (nIndexDepth == 1)
     {
         iLastPageIdx[0] = 0;
@@ -2217,8 +2217,7 @@ bool FileGDBSpatialIndexIteratorImpl::Init()
         iFirstPageIdx[0] = iLastPageIdx[0] = -1;
         if (nFeaturesInPage >= 2 &&
             nFeaturesInPage < poParent->GetTotalRecordCount() / 10 &&
-            m_nPageCount > static_cast<GUInt32>(nFeaturesInPage) &&
-            m_nPageCount - static_cast<GUInt32>(nFeaturesInPage) <= 2)
+            m_nPageCount > static_cast<GUInt32>(nFeaturesInPage))
         {
             // Check if it looks like a non-feature page, that is that the
             // IDs pointed by it are index page IDs and not feature IDs.
@@ -2235,7 +2234,7 @@ bool FileGDBSpatialIndexIteratorImpl::Init()
             if (bReferenceOtherPages)
             {
                 CPLError(CE_Warning, CPLE_AppDefined,
-                         "Cannot use %s as the index depth(=1) is suspicous "
+                         "Cannot use %s as the index depth(=1) is suspicious "
                          "(it should rather be 2)",
                          pszSpxName);
                 return false;

@@ -5,7 +5,7 @@ set -eu
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR/libgdal"
 
-GDAL_VERSION=3.6.3
+GDAL_VERSION=3.6.4
 GDAL_VERSION_SUFFIX=
 dir_gdal=./gdal
 dir_formats_gyp=./gyp-formats
