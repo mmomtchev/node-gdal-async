@@ -25,11 +25,11 @@ else:
   exclude = []
 
 for f in glob.glob(sys.argv[1]):
-  if f in exclude:
-    continue
   # gyp needs either double backslashes (\\) or forward slashes (/) as path separator
   # go with forward slashes to be platform independent
   # as "print" outputs just single backslashes (\) on Windows
   f = f.replace('\\', '/')
+  if f in exclude:
+    continue
   # use line feed as delimiter between file names to prevent problems with whitespaces in file names
   print(f)
