@@ -46,7 +46,7 @@
 			"BIGTIFF_SUPPORT=1",
 			"ZIP_SUPPORT=1",
 			"JPEG_SUPPORT=1",
-      "ZLIB_INTERNAL"
+      "HAVE_HIDDEN=1"
 		],
 		"dependencies": [
 			"<(deps_dir)/libexpat/libexpat.gyp:libexpat",
