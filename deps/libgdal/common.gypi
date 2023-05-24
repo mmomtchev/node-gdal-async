@@ -68,7 +68,10 @@
 				},
 			}],
 			["OS == 'linux'", {
-				"defines": ["ENABLE_UFFD=1"]
+				"defines": [
+          "ENABLE_UFFD=1",
+          "HAVE_5ARGS_MREMAP=1"
+        ]
 			}],
 			["OS == 'freebsd'", {
 				"include_dirs": ["./arch/bsd"]
