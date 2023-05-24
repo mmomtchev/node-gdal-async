@@ -17,7 +17,8 @@
 				"../gdal/ogr/ogrsf_frmts/openfilegdb/filegdbtable_freelist.cpp",
 				"../gdal/ogr/ogrsf_frmts/openfilegdb/filegdbtable_write.cpp",
         "../gdal/ogr/ogrsf_frmts/openfilegdb/filegdbtable_write_fields.cpp",
-        "../gdal/ogr/ogrsf_frmts/openfilegdb/filegdbindex_write.cpp"
+        "../gdal/ogr/ogrsf_frmts/openfilegdb/filegdbindex_write.cpp",
+        "../gdal/ogr/ogrsf_frmts/openfilegdb/gdalopenfilegdbrasterband.cpp"
 			],
 			"include_dirs": [
 				"../gdal/ogr/ogrsf_frmts/openfilegdb"

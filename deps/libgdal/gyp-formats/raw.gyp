@@ -36,7 +36,9 @@
 				"../gdal/frmts/raw/mffdataset.cpp",
 				"../gdal/frmts/raw/btdataset.cpp",
 				"../gdal/frmts/raw/byndataset.cpp",
-				"../gdal/frmts/raw/ctable2dataset.cpp"
+				"../gdal/frmts/raw/ctable2dataset.cpp",
+        "../gdal/frmts/raw/noaabdataset.cpp",
+        "../gdal/frmts/raw/nsidcbindataset.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/raw"

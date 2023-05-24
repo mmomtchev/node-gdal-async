@@ -51,6 +51,7 @@
 				"../gdal/frmts/gtiff/libtiff/tif_luv.c",
 				"../gdal/frmts/gtiff/libtiff/tif_jpeg_12.c",
 				"../gdal/frmts/gtiff/libtiff/tif_flush.c",
+        "../gdal/frmts/gtiff/libtiff/tif_hash_set.c",
 				"../gdal/frmts/gtiff/cogdriver.cpp",
 				"../gdal/frmts/gtiff/gt_citation.cpp",
 				"../gdal/frmts/gtiff/gt_jpeg_copy.cpp",
@@ -68,7 +69,7 @@
 				"../gdal/frmts/gtiff/libgeotiff/geotiff_proj4.c",
 				"../gdal/frmts/gtiff/libgeotiff/geo_extra.c",
 				"../gdal/frmts/gtiff/libgeotiff/geo_trans.c",
-				"../gdal/frmts/gtiff/libgeotiff/geo_new.c"
+				"../gdal/frmts/gtiff/libgeotiff/geo_new.c",
 			],
 			"include_dirs": [
 				"../gdal/frmts/gtiff",
