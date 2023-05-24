@@ -10,7 +10,7 @@
 				"../gdal/frmts/wcs/wcsrasterband.cpp",
 				"../gdal/frmts/wcs/wcsdataset100.cpp",
 				"../gdal/frmts/wcs/gmlcoverage.cpp",
-				"../gdal/frmts/wcs/httpdriver.cpp",
+				"../gdal/frmts/http/httpdriver.cpp",
 				"../gdal/frmts/wcs/wcsdataset201.cpp",
 				"../gdal/frmts/wcs/wcsutils.cpp",
 				"../gdal/frmts/wcs/wcsdataset.cpp",
