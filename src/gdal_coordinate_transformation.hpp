@@ -50,12 +50,21 @@ class GeoTransformTransformer : public OGRCoordinateTransformation {
     public:
   void *hSrcImageTransformer = nullptr;
 
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 7)
+  virtual const OGRSpatialReference *GetSourceCS() const override {
+    return nullptr;
+  }
+  virtual const OGRSpatialReference *GetTargetCS() const override {
+    return nullptr;
+  }
+#else
   virtual OGRSpatialReference *GetSourceCS() override {
     return nullptr;
   }
   virtual OGRSpatialReference *GetTargetCS() override {
     return nullptr;
   }
+#endif
 
 #if GDAL_VERSION_MAJOR < 3
   virtual int TransformEx(int nCount, double *x, double *y, double *z = NULL, int *pabSuccess = NULL) {

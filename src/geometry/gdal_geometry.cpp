@@ -1800,7 +1800,14 @@ NAN_METHOD(Geometry::create) {
  */
 NAN_GETTER(Geometry::srsGetter) {
   Geometry *geom = Nan::ObjectWrap::Unwrap<Geometry>(info.This());
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 7)
+  // This const_cast is ok because New with false makes a copy
+  // TODO: Implement this with proper C++ overloading semantics
+  info.GetReturnValue().Set(
+    SpatialReference::New(const_cast<OGRSpatialReference *>(geom->this_->getSpatialReference()), false));
+#else
   info.GetReturnValue().Set(SpatialReference::New(geom->this_->getSpatialReference(), false));
+#endif
 }
 
 NAN_SETTER(Geometry::srsSetter) {
