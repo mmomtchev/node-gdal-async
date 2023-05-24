@@ -604,8 +604,11 @@ GDALDataset *GDALDriver::DefaultCreateCopy(const char *pszFilename,
          iOptItem += 2)
     {
         // does the source have this metadata item on the first band?
-        const char *pszValue = poSrcDS->GetRasterBand(1)->GetMetadataItem(
+        auto poBand = poSrcDS->GetRasterBand(1);
+        poBand->EnablePixelTypeSignedByteWarning(false);
+        const char *pszValue = poBand->GetMetadataItem(
             apszOptItems[iOptItem], apszOptItems[iOptItem + 1]);
+        poBand->EnablePixelTypeSignedByteWarning(true);
 
         if (pszValue == nullptr)
             continue;
@@ -1955,6 +1958,26 @@ int GDALValidateOptions(const char *pszOptionList,
                     strlen(pszKey) > strlen(pszOptionName) &&
                     EQUAL(pszKey + strlen(pszKey) - strlen(pszOptionName + 1),
                           pszOptionName + 1))
+                {
+                    break;
+                }
+
+                // For options names with * in the middle
+                const char *pszStarInOptionName = strchr(pszOptionName, '*');
+                if (pszStarInOptionName &&
+                    pszStarInOptionName != pszOptionName &&
+                    pszStarInOptionName !=
+                        pszOptionName + strlen(pszOptionName) - 1 &&
+                    strlen(pszKey) > static_cast<size_t>(pszStarInOptionName -
+                                                         pszOptionName) &&
+                    EQUALN(pszKey, pszOptionName,
+                           static_cast<size_t>(pszStarInOptionName -
+                                               pszOptionName)) &&
+                    EQUAL(pszKey +
+                              static_cast<size_t>(pszStarInOptionName -
+                                                  pszOptionName) +
+                              1,
+                          pszStarInOptionName + 1))
                 {
                     break;
                 }

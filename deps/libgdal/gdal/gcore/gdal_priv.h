@@ -351,7 +351,7 @@ class CPL_DLL GDALDataset : public GDALMajorObject
                const char *const *papszAllowedDrivers,
                const char *const *papszOpenOptions,
                const char *const *papszSiblingFiles);
-    friend void CPL_STDCALL GDALClose(GDALDatasetH hDS);
+    friend CPLErr CPL_STDCALL GDALClose(GDALDatasetH hDS);
 
     friend class GDALDriver;
     friend class GDALDefaultOverviews;
@@ -375,7 +375,9 @@ class CPL_DLL GDALDataset : public GDALMajorObject
     int nBands = 0;
     GDALRasterBand **papoBands = nullptr;
 
-    int nOpenFlags = 0;
+    static constexpr int OPEN_FLAGS_CLOSED = -1;
+    int nOpenFlags =
+        0;  // set to OPEN_FLAGS_CLOSED after Close() has been called
 
     int nRefCount = 1;
     bool bForceCachedIO = false;
@@ -391,6 +393,7 @@ class CPL_DLL GDALDataset : public GDALMajorObject
 
     void RasterInitialize(int, int);
     void SetBand(int, GDALRasterBand *);
+    void SetBand(int nNewBand, std::unique_ptr<GDALRasterBand> poBand);
 
     GDALDefaultOverviews oOvManager{};
 
@@ -407,7 +410,7 @@ class CPL_DLL GDALDataset : public GDALMajorObject
     BlockBasedRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
                        GDALDataType, int, int *, GSpacing, GSpacing, GSpacing,
                        GDALRasterIOExtraArg *psExtraArg) CPL_WARN_UNUSED_RESULT;
-    void BlockBasedFlushCache(bool bAtClosing);
+    CPLErr BlockBasedFlushCache(bool bAtClosing);
 
     CPLErr
     BandBasedRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSize,
@@ -465,15 +468,28 @@ class CPL_DLL GDALDataset : public GDALMajorObject
 
     int AcquireMutex();
     void ReleaseMutex();
+
+    bool IsAllBands(int nBandCount, const int *panBandList) const;
     //! @endcond
 
   public:
     ~GDALDataset() override;
 
+    virtual CPLErr Close();
+
     int GetRasterXSize();
     int GetRasterYSize();
     int GetRasterCount();
     GDALRasterBand *GetRasterBand(int);
+
+    /**
+     * @brief SetQueryLoggerFunc
+     * @param pfnQueryLoggerFuncIn query logger function callback
+     * @param poQueryLoggerArgIn arguments passed to the query logger function
+     * @return true on success
+     */
+    virtual bool SetQueryLoggerFunc(GDALQueryLoggerFunc pfnQueryLoggerFuncIn,
+                                    void *poQueryLoggerArgIn);
 
     /** Class returned by GetBands() that act as a container for raster bands.
      */
@@ -516,7 +532,9 @@ class CPL_DLL GDALDataset : public GDALMajorObject
 
     Bands GetBands();
 
-    virtual void FlushCache(bool bAtClosing = false);
+    virtual CPLErr FlushCache(bool bAtClosing = false);
+
+    virtual GIntBig GetEstimatedRAMUsage();
 
     virtual const OGRSpatialReference *GetSpatialRef() const;
     virtual CPLErr SetSpatialRef(const OGRSpatialReference *poSRS);
@@ -592,6 +610,16 @@ class CPL_DLL GDALDataset : public GDALMajorObject
                         OPTIONAL_OUTSIDE_GDAL(nullptr)
 #endif
                         ) CPL_WARN_UNUSED_RESULT;
+
+    virtual CPLStringList GetCompressionFormats(int nXOff, int nYOff,
+                                                int nXSize, int nYSize,
+                                                int nBandCount,
+                                                const int *panBandList);
+    virtual CPLErr ReadCompressedData(const char *pszFormat, int nXOff,
+                                      int nYOff, int nXSize, int nYSize,
+                                      int nBands, const int *panBandList,
+                                      void **ppBuffer, size_t *pnBufferSize,
+                                      char **ppszDetailedFormat);
 
     int Reference();
     int Dereference();
@@ -1179,6 +1207,10 @@ class GDALAbstractBandBlockCache
     {
         m_bWriteDirtyBlocks = false;
     }
+    bool HasDirtyBlocks() const
+    {
+        return m_nDirtyBlocks > 0;
+    }
 
     virtual bool Init() = 0;
     virtual bool IsInitOK() = 0;
@@ -1271,6 +1303,8 @@ class CPL_DLL GDALRasterBand : public GDALMajorObject
 
     GDALRasterBand *poMask = nullptr;
     bool bOwnMask = false;
+    bool m_bEnablePixelTypeSignedByteWarning =
+        true;  // Remove me in GDAL 4.0. See GetMetadataItem() implementation
     int nMaskFlags = 0;
 
     void InvalidateMaskBand();
@@ -1287,6 +1321,7 @@ class CPL_DLL GDALRasterBand : public GDALMajorObject
     void LeaveReadWrite();
     void InitRWLock();
     void SetValidPercent(GUIntBig nSampleCount, GUIntBig nValidCount);
+
     //! @endcond
 
   protected:
@@ -1317,6 +1352,11 @@ class CPL_DLL GDALRasterBand : public GDALMajorObject
     int InitBlockInfo();
 
     void AddBlockToFreeList(GDALRasterBlock *);
+
+    bool HasDirtyBlocks() const
+    {
+        return poBandBlockCache && poBandBlockCache->HasDirtyBlocks();
+    }
     //! @endcond
 
   public:
@@ -1406,6 +1446,8 @@ class CPL_DLL GDALRasterBand : public GDALMajorObject
     CPLErr SetMetadataItem(const char *pszName, const char *pszValue,
                            const char *pszDomain) override;
 #endif
+    virtual const char *GetMetadataItem(const char *pszName,
+                                        const char *pszDomain = "") override;
 
     virtual int HasArbitraryOverviews();
     virtual int GetOverviewCount();
@@ -1473,6 +1515,17 @@ class CPL_DLL GDALRasterBand : public GDALMajorObject
     {
         return static_cast<GDALRasterBand *>(hBand);
     }
+
+    //! @cond Doxygen_Suppress
+    // Remove me in GDAL 4.0. See GetMetadataItem() implementation
+    // Internal use in GDAL only !
+    void EnablePixelTypeSignedByteWarning(bool b)
+#ifndef GDAL_COMPILATION
+        CPL_WARN_DEPRECATED("Do not use that method outside of GDAL!")
+#endif
+            ;
+
+    //! @endcond
 
   private:
     CPL_DISALLOW_COPY_ASSIGN(GDALRasterBand)
@@ -2754,6 +2807,9 @@ class CPL_DLL GDALMDArray : virtual public GDALAbstractMDArray,
 
     bool SetNoDataValue(uint64_t nNoData);
 
+    virtual bool Resize(const std::vector<GUInt64> &anNewDimSizes,
+                        CSLConstList papszOptions);
+
     virtual double GetOffset(bool *pbHasOffset = nullptr,
                              GDALDataType *peStorageType = nullptr) const;
 
@@ -2804,6 +2860,12 @@ class CPL_DLL GDALMDArray : virtual public GDALAbstractMDArray,
                  GDALRIOResampleAlg resampleAlg,
                  const OGRSpatialReference *poTargetSRS,
                  CSLConstList papszOptions) const;
+
+    std::shared_ptr<GDALMDArray>
+    GetGridded(const std::string &osGridOptions,
+               const std::shared_ptr<GDALMDArray> &poXArray = nullptr,
+               const std::shared_ptr<GDALMDArray> &poYArray = nullptr,
+               CSLConstList papszOptions = nullptr) const;
 
     virtual GDALDataset *AsClassicDataset(size_t iXDim, size_t iYDim) const;
 
@@ -3054,6 +3116,8 @@ class CPL_DLL GDALDimensionWeakIndexingVar : public GDALDimension
 
     bool SetIndexingVariable(
         std::shared_ptr<GDALMDArray> poIndexingVariable) override;
+
+    void SetSize(GUInt64 nNewSize);
 };
 //! @endcond
 
@@ -3591,6 +3655,16 @@ void CPL_DLL GDALCopyNoDataValue(GDALRasterBand *poDstBand,
 
 double CPL_DLL GDALGetNoDataValueCastToDouble(int64_t nVal);
 double CPL_DLL GDALGetNoDataValueCastToDouble(uint64_t nVal);
+
+// Remove me in GDAL 4.0. See GetMetadataItem() implementation
+// Internal use in GDAL only !
+// Declaration copied in swig/include/gdal.i
+void CPL_DLL GDALEnablePixelTypeSignedByteWarning(GDALRasterBandH hBand,
+                                                  bool b);
+
+std::string CPL_DLL GDALGetCompressionFormatForJPEG(VSILFILE *fp);
+std::string CPL_DLL GDALGetCompressionFormatForJPEG(const void *pBuffer,
+                                                    size_t nBufferSize);
 
 //! @endcond
 

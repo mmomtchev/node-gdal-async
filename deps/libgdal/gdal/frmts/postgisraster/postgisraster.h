@@ -146,7 +146,6 @@ typedef struct
 {
     GDALDataType eDataType;
     int nBitsDepth;
-    GBool bSignedByte;
     GBool bHasNoDataValue;
     GBool bIsOffline;
     char *path;
@@ -165,7 +164,7 @@ typedef struct
 char *ReplaceQuotes(const char *, int);
 char *ReplaceSingleQuotes(const char *, int);
 char **ParseConnectionString(const char *);
-GBool TranslateDataType(const char *, GDALDataType *, int *, GBool *);
+GBool TranslateDataType(const char *, GDALDataType *, int *);
 
 class PostGISRasterRasterBand;
 class PostGISRasterTileDataset;
@@ -277,7 +276,7 @@ class PostGISRasterDataset final : public VRTDataset
     GBool SetRasterProperties(const char *);
     GBool BrowseDatabase(const char *, const char *);
     GBool AddComplexSource(PostGISRasterTileDataset *poRTDS);
-    GBool GetDstWin(PostGISRasterTileDataset *, int *, int *, int *, int *);
+    void GetDstWin(PostGISRasterTileDataset *, int *, int *, int *, int *);
     BandMetadata *GetBandsMetadata(int *);
     PROverview *GetOverviewTables(int *);
 
@@ -309,7 +308,7 @@ class PostGISRasterDataset final : public VRTDataset
 
   protected:
     virtual int CloseDependentDatasets() override;
-    virtual void FlushCache(bool bAtClosing) override;
+    virtual CPLErr FlushCache(bool bAtClosing) override;
 
   public:
     PostGISRasterDataset();

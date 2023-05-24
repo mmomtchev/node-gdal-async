@@ -55,7 +55,8 @@ class CPGDataset final : public RawDataset
     friend class SIRC_QSLCRasterBand;
     friend class CPG_STOKESRasterBand;
 
-    VSILFILE *afpImage[4];
+    static constexpr int NUMBER_OF_BANDS = 4;
+    std::vector<VSILFILE *> afpImage{NUMBER_OF_BANDS};
     std::vector<CPLString> aosImageFilenames{};
 
     int nGCPCount;
@@ -82,6 +83,8 @@ class CPGDataset final : public RawDataset
     CPLErr LoadStokesLine(int iLine, int bNativeOrder);
 
     CPL_DISALLOW_COPY_ASSIGN(CPGDataset)
+
+    CPLErr Close() override;
 
   public:
     CPGDataset();
@@ -121,9 +124,6 @@ CPGDataset::CPGDataset()
     adfGeoTransform[3] = 0.0;
     adfGeoTransform[4] = 0.0;
     adfGeoTransform[5] = 1.0;
-
-    for (int iBand = 0; iBand < 4; iBand++)
-        afpImage[iBand] = nullptr;
 }
 
 /************************************************************************/
@@ -133,21 +133,39 @@ CPGDataset::CPGDataset()
 CPGDataset::~CPGDataset()
 
 {
-    FlushCache(true);
+    CPGDataset::Close();
+}
 
-    for (int iBand = 0; iBand < 4; iBand++)
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr CPGDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
     {
-        if (afpImage[iBand] != nullptr)
-            VSIFCloseL(afpImage[iBand]);
-    }
+        if (CPGDataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
 
-    if (nGCPCount > 0)
-    {
-        GDALDeinitGCPs(nGCPCount, pasGCPList);
-        CPLFree(pasGCPList);
-    }
+        for (auto poFile : afpImage)
+        {
+            if (poFile != nullptr)
+                VSIFCloseL(poFile);
+        }
 
-    CPLFree(padfStokesMatrix);
+        if (nGCPCount > 0)
+        {
+            GDALDeinitGCPs(nGCPCount, pasGCPList);
+            CPLFree(pasGCPList);
+        }
+
+        CPLFree(padfStokesMatrix);
+
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
+    }
+    return eErr;
 }
 
 /************************************************************************/
@@ -480,9 +498,15 @@ GDALDataset *CPGDataset::InitializeType1Or2Dataset(const char *pszFilename)
     double dfnorth = 0.0;
     double dfeast = 0.0;
 
-    char *pszWorkname = CPLStrdup(pszFilename);
-    AdjustFilename(&pszWorkname, "hh", "hdr");
-    char **papszHdrLines = CSLLoad(pszWorkname);
+    std::string osWorkName;
+    {
+        char *pszWorkname = CPLStrdup(pszFilename);
+        AdjustFilename(&pszWorkname, "hh", "hdr");
+        osWorkName = pszWorkname;
+        CPLFree(pszWorkname);
+    }
+
+    char **papszHdrLines = CSLLoad(osWorkName.c_str());
 
     for (int iLine = 0; papszHdrLines && papszHdrLines[iLine] != nullptr;
          iLine++)
@@ -588,7 +612,6 @@ GDALDataset *CPGDataset::InitializeType1Or2Dataset(const char *pszFilename)
     /* -------------------------------------------------------------------- */
     if (nError)
     {
-        CPLFree(pszWorkname);
         return nullptr;
     }
 
@@ -597,15 +620,14 @@ GDALDataset *CPGDataset::InitializeType1Or2Dataset(const char *pszFilename)
         CPLError(
             CE_Failure, CPLE_AppDefined,
             "Did not find valid number_lines or number_samples keywords in %s.",
-            pszWorkname);
-        CPLFree(pszWorkname);
+            osWorkName.c_str());
         return nullptr;
     }
 
     /* -------------------------------------------------------------------- */
     /*      Initialize dataset.                                             */
     /* -------------------------------------------------------------------- */
-    CPGDataset *poDS = new CPGDataset();
+    auto poDS = cpl::make_unique<CPGDataset>();
 
     poDS->nRasterXSize = nSamples;
     poDS->nRasterYSize = nLines;
@@ -613,29 +635,33 @@ GDALDataset *CPGDataset::InitializeType1Or2Dataset(const char *pszFilename)
     /* -------------------------------------------------------------------- */
     /*      Open the four bands.                                            */
     /* -------------------------------------------------------------------- */
-    static const char *const apszPolarizations[4] = {"hh", "hv", "vv", "vh"};
+    static const char *const apszPolarizations[NUMBER_OF_BANDS] = {"hh", "hv",
+                                                                   "vv", "vh"};
 
-    const int nNameLen = static_cast<int>(strlen(pszWorkname));
+    const int nNameLen = static_cast<int>(osWorkName.size());
 
-    if (EQUAL(pszWorkname + nNameLen - 7, "IRC.hdr") ||
-        EQUAL(pszWorkname + nNameLen - 7, "IRC.img"))
+    if (EQUAL(osWorkName.c_str() + nNameLen - 7, "IRC.hdr") ||
+        EQUAL(osWorkName.c_str() + nNameLen - 7, "IRC.img"))
     {
+        {
+            char *pszWorkname = CPLStrdup(osWorkName.c_str());
+            AdjustFilename(&pszWorkname, "", "img");
+            osWorkName = pszWorkname;
+            CPLFree(pszWorkname);
+        }
 
-        AdjustFilename(&pszWorkname, "", "img");
-        poDS->afpImage[0] = VSIFOpenL(pszWorkname, "rb");
+        poDS->afpImage[0] = VSIFOpenL(osWorkName.c_str(), "rb");
         if (poDS->afpImage[0] == nullptr)
         {
             CPLError(CE_Failure, CPLE_OpenFailed,
-                     "Failed to open .img file: %s", pszWorkname);
-            CPLFree(pszWorkname);
-            delete poDS;
+                     "Failed to open .img file: %s", osWorkName.c_str());
             return nullptr;
         }
-        poDS->aosImageFilenames.push_back(pszWorkname);
-        for (int iBand = 0; iBand < 4; iBand++)
+        poDS->aosImageFilenames.push_back(osWorkName.c_str());
+        for (int iBand = 0; iBand < NUMBER_OF_BANDS; iBand++)
         {
             SIRC_QSLCRasterBand *poBand =
-                new SIRC_QSLCRasterBand(poDS, iBand + 1, GDT_CFloat32);
+                new SIRC_QSLCRasterBand(poDS.get(), iBand + 1, GDT_CFloat32);
             poDS->SetBand(iBand + 1, poBand);
             poBand->SetMetadataItem("POLARIMETRIC_INTERP",
                                     apszPolarizations[iBand]);
@@ -643,36 +669,40 @@ GDALDataset *CPGDataset::InitializeType1Or2Dataset(const char *pszFilename)
     }
     else
     {
-        for (int iBand = 0; iBand < 4; iBand++)
+        CPLAssert(poDS->afpImage.size() == NUMBER_OF_BANDS);
+        for (int iBand = 0; iBand < NUMBER_OF_BANDS; iBand++)
         {
-            AdjustFilename(&pszWorkname, apszPolarizations[iBand], "img");
+            {
+                char *pszWorkname = CPLStrdup(osWorkName.c_str());
+                AdjustFilename(&pszWorkname, apszPolarizations[iBand], "img");
+                osWorkName = pszWorkname;
+                CPLFree(pszWorkname);
+            }
 
-            poDS->afpImage[iBand] = VSIFOpenL(pszWorkname, "rb");
+            poDS->afpImage[iBand] = VSIFOpenL(osWorkName.c_str(), "rb");
             if (poDS->afpImage[iBand] == nullptr)
             {
                 CPLError(CE_Failure, CPLE_OpenFailed,
-                         "Failed to open .img file: %s", pszWorkname);
-                CPLFree(pszWorkname);
-                delete poDS;
+                         "Failed to open .img file: %s", osWorkName.c_str());
                 return nullptr;
             }
-            poDS->aosImageFilenames.push_back(pszWorkname);
+            poDS->aosImageFilenames.push_back(osWorkName.c_str());
 
-            RawRasterBand *poBand = new RawRasterBand(
-                poDS, iBand + 1, poDS->afpImage[iBand], 0, 8, 8 * nSamples,
-                GDT_CFloat32, !CPL_IS_LSB, RawRasterBand::OwnFP::NO);
-            poDS->SetBand(iBand + 1, poBand);
-
+            auto poBand = RawRasterBand::Create(
+                poDS.get(), iBand + 1, poDS->afpImage[iBand], 0, 8,
+                8 * nSamples, GDT_CFloat32,
+                RawRasterBand::ByteOrder::ORDER_BIG_ENDIAN,
+                RawRasterBand::OwnFP::NO);
+            if (!poBand)
+                return nullptr;
             poBand->SetMetadataItem("POLARIMETRIC_INTERP",
                                     apszPolarizations[iBand]);
+            poDS->SetBand(iBand + 1, std::move(poBand));
         }
     }
 
     /* Set an appropriate matrix representation metadata item for the set */
-    if (poDS->GetRasterCount() == 4)
-    {
-        poDS->SetMetadataItem("MATRIX_REPRESENTATION", "SCATTERING");
-    }
+    poDS->SetMetadataItem("MATRIX_REPRESENTATION", "SCATTERING");
 
     /* -------------------------------------------------------------------------
      */
@@ -781,9 +811,7 @@ GDALDataset *CPGDataset::InitializeType1Or2Dataset(const char *pszFilename)
             "UNIT[\"Meter\",1.0]]");
     }
 
-    CPLFree(pszWorkname);
-
-    return poDS;
+    return poDS.release();
 }
 
 #ifdef notdef

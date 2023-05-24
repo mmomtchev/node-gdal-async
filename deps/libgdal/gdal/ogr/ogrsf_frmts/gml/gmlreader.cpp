@@ -1155,44 +1155,16 @@ bool GMLReader::LoadClasses(const char *pszFile)
     /* -------------------------------------------------------------------- */
     /*      Load the raw XML file.                                          */
     /* -------------------------------------------------------------------- */
-    VSILFILE *fp = VSIFOpenL(pszFile, "rb");
-
-    if (fp == nullptr)
+    GByte *pabyRet = nullptr;
+    if (!VSIIngestFile(nullptr, pszFile, &pabyRet, nullptr, 100 * 1024 * 1024))
     {
-        CPLError(CE_Failure, CPLE_OpenFailed, "Failed to open file %s.",
-                 pszFile);
         return false;
     }
-
-    VSIFSeekL(fp, 0, SEEK_END);
-    int nLength = static_cast<int>(VSIFTellL(fp));
-    VSIFSeekL(fp, 0, SEEK_SET);
-
-    char *pszWholeText = static_cast<char *>(VSIMalloc(nLength + 1));
-    if (pszWholeText == nullptr)
-    {
-        CPLError(CE_Failure, CPLE_AppDefined,
-                 "Failed to allocate %d byte buffer for %s,\n"
-                 "is this really a GMLFeatureClassList file?",
-                 nLength, pszFile);
-        VSIFCloseL(fp);
-        return false;
-    }
-
-    if (VSIFReadL(pszWholeText, nLength, 1, fp) != 1)
-    {
-        VSIFree(pszWholeText);
-        VSIFCloseL(fp);
-        CPLError(CE_Failure, CPLE_AppDefined, "Read failed on %s.", pszFile);
-        return false;
-    }
-    pszWholeText[nLength] = '\0';
-
-    VSIFCloseL(fp);
+    const char *pszWholeText = reinterpret_cast<const char *>(pabyRet);
 
     if (strstr(pszWholeText, "<GMLFeatureClassList") == nullptr)
     {
-        VSIFree(pszWholeText);
+        VSIFree(pabyRet);
         CPLError(CE_Failure, CPLE_AppDefined,
                  "File %s does not contain a GMLFeatureClassList tree.",
                  pszFile);
@@ -1203,7 +1175,7 @@ bool GMLReader::LoadClasses(const char *pszFile)
     /*      Convert to XML parse tree.                                      */
     /* -------------------------------------------------------------------- */
     CPLXMLTreeCloser psRoot(CPLParseXMLString(pszWholeText));
-    VSIFree(pszWholeText);
+    VSIFree(pabyRet);
 
     // We assume parser will report errors via CPL.
     if (psRoot.get() == nullptr)
@@ -1369,25 +1341,40 @@ bool GMLReader::PrescanForSchema(bool bGetExtents, bool bOnlyDetectSRS)
 
         const CPLXMLNode *const *papsGeometry = poFeature->GetGeometryList();
         bool bGeometryColumnJustCreated = false;
+
+        const CPLXMLNode *apsGeometries[2] = {nullptr, nullptr};
+        const CPLXMLNode *psBoundedByGeometry =
+            poFeature->GetBoundedByGeometry();
+        int nFeatureGeomCount = poFeature->GetGeometryCount();
+        if (psBoundedByGeometry && nFeatureGeomCount == 0 &&
+            strcmp(psBoundedByGeometry->pszValue, "null") != 0)
+        {
+            apsGeometries[0] = psBoundedByGeometry;
+            papsGeometry = apsGeometries;
+            nFeatureGeomCount = 1;
+        }
+
         if (!bOnlyDetectSRS && papsGeometry != nullptr &&
             papsGeometry[0] != nullptr)
         {
             if (poClass->GetGeometryPropertyCount() == 0)
             {
-                std::string osGeomName(m_osSingleGeomElemPath);
+                std::string osPath(m_osSingleGeomElemPath);
+                if (osPath.empty() && psBoundedByGeometry)
+                    osPath = "boundedBy";
+                std::string osGeomName(osPath);
                 const auto nPos = osGeomName.rfind('|');
                 if (nPos != std::string::npos)
                     osGeomName = osGeomName.substr(nPos + 1);
                 bGeometryColumnJustCreated = true;
                 poClass->AddGeometryProperty(new GMLGeometryPropertyDefn(
-                    osGeomName.c_str(), m_osSingleGeomElemPath.c_str(),
-                    wkbUnknown, -1, true));
+                    osGeomName.c_str(), osPath.c_str(), wkbUnknown, -1, true));
             }
         }
 
         if (bGetExtents && papsGeometry != nullptr)
         {
-            const int nIters = std::min(poFeature->GetGeometryCount(),
+            const int nIters = std::min(nFeatureGeomCount,
                                         poClass->GetGeometryPropertyCount());
             for (int i = 0; i < nIters; ++i)
             {

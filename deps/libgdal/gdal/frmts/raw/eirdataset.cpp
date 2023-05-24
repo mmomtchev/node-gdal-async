@@ -58,6 +58,8 @@ class EIRDataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(EIRDataset)
 
+    CPLErr Close() override;
+
   public:
     EIRDataset();
     ~EIRDataset() override;
@@ -89,25 +91,46 @@ EIRDataset::EIRDataset() = default;
 EIRDataset::~EIRDataset()
 
 {
-    FlushCache(true);
+    EIRDataset::Close();
+}
 
-    if (nBands > 0 && GetAccess() == GA_Update)
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr EIRDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
     {
-        RawRasterBand *poBand =
-            reinterpret_cast<RawRasterBand *>(GetRasterBand(1));
+        if (EIRDataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
 
-        int bNoDataSet = FALSE;
-        const double dfNoData = poBand->GetNoDataValue(&bNoDataSet);
-        if (bNoDataSet)
+        if (nBands > 0 && GetAccess() == GA_Update)
         {
-            ResetKeyValue("NODATA", CPLString().Printf("%.8g", dfNoData));
+            RawRasterBand *poBand =
+                reinterpret_cast<RawRasterBand *>(GetRasterBand(1));
+
+            int bNoDataSet = FALSE;
+            const double dfNoData = poBand->GetNoDataValue(&bNoDataSet);
+            if (bNoDataSet)
+            {
+                ResetKeyValue("NODATA", CPLString().Printf("%.8g", dfNoData));
+            }
         }
+
+        if (fpImage)
+        {
+            if (VSIFCloseL(fpImage) != 0)
+                eErr = CE_Failure;
+        }
+
+        CSLDestroy(papszExtraFiles);
+
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
     }
-
-    if (fpImage != nullptr)
-        CPL_IGNORE_RET_VAL(VSIFCloseL(fpImage));
-
-    CSLDestroy(papszExtraFiles);
+    return eErr;
 }
 
 #ifdef unused
@@ -507,20 +530,18 @@ GDALDataset *EIRDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create band information objects.                                */
     /* -------------------------------------------------------------------- */
-    poDS->nBands = nBands;
-    for (int i = 0; i < poDS->nBands; i++)
+    for (int i = 0; i < nBands; i++)
     {
-        RawRasterBand *poBand = new RawRasterBand(
+        auto poBand = RawRasterBand::Create(
             poDS.get(), i + 1, poDS->fpImage, nSkipBytes + nBandOffset * i,
             nPixelOffset, nLineOffset, eDataType,
-#ifdef CPL_LSB
-            chByteOrder == 'I' || chByteOrder == 'L',
-#else
-            chByteOrder == 'M',
-#endif
+            chByteOrder == 'I' || chByteOrder == 'L'
+                ? RawRasterBand::ByteOrder::ORDER_LITTLE_ENDIAN
+                : RawRasterBand::ByteOrder::ORDER_BIG_ENDIAN,
             RawRasterBand::OwnFP::NO);
-
-        poDS->SetBand(i + 1, poBand);
+        if (!poBand)
+            return nullptr;
+        poDS->SetBand(i + 1, std::move(poBand));
     }
 
     /* -------------------------------------------------------------------- */

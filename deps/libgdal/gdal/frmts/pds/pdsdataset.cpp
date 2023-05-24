@@ -97,6 +97,8 @@ class PDSDataset final : public RawDataset
   protected:
     virtual int CloseDependentDatasets() override;
 
+    CPLErr Close() override;
+
   public:
     PDSDataset();
     virtual ~PDSDataset();
@@ -150,11 +152,31 @@ PDSDataset::PDSDataset()
 PDSDataset::~PDSDataset()
 
 {
-    PDSDataset::FlushCache(true);
-    if (fpImage != nullptr)
-        VSIFCloseL(fpImage);
+    PDSDataset::Close();
+}
 
-    PDSDataset::CloseDependentDatasets();
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr PDSDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
+    {
+        if (PDSDataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
+        if (fpImage)
+        {
+            if (VSIFCloseL(fpImage) != 0)
+                eErr = CE_Failure;
+        }
+
+        PDSDataset::CloseDependentDatasets();
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
+    }
+    return eErr;
 }
 
 /************************************************************************/
@@ -1242,16 +1264,16 @@ int PDSDataset::ParseImage(const CPLString &osPrefix,
     /* -------------------------------------------------------------------- */
     for (int i = 0; i < l_nBands; i++)
     {
-        RawRasterBand *poBand = new RawRasterBand(
+        auto poBand = RawRasterBand::Create(
             this, i + 1, fpImage,
             nSkipBytes + static_cast<vsi_l_offset>(nBandOffset) * i,
             nPixelOffset, nLineOffset, eDataType,
-#ifdef CPL_LSB
-            chByteOrder == 'I' || chByteOrder == 'L',
-#else
-            chByteOrder == 'M',
-#endif
+            chByteOrder == 'I' || chByteOrder == 'L'
+                ? RawRasterBand::ByteOrder::ORDER_LITTLE_ENDIAN
+                : RawRasterBand::ByteOrder::ORDER_BIG_ENDIAN,
             RawRasterBand::OwnFP::NO);
+        if (!poBand)
+            return FALSE;
 
         if (l_nBands == 1)
         {
@@ -1272,8 +1294,6 @@ int PDSDataset::ParseImage(const CPLString &osPrefix,
 
         poBand->SetNoDataValue(dfNoData);
 
-        SetBand(i + 1, poBand);
-
         // Set offset/scale values at the PAM level.
         poBand->SetOffset(dfOffset);
         poBand->SetScale(dfScale);
@@ -1281,6 +1301,8 @@ int PDSDataset::ParseImage(const CPLString &osPrefix,
             poBand->SetUnitType(pszUnit);
         if (pszDesc)
             poBand->SetDescription(pszDesc);
+
+        SetBand(i + 1, std::move(poBand));
     }
 
     return TRUE;
@@ -1298,7 +1320,8 @@ class PDSWrapperRasterBand final : public GDALProxyRasterBand
     GDALRasterBand *poBaseBand;
 
   protected:
-    virtual GDALRasterBand *RefUnderlyingRasterBand() const override
+    virtual GDALRasterBand *
+    RefUnderlyingRasterBand(bool /*bForceOpen*/) const override
     {
         return poBaseBand;
     }
@@ -1330,7 +1353,7 @@ int PDSDataset::ParseCompressedImage()
         CPLFormFilename(osPath, osFileName, nullptr);
 
     poCompressedDS =
-        reinterpret_cast<GDALDataset *>(GDALOpen(osFullFileName, GA_ReadOnly));
+        GDALDataset::FromHandle(GDALOpen(osFullFileName, GA_ReadOnly));
 
     if (poCompressedDS == nullptr)
         return FALSE;

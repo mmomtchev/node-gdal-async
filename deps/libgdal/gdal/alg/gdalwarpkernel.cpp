@@ -514,6 +514,7 @@ static CPLErr GWKRun(GDALWarpKernel *poWK, const char *pszFuncName,
         std::unique_lock<std::mutex> lock(psThreadData->mutex);
 
         psThreadData->nTotalThreadCountForThisRun = nThreads;
+        // coverity[missing_lock]
         psThreadData->nCurThreadCountForThisRun = 0;
 
         // Start jobs.
@@ -929,7 +930,7 @@ static CPLErr GWKRun(GDALWarpKernel *poWK, const char *pszFuncName,
  * The GDALWarpKern algorithm will only ever use this transformer in
  * "destination to source" mode (bDstToSrc=TRUE), and will always pass
  * partial or complete scanlines of points in the destination image as
- * input.  This means, among other things, that it is safe to the the
+ * input.  This means, among other things, that it is safe to the
  * approximating transform GDALApproxTransform() as the transformation
  * function.
  *
@@ -1211,7 +1212,11 @@ CPLErr GDALWarpKernel::PerformWarp()
         (eResample == GRA_Bilinear || eResample == GRA_Cubic ||
          eResample == GRA_CubicSpline || eResample == GRA_Lanczos) &&
         !bApplyVerticalShift &&
-        CPLFetchBool(papszWarpOptions, "USE_OPENCL", true))
+        // OpenCL warping gives different results than the ones expected by autotest,
+        // so disable it by default even if found.
+        CPLTestBool(
+            CSLFetchNameValueDef(papszWarpOptions, "USE_OPENCL",
+                                 CPLGetConfigOption("GDAL_USE_OPENCL", "NO"))))
     {
         if (pafUnifiedSrcDensity != nullptr)
         {
@@ -1606,6 +1611,11 @@ static bool GWKSetPixelValue(const GDALWarpKernel *poWK, int iBand,
                 dfDstImag = 0.0;
                 break;
 
+            case GDT_Int8:
+                dfDstReal = reinterpret_cast<GInt8 *>(pabyDst)[iDstOffset];
+                dfDstImag = 0.0;
+                break;
+
             case GDT_Int16:
                 dfDstReal = reinterpret_cast<GInt16 *>(pabyDst)[iDstOffset];
                 dfDstImag = 0.0;
@@ -1672,7 +1682,8 @@ static bool GWKSetPixelValue(const GDALWarpKernel *poWK, int iBand,
                     reinterpret_cast<double *>(pabyDst)[iDstOffset * 2 + 1];
                 break;
 
-            default:
+            case GDT_Unknown:
+            case GDT_TypeCount:
                 CPLAssert(false);
                 return false;
         }
@@ -1728,6 +1739,10 @@ static bool GWKSetPixelValue(const GDALWarpKernel *poWK, int iBand,
     {
         case GDT_Byte:
             CLAMP(GByte);
+            break;
+
+        case GDT_Int8:
+            CLAMP(GInt8);
             break;
 
         case GDT_Int16:
@@ -1827,7 +1842,8 @@ static bool GWKSetPixelValue(const GDALWarpKernel *poWK, int iBand,
             reinterpret_cast<double *>(pabyDst)[iDstOffset * 2 + 1] = dfImag;
             break;
 
-        default:
+        case GDT_Unknown:
+        case GDT_TypeCount:
             return false;
     }
 
@@ -1876,6 +1892,10 @@ static bool GWKSetPixelValueReal(const GDALWarpKernel *poWK, int iBand,
                 dfDstReal = pabyDst[iDstOffset];
                 break;
 
+            case GDT_Int8:
+                dfDstReal = reinterpret_cast<GInt8 *>(pabyDst)[iDstOffset];
+                break;
+
             case GDT_Int16:
                 dfDstReal = reinterpret_cast<GInt16 *>(pabyDst)[iDstOffset];
                 break;
@@ -1910,7 +1930,12 @@ static bool GWKSetPixelValueReal(const GDALWarpKernel *poWK, int iBand,
                 dfDstReal = reinterpret_cast<double *>(pabyDst)[iDstOffset];
                 break;
 
-            default:
+            case GDT_CInt16:
+            case GDT_CInt32:
+            case GDT_CFloat32:
+            case GDT_CFloat64:
+            case GDT_Unknown:
+            case GDT_TypeCount:
                 CPLAssert(false);
                 return false;
         }
@@ -1934,6 +1959,10 @@ static bool GWKSetPixelValueReal(const GDALWarpKernel *poWK, int iBand,
     {
         case GDT_Byte:
             CLAMP(GByte);
+            break;
+
+        case GDT_Int8:
+            CLAMP(GInt8);
             break;
 
         case GDT_Int16:
@@ -1969,7 +1998,15 @@ static bool GWKSetPixelValueReal(const GDALWarpKernel *poWK, int iBand,
             reinterpret_cast<double *>(pabyDst)[iDstOffset] = dfReal;
             break;
 
-        default:
+        case GDT_CInt16:
+        case GDT_CInt32:
+        case GDT_CFloat32:
+        case GDT_CFloat64:
+            return false;
+
+        case GDT_Unknown:
+        case GDT_TypeCount:
+            CPLAssert(false);
             return false;
     }
 
@@ -1997,11 +2034,19 @@ static bool GWKGetPixelValue(const GDALWarpKernel *poWK, int iBand,
         return false;
     }
 
+    *pdfReal = 0.0;
+    *pdfImag = 0.0;
+
     // TODO(schwehr): Fix casting.
     switch (poWK->eWorkingDataType)
     {
         case GDT_Byte:
             *pdfReal = pabySrc[iSrcOffset];
+            *pdfImag = 0.0;
+            break;
+
+        case GDT_Int8:
+            *pdfReal = reinterpret_cast<GInt8 *>(pabySrc)[iSrcOffset];
             *pdfImag = 0.0;
             break;
 
@@ -2067,7 +2112,9 @@ static bool GWKGetPixelValue(const GDALWarpKernel *poWK, int iBand,
             *pdfImag = reinterpret_cast<double *>(pabySrc)[iSrcOffset * 2 + 1];
             break;
 
-        default:
+        case GDT_Unknown:
+        case GDT_TypeCount:
+            CPLAssert(false);
             *pdfDensity = 0.0;
             return false;
     }
@@ -2105,6 +2152,10 @@ static bool GWKGetPixelValueReal(const GDALWarpKernel *poWK, int iBand,
             *pdfReal = pabySrc[iSrcOffset];
             break;
 
+        case GDT_Int8:
+            *pdfReal = reinterpret_cast<GInt8 *>(pabySrc)[iSrcOffset];
+            break;
+
         case GDT_Int16:
             *pdfReal = reinterpret_cast<GInt16 *>(pabySrc)[iSrcOffset];
             break;
@@ -2139,7 +2190,12 @@ static bool GWKGetPixelValueReal(const GDALWarpKernel *poWK, int iBand,
             *pdfReal = reinterpret_cast<double *>(pabySrc)[iSrcOffset];
             break;
 
-        default:
+        case GDT_CInt16:
+        case GDT_CInt32:
+        case GDT_CFloat32:
+        case GDT_CFloat64:
+        case GDT_Unknown:
+        case GDT_TypeCount:
             CPLAssert(false);
             return false;
     }
@@ -2232,6 +2288,19 @@ static bool GWKGetPixelRow(const GDALWarpKernel *poWK, int iBand,
         {
             GByte *pSrc =
                 reinterpret_cast<GByte *>(poWK->papabySrcImage[iBand]);
+            pSrc += iSrcOffset;
+            for (int i = 0; i < nSrcLen; i += 2)
+            {
+                adfReal[i] = pSrc[i];
+                adfReal[i + 1] = pSrc[i + 1];
+            }
+            break;
+        }
+
+        case GDT_Int8:
+        {
+            GInt8 *pSrc =
+                reinterpret_cast<GInt8 *>(poWK->papabySrcImage[iBand]);
             pSrc += iSrcOffset;
             for (int i = 0; i < nSrcLen; i += 2)
             {
@@ -2409,7 +2478,8 @@ static bool GWKGetPixelRow(const GDALWarpKernel *poWK, int iBand,
             break;
         }
 
-        default:
+        case GDT_Unknown:
+        case GDT_TypeCount:
             CPLAssert(false);
             if (padfDensity)
                 memset(padfDensity, 0, nSrcLen * sizeof(double));
@@ -6136,6 +6206,12 @@ static void GWKAverageOrModeThread(void *pData)
             if (poWK->eWorkingDataType == GDT_Byte)
             {
                 nBins = 256;
+            }
+            // In the case of Int8, input values are between -128 and 127.
+            else if (poWK->eWorkingDataType == GDT_Int8)
+            {
+                nBins = 256;
+                nBinsOffset = 128;
             }
             // In the case of Int16, input values are between -32768 and 32767.
             else if (poWK->eWorkingDataType == GDT_Int16)

@@ -1357,6 +1357,67 @@ int OGRWFSDataSource::Open(const char *pszFilename, int bUpdateIn,
                     pszDefaultSRS = CPLGetXMLValue(psChildIter, "DefaultCRS",
                                                    nullptr); /* WFS 2.0.0 */
 
+                const CPLXMLNode *psOtherSRS =
+                    CPLGetXMLNode(psChildIter, "OtherSRS");  // WFS 1.1
+                if (psOtherSRS == nullptr)
+                    psOtherSRS =
+                        CPLGetXMLNode(psChildIter, "OtherCRS");  // WFS 2.0
+
+                std::vector<std::string> aosSupportedCRSList{};
+                OGRLayer::GetSupportedSRSListRetType apoSupportedCRSList;
+                if (psOtherSRS)
+                {
+                    {
+                        auto poSRS =
+                            std::unique_ptr<OGRSpatialReference,
+                                            OGRSpatialReferenceReleaser>(
+                                new OGRSpatialReference());
+                        if (poSRS->SetFromUserInput(
+                                pszDefaultSRS,
+                                OGRSpatialReference::
+                                    SET_FROM_USER_INPUT_LIMITATIONS_get()) ==
+                            OGRERR_NONE)
+                        {
+                            aosSupportedCRSList.emplace_back(pszDefaultSRS);
+                            apoSupportedCRSList.emplace_back(std::move(poSRS));
+                        }
+                    }
+                    CPLErrorHandlerPusher oErrorHandlerPusher(
+                        CPLQuietErrorHandler);
+                    CPLErrorStateBackuper oErrorStateBackuper;
+                    for (const CPLXMLNode *psIter = psOtherSRS; psIter;
+                         psIter = psIter->psNext)
+                    {
+                        if (psIter->eType == CXT_Element)
+                        {
+                            const char *pszSRS =
+                                CPLGetXMLValue(psIter, "", nullptr);
+                            if (pszSRS)
+                            {
+                                auto poSRS = std::unique_ptr<
+                                    OGRSpatialReference,
+                                    OGRSpatialReferenceReleaser>(
+                                    new OGRSpatialReference());
+                                if (poSRS->SetFromUserInput(
+                                        EQUAL(pszSRS, "CRS:84") ? "OGC:CRS84"
+                                                                : pszSRS,
+                                        OGRSpatialReference::
+                                            SET_FROM_USER_INPUT_LIMITATIONS_get()) ==
+                                    OGRERR_NONE)
+                                {
+                                    aosSupportedCRSList.emplace_back(pszSRS);
+                                    apoSupportedCRSList.emplace_back(
+                                        std::move(poSRS));
+                                }
+                                else
+                                {
+                                    CPLDebug("WFS", "Invalid CRS %s", pszSRS);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 CPLXMLNode *psOutputFormats =
                     CPLGetXMLNode(psChildIter, "OutputFormats");
                 CPLString osOutputFormat;
@@ -1415,7 +1476,11 @@ int OGRWFSDataSource::Open(const char *pszFilename, int bUpdateIn,
                     !EQUAL(pszDefaultSRS, "urn:ogc:def:crs:EPSG::404000"))
                 {
                     OGRSpatialReference oSRS;
-                    if (oSRS.SetFromUserInput(pszDefaultSRS) == OGRERR_NONE)
+                    if (oSRS.SetFromUserInput(
+                            pszDefaultSRS,
+                            OGRSpatialReference::
+                                SET_FROM_USER_INPUT_LIMITATIONS_get()) ==
+                        OGRERR_NONE)
                     {
                         poSRS = oSRS.Clone();
                         poSRS->SetAxisMappingStrategy(
@@ -1557,6 +1622,8 @@ int OGRWFSDataSource::Open(const char *pszFilename, int bUpdateIn,
                             strcmp(pszDefaultSRS,
                                    "urn:ogc:def:crs:OGC:1.3:CRS84") == 0)
                         {
+                            poLayer->SetWGS84Extents(dfMinX, dfMinY, dfMaxX,
+                                                     dfMaxY);
                             poLayer->SetExtents(dfMinX, dfMinY, dfMaxX, dfMaxY);
                         }
 
@@ -1567,58 +1634,28 @@ int OGRWFSDataSource::Open(const char *pszFilename, int bUpdateIn,
                             oWGS84.SetAxisMappingStrategy(
                                 OAMS_TRADITIONAL_GIS_ORDER);
                             CPLPushErrorHandler(CPLQuietErrorHandler);
-                            OGRCoordinateTransformation *poCT =
-                                OGRCreateCoordinateTransformation(&oWGS84,
-                                                                  poSRS);
+                            auto poCT =
+                                std::unique_ptr<OGRCoordinateTransformation>(
+                                    OGRCreateCoordinateTransformation(&oWGS84,
+                                                                      poSRS));
                             if (poCT)
                             {
-                                double dfULX = dfMinX;
-                                double dfULY = dfMaxY;
-                                double dfURX = dfMaxX;
-                                double dfURY = dfMaxY;
-                                double dfLLX = dfMinX;
-                                double dfLLY = dfMinY;
-                                double dfLRX = dfMaxX;
-                                double dfLRY = dfMinY;
-                                if (poCT->Transform(1, &dfULX, &dfULY,
-                                                    nullptr) &&
-                                    poCT->Transform(1, &dfURX, &dfURY,
-                                                    nullptr) &&
-                                    poCT->Transform(1, &dfLLX, &dfLLY,
-                                                    nullptr) &&
-                                    poCT->Transform(1, &dfLRX, &dfLRY, nullptr))
-                                {
-                                    dfMinX = dfULX;
-                                    dfMinX = std::min(dfMinX, dfURX);
-                                    dfMinX = std::min(dfMinX, dfLLX);
-                                    dfMinX = std::min(dfMinX, dfLRX);
-
-                                    dfMinY = dfULY;
-                                    dfMinY = std::min(dfMinY, dfURY);
-                                    dfMinY = std::min(dfMinY, dfLLY);
-                                    dfMinY = std::min(dfMinY, dfLRY);
-
-                                    dfMaxX = dfULX;
-                                    dfMaxX = std::max(dfMaxX, dfURX);
-                                    dfMaxX = std::max(dfMaxX, dfLLX);
-                                    dfMaxX = std::max(dfMaxX, dfLRX);
-
-                                    dfMaxY = dfULY;
-                                    dfMaxY = std::max(dfMaxY, dfURY);
-                                    dfMaxY = std::max(dfMaxY, dfLLY);
-                                    dfMaxY = std::max(dfMaxY, dfLRY);
-
-                                    poLayer->SetExtents(dfMinX, dfMinY, dfMaxX,
-                                                        dfMaxY);
-                                }
+                                poLayer->SetWGS84Extents(dfMinX, dfMinY, dfMaxX,
+                                                         dfMaxY);
+                                poCT->TransformBounds(dfMinX, dfMinY, dfMaxX,
+                                                      dfMaxY, &dfMinX, &dfMinY,
+                                                      &dfMaxX, &dfMaxY, 20);
+                                poLayer->SetExtents(dfMinX, dfMinY, dfMaxX,
+                                                    dfMaxY);
                             }
-                            delete poCT;
                             CPLPopErrorHandler();
                             CPLErrorReset();
                         }
                     }
                     CPLFree(pszProj4);
                 }
+                poLayer->SetSupportedSRSList(std::move(aosSupportedCRSList),
+                                             std::move(apoSupportedCRSList));
 
                 papoLayers = (OGRWFSLayer **)CPLRealloc(
                     papoLayers, sizeof(OGRWFSLayer *) * (nLayers + 1));

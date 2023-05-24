@@ -66,6 +66,7 @@ set(CPL_SOURCES
     cpl_vsil_sparsefile.cpp
     cpl_vsil_abstract_archive.cpp
     cpl_vsil_tar.cpp
+    cpl_vsil_libarchive.cpp
     cpl_vsil_stdin.cpp
     cpl_vsil_buffered_reader.cpp
     cpl_vsil_plugin.cpp
@@ -136,6 +137,17 @@ if (WIN32)
   target_sources(cpl PRIVATE cpl_vsil_win32.cpp)
 else ()
   target_sources(cpl PRIVATE cpl_vsil_unix_stdio_64.cpp)
+  if ("${CMAKE_SYSTEM}" MATCHES "Linux")
+      check_include_file("linux/fs.h" HAVE_LINUX_FS_H)
+      if (NOT HAVE_LINUX_FS_H)
+          set(ACCEPT_MISSING_LINUX_FS_HEADER OFF CACHE BOOL "Build despite missing linux/fs.h header.")
+          mark_as_advanced(ACCEPT_MISSING_LINUX_FS_HEADER)
+          if (NOT ACCEPT_MISSING_LINUX_FS_HEADER)
+              message(FATAL_ERROR "linux/fs.h header not found. Impact will be lack of sparse file detection. Define the ACCEPT_MISSING_LINUX_FS_HEADER:BOOL=ON CMake variable if you want to build despite this limitation.")
+          endif()
+          target_compile_definitions(cpl PRIVATE -DMISSING_LINUX_FS_H)
+      endif()
+  endif()
   if(HAVE_PREAD64)
       target_compile_definitions(cpl PRIVATE -DHAVE_PREAD64)
   elseif(HAVE_PREAD_BSD)
@@ -171,6 +183,10 @@ target_sources(cpl PRIVATE cpl_vsil_gzip.cpp cpl_minizip_ioapi.cpp cpl_minizip_u
 if (GDAL_USE_ZLIB_INTERNAL)
   gdal_add_vendored_lib(cpl libz)
 endif ()
+if (ENABLE_DEFLATE64)
+  gdal_add_vendored_lib(cpl infback9)
+  target_compile_definitions(cpl PRIVATE -DENABLE_DEFLATE64)
+endif ()
 
 # Now external libraries
 if (NOT GDAL_USE_JSONC_INTERNAL)
@@ -183,6 +199,11 @@ if (NOT GDAL_USE_ZLIB_INTERNAL)
     target_compile_definitions(cpl PRIVATE -DZLIB_DLL)
   endif ()
   gdal_target_link_libraries(cpl PRIVATE ZLIB::ZLIB)
+endif ()
+
+if (GDAL_USE_ARCHIVE)
+  target_compile_definitions(cpl PRIVATE -DHAVE_LIBARCHIVE)
+  gdal_target_link_libraries(cpl PRIVATE ARCHIVE::ARCHIVE)
 endif ()
 
 if (GDAL_USE_CURL)
@@ -238,11 +259,6 @@ endif ()
 
 if (HAVE_USERFAULTFD_H)
   target_compile_definitions(cpl PRIVATE -DENABLE_UFFD)
-endif ()
-
-option(HDFS_ENABLED "Include HDFS support" OFF)
-if (HDFS_ENABLED)
-  target_compile_definitions(cpl PRIVATE -DHDFS_ENABLED)
 endif ()
 
 # for plugin DLFCN: for win32 https://github.com/dlfcn-win32/dlfcn-win32/archive/v1.1.1.tar.gz if(WIN32)

@@ -115,6 +115,8 @@ void CPL_DLL CPLHTTPDestroyResult(CPLHTTPResult *psResult);
 void CPL_DLL CPLHTTPDestroyMultiResult(CPLHTTPResult **papsResults, int nCount);
 int CPL_DLL CPLHTTPParseMultipartMime(CPLHTTPResult *psResult);
 
+void CPL_DLL CPLHTTPSetDefaultUserAgent(const char *pszUserAgent);
+
 /* -------------------------------------------------------------------- */
 /* To install an alternate network layer to the default Curl one        */
 /* -------------------------------------------------------------------- */
@@ -176,7 +178,7 @@ CPL_C_END
 // frmts/wms/gdalhttp.cpp
 void CPL_DLL *CPLHTTPSetOptions(void *pcurl, const char *pszURL,
                                 const char *const *papszOptions);
-char **CPLHTTPGetOptionsFromEnv();
+char **CPLHTTPGetOptionsFromEnv(const char *pszFilename);
 double CPLHTTPGetNewRetryDelay(int response_code, double dfOldDelay,
                                const char *pszErrBuf, const char *pszCurlError);
 void CPL_DLL *CPLHTTPIgnoreSigPipe();

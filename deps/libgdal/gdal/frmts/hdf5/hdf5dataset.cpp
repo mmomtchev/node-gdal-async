@@ -133,9 +133,9 @@ void GDALRegister_HDF5()
 /*                           HDF5Dataset()                              */
 /************************************************************************/
 HDF5Dataset::HDF5Dataset()
-    : hHDF5(-1), hGroupID(-1), papszSubDatasets(nullptr), bIsHDFEOS(FALSE),
-      nDatasetType(-1), nSubDataCount(0), poH5RootGroup(nullptr),
-      papszMetadata(nullptr), poH5CurrentObject(nullptr)
+    : hHDF5(-1), hGroupID(-1), papszSubDatasets(nullptr), nDatasetType(-1),
+      nSubDataCount(0), poH5RootGroup(nullptr), papszMetadata(nullptr),
+      poH5CurrentObject(nullptr)
 {
 }
 
@@ -175,11 +175,10 @@ GDALDataType HDF5Dataset::GetDataType(hid_t TypeID)
     if (H5Tget_class(TypeID) != H5T_COMPOUND)
     {
 
-        if (H5Tequal(H5T_NATIVE_CHAR, TypeID))
-            return GDT_Byte;
-        else if (H5Tequal(H5T_NATIVE_SCHAR, TypeID))
-            return GDT_Byte;
-        else if (H5Tequal(H5T_NATIVE_UCHAR, TypeID))
+        if (H5Tequal(H5T_NATIVE_SCHAR, TypeID))
+            return GDT_Int8;
+        else if (H5Tequal(H5T_NATIVE_CHAR, TypeID) ||
+                 H5Tequal(H5T_NATIVE_UCHAR, TypeID))
             return GDT_Byte;
         else if (H5Tequal(H5T_NATIVE_SHORT, TypeID))
             return GDT_Int16;
@@ -557,12 +556,18 @@ GDALDataset *HDF5Dataset::Open(GDALOpenInfo *poOpenInfo)
     poDS->hGroupID = H5Gopen(poDS->hHDF5, "/");
     if (poDS->hGroupID < 0)
     {
-        poDS->bIsHDFEOS = false;
         delete poDS;
         return nullptr;
     }
 
-    poDS->bIsHDFEOS = true;
+    if (HDF5EOSParser::HasHDFEOS(poDS->hGroupID))
+    {
+        if (poDS->m_oHDFEOSParser.Parse(poDS->hGroupID))
+        {
+            CPLDebug("HDF5", "Successfully parsed HDFEOS metadata");
+        }
+    }
+
     poDS->ReadGlobalAttributes(true);
 
     poDS->SetMetadata(poDS->papszMetadata);
@@ -1311,47 +1316,156 @@ CPLErr HDF5Dataset::HDF5ListGroupObjects(HDF5GroupObjects *poRootGroup,
     if (poRootGroup->nType == H5G_DATASET && bSUBDATASET &&
         poDS->GetDataType(poRootGroup->native) == GDT_Unknown)
     {
-        CPLDebug("HDF5", "Skipping unsupported %s of type %s",
-                 poRootGroup->pszUnderscorePath,
-                 poDS->GetDataTypeName(poRootGroup->native));
+        if (!EQUAL(poRootGroup->pszUnderscorePath,
+                   "//HDFEOS_INFORMATION/StructMetadata.0"))
+        {
+            CPLDebug("HDF5", "Skipping unsupported %s of type %s",
+                     poRootGroup->pszUnderscorePath,
+                     poDS->GetDataTypeName(poRootGroup->native));
+        }
     }
     else if (poRootGroup->nType == H5G_DATASET && bSUBDATASET)
     {
         CreateMetadata(poRootGroup, H5G_DATASET);
 
-        char szTemp[8192];  // TODO(schwehr): Get this off of the stack.
+        CPLString osStr;
         switch (poRootGroup->nRank)
         {
             case 2:
-                snprintf(szTemp, sizeof(szTemp), "%dx%d",
-                         static_cast<int>(poRootGroup->paDims[0]),
-                         static_cast<int>(poRootGroup->paDims[1]));
+                osStr.Printf("%dx%d", static_cast<int>(poRootGroup->paDims[0]),
+                             static_cast<int>(poRootGroup->paDims[1]));
                 break;
             case 3:
-                snprintf(szTemp, sizeof(szTemp), "%dx%dx%d",
-                         static_cast<int>(poRootGroup->paDims[0]),
-                         static_cast<int>(poRootGroup->paDims[1]),
-                         static_cast<int>(poRootGroup->paDims[2]));
+                osStr.Printf("%dx%dx%d",
+                             static_cast<int>(poRootGroup->paDims[0]),
+                             static_cast<int>(poRootGroup->paDims[1]),
+                             static_cast<int>(poRootGroup->paDims[2]));
                 break;
             default:
                 return CE_None;
         }
 
-        const std::string osDim = szTemp;
+        HDF5EOSParser::GridMetadata oGridMetadata;
+        HDF5EOSParser::SwathDataFieldMetadata oSwathDataFieldMetadata;
+        if (m_oHDFEOSParser.GetDataModel() == HDF5EOSParser::DataModel::GRID &&
+            m_oHDFEOSParser.GetGridMetadata(poRootGroup->pszUnderscorePath,
+                                            oGridMetadata) &&
+            static_cast<int>(oGridMetadata.aoDimensions.size()) ==
+                poRootGroup->nRank)
+        {
+            int nXDimSize = 0;
+            int nYDimSize = 0;
+            int nOtherDimSize = 0;
+            std::string osOtherDimName;
+            for (auto &oDim : oGridMetadata.aoDimensions)
+            {
+                if (oDim.osName == "XDim")
+                    nXDimSize = oDim.nSize;
+                else if (oDim.osName == "YDim")
+                    nYDimSize = oDim.nSize;
+                else
+                {
+                    osOtherDimName = oDim.osName;
+                    nOtherDimSize = oDim.nSize;
+                }
+            }
+            switch (poRootGroup->nRank)
+            {
+                case 2:
+                    osStr.Printf("(y=%d)x(x=%d)", nYDimSize, nXDimSize);
+                    break;
+                case 3:
+                {
+                    if (osOtherDimName == oGridMetadata.aoDimensions[0].osName)
+                        osStr.Printf("(%s=%d)x(y=%d)x(x=%d)",
+                                     osOtherDimName.c_str(), nOtherDimSize,
+                                     nYDimSize, nXDimSize);
+                    else
+                        osStr.Printf("(y=%d)x(x=%d)x(%s=%d)", nYDimSize,
+                                     nXDimSize, osOtherDimName.c_str(),
+                                     nOtherDimSize);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        else if (m_oHDFEOSParser.GetDataModel() ==
+                     HDF5EOSParser::DataModel::SWATH &&
+                 m_oHDFEOSParser.GetSwathDataFieldMetadata(
+                     poRootGroup->pszUnderscorePath, oSwathDataFieldMetadata) &&
+                 static_cast<int>(
+                     oSwathDataFieldMetadata.aoDimensions.size()) ==
+                     poRootGroup->nRank &&
+                 oSwathDataFieldMetadata.iXDim >= 0 &&
+                 oSwathDataFieldMetadata.iYDim >= 0)
+        {
+            const std::string &osXDimName =
+                oSwathDataFieldMetadata
+                    .aoDimensions[oSwathDataFieldMetadata.iXDim]
+                    .osName;
+            const int nXDimSize =
+                oSwathDataFieldMetadata
+                    .aoDimensions[oSwathDataFieldMetadata.iXDim]
+                    .nSize;
+            const std::string &osYDimName =
+                oSwathDataFieldMetadata
+                    .aoDimensions[oSwathDataFieldMetadata.iYDim]
+                    .osName;
+            const int nYDimSize =
+                oSwathDataFieldMetadata
+                    .aoDimensions[oSwathDataFieldMetadata.iYDim]
+                    .nSize;
+            switch (poRootGroup->nRank)
+            {
+                case 2:
+                    osStr.Printf("(%s=%d)x(%s=%d)", osYDimName.c_str(),
+                                 nYDimSize, osXDimName.c_str(), nXDimSize);
+                    break;
+                case 3:
+                {
+                    const std::string &osOtherDimName =
+                        oSwathDataFieldMetadata
+                            .aoDimensions[oSwathDataFieldMetadata.iOtherDim]
+                            .osName;
+                    const int nOtherDimSize =
+                        oSwathDataFieldMetadata
+                            .aoDimensions[oSwathDataFieldMetadata.iOtherDim]
+                            .nSize;
+                    if (oSwathDataFieldMetadata.iOtherDim == 0)
+                    {
+                        osStr.Printf("(%s=%d)x(%s=%d)x(%s=%d)",
+                                     osOtherDimName.c_str(), nOtherDimSize,
+                                     osYDimName.c_str(), nYDimSize,
+                                     osXDimName.c_str(), nXDimSize);
+                    }
+                    else
+                    {
+                        osStr.Printf("(%s=%d)x(%s=%d)x(%s=%d)",
+                                     osYDimName.c_str(), nYDimSize,
+                                     osXDimName.c_str(), nXDimSize,
+                                     osOtherDimName.c_str(), nOtherDimSize);
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
 
-        snprintf(szTemp, sizeof(szTemp), "SUBDATASET_%d_NAME",
-                 ++(poDS->nSubDataCount));
+        const std::string osDim = osStr;
+
+        osStr.Printf("SUBDATASET_%d_NAME", ++(poDS->nSubDataCount));
 
         poDS->papszSubDatasets =
-            CSLSetNameValue(poDS->papszSubDatasets, szTemp,
+            CSLSetNameValue(poDS->papszSubDatasets, osStr.c_str(),
                             CPLSPrintf("HDF5:\"%s\":%s", poDS->GetDescription(),
                                        poRootGroup->pszUnderscorePath));
 
-        snprintf(szTemp, sizeof(szTemp), "SUBDATASET_%d_DESC",
-                 poDS->nSubDataCount);
+        osStr.Printf("SUBDATASET_%d_DESC", poDS->nSubDataCount);
 
         poDS->papszSubDatasets = CSLSetNameValue(
-            poDS->papszSubDatasets, szTemp,
+            poDS->papszSubDatasets, osStr.c_str(),
             CPLSPrintf("[%s] %s (%s)", osDim.c_str(),
                        poRootGroup->pszUnderscorePath,
                        poDS->GetDataTypeName(poRootGroup->native)));

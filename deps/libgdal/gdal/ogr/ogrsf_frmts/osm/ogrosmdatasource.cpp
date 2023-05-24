@@ -445,6 +445,7 @@ bool OGROSMDataSource::IndexPointSQLite(OSMNode *psNode)
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Failed inserting node " CPL_FRMT_GIB ": %s", psNode->nID,
                  sqlite3_errmsg(m_hDB));
+        return false;
     }
 
     return true;
@@ -2345,7 +2346,7 @@ OGRGeometry *OGROSMDataSource::BuildMultiPolygon(OSMRelation *psRelation,
         if (hPoly != nullptr && OGR_G_GetGeometryType(hPoly) == wkbPolygon)
         {
             OGRPolygon *poSuperPoly =
-                reinterpret_cast<OGRGeometry *>(hPoly)->toPolygon();
+                OGRGeometry::FromHandle(hPoly)->toPolygon();
             for (unsigned int i = 0;
                  i < 1 + (unsigned int)poSuperPoly->getNumInteriorRings(); i++)
             {
@@ -2395,8 +2396,7 @@ OGRGeometry *OGROSMDataSource::BuildMultiPolygon(OSMRelation *psRelation,
                      ": Geometry has incompatible type : %s",
                      psRelation->nID,
                      poGeom != nullptr
-                         ? OGR_G_GetGeometryName(
-                               reinterpret_cast<OGRGeometryH>(poGeom))
+                         ? OGR_G_GetGeometryName(OGRGeometry::ToHandle(poGeom))
                          : "null");
             delete poGeom;
         }
@@ -2811,6 +2811,37 @@ int OGROSMDataSource::Open(const char *pszFilename, char **papszOpenOptionsIn)
         return FALSE;
     }
 
+    const char *pszTagsFormat =
+        CSLFetchNameValue(papszOpenOptionsIn, "TAGS_FORMAT");
+    if (pszTagsFormat)
+    {
+        if (EQUAL(pszTagsFormat, "JSON"))
+            m_bTagsAsHSTORE = false;
+        else if (EQUAL(pszTagsFormat, "HSTORE"))
+            m_bTagsAsHSTORE = true;
+        else
+        {
+            CPLError(CE_Warning, CPLE_NotSupported,
+                     "Invalid value for TAGS_FORMAT open option: %s",
+                     pszTagsFormat);
+        }
+    }
+
+    const auto eTagsSubType = m_bTagsAsHSTORE ? OFSTNone : OFSTJSON;
+    for (int i = 0; i < m_nLayers; i++)
+    {
+        if (m_papoLayers[i]->HasAllTags())
+        {
+            m_papoLayers[i]->AddField("all_tags", OFTString, eTagsSubType);
+            if (m_papoLayers[i]->HasOtherTags())
+            {
+                m_papoLayers[i]->SetHasOtherTags(false);
+            }
+        }
+        else if (m_papoLayers[i]->HasOtherTags())
+            m_papoLayers[i]->AddField("other_tags", OFTString, eTagsSubType);
+    }
+
     m_bNeedsToSaveWayInfo =
         (m_papoLayers[IDX_LYR_MULTIPOLYGONS]->HasTimestamp() ||
          m_papoLayers[IDX_LYR_MULTIPOLYGONS]->HasChangeset() ||
@@ -3108,8 +3139,7 @@ bool OGROSMDataSource::SetDBOptions()
         return false;
     }
 
-    if (!SetCacheSize())
-        return false;
+    SetCacheSize();
 
     if (!StartTransactionCacheDB())
         return false;
@@ -3121,13 +3151,13 @@ bool OGROSMDataSource::SetDBOptions()
 /*                              SetCacheSize()                          */
 /************************************************************************/
 
-bool OGROSMDataSource::SetCacheSize()
+void OGROSMDataSource::SetCacheSize()
 {
     const char *pszSqliteCacheMB =
         CPLGetConfigOption("OSM_SQLITE_CACHE", nullptr);
 
     if (pszSqliteCacheMB == nullptr)
-        return true;
+        return;
 
     char *pszErrMsg = nullptr;
     char **papszResult = nullptr;
@@ -3154,16 +3184,16 @@ bool OGROSMDataSource::SetCacheSize()
                  "Unable to run PRAGMA page_size : %s",
                  pszErrMsg ? pszErrMsg : sqlite3_errmsg(m_hDB));
         sqlite3_free(pszErrMsg);
-        return true;
+        return;
     }
     if (iSqlitePageSize == 0)
-        return true;
+        return;
 
     /* computing the CacheSize as #Pages */
     const int iSqliteCachePages =
         static_cast<int>(iSqliteCacheBytes / iSqlitePageSize);
     if (iSqliteCachePages <= 0)
-        return true;
+        return;
 
     rc = sqlite3_exec(m_hDB,
                       CPLSPrintf("PRAGMA cache_size = %d", iSqliteCachePages),
@@ -3174,8 +3204,6 @@ bool OGROSMDataSource::SetCacheSize()
                  "Unrecognized value for PRAGMA cache_size : %s", pszErrMsg);
         sqlite3_free(pszErrMsg);
     }
-
-    return true;
 }
 
 /************************************************************************/
@@ -3480,6 +3508,24 @@ bool OGROSMDataSource::ParseConf(char **papszOpenOptionsIn)
             }
         }
 
+        else if (STARTS_WITH(pszLine, "tags_format="))
+        {
+            if (EQUAL(pszLine + strlen("tags_format="), "json"))
+            {
+                m_bTagsAsHSTORE = false;
+            }
+            else if (EQUAL(pszLine + strlen("tags_format="), "hstore"))
+            {
+                m_bTagsAsHSTORE = true;
+            }
+            else
+            {
+                CPLError(CE_Warning, CPLE_NotSupported,
+                         "Unsupported value for tags_format: %s",
+                         pszLine + strlen("tags_format="));
+            }
+        }
+
         else if (iCurLayer >= 0)
         {
             char **papszTokens = CSLTokenizeString2(pszLine, "=", 0);
@@ -3721,20 +3767,6 @@ bool OGROSMDataSource::ParseConf(char **papszOpenOptionsIn)
 
     if (iCurLayer >= 0)
         AddComputedAttributes(iCurLayer, oAttributes);
-
-    for (int i = 0; i < m_nLayers; i++)
-    {
-        if (m_papoLayers[i]->HasAllTags())
-        {
-            m_papoLayers[i]->AddField("all_tags", OFTString);
-            if (m_papoLayers[i]->HasOtherTags())
-            {
-                m_papoLayers[i]->SetHasOtherTags(false);
-            }
-        }
-        else if (m_papoLayers[i]->HasOtherTags())
-            m_papoLayers[i]->AddField("other_tags", OFTString);
-    }
 
     VSIFCloseL(fpConf);
 

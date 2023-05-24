@@ -831,7 +831,6 @@ class JPEG_Codec
     static bool IsJPEG(const buf_mgr &src);
 
 #if defined(JPEG12_SUPPORTED)  // Internal only
-#define LIBJPEG_12_H "../jpeg/libjpeg12/jpeglib.h"
     CPLErr CompressJPEG12(buf_mgr &dst, buf_mgr &src);
     CPLErr DecompressJPEG12(buf_mgr &dst, buf_mgr &src);
 #endif

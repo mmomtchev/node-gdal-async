@@ -160,6 +160,7 @@ void RegisterOGRCAD()
         poDriver->pfnIdentify = OGRCADDriverIdentify;
         poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");
         poDriver->SetMetadataItem(GDAL_DCAP_FEATURE_STYLES, "YES");
+        poDriver->SetMetadataItem(GDAL_DCAP_FEATURE_STYLES_READ, "YES");
         GetGDALDriverManager()->RegisterDriver(poDriver);
     }
 }

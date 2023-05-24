@@ -240,15 +240,17 @@ vsi_l_offset GRIBRasterBand::FindTrueStart(VSILFILE *fp, vsi_l_offset start)
 }
 
 /************************************************************************/
-/*                          FindPDSTemplate()                           */
+/*                      FindPDSTemplateGRIB2()                          */
 /*                                                                      */
 /*      Scan the file for the PDS template info and represent it as     */
 /*      metadata.                                                       */
 /************************************************************************/
 
-void GRIBRasterBand::FindPDSTemplate()
+void GRIBRasterBand::FindPDSTemplateGRIB2()
 
 {
+    CPLAssert(m_nGribVersion == 2);
+
     if (bLoadedPDS)
         return;
     bLoadedPDS = true;
@@ -908,7 +910,7 @@ char **GRIBRasterBand::GetMetadata(const char *pszDomain)
     if (m_nGribVersion == 2 &&
         CPLTestBool(CPLGetConfigOption("GRIB_PDS_ALL_BANDS", "ON")))
     {
-        FindPDSTemplate();
+        FindPDSTemplateGRIB2();
     }
     return GDALPamRasterBand::GetMetadata(pszDomain);
 }
@@ -923,7 +925,7 @@ const char *GRIBRasterBand::GetMetadataItem(const char *pszName,
     if (m_nGribVersion == 2 &&
         CPLTestBool(CPLGetConfigOption("GRIB_PDS_ALL_BANDS", "ON")))
     {
-        FindPDSTemplate();
+        FindPDSTemplateGRIB2();
     }
     return GDALPamRasterBand::GetMetadataItem(pszName, pszDomain);
 }
@@ -1199,15 +1201,15 @@ class InventoryWrapperSidecar : public gdal::grib::InventoryWrapper
                 inv_[i].subgNum = 0;
             else
             {
-                inv_[i].subgNum =
-                    static_cast<int>(strtol(aosNum[1], &endptr, 10));
+                auto subgNum = strtol(aosNum[1], &endptr, 10);
                 if (*endptr != 0)
                     goto err_sidecar;
-                if (inv_[i].subgNum <= 0)
+                if (subgNum <= 0 || subgNum > 65536)
                     goto err_sidecar;
                 // .idx file use a 1-based indexing, whereas DEGRIB uses a
                 // 0-based one
-                --inv_[i].subgNum;
+                subgNum--;
+                inv_[i].subgNum = static_cast<unsigned short>(subgNum);
             }
 
             inv_[i].start = strtoll(aosTokens[1], &endptr, 10);
@@ -1495,7 +1497,7 @@ GDALDataset *GRIBDataset::Open(GDALOpenInfo *poOpenInfo)
             gribBand = new GRIBRasterBand(poDS, bandNr, psInv);
 
             if (psInv->GribVersion == 2)
-                gribBand->FindPDSTemplate();
+                gribBand->FindPDSTemplateGRIB2();
 
             gribBand->m_Grib_MetaData = metaData;
         }
@@ -2321,7 +2323,7 @@ GDALDataset *GRIBDataset::OpenMultiDim(GDALOpenInfo *poOpenInfo)
             // coverity[tainted_data]
             GRIBRasterBand gribBand(poDS, bandNr, psInv);
             if (psInv->GribVersion == 2)
-                gribBand.FindPDSTemplate();
+                gribBand.FindPDSTemplateGRIB2();
             osElement = psInv->element;
             osShortFstLevel = psInv->shortFstLevel;
             dfRefTime = psInv->refTime;

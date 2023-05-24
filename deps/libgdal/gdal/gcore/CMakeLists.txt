@@ -38,10 +38,12 @@ add_library(
   gdalarraybandblockcache.cpp
   gdalhashsetbandblockcache.cpp
   gdalrelationship.cpp
+  gdalorienteddataset.cpp
   overview.cpp
   rasterio.cpp
   rawdataset.cpp
   gdalmultidim.cpp
+  gdalmultidim_gridded.cpp
   gdalpython.cpp
   gdalpythondriverloader.cpp
   tilematrixset.cpp
@@ -130,6 +132,12 @@ endif ()
 if (GDAL_USE_GEOS)
   target_compile_definitions(gcore PRIVATE -DHAVE_GEOS)
   gdal_target_link_libraries(gcore PRIVATE ${GEOS_TARGET})
+endif ()
+
+if (GDAL_USE_CURL)
+  # Just for gdal_misc.cpp in fact
+  target_compile_definitions(gcore PRIVATE -DHAVE_CURL)
+  gdal_target_link_libraries(gcore PRIVATE CURL::libcurl)
 endif ()
 
 gdal_target_link_libraries(gcore PRIVATE PROJ::proj)

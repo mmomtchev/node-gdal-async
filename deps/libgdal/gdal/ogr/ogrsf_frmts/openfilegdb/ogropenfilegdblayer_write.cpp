@@ -235,14 +235,44 @@ static void XMLSerializeGeomFieldBase(CPLXMLNode *psRoot,
     CPLCreateXMLElementAndValue(psSpatialReference, "HighPrecision", "true");
     if (poSRS)
     {
-        const char *pszAuthorityName = poSRS->GetAuthorityName(nullptr);
-        const char *pszAuthorityCode = poSRS->GetAuthorityCode(nullptr);
-        if (pszAuthorityName && pszAuthorityCode &&
-            (EQUAL(pszAuthorityName, "EPSG") ||
-             EQUAL(pszAuthorityName, "ESRI")))
+        if (CPLTestBool(CPLGetConfigOption("OPENFILEGDB_WRITE_WKID", "YES")))
         {
-            CPLCreateXMLElementAndValue(psSpatialReference, "WKID",
-                                        pszAuthorityCode);
+            const char *pszKey = poSRS->IsProjected() ? "PROJCS" : "GEOGCS";
+            const char *pszAuthorityName = poSRS->GetAuthorityName(pszKey);
+            const char *pszAuthorityCode = poSRS->GetAuthorityCode(pszKey);
+            if (pszAuthorityName && pszAuthorityCode &&
+                (EQUAL(pszAuthorityName, "EPSG") ||
+                 EQUAL(pszAuthorityName, "ESRI")))
+            {
+                CPLCreateXMLElementAndValue(psSpatialReference, "WKID",
+                                            pszAuthorityCode);
+                if (CPLTestBool(CPLGetConfigOption(
+                        "OPENFILEGDB_WRITE_LATESTWKID", "YES")))
+                {
+                    CPLCreateXMLElementAndValue(psSpatialReference,
+                                                "LatestWKID", pszAuthorityCode);
+                }
+            }
+        }
+
+        if (poSRS->IsCompound() &&
+            CPLTestBool(CPLGetConfigOption("OPENFILEGDB_WRITE_VCSWKID", "YES")))
+        {
+            const char *pszAuthorityName = poSRS->GetAuthorityName("VERT_CS");
+            const char *pszAuthorityCode = poSRS->GetAuthorityCode("VERT_CS");
+            if (pszAuthorityName && pszAuthorityCode &&
+                (EQUAL(pszAuthorityName, "EPSG") ||
+                 EQUAL(pszAuthorityName, "ESRI")))
+            {
+                CPLCreateXMLElementAndValue(psSpatialReference, "VCSWKID",
+                                            pszAuthorityCode);
+                if (CPLTestBool(CPLGetConfigOption(
+                        "OPENFILEGDB_WRITE_LATESTVCSWKID", "YES")))
+                {
+                    CPLCreateXMLElementAndValue(
+                        psSpatialReference, "LatestVCSWKID", pszAuthorityCode);
+                }
+            }
         }
     }
 }
@@ -469,7 +499,7 @@ bool OGROpenFileGDBLayer::Create(const OGRSpatialReference *poSRS)
                 CPLSearchXMLNode(psParentTree, "=DEFeatureDataset");
             if (psParentInfo != nullptr)
             {
-                poFeatureDatasetSRS.reset(BuildSRS(psParentInfo));
+                poFeatureDatasetSRS.reset(m_poDS->BuildSRS(psParentInfo));
             }
             CPLDestroyXMLNode(psParentTree);
         }
@@ -1346,12 +1376,11 @@ OGRErr OGROpenFileGDBLayer::AlterFieldDefn(int iFieldToAlter,
 
             oField.SetName(poNewFieldDefn->GetNameRef());
         }
-        oField.SetAlternativeName(poNewFieldDefn->GetAlternativeNameRef());
     }
     if (nFlagsIn & ALTER_WIDTH_PRECISION_FLAG)
     {
-        oField.SetWidth(poNewFieldDefn->GetWidth());
-        oField.SetPrecision(poNewFieldDefn->GetPrecision());
+        if (oField.GetType() == OFTString)
+            oField.SetWidth(poNewFieldDefn->GetWidth());
     }
     if (nFlagsIn & ALTER_DEFAULT_FLAG)
     {
@@ -1371,6 +1400,10 @@ OGRErr OGROpenFileGDBLayer::AlterFieldDefn(int iFieldToAlter,
     if (nFlagsIn & ALTER_DOMAIN_FLAG)
     {
         oField.SetDomainName(poNewFieldDefn->GetDomainName());
+    }
+    if (nFlagsIn & ALTER_ALTERNATIVE_NAME_FLAG)
+    {
+        oField.SetAlternativeName(poNewFieldDefn->GetAlternativeNameRef());
     }
 
     const auto eType = GetGDBFieldType(&oField);
@@ -1412,7 +1445,6 @@ OGRErr OGROpenFileGDBLayer::AlterFieldDefn(int iFieldToAlter,
     poFieldDefn->SetType(oField.GetType());
     poFieldDefn->SetSubType(oField.GetSubType());
     poFieldDefn->SetWidth(oField.GetWidth());
-    poFieldDefn->SetPrecision(oField.GetPrecision());
     poFieldDefn->SetDefault(oField.GetDefault());
     poFieldDefn->SetNullable(oField.IsNullable());
     poFieldDefn->SetDomainName(oField.GetDomainName());
@@ -2481,7 +2513,7 @@ void OGROpenFileGDBLayer::RefreshXMLDefinitionInMemory()
             CPLCreateXMLElementAndValue(GPFieldInfoEx, "FieldType",
                                         "esriFieldTypeOID");
             CPLCreateXMLElementAndValue(GPFieldInfoEx, "IsNullable", "false");
-            CPLCreateXMLElementAndValue(GPFieldInfoEx, "Length", "12");
+            CPLCreateXMLElementAndValue(GPFieldInfoEx, "Length", "4");
             CPLCreateXMLElementAndValue(GPFieldInfoEx, "Precision", "0");
             CPLCreateXMLElementAndValue(GPFieldInfoEx, "Scale", "0");
             CPLCreateXMLElementAndValue(GPFieldInfoEx, "Required", "true");

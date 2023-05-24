@@ -59,6 +59,16 @@ const char CPL_DLL *CPL_STDCALL CPLGetThreadLocalConfigOption(
 void CPL_DLL CPL_STDCALL CPLSetConfigOption(const char *, const char *);
 void CPL_DLL CPL_STDCALL CPLSetThreadLocalConfigOption(const char *pszKey,
                                                        const char *pszValue);
+
+/** Callback for CPLSubscribeToSetConfigOption() */
+typedef void (*CPLSetConfigOptionSubscriber)(const char *pszKey,
+                                             const char *pszValue,
+                                             bool bThreadLocal,
+                                             void *pUserData);
+int CPL_DLL CPLSubscribeToSetConfigOption(
+    CPLSetConfigOptionSubscriber pfnCallback, void *pUserData);
+void CPL_DLL CPLUnsubscribeToSetConfigOption(int nSubscriberId);
+
 /*! @cond Doxygen_Suppress */
 void CPL_DLL CPL_STDCALL CPLFreeConfig(void);
 /*! @endcond */
@@ -270,6 +280,11 @@ CPLErr CPL_DLL CPLCreateFileInZip(void *hZip, const char *pszFilename,
 CPLErr CPL_DLL CPLWriteFileInZip(void *hZip, const void *pBuffer,
                                  int nBufferSize);
 CPLErr CPL_DLL CPLCloseFileInZip(void *hZip);
+CPLErr CPL_DLL CPLAddFileInZip(void *hZip, const char *pszArchiveFilename,
+                               const char *pszInputFilename, VSILFILE *fpInput,
+                               CSLConstList papszOptions,
+                               GDALProgressFunc pProgressFunc,
+                               void *pProgressData);
 CPLErr CPL_DLL CPLCloseZip(void *hZip);
 
 /* -------------------------------------------------------------------- */

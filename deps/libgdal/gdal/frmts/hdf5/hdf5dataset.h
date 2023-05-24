@@ -32,9 +32,12 @@
 #define HDF5DATASET_H_INCLUDED_
 
 #include "hdf5_api.h"
+#include "hdf5eosparser.h"
 
 #include "cpl_list.h"
 #include "gdal_pam.h"
+
+#include <map>
 
 #ifdef ENABLE_HDF5_GLOBAL_LOCK
 #include <mutex>
@@ -100,10 +103,12 @@ hid_t GDAL_HDF5Open(const std::string &osFilename);
 #endif
 
 class HDF5Dataset;
+class HDF5EOSParser;
 class BAGDataset;
 
 namespace GDAL
 {
+class HDF5Group;
 
 /************************************************************************/
 /*                         HDF5SharedResources                          */
@@ -114,14 +119,27 @@ class HDF5SharedResources
     friend class ::HDF5Dataset;
     friend class ::BAGDataset;
 
+    std::weak_ptr<HDF5SharedResources> m_poSelf{};
     bool m_bReadOnly = true;
     hid_t m_hHDF5 = 0;
     CPLString m_osFilename{};
     std::shared_ptr<GDALPamMultiDim> m_poPAM{};
+    std::unique_ptr<HDF5EOSParser> m_poHDF5EOSParser{};
+    std::map<std::string, std::vector<std::shared_ptr<GDALDimension>>>
+        m_oMapEOSGridNameToDimensions{};
+    std::map<std::string, std::vector<std::shared_ptr<GDALDimension>>>
+        m_oMapEOSSwathNameToDimensions{};
+    std::map<std::string, std::shared_ptr<GDALMDArrayRegularlySpaced>>
+        m_oRefKeeper;
+
+    explicit HDF5SharedResources(const std::string &osFilename);
 
   public:
-    explicit HDF5SharedResources(const std::string &osFilename);
+    static std::shared_ptr<HDF5SharedResources>
+    Create(const std::string &osFilename);
     ~HDF5SharedResources();
+
+    std::shared_ptr<HDF5Group> GetRootGroup();
 
     const std::string &GetFilename() const
     {
@@ -141,6 +159,48 @@ class HDF5SharedResources
     {
         return m_poPAM;
     }
+
+    const HDF5EOSParser *GetHDF5EOSParser() const
+    {
+        return m_poHDF5EOSParser.get();
+    }
+
+    void RegisterEOSGridDimensions(
+        const std::string &osGridName,
+        const std::vector<std::shared_ptr<GDALDimension>> &apoDims)
+    {
+        m_oMapEOSGridNameToDimensions[osGridName] = apoDims;
+    }
+
+    std::vector<std::shared_ptr<GDALDimension>>
+    GetEOSGridDimensions(const std::string &osGridName) const
+    {
+        auto oIter = m_oMapEOSGridNameToDimensions.find(osGridName);
+        if (oIter == m_oMapEOSGridNameToDimensions.end())
+            return {};
+        return oIter->second;
+    }
+
+    void RegisterEOSSwathDimensions(
+        const std::string &osSwathName,
+        const std::vector<std::shared_ptr<GDALDimension>> &apoDims)
+    {
+        m_oMapEOSSwathNameToDimensions[osSwathName] = apoDims;
+    }
+
+    std::vector<std::shared_ptr<GDALDimension>>
+    GetEOSSwathDimensions(const std::string &osSwathName) const
+    {
+        auto oIter = m_oMapEOSSwathNameToDimensions.find(osSwathName);
+        if (oIter == m_oMapEOSSwathNameToDimensions.end())
+            return {};
+        return oIter->second;
+    }
+
+    void KeepRef(const std::shared_ptr<GDALMDArrayRegularlySpaced> &poArray)
+    {
+        m_oRefKeeper[poArray->GetFullName()] = poArray;
+    }
 };
 
 }  // namespace GDAL
@@ -156,12 +216,13 @@ class HDF5Dataset CPL_NON_FINAL : public GDALPamDataset
     hid_t hHDF5;
     hid_t hGroupID;  // H handler interface.
     char **papszSubDatasets;
-    int bIsHDFEOS;
     int nDatasetType;
     int nSubDataCount;
 
     HDF5GroupObjects *poH5RootGroup; /* Contain hdf5 Groups information */
     std::shared_ptr<GDALGroup> m_poRootGroup{};
+
+    HDF5EOSParser m_oHDFEOSParser{};
 
     CPLErr ReadGlobalAttributes(int);
     CPLErr HDF5ListGroupObjects(HDF5GroupObjects *, int);

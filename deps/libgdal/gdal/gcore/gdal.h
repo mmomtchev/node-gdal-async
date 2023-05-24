@@ -64,6 +64,7 @@ typedef enum
 {
     /*! Unknown or unspecified type */ GDT_Unknown = 0,
     /*! Eight bit unsigned integer */ GDT_Byte = 1,
+    /*! 8-bit signed integer (GDAL >= 3.7) */ GDT_Int8 = 14,
     /*! Sixteen bit unsigned integer */ GDT_UInt16 = 2,
     /*! Sixteen bit signed integer */ GDT_Int16 = 3,
     /*! Thirty two bit unsigned integer */ GDT_UInt32 = 4,
@@ -77,7 +78,7 @@ typedef enum
     /* TODO?(#6879): GDT_CInt64 */
     /*! Complex Float32 */ GDT_CFloat32 = 10,
     /*! Complex Float64 */ GDT_CFloat64 = 11,
-    GDT_TypeCount = 14 /* maximum type # + 1 */
+    GDT_TypeCount = 15 /* maximum type # + 1 */
 } GDALDataType;
 
 int CPL_DLL CPL_STDCALL GDALGetDataTypeSize(GDALDataType);  // Deprecated.
@@ -421,21 +422,40 @@ typedef struct GDALDimensionHS *GDALDimensionH;
  */
 #define GDAL_DMD_OPENOPTIONLIST "DMD_OPENOPTIONLIST"
 
-/** List of (space separated) raster data types support by the
+/** List of (space separated) raster data types supported by the
  * Create()/CreateCopy() API. */
 #define GDAL_DMD_CREATIONDATATYPES "DMD_CREATIONDATATYPES"
 
-/** List of (space separated) vector field types support by the CreateField()
+/** List of (space separated) vector field types supported by the CreateField()
  * API.
  * @since GDAL 2.0
  * */
 #define GDAL_DMD_CREATIONFIELDDATATYPES "DMD_CREATIONFIELDDATATYPES"
 
-/** List of (space separated) vector field sub-types support by the
+/** List of (space separated) vector field sub-types supported by the
  * CreateField() API.
  * @since GDAL 2.3
  * */
 #define GDAL_DMD_CREATIONFIELDDATASUBTYPES "DMD_CREATIONFIELDDATASUBTYPES"
+
+/** List of (space separated) capability flags supported by the CreateField() API.
+ *
+ * Supported values are:
+ *
+ * - "WidthPrecision": field width and precision is supported.
+ * - "Nullable": field (non-)nullable status is supported.
+ * - "Unique": field unique constraint is supported.
+ * - "Default": field default value is supported.
+ * - "AlternativeName": field alternative name is supported.
+ * - "Comment": field comment is supported.
+ * - "Domain": field can be associated with a domain.
+ *
+ * @see GDAL_DMD_ALTER_FIELD_DEFN_FLAGS for capabilities supported when altering
+ * existing fields.
+ *
+ * @since GDAL 3.7
+ */
+#define GDAL_DMD_CREATION_FIELD_DEFN_FLAGS "DMD_CREATION_FIELD_DEFN_FLAGS"
 
 /** Capability set by a driver that exposes Subdatasets.
  *
@@ -446,6 +466,28 @@ typedef struct GDALDimensionHS *GDALDimensionH;
  * for vector drivers.
  */
 #define GDAL_DMD_SUBDATASETS "DMD_SUBDATASETS"
+
+/** Capability set by a vector driver that supports field width and precision.
+ *
+ * This capability reflects that a vector driver includes the decimal separator
+ * in the field width of fields of type OFTReal.
+ *
+ * See GDAL_DMD_NUMERIC_FIELD_WIDTH_INCLUDES_SIGN for a related capability flag.
+ * @since GDAL 3.7
+ */
+#define GDAL_DMD_NUMERIC_FIELD_WIDTH_INCLUDES_DECIMAL_SEPARATOR                \
+    "DMD_NUMERIC_FIELD_WIDTH_INCLUDES_DECIMAL_SEPARATOR"
+
+/** Capability set by a vector driver that supports field width and precision.
+ *
+ * This capability reflects that a vector driver includes the sign
+ * in the field width of fields of type OFTReal.
+ *
+ * See GDAL_DMD_NUMERIC_FIELD_WIDTH_INCLUDES_DECIMAL_SEPARATOR for a related capability flag.
+ * @since GDAL 3.7
+ */
+#define GDAL_DMD_NUMERIC_FIELD_WIDTH_INCLUDES_SIGN                             \
+    "DMD_NUMERIC_FIELD_WIDTH_INCLUDES_SIGN"
 
 /** Capability set by a driver that implements the Open() API. */
 #define GDAL_DCAP_OPEN "DCAP_OPEN"
@@ -535,22 +577,33 @@ typedef struct GDALDimensionHS *GDALDimensionH;
  */
 #define GDAL_DCAP_REORDER_FIELDS "DCAP_REORDER_FIELDS"
 
-/** List of (space separated) flags support by the OGRLayer::AlterFieldDefn()
+/** List of (space separated) flags supported by the OGRLayer::AlterFieldDefn()
  * API.
  *
  * Supported values are "Name", "Type", "WidthPrecision", "Nullable", "Default",
- * "Unique" and "Domain", corresponding respectively to the ALTER_NAME_FLAG,
- * ALTER_TYPE_FLAG, ALTER_WIDTH_PRECISION_FLAG, ALTER_NULLABLE_FLAG,
- * ALTER_DEFAULT_FLAG, ALTER_UNIQUE_FLAG, and ALTER_DOMAIN_FLAG flags.
+ * "Unique", "Domain", "AlternativeName" and "Comment", corresponding respectively
+ * to the ALTER_NAME_FLAG, ALTER_TYPE_FLAG, ALTER_WIDTH_PRECISION_FLAG, ALTER_NULLABLE_FLAG,
+ * ALTER_DEFAULT_FLAG, ALTER_UNIQUE_FLAG, ALTER_DOMAIN_FLAG,
+ * ALTER_ALTERNATIVE_NAME_FLAG and ALTER_COMMENT_FLAG flags.
  *
  * Note that advertizing one of these flags doesn't necessarily mean that
  * all modifications of the corresponding property can be made. For example,
  * altering the field type may be restricted by the current type of the field,
  * etc.
  *
+ * @see GDAL_DMD_CREATION_FIELD_DEFN_FLAGS for capabilities supported
+ * when creating new fields.
+ *
  * @since GDAL 3.6
  */
 #define GDAL_DMD_ALTER_FIELD_DEFN_FLAGS "GDAL_DMD_ALTER_FIELD_DEFN_FLAGS"
+
+/** List of (space separated) field names which are considered illegal by the
+ * driver and should not be used when creating/altering fields.
+ *
+ * @since GDAL 3.7
+ */
+#define GDAL_DMD_ILLEGAL_FIELD_NAMES "GDAL_DMD_ILLEGAL_FIELD_NAMES"
 
 /** Capability set by a driver that can create fields with NOT NULL constraint.
  * @since GDAL 2.0
@@ -611,10 +664,25 @@ typedef struct GDALDimensionHS *GDALDimensionH;
  */
 #define GDAL_DMD_GEOMETRY_FLAGS "GDAL_DMD_GEOMETRY_FLAGS"
 
-/** Capability set by drivers which support feature styles.
+/** Capability set by drivers which support either reading or writing feature
+ * styles.
+ *
+ * Consider using the more granular GDAL_DCAP_FEATURE_STYLES_READ or
+ * GDAL_DCAP_FEATURE_STYLES_WRITE capabilities instead.
+ *
  * @since GDAL 2.3
  */
 #define GDAL_DCAP_FEATURE_STYLES "DCAP_FEATURE_STYLES"
+
+/** Capability set by drivers which support reading feature styles.
+ * @since GDAL 3.7
+ */
+#define GDAL_DCAP_FEATURE_STYLES_READ "DCAP_FEATURE_STYLES_READ"
+
+/** Capability set by drivers which support writing feature styles.
+ * @since GDAL 3.7
+ */
+#define GDAL_DCAP_FEATURE_STYLES_WRITE "DCAP_FEATURE_STYLES_WRITE"
 
 /** Capability set by drivers which support storing/retrieving coordinate epoch
  * for dynamic CRS
@@ -691,13 +759,23 @@ typedef struct GDALDimensionHS *GDALDimensionH;
  */
 #define GDAL_DMD_RELATIONSHIP_FLAGS "GDAL_DMD_RELATIONSHIP_FLAGS"
 
+/** List of (space separated) standard related table types which are recognised
+ * by the driver.
+ *
+ * See GDALRelationshipGetRelatedTableType/GDALRelationshipSetRelatedTableType
+ *
+ * @since GDAL 3.7
+ */
+#define GDAL_DMD_RELATIONSHIP_RELATED_TABLE_TYPES                              \
+    "GDAL_DMD_RELATIONSHIP_RELATED_TABLE_TYPES"
+
 /** Capability set by drivers for formats which support renaming vector layers.
  *
  * @since GDAL 3.5
  */
 #define GDAL_DCAP_RENAME_LAYERS "DCAP_RENAME_LAYERS"
 
-/** List of (space separated) field domain types support by the AddFieldDomain()
+/** List of (space separated) field domain types supported by the AddFieldDomain()
  * API.
  *
  * Supported values are Coded, Range and Glob, corresponding to the
@@ -708,7 +786,7 @@ typedef struct GDALDimensionHS *GDALDimensionH;
  */
 #define GDAL_DMD_CREATION_FIELD_DOMAIN_TYPES "DMD_CREATION_FIELD_DOMAIN_TYPES"
 
-/** List of (space separated) flags support by the
+/** List of (space separated) flags supported by the
  * OGRLayer::AlterGeomFieldDefn() API.
  *
  * Supported values are "Name", "Type", "Nullable", "SRS", "CoordinateEpoch",
@@ -1018,7 +1096,7 @@ void CPL_DLL CPL_STDCALL GDALSetDescription(GDALMajorObjectH, const char *);
 
 GDALDriverH CPL_DLL CPL_STDCALL GDALGetDatasetDriver(GDALDatasetH);
 char CPL_DLL **CPL_STDCALL GDALGetFileList(GDALDatasetH);
-void CPL_DLL CPL_STDCALL GDALClose(GDALDatasetH);
+CPLErr CPL_DLL CPL_STDCALL GDALClose(GDALDatasetH);
 int CPL_DLL CPL_STDCALL GDALGetRasterXSize(GDALDatasetH);
 int CPL_DLL CPL_STDCALL GDALGetRasterYSize(GDALDatasetH);
 int CPL_DLL CPL_STDCALL GDALGetRasterCount(GDALDatasetH);
@@ -1054,6 +1132,15 @@ CPLErr CPL_DLL CPL_STDCALL GDALDatasetAdviseRead(
     int nBXSize, int nBYSize, GDALDataType eBDataType, int nBandCount,
     int *panBandCount, CSLConstList papszOptions);
 
+char CPL_DLL **
+GDALDatasetGetCompressionFormats(GDALDatasetH hDS, int nXOff, int nYOff,
+                                 int nXSize, int nYSize, int nBandCount,
+                                 const int *panBandList) CPL_WARN_UNUSED_RESULT;
+CPLErr CPL_DLL GDALDatasetReadCompressedData(
+    GDALDatasetH hDS, const char *pszFormat, int nXOff, int nYOff, int nXSize,
+    int nYSize, int nBandCount, const int *panBandList, void **ppBuffer,
+    size_t *pnBufferSize, char **ppszDetailedFormat);
+
 const char CPL_DLL *CPL_STDCALL GDALGetProjectionRef(GDALDatasetH);
 OGRSpatialReferenceH CPL_DLL GDALGetSpatialRef(GDALDatasetH);
 CPLErr CPL_DLL CPL_STDCALL GDALSetProjection(GDALDatasetH, const char *);
@@ -1084,7 +1171,7 @@ CPLErr CPL_DLL CPL_STDCALL GDALBuildOverviewsEx(
     GDALProgressFunc, void *, CSLConstList papszOptions) CPL_WARN_UNUSED_RESULT;
 void CPL_DLL CPL_STDCALL GDALGetOpenDatasets(GDALDatasetH **hDS, int *pnCount);
 int CPL_DLL CPL_STDCALL GDALGetAccess(GDALDatasetH hDS);
-void CPL_DLL CPL_STDCALL GDALFlushCache(GDALDatasetH hDS);
+CPLErr CPL_DLL CPL_STDCALL GDALFlushCache(GDALDatasetH hDS);
 
 CPLErr CPL_DLL CPL_STDCALL GDALCreateDatasetMaskBand(GDALDatasetH hDS,
                                                      int nFlags);
@@ -1170,6 +1257,33 @@ bool CPL_DLL GDALDatasetUpdateRelationship(GDALDatasetH hDS,
                                            GDALRelationshipH hRelationship,
                                            char **ppszFailureReason);
 
+/** Type of functions to pass to GDALDatasetSetQueryLoggerFunc
+ * @since GDAL 3.7 */
+typedef void (*GDALQueryLoggerFunc)(const char *pszSQL, const char *pszError,
+                                    int64_t lNumRecords,
+                                    int64_t lExecutionTimeMilliseconds,
+                                    void *pQueryLoggerArg);
+
+/**
+ * Sets the SQL query logger callback.
+ *
+ * When supported by the driver, the callback will be called with
+ * the executed SQL text, the error message, the execution time in milliseconds,
+ * the number of records fetched/affected and the client status data.
+ *
+ * A value of -1 in the execution time or in the number of records indicates
+ * that the values are unknown.
+ *
+ * @param hDS                   Dataset handle.
+ * @param pfnQueryLoggerFunc    Callback function
+ * @param poQueryLoggerArg      Opaque client status data
+ * @return                      true in case of success.
+ * @since                       GDAL 3.7
+ */
+bool CPL_DLL GDALDatasetSetQueryLoggerFunc(
+    GDALDatasetH hDS, GDALQueryLoggerFunc pfnQueryLoggerFunc,
+    void *poQueryLoggerArg);
+
 /* ==================================================================== */
 /*      GDALRasterBand ... one band/channel in a dataset.               */
 /* ==================================================================== */
@@ -1181,55 +1295,62 @@ bool CPL_DLL GDALDatasetUpdateRelationship(GDALDatasetH hDS,
  * SRCVAL - Macro which may be used by pixel functions to obtain
  *          a pixel from a source buffer.
  */
-#define SRCVAL(papoSource, eSrcType, ii)                                                               \
-    (eSrcType == GDT_Byte                                                                              \
-         ? CPL_REINTERPRET_CAST(const GByte *, papoSource)[ii]                                         \
-         : (eSrcType == GDT_Float32                                                                    \
-                ? CPL_REINTERPRET_CAST(const float *, papoSource)[ii]                                  \
-                : (eSrcType == GDT_Float64                                                             \
-                       ? CPL_REINTERPRET_CAST(const double *, papoSource)[ii]                          \
-                       : (eSrcType == GDT_Int32                                                        \
-                              ? CPL_REINTERPRET_CAST(const GInt32 *,                                   \
-                                                     papoSource)[ii]                                   \
-                              : (eSrcType == GDT_UInt16                                                \
-                                     ? CPL_REINTERPRET_CAST(const GUInt16 *,                           \
-                                                            papoSource)[ii]                            \
-                                     : (eSrcType == GDT_Int16                                          \
-                                            ? CPL_REINTERPRET_CAST(                                    \
-                                                  const GInt16 *,                                      \
-                                                  papoSource)[ii]                                      \
-                                            : (eSrcType == GDT_UInt32                                  \
-                                                   ? CPL_REINTERPRET_CAST(                             \
-                                                         const GUInt32 *,                              \
-                                                         papoSource)[ii]                               \
-                                                   : (eSrcType == GDT_CInt16                           \
-                                                          ? CPL_REINTERPRET_CAST(                      \
-                                                                const GInt16                           \
-                                                                    *,                                 \
-                                                                papoSource)[(                          \
-                                                                ii)*2]                                 \
-                                                          : (eSrcType ==                               \
-                                                                     GDT_CInt32                        \
-                                                                 ? CPL_REINTERPRET_CAST(               \
-                                                                       const GInt32                    \
-                                                                           *,                          \
-                                                                       papoSource)                     \
-                                                                       [(ii)*2]                        \
-                                                                 : (eSrcType ==                        \
-                                                                            GDT_CFloat32               \
-                                                                        ? CPL_REINTERPRET_CAST(        \
-                                                                              const float              \
-                                                                                  *,                   \
-                                                                              papoSource)              \
-                                                                              [(ii)*2]                 \
-                                                                        : (eSrcType ==                 \
-                                                                                   GDT_CFloat64        \
-                                                                               ? CPL_REINTERPRET_CAST( \
-                                                                                     const double      \
-                                                                                         *,            \
-                                                                                     papoSource)       \
-                                                                                     [(ii)*2]          \
-                                                                               : 0)))))))))))
+#define SRCVAL(papoSource, eSrcType, ii)                                                                      \
+    (eSrcType == GDT_Byte                                                                                     \
+         ? CPL_REINTERPRET_CAST(const GByte *, papoSource)[ii]                                                \
+         : (eSrcType == GDT_Int8                                                                              \
+                ? CPL_REINTERPRET_CAST(const GInt8 *, papoSource)[ii]                                         \
+                : (eSrcType == GDT_Float32                                                                    \
+                       ? CPL_REINTERPRET_CAST(const float *, papoSource)[ii]                                  \
+                       : (eSrcType == GDT_Float64                                                             \
+                              ? CPL_REINTERPRET_CAST(const double *,                                          \
+                                                     papoSource)[ii]                                          \
+                              : (eSrcType == GDT_Int32                                                        \
+                                     ? CPL_REINTERPRET_CAST(const GInt32 *,                                   \
+                                                            papoSource)[ii]                                   \
+                                     : (eSrcType == GDT_UInt16                                                \
+                                            ? CPL_REINTERPRET_CAST(                                           \
+                                                  const GUInt16 *,                                            \
+                                                  papoSource)[ii]                                             \
+                                            : (eSrcType == GDT_Int16                                          \
+                                                   ? CPL_REINTERPRET_CAST(                                    \
+                                                         const GInt16 *,                                      \
+                                                         papoSource)[ii]                                      \
+                                                   : (eSrcType == GDT_UInt32                                  \
+                                                          ? CPL_REINTERPRET_CAST(                             \
+                                                                const GUInt32                                 \
+                                                                    *,                                        \
+                                                                papoSource)                                   \
+                                                                [ii]                                          \
+                                                          : (eSrcType ==                                      \
+                                                                     GDT_CInt16                               \
+                                                                 ? CPL_REINTERPRET_CAST(                      \
+                                                                       const GInt16                           \
+                                                                           *,                                 \
+                                                                       papoSource)                            \
+                                                                       [(ii)*2]                               \
+                                                                 : (eSrcType ==                               \
+                                                                            GDT_CInt32                        \
+                                                                        ? CPL_REINTERPRET_CAST(               \
+                                                                              const GInt32                    \
+                                                                                  *,                          \
+                                                                              papoSource)                     \
+                                                                              [(ii)*2]                        \
+                                                                        : (eSrcType ==                        \
+                                                                                   GDT_CFloat32               \
+                                                                               ? CPL_REINTERPRET_CAST(        \
+                                                                                     const float              \
+                                                                                         *,                   \
+                                                                                     papoSource)              \
+                                                                                     [(ii)*2]                 \
+                                                                               : (eSrcType ==                 \
+                                                                                          GDT_CFloat64        \
+                                                                                      ? CPL_REINTERPRET_CAST( \
+                                                                                            const double      \
+                                                                                                *,            \
+                                                                                            papoSource)       \
+                                                                                            [(ii)*2]          \
+                                                                                      : 0))))))))))))
 
 /** Type of functions to pass to GDALAddDerivedBandPixelFunc.
  * @since GDAL 2.2 */
@@ -2051,6 +2172,9 @@ GDALAttributeH CPL_DLL GDALMDArrayCreateAttribute(
     GDALMDArrayH hArray, const char *pszName, size_t nDimensions,
     const GUInt64 *panDimensions, GDALExtendedDataTypeH hEDT,
     CSLConstList papszOptions) CPL_WARN_UNUSED_RESULT;
+bool CPL_DLL GDALMDArrayResize(GDALMDArrayH hArray,
+                               const GUInt64 *panNewDimSizes,
+                               CSLConstList papszOptions);
 const void CPL_DLL *GDALMDArrayGetRawNoDataValue(GDALMDArrayH hArray);
 double CPL_DLL GDALMDArrayGetNoDataValueAsDouble(GDALMDArrayH hArray,
                                                  int *pbHasNoDataValue);
@@ -2112,6 +2236,10 @@ GDALMDArrayH CPL_DLL GDALMDArrayGetResampled(GDALMDArrayH hArray,
                                              GDALRIOResampleAlg resampleAlg,
                                              OGRSpatialReferenceH hTargetSRS,
                                              CSLConstList papszOptions);
+GDALMDArrayH CPL_DLL GDALMDArrayGetGridded(
+    GDALMDArrayH hArray, const char *pszGridOptions, GDALMDArrayH hXArray,
+    GDALMDArrayH hYArray, CSLConstList papszOptions) CPL_WARN_UNUSED_RESULT;
+
 GDALMDArrayH CPL_DLL *
 GDALMDArrayGetCoordinateVariables(GDALMDArrayH hArray,
                                   size_t *pnCount) CPL_WARN_UNUSED_RESULT;

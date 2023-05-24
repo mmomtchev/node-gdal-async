@@ -320,6 +320,10 @@ template <> struct GDALCachedPixelAccessorGetDataType<GByte>
 {
     static constexpr GDALDataType DataType = GDT_Byte;
 };
+template <> struct GDALCachedPixelAccessorGetDataType<GInt8>
+{
+    static constexpr GDALDataType DataType = GDT_Int8;
+};
 template <> struct GDALCachedPixelAccessorGetDataType<GUInt16>
 {
     static constexpr GDALDataType DataType = GDT_UInt16;

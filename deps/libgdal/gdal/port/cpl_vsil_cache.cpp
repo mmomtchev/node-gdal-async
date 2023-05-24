@@ -72,7 +72,7 @@ class VSICachedFile final : public VSIVirtualHandle
     bool LoadBlocks(vsi_l_offset nStartBlock, size_t nBlockCount, void *pBuffer,
                     size_t nBufferSize);
 
-    std::unique_ptr<VSIVirtualHandle> m_poBase{};
+    VSIVirtualHandleUniquePtr m_poBase{};
 
     vsi_l_offset m_nOffset = 0;
     vsi_l_offset m_nFileSize = 0;
@@ -89,6 +89,12 @@ class VSICachedFile final : public VSIVirtualHandle
     int ReadMultiRange(int nRanges, void **ppData,
                        const vsi_l_offset *panOffsets,
                        const size_t *panSizes) override;
+
+    void AdviseRead(int nRanges, const vsi_l_offset *panOffsets,
+                    const size_t *panSizes) override
+    {
+        m_poBase->AdviseRead(nRanges, panOffsets, panSizes);
+    }
 
     size_t Write(const void *pBuffer, size_t nSize, size_t nMemb) override;
     int Eof() override;
@@ -155,12 +161,7 @@ int VSICachedFile::Close()
 
 {
     m_oCache.clear();
-
-    if (m_poBase)
-    {
-        m_poBase->Close();
-        m_poBase.reset();
-    }
+    m_poBase.reset();
 
     return 0;
 }
@@ -290,10 +291,17 @@ bool VSICachedFile::LoadBlocks(vsi_l_offset nStartBlock, size_t nBlockCount,
     const size_t nDataRead =
         m_poBase->Read(pabyWorkBuffer, 1, nBlockCount * m_nChunkSize);
 
-    if (nBlockCount * m_nChunkSize > nDataRead + m_nChunkSize - 1)
-        nBlockCount = (nDataRead + m_nChunkSize - 1) / m_nChunkSize;
-
     bool ret = true;
+    if (nBlockCount * m_nChunkSize > nDataRead + m_nChunkSize - 1)
+    {
+        size_t nNewBlockCount = (nDataRead + m_nChunkSize - 1) / m_nChunkSize;
+        if (nNewBlockCount < nBlockCount)
+        {
+            nBlockCount = nNewBlockCount;
+            ret = false;
+        }
+    }
+
     for (size_t i = 0; i < nBlockCount; i++)
     {
         const vsi_l_offset iBlock = nStartBlock + i;
@@ -362,7 +370,8 @@ size_t VSICachedFile::Read(void *pBuffer, size_t nSize, size_t nCount)
                 nBlocksToLoad++;
             }
 
-            LoadBlocks(iBlock, nBlocksToLoad, pBuffer, nRequestedBytes);
+            if (!LoadBlocks(iBlock, nBlocksToLoad, pBuffer, nRequestedBytes))
+                break;
         }
     }
 

@@ -126,8 +126,12 @@ static void OGRVDVParseAtrFrm(OGRLayer *poLayer, OGRFeatureDefn *poFeatureDefn,
         oFieldDefn.SetWidth(nWidth);
         if (poLayer)
             poLayer->CreateField(&oFieldDefn);
-        else
+        else if (poFeatureDefn)
             poFeatureDefn->AddFieldDefn(&oFieldDefn);
+        else
+        {
+            CPLAssert(false);
+        }
     }
 }
 
@@ -534,7 +538,7 @@ void OGRIDFDataSource::Parse()
         if (iLinkID >= 0)
         {
             poLinkLyr->ResetReading();
-            OGRSpatialReference *poSRS =
+            const OGRSpatialReference *poSRS =
                 poLinkLyr->GetLayerDefn()->GetGeomFieldDefn(0)->GetSpatialRef();
             for (auto &&poFeat : poLinkLyr)
             {
@@ -2059,6 +2063,8 @@ void RegisterOGRVDV()
     poDriver->SetMetadataItem(GDAL_DCAP_MEASURED_GEOMETRIES, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_CURVE_GEOMETRIES, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_Z_GEOMETRIES, "YES");
+    poDriver->SetMetadataItem(GDAL_DMD_CREATION_FIELD_DEFN_FLAGS,
+                              "WidthPrecision");
     poDriver->SetMetadataItem(GDAL_DMD_ALTER_FIELD_DEFN_FLAGS,
                               "Name Type WidthPrecision");
     poDriver->SetMetadataItem(GDAL_DMD_SUPPORTED_SQL_DIALECTS, "OGRSQL SQLITE");

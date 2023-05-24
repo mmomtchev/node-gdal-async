@@ -26,6 +26,7 @@
  ****************************************************************************/
 
 #include "cpl_azure.h"
+#include "cpl_json.h"
 #include "cpl_vsi_error.h"
 #include "cpl_sha256.h"
 #include "cpl_time.h"
@@ -72,11 +73,13 @@ static CPLString GetSignature(const CPLString &osStringToSign,
 /*                          GetAzureBlobHeaders()                       */
 /************************************************************************/
 
-static struct curl_slist *GetAzureBlobHeaders(
-    const CPLString &osVerb, const struct curl_slist *psExistingHeaders,
-    const CPLString &osResource,
-    const std::map<CPLString, CPLString> &oMapQueryParameters,
-    const CPLString &osStorageAccount, const CPLString &osStorageKeyB64)
+static struct curl_slist *
+GetAzureBlobHeaders(const CPLString &osVerb,
+                    const struct curl_slist *psExistingHeaders,
+                    const CPLString &osResource,
+                    const std::map<CPLString, CPLString> &oMapQueryParameters,
+                    const CPLString &osStorageAccount,
+                    const CPLString &osStorageKeyB64, bool bIncludeMSVersion)
 {
     /* See
      * https://docs.microsoft.com/en-us/rest/api/storageservices/authentication-for-the-azure-storage-services
@@ -97,7 +100,8 @@ static struct curl_slist *GetAzureBlobHeaders(
 
     CPLString osMsVersion("2019-12-12");
     std::map<CPLString, CPLString> oSortedMapMSHeaders;
-    oSortedMapMSHeaders["x-ms-version"] = osMsVersion;
+    if (bIncludeMSVersion)
+        oSortedMapMSHeaders["x-ms-version"] = osMsVersion;
     oSortedMapMSHeaders["x-ms-date"] = osDate;
     CPLString osCanonicalizedHeaders(
         IVSIS3LikeHandleHelper::BuildCanonicalizedHeaders(
@@ -146,7 +150,7 @@ static struct curl_slist *GetAzureBlobHeaders(
     osStringToSign += osCanonicalizedResource;
 
 #ifdef DEBUG_VERBOSE
-    CPLDebug("AZURE", "osStringToSign = %s", osStringToSign.c_str());
+    CPLDebug("AZURE", "osStringToSign = '%s'", osStringToSign.c_str());
 #endif
 
     /* -------------------------------------------------------------------- */
@@ -159,8 +163,11 @@ static struct curl_slist *GetAzureBlobHeaders(
     struct curl_slist *headers = nullptr;
     headers =
         curl_slist_append(headers, CPLSPrintf("x-ms-date: %s", osDate.c_str()));
-    headers = curl_slist_append(
-        headers, CPLSPrintf("x-ms-version: %s", osMsVersion.c_str()));
+    if (bIncludeMSVersion)
+    {
+        headers = curl_slist_append(
+            headers, CPLSPrintf("x-ms-version: %s", osMsVersion.c_str()));
+    }
     headers = curl_slist_append(
         headers, CPLSPrintf("Authorization: %s", osAuthorization.c_str()));
     return headers;
@@ -218,47 +225,6 @@ static CPLString AzureCSGetParameter(const CPLString &osStr, const char *pszKey,
 }
 
 /************************************************************************/
-/*                          ParseSimpleJson()                           */
-/*                                                                      */
-/*      Return a string list of name/value pairs extracted from a       */
-/*      JSON doc.  The EC2 IAM web service returns simple JSON          */
-/*      responses.  The parsing as done currently is very fragile       */
-/*      and depends on JSON documents being in a very very simple       */
-/*      form.                                                           */
-/************************************************************************/
-
-static CPLStringList ParseSimpleJson(const char *pszJson)
-
-{
-    /* -------------------------------------------------------------------- */
-    /*      We are expecting simple documents like the following with no    */
-    /*      hierarchy or complex structure.                                 */
-    /* -------------------------------------------------------------------- */
-    /*
-        {
-        "Code" : "Success",
-        "LastUpdated" : "2017-07-03T16:20:17Z",
-        "Type" : "AWS-HMAC",
-        "AccessKeyId" : "bla",
-        "SecretAccessKey" : "bla",
-        "Token" : "bla",
-        "Expiration" : "2017-07-03T22:42:58Z"
-        }
-    */
-
-    CPLStringList oWords(
-        CSLTokenizeString2(pszJson, " \n\t,:{}", CSLT_HONOURSTRINGS));
-    CPLStringList oNameValue;
-
-    for (int i = 0; i < oWords.size(); i += 2)
-    {
-        oNameValue.SetNameValue(oWords[i], oWords[i + 1]);
-    }
-
-    return oNameValue;
-}
-
-/************************************************************************/
 /*                GetConfigurationFromManagedIdentities()               */
 /************************************************************************/
 
@@ -300,7 +266,7 @@ static bool GetConfigurationFromManagedIdentities(CPLString &osAccessToken)
         {
             const CPLString osJSon =
                 reinterpret_cast<char *>(psResult->pabyData);
-            oResponse = ParseSimpleJson(osJSon);
+            oResponse = CPLParseKeyValueJson(osJSon);
             if (oResponse.FetchNameValue("error"))
             {
                 CPLDebug("AZURE",
@@ -773,7 +739,7 @@ struct curl_slist *VSIAzureBlobHandleHelper::GetCurlHeaders(
 
     return GetAzureBlobHeaders(osVerb, psExistingHeaders, osResource,
                                m_oMapQueryParameters, m_osStorageAccount,
-                               m_osStorageKey);
+                               m_osStorageKey, m_bIncludeMSVersion);
 }
 
 /************************************************************************/

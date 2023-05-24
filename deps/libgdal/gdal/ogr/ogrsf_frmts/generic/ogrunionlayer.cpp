@@ -127,7 +127,7 @@ OGRUnionLayer::~OGRUnionLayer()
     if (poFeatureDefn)
         poFeatureDefn->Release();
     if (poGlobalSRS != nullptr)
-        poGlobalSRS->Release();
+        const_cast<OGRSpatialReference *>(poGlobalSRS)->Release();
 }
 
 /************************************************************************/
@@ -295,7 +295,9 @@ OGRFeatureDefn *OGRUnionLayer::GetLayerDefn()
                                 poGlobalSRS =
                                     poSrcGeomFieldDefn->GetSpatialRef();
                                 if (poGlobalSRS != nullptr)
-                                    poGlobalSRS->Reference();
+                                    const_cast<OGRSpatialReference *>(
+                                        poGlobalSRS)
+                                        ->Reference();
                             }
                         }
                         break;
@@ -629,10 +631,8 @@ void OGRUnionLayer::AutoWarpLayerIfNecessary(int iLayer)
 
         for (int i = 0; i < GetLayerDefn()->GetGeomFieldCount(); i++)
         {
-            OGRSpatialReference *poSRS =
+            const OGRSpatialReference *poSRS =
                 GetLayerDefn()->GetGeomFieldDefn(i)->GetSpatialRef();
-            if (poSRS != nullptr)
-                poSRS->Reference();
 
             OGRFeatureDefn *poSrcFeatureDefn =
                 papoSrcLayers[iLayer]->GetLayerDefn();
@@ -640,7 +640,7 @@ void OGRUnionLayer::AutoWarpLayerIfNecessary(int iLayer)
                 GetLayerDefn()->GetGeomFieldDefn(i)->GetNameRef());
             if (iSrcGeomField >= 0)
             {
-                OGRSpatialReference *poSRS2 =
+                const OGRSpatialReference *poSRS2 =
                     poSrcFeatureDefn->GetGeomFieldDefn(iSrcGeomField)
                         ->GetSpatialRef();
 
@@ -682,9 +682,6 @@ void OGRUnionLayer::AutoWarpLayerIfNecessary(int iLayer)
                     }
                 }
             }
-
-            if (poSRS != nullptr)
-                poSRS->Release();
         }
     }
 }
@@ -905,6 +902,108 @@ OGRErr OGRUnionLayer::IUpsertFeature(OGRFeature *poFeature)
 }
 
 /************************************************************************/
+/*                           IUpdateFeature()                           */
+/************************************************************************/
+
+OGRErr OGRUnionLayer::IUpdateFeature(OGRFeature *poFeature,
+                                     int nUpdatedFieldsCount,
+                                     const int *panUpdatedFieldsIdx,
+                                     int nUpdatedGeomFieldsCount,
+                                     const int *panUpdatedGeomFieldsIdx,
+                                     bool bUpdateStyleString)
+{
+    if (!bPreserveSrcFID)
+    {
+        CPLError(CE_Failure, CPLE_NotSupported,
+                 "UpdateFeature() not supported when PreserveSrcFID is OFF");
+        return OGRERR_FAILURE;
+    }
+
+    if (osSourceLayerFieldName.empty())
+    {
+        CPLError(CE_Failure, CPLE_NotSupported,
+                 "UpdateFeature() not supported when SourceLayerFieldName is "
+                 "not set");
+        return OGRERR_FAILURE;
+    }
+
+    if (poFeature->GetFID() == OGRNullFID)
+    {
+        CPLError(CE_Failure, CPLE_NotSupported,
+                 "UpdateFeature() not supported when FID is not set");
+        return OGRERR_FAILURE;
+    }
+
+    if (!poFeature->IsFieldSetAndNotNull(0))
+    {
+        CPLError(CE_Failure, CPLE_NotSupported,
+                 "UpdateFeature() not supported when '%s' field is not set",
+                 osSourceLayerFieldName.c_str());
+        return OGRERR_FAILURE;
+    }
+
+    const char *pszSrcLayerName = poFeature->GetFieldAsString(0);
+    for (int i = 0; i < nSrcLayers; i++)
+    {
+        if (strcmp(pszSrcLayerName, papoSrcLayers[i]->GetName()) == 0)
+        {
+            pabModifiedLayers[i] = TRUE;
+
+            const auto poSrcLayerDefn = papoSrcLayers[i]->GetLayerDefn();
+            OGRFeature *poSrcFeature = new OGRFeature(poSrcLayerDefn);
+            poSrcFeature->SetFrom(poFeature, TRUE);
+            poSrcFeature->SetFID(poFeature->GetFID());
+
+            // We could potentially have a pre-computed map from indices in
+            // poLayerDefn to indices in poSrcLayerDefn
+            std::vector<int> anSrcUpdatedFieldIdx;
+            const auto poLayerDefn = GetLayerDefn();
+            for (int j = 0; j < nUpdatedFieldsCount; ++j)
+            {
+                if (panUpdatedFieldsIdx[j] != 0)
+                {
+                    const int nNewIdx = poSrcLayerDefn->GetFieldIndex(
+                        poLayerDefn->GetFieldDefn(panUpdatedFieldsIdx[j])
+                            ->GetNameRef());
+                    if (nNewIdx >= 0)
+                    {
+                        anSrcUpdatedFieldIdx.push_back(nNewIdx);
+                    }
+                }
+            }
+            std::vector<int> anSrcUpdatedGeomFieldIdx;
+            for (int j = 0; j < nUpdatedGeomFieldsCount; ++j)
+            {
+                if (panUpdatedGeomFieldsIdx[j] != 0)
+                {
+                    const int nNewIdx = poSrcLayerDefn->GetGeomFieldIndex(
+                        poLayerDefn
+                            ->GetGeomFieldDefn(panUpdatedGeomFieldsIdx[j])
+                            ->GetNameRef());
+                    if (nNewIdx >= 0)
+                    {
+                        anSrcUpdatedGeomFieldIdx.push_back(nNewIdx);
+                    }
+                }
+            }
+
+            OGRErr eErr = papoSrcLayers[i]->UpdateFeature(
+                poSrcFeature, static_cast<int>(anSrcUpdatedFieldIdx.size()),
+                anSrcUpdatedFieldIdx.data(),
+                static_cast<int>(anSrcUpdatedGeomFieldIdx.size()),
+                anSrcUpdatedGeomFieldIdx.data(), bUpdateStyleString);
+            delete poSrcFeature;
+            return eErr;
+        }
+    }
+
+    CPLError(CE_Failure, CPLE_NotSupported,
+             "UpdateFeature() not supported : '%s' source layer does not exist",
+             pszSrcLayerName);
+    return OGRERR_FAILURE;
+}
+
+/************************************************************************/
 /*                           GetSpatialRef()                            */
 /************************************************************************/
 
@@ -913,15 +1012,16 @@ OGRSpatialReference *OGRUnionLayer::GetSpatialRef()
     if (nGeomFields < 0)
         return nullptr;
     if (nGeomFields >= 1 && papoGeomFields[0]->bSRSSet)
-        return papoGeomFields[0]->GetSpatialRef();
+        return const_cast<OGRSpatialReference *>(
+            papoGeomFields[0]->GetSpatialRef());
 
     if (poGlobalSRS == nullptr)
     {
         poGlobalSRS = papoSrcLayers[0]->GetSpatialRef();
         if (poGlobalSRS != nullptr)
-            poGlobalSRS->Reference();
+            const_cast<OGRSpatialReference *>(poGlobalSRS)->Reference();
     }
-    return poGlobalSRS;
+    return const_cast<OGRSpatialReference *>(poGlobalSRS);
 }
 
 /************************************************************************/

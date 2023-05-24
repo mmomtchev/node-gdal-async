@@ -172,8 +172,12 @@ CPLErr VRTSimpleSource::FlushCache(bool bAtClosing)
 
 void VRTSimpleSource::UnsetPreservedRelativeFilenames()
 {
-    m_bRelativeToVRTOri = -1;
-    m_osSourceFileNameOri = "";
+    if (!STARTS_WITH(m_osSourceFileNameOri.c_str(), "http://") &&
+        !STARTS_WITH(m_osSourceFileNameOri.c_str(), "https://"))
+    {
+        m_bRelativeToVRTOri = -1;
+        m_osSourceFileNameOri = "";
+    }
 }
 
 /************************************************************************/
@@ -2083,7 +2087,7 @@ CPLXMLNode *VRTComplexSource::SerializeToXML(const char *pszVRTPath)
             }
             CPLSetXMLValue(
                 psSrc, "NODATA",
-                VRTSerializeNoData(dfNoDataValue, eBandDT, 16).c_str());
+                VRTSerializeNoData(dfNoDataValue, eBandDT, 18).c_str());
         }
     }
 

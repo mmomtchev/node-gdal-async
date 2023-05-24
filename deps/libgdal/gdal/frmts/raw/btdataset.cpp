@@ -72,7 +72,7 @@ class BTDataset final : public GDALPamDataset
     CPLErr GetGeoTransform(double *) override;
     CPLErr SetGeoTransform(double *) override;
 
-    void FlushCache(bool bAtClosing) override;
+    CPLErr FlushCache(bool bAtClosing) override;
 
     static GDALDataset *Open(GDALOpenInfo *);
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
@@ -169,10 +169,10 @@ CPLErr BTRasterBand::IReadBlock(int nBlockXOff, CPL_UNUSED int nBlockYOff,
     /*      Vertical flip, since GDAL expects values from top to bottom,    */
     /*      but in .bt they are bottom to top.                              */
     /* -------------------------------------------------------------------- */
+    GByte abyWrk[8] = {0};
+    CPLAssert(nDataSize <= 8);
     for (int i = 0; i < nRasterYSize / 2; i++)
     {
-        GByte abyWrk[8] = {0};
-
         memcpy(abyWrk, reinterpret_cast<GByte *>(pImage) + i * nDataSize,
                nDataSize);
         memcpy(reinterpret_cast<GByte *>(pImage) + i * nDataSize,
@@ -395,18 +395,22 @@ BTDataset::~BTDataset()
 /*      We override this to include flush out the header block.         */
 /************************************************************************/
 
-void BTDataset::FlushCache(bool bAtClosing)
+CPLErr BTDataset::FlushCache(bool bAtClosing)
 
 {
-    GDALDataset::FlushCache(bAtClosing);
+    CPLErr eErr = GDALDataset::FlushCache(bAtClosing);
 
     if (!bHeaderModified)
-        return;
+        return eErr;
 
     bHeaderModified = FALSE;
 
-    CPL_IGNORE_RET_VAL(VSIFSeekL(fpImage, 0, SEEK_SET));
-    CPL_IGNORE_RET_VAL(VSIFWriteL(abyHeader, 256, 1, fpImage));
+    if (VSIFSeekL(fpImage, 0, SEEK_SET) != 0 ||
+        VSIFWriteL(abyHeader, 256, 1, fpImage) != 1)
+    {
+        eErr = CE_Failure;
+    }
+    return eErr;
 }
 
 /************************************************************************/

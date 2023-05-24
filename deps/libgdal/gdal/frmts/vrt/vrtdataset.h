@@ -161,7 +161,7 @@ class VRTRasterBand;
 
 template <class T> struct VRTFlushCacheStruct
 {
-    static void FlushCache(T &obj, bool bAtClosing);
+    static CPLErr FlushCache(T &obj, bool bAtClosing);
 };
 
 class VRTWarpedDataset;
@@ -214,20 +214,29 @@ class CPL_DLL VRTDataset CPL_NON_FINAL : public GDALDataset
     static GDALDataset *OpenVRTProtocol(const char *pszSpec);
     bool AddVirtualOverview(int nOvFactor, const char *pszResampling);
 
+    bool GetShiftedDataset(int nXOff, int nYOff, int nXSize, int nYSize,
+                           GDALDataset *&poSrcDataset, int &nSrcXOff,
+                           int &nSrcYOff);
+
     CPL_DISALLOW_COPY_ASSIGN(VRTDataset)
 
   protected:
+    bool m_bBlockSizeSpecified = false;
+    int m_nBlockXSize = 0;
+    int m_nBlockYSize = 0;
+
     virtual int CloseDependentDatasets() override;
 
   public:
-    VRTDataset(int nXSize, int nYSize);
+    VRTDataset(int nXSize, int nYSize, int nBlockXSize = 0,
+               int nBlockYSize = 0);
     virtual ~VRTDataset();
 
     void SetNeedsFlush()
     {
         m_bNeedsFlush = true;
     }
-    virtual void FlushCache(bool bAtClosing) override;
+    virtual CPLErr FlushCache(bool bAtClosing) override;
 
     void SetWritable(int bWritableIn)
     {
@@ -276,6 +285,15 @@ class CPL_DLL VRTDataset CPL_NON_FINAL : public GDALDataset
                              GSpacing nBandSpace,
                              GDALRasterIOExtraArg *psExtraArg) override;
 
+    virtual CPLStringList
+    GetCompressionFormats(int nXOff, int nYOff, int nXSize, int nYSize,
+                          int nBandCount, const int *panBandList) override;
+    virtual CPLErr ReadCompressedData(const char *pszFormat, int nXOff,
+                                      int nYOff, int nXSize, int nYSize,
+                                      int nBandCount, const int *panBandList,
+                                      void **ppBuffer, size_t *pnBufferSize,
+                                      char **ppszDetailedFormat) override;
+
     virtual CPLErr AdviseRead(int nXOff, int nYOff, int nXSize, int nYSize,
                               int nBufXSize, int nBufYSize, GDALDataType eDT,
                               int nBandCount, int *panBandList,
@@ -295,6 +313,19 @@ class CPL_DLL VRTDataset CPL_NON_FINAL : public GDALDataset
     void BuildVirtualOverviews();
 
     void UnsetPreservedRelativeFilenames();
+
+    bool IsBlockSizeSpecified() const
+    {
+        return m_bBlockSizeSpecified;
+    }
+    int GetBlockXSize() const
+    {
+        return m_nBlockXSize;
+    }
+    int GetBlockYSize() const
+    {
+        return m_nBlockYSize;
+    }
 
     static int Identify(GDALOpenInfo *);
     static GDALDataset *Open(GDALOpenInfo *);
@@ -319,8 +350,6 @@ class VRTWarpedRasterBand;
 
 class CPL_DLL VRTWarpedDataset final : public VRTDataset
 {
-    int m_nBlockXSize;
-    int m_nBlockYSize;
     GDALWarpOperation *m_poWarper;
 
     int m_nOverviewCount;
@@ -337,10 +366,11 @@ class CPL_DLL VRTWarpedDataset final : public VRTDataset
     virtual int CloseDependentDatasets() override;
 
   public:
-    VRTWarpedDataset(int nXSize, int nYSize);
+    VRTWarpedDataset(int nXSize, int nYSize, int nBlockXSize = 0,
+                     int nBlockYSize = 0);
     virtual ~VRTWarpedDataset();
 
-    virtual void FlushCache(bool bAtClosing) override;
+    virtual CPLErr FlushCache(bool bAtClosing) override;
 
     CPLErr Initialize(/* GDALWarpOptions */ void *);
 
@@ -382,8 +412,6 @@ class VRTPansharpenedDataset final : public VRTDataset
 {
     friend class VRTPansharpenedRasterBand;
 
-    int m_nBlockXSize;
-    int m_nBlockYSize;
     GDALPansharpenOperation *m_poPansharpener;
     VRTPansharpenedDataset *m_poMainDataset;
     std::vector<VRTPansharpenedDataset *> m_apoOverviewDatasets{};
@@ -410,10 +438,11 @@ class VRTPansharpenedDataset final : public VRTDataset
     virtual int CloseDependentDatasets() override;
 
   public:
-    VRTPansharpenedDataset(int nXSize, int nYSize);
+    VRTPansharpenedDataset(int nXSize, int nYSize, int nBlockXSize = 0,
+                           int nBlockYSize = 0);
     virtual ~VRTPansharpenedDataset();
 
-    virtual void FlushCache(bool bAtClosing) override;
+    virtual CPLErr FlushCache(bool bAtClosing) override;
 
     virtual CPLErr XMLInit(CPLXMLNode *, const char *) override;
     virtual CPLXMLNode *SerializeToXML(const char *pszVRTPath) override;
@@ -1448,7 +1477,7 @@ class VRTGroup final : public GDALGroup
     {
         return m_osFilename;
     }
-    void Serialize() const;
+    bool Serialize() const;
     CPLXMLNode *SerializeToXML(const char *pszVRTPathIn) const;
     void Serialize(CPLXMLNode *psParent, const char *pszVRTPathIn) const;
 };

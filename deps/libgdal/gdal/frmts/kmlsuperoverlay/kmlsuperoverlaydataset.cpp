@@ -98,10 +98,6 @@ static void GenerateTiles(const std::string &filename, CPL_UNUSED int zoom,
             GDALRasterBand *poBand = poSrcDs->GetRasterBand(band);
             int hasNoData = 0;
             const double noDataValue = poBand->GetNoDataValue(&hasNoData);
-            const char *pixelType =
-                poBand->GetMetadataItem("PIXELTYPE", "IMAGE_STRUCTURE");
-            const bool isSigned =
-                (pixelType && (strcmp(pixelType, "SIGNEDBYTE") == 0));
 
             int yOffset = ry + row * rowOffset;
             CPLErr errTest = poBand->RasterIO(GF_Read, rx, yOffset, rxsize,
@@ -123,12 +119,7 @@ static void GenerateTiles(const std::string &filename, CPL_UNUSED int zoom,
                     for (int j = 0; j < dxsize; j++)
                     {
                         double v = pabyScanline[j];
-                        double tmpv = v;
-                        if (isSigned)
-                        {
-                            tmpv -= 128;
-                        }
-                        if (tmpv == noDataValue || bReadFailed)
+                        if (v == noDataValue || bReadFailed)
                         {
                             hadnoData[j] = true;
                         }
@@ -2559,8 +2550,8 @@ GDALDataset *KmlSingleOverlayRasterDataset::Open(const char *pszFilename,
         return nullptr;
     const char *pszImageFilename =
         CPLFormFilename(CPLGetPath(osFilename), pszHref, nullptr);
-    GDALDataset *poImageDS = reinterpret_cast<GDALDataset *>(
-        GDALOpenShared(pszImageFilename, GA_ReadOnly));
+    GDALDataset *poImageDS =
+        GDALDataset::FromHandle(GDALOpenShared(pszImageFilename, GA_ReadOnly));
     if (poImageDS == nullptr)
         return nullptr;
 

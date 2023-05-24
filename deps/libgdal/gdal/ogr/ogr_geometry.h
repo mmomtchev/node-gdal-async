@@ -334,7 +334,7 @@ class CPL_DLL OGRDefaultConstGeometryVisitor : public IOGRConstGeometryVisitor
 class CPL_DLL OGRGeometry
 {
   private:
-    OGRSpatialReference *poSRS = nullptr;  // may be NULL
+    const OGRSpatialReference *poSRS = nullptr;  // may be NULL
 
   protected:
     //! @cond Doxygen_Suppress
@@ -459,8 +459,10 @@ class CPL_DLL OGRGeometry
     virtual OGRwkbGeometryType getGeometryType() const = 0;
     OGRwkbGeometryType getIsoGeometryType() const;
     virtual const char *getGeometryName() const = 0;
-    virtual void dumpReadable(FILE *, const char * = nullptr,
-                              char **papszOptions = nullptr) const;
+    void dumpReadable(FILE *, const char * = nullptr,
+                      CSLConstList papszOptions = nullptr) const;
+    std::string dumpReadable(const char * = nullptr,
+                             CSLConstList papszOptions = nullptr) const;
     virtual void flattenTo2D() = 0;
     virtual char *exportToGML(const char *const *papszOptions = nullptr) const;
     virtual char *exportToKML() const;
@@ -494,14 +496,14 @@ class CPL_DLL OGRGeometry
     virtual void set3D(OGRBoolean bIs3D);
     virtual void setMeasured(OGRBoolean bIsMeasured);
 
-    virtual void assignSpatialReference(OGRSpatialReference *poSR);
-    OGRSpatialReference *getSpatialReference(void) const
+    virtual void assignSpatialReference(const OGRSpatialReference *poSR);
+    const OGRSpatialReference *getSpatialReference(void) const
     {
         return poSRS;
     }
 
     virtual OGRErr transform(OGRCoordinateTransformation *poCT) = 0;
-    OGRErr transformTo(OGRSpatialReference *poSR);
+    OGRErr transformTo(const OGRSpatialReference *poSR);
 
     virtual void segmentize(double dfMaxLength);
 
@@ -531,6 +533,7 @@ class CPL_DLL OGRGeometry
     virtual OGRGeometry *
     Union(const OGRGeometry *) const CPL_WARN_UNUSED_RESULT;
     virtual OGRGeometry *UnionCascaded() const CPL_WARN_UNUSED_RESULT;
+    OGRGeometry *UnaryUnion() const CPL_WARN_UNUSED_RESULT;
     virtual OGRGeometry *
     Difference(const OGRGeometry *) const CPL_WARN_UNUSED_RESULT;
     virtual OGRGeometry *
@@ -2035,7 +2038,8 @@ class CPL_DLL OGRCurveCollection
     void setCoordinateDimension(OGRGeometry *poGeom, int nNewDimension);
     void set3D(OGRGeometry *poGeom, OGRBoolean bIs3D);
     void setMeasured(OGRGeometry *poGeom, OGRBoolean bIsMeasured);
-    void assignSpatialReference(OGRGeometry *poGeom, OGRSpatialReference *poSR);
+    void assignSpatialReference(OGRGeometry *poGeom,
+                                const OGRSpatialReference *poSR);
     int getNumCurves() const;
     OGRCurve *getCurve(int);
     const OGRCurve *getCurve(int) const;
@@ -2185,7 +2189,8 @@ class CPL_DLL OGRCompoundCurve : public OGRCurve
     virtual void set3D(OGRBoolean bIs3D) override;
     virtual void setMeasured(OGRBoolean bIsMeasured) override;
 
-    virtual void assignSpatialReference(OGRSpatialReference *poSR) override;
+    virtual void
+    assignSpatialReference(const OGRSpatialReference *poSR) override;
 
     OGRErr addCurve(const OGRCurve *, double dfToleranceEps = 1e-14);
     OGRErr addCurveDirectly(OGRCurve *, double dfToleranceEps = 1e-14);
@@ -2422,7 +2427,8 @@ class CPL_DLL OGRCurvePolygon : public OGRSurface
     virtual void set3D(OGRBoolean bIs3D) override;
     virtual void setMeasured(OGRBoolean bIsMeasured) override;
 
-    virtual void assignSpatialReference(OGRSpatialReference *poSR) override;
+    virtual void
+    assignSpatialReference(const OGRSpatialReference *poSR) override;
 
     virtual OGRErr addRing(OGRCurve *);
     virtual OGRErr addRingDirectly(OGRCurve *);
@@ -2852,7 +2858,8 @@ class CPL_DLL OGRGeometryCollection : public OGRGeometry
     virtual OGRErr addGeometryDirectly(OGRGeometry *);
     virtual OGRErr removeGeometry(int iIndex, int bDelete = TRUE);
 
-    virtual void assignSpatialReference(OGRSpatialReference *poSR) override;
+    virtual void
+    assignSpatialReference(const OGRSpatialReference *poSR) override;
 
     void closeRings() override;
 
@@ -3325,7 +3332,8 @@ class CPL_DLL OGRPolyhedralSurface : public OGRSurface
         visitor->visit(this);
     }
 
-    virtual void assignSpatialReference(OGRSpatialReference *poSR) override;
+    virtual void
+    assignSpatialReference(const OGRSpatialReference *poSR) override;
 
     OGR_ALLOW_CAST_TO_THIS(PolyhedralSurface)
     OGR_ALLOW_UPCAST_TO(Surface)
@@ -3931,22 +3939,23 @@ class CPL_DLL OGRGeometryFactory
                                         int *pnBytesConsumed, int nRecLevel);
 
   public:
-    static OGRErr createFromWkb(const void *, OGRSpatialReference *,
+    static OGRErr createFromWkb(const void *, const OGRSpatialReference *,
                                 OGRGeometry **,
                                 size_t = static_cast<size_t>(-1),
                                 OGRwkbVariant = wkbVariantOldOgc);
-    static OGRErr createFromWkb(const void *pabyData, OGRSpatialReference *,
-                                OGRGeometry **, size_t nSize,
-                                OGRwkbVariant eVariant,
+    static OGRErr createFromWkb(const void *pabyData,
+                                const OGRSpatialReference *, OGRGeometry **,
+                                size_t nSize, OGRwkbVariant eVariant,
                                 size_t &nBytesConsumedOut);
-    static OGRErr createFromWkt(const char *, OGRSpatialReference *,
+    static OGRErr createFromWkt(const char *, const OGRSpatialReference *,
                                 OGRGeometry **);
-    static OGRErr createFromWkt(const char **, OGRSpatialReference *,
+    static OGRErr createFromWkt(const char **, const OGRSpatialReference *,
                                 OGRGeometry **);
     /** Deprecated.
      * @deprecated in GDAL 2.3
      */
-    static OGRErr createFromWkt(char **ppszInput, OGRSpatialReference *poSRS,
+    static OGRErr createFromWkt(char **ppszInput,
+                                const OGRSpatialReference *poSRS,
                                 OGRGeometry **ppoGeom)
         CPL_WARN_DEPRECATED("Use createFromWkt(const char**, ...) instead")
     {
@@ -4022,7 +4031,10 @@ class CPL_DLL OGRGeometryFactory
 };
 
 OGRwkbGeometryType CPL_DLL OGRFromOGCGeomType(const char *pszGeomType);
-const char CPL_DLL *OGRToOGCGeomType(OGRwkbGeometryType eGeomType);
+const char CPL_DLL *OGRToOGCGeomType(OGRwkbGeometryType eGeomType,
+                                     bool bCamelCase = false,
+                                     bool bAddZM = false,
+                                     bool bSpaceBeforeZM = false);
 
 //! @cond Doxygen_Suppress
 typedef struct _OGRPreparedGeometry OGRPreparedGeometry;

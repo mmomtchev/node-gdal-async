@@ -643,6 +643,30 @@ GByte *TABINDFile::BuildKey(int nIndexNumber, double dValue)
 }
 
 /**********************************************************************
+ *                   TABINDFile::BuildKey()
+ *
+ * BuildKey() for LargeInt
+ **********************************************************************/
+GByte *TABINDFile::BuildKey(int nIndexNumber, GInt64 nValue)
+{
+    if (ValidateIndexNo(nIndexNumber) != 0)
+        return nullptr;
+
+    const int nKeyLength =
+        m_papoIndexRootNodes[nIndexNumber - 1]->GetKeyLength();
+    CPLAssert(nKeyLength == 8 && sizeof(double) == 8);
+
+#ifndef CPL_MSB
+    CPL_SWAP64PTR(&nValue);
+#endif
+
+    memcpy(m_papbyKeyBuffers[nIndexNumber - 1],
+           reinterpret_cast<GByte *>(&nValue), nKeyLength);
+
+    return m_papbyKeyBuffers[nIndexNumber - 1];
+}
+
+/**********************************************************************
  *                   TABINDFile::FindFirst()
  *
  * Search one of the indexes for a key value.
@@ -762,6 +786,7 @@ int TABINDFile::CreateIndex(TABFieldType eType, int nFieldSize)
      *----------------------------------------------------------------*/
     int nKeyLength = ((eType == TABFInteger)    ? 4
                       : (eType == TABFSmallInt) ? 2
+                      : (eType == TABFLargeInt) ? 8
                       : (eType == TABFFloat)    ? 8
                       : (eType == TABFDecimal)  ? 8
                       : (eType == TABFDate)     ? 4
@@ -1081,6 +1106,7 @@ int TABINDNode::SetFieldType(TABFieldType eType)
      *----------------------------------------------------------------*/
     if ((eType == TABFInteger && m_nKeyLength != 4) ||
         (eType == TABFSmallInt && m_nKeyLength != 2) ||
+        (eType == TABFLargeInt && m_nKeyLength != 8) ||
         (eType == TABFFloat && m_nKeyLength != 8) ||
         (eType == TABFDecimal && m_nKeyLength != 8) ||
         (eType == TABFDate && m_nKeyLength != 4) ||
@@ -1622,17 +1648,19 @@ int TABINDNode::UpdateCurChildEntry(GByte *pKeyValue, GInt32 nRecordNo)
      *----------------------------------------------------------------*/
     m_poDataBlock->GotoByteInBlock(12 + m_nCurIndexEntry * (m_nKeyLength + 4));
 
+    int ret;
     if (m_nCurIndexEntry == 0 && m_nSubTreeDepth > 1 && m_nPrevNodePtr == 0)
     {
-        m_poDataBlock->WriteZeros(m_nKeyLength);
+        ret = m_poDataBlock->WriteZeros(m_nKeyLength);
     }
     else
     {
-        m_poDataBlock->WriteBytes(m_nKeyLength, pKeyValue);
+        ret = m_poDataBlock->WriteBytes(m_nKeyLength, pKeyValue);
     }
-    m_poDataBlock->WriteInt32(nRecordNo);
+    if (ret == 0)
+        ret = m_poDataBlock->WriteInt32(nRecordNo);
 
-    return 0;
+    return ret;
 }
 
 /**********************************************************************

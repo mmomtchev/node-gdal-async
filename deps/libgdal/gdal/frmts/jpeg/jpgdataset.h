@@ -57,7 +57,12 @@
 #include "gdal_frmts.h"
 #include "gdal_pam.h"
 #include "gdal_priv.h"
+
 CPL_C_START
+
+// So that D_LOSSLESS_SUPPORTED is visible if defined in jmorecfg of libjpeg-turbo >= 2.2
+#define JPEG_INTERNAL_OPTIONS
+
 #ifdef LIBJPEG_12_PATH
 #include LIBJPEG_12_PATH
 #else
@@ -80,15 +85,16 @@ typedef struct
 #pragma warning(disable : 4611)
 #endif
 
-typedef struct
+struct JPGDatasetOpenArgs
 {
-    const char *pszFilename;
-    VSILFILE *fpLin;
-    char **papszSiblingFiles;
-    int nScaleFactor;
-    bool bDoPAMInitialize;
-    bool bUseInternalOverviews;
-} JPGDatasetOpenArgs;
+    const char *pszFilename = nullptr;
+    VSILFILE *fpLin = nullptr;
+    char **papszSiblingFiles = nullptr;
+    int nScaleFactor = 1;
+    bool bDoPAMInitialize = false;
+    bool bUseInternalOverviews = false;
+    bool bIsLossless = false;
+};
 
 class JPGDatasetCommon;
 
@@ -99,14 +105,6 @@ GDALDataset *JPEGDataset12CreateCopy(const char *pszFilename,
                                      char **papszOptions,
                                      GDALProgressFunc pfnProgress,
                                      void *pProgressData);
-#endif
-
-// Do we want to do special processing suitable for when JSAMPLE is a
-// 16bit value?
-#if defined(JPEG_LIB_MK1)
-#define JPEG_LIB_MK1_OR_12BIT 1
-#elif BITS_IN_JSAMPLE == 12
-#define JPEG_LIB_MK1_OR_12BIT 1
 #endif
 
 GDALRasterBand *JPGCreateBand(JPGDatasetCommon *poDS, int nBand);
@@ -188,6 +186,7 @@ class JPGDatasetCommon CPL_NON_FINAL : public GDALPamDataset
     bool bHasReadXMPMetadata;
     bool bHasReadICCMetadata;
     bool bHasReadFLIRMetadata = false;
+    bool bHasReadImageStructureMetadata = false;
     char **papszMetadata;
     int nExifOffset;
     int nInterOffset;
@@ -212,6 +211,7 @@ class JPGDatasetCommon CPL_NON_FINAL : public GDALPamDataset
 
     virtual int GetDataPrecision() = 0;
     virtual int GetOutColorSpace() = 0;
+    virtual int GetJPEGColorSpace() = 0;
 
     bool EXIFInit(VSILFILE *);
     void ReadICCProfile();
@@ -221,6 +221,7 @@ class JPGDatasetCommon CPL_NON_FINAL : public GDALPamDataset
 
     void LoadForMetadataDomain(const char *pszDomain);
 
+    void ReadImageStructureMetadata();
     void ReadEXIFMetadata();
     void ReadXMPMetadata();
     void ReadFLIRMetadata();
@@ -271,7 +272,16 @@ class JPGDatasetCommon CPL_NON_FINAL : public GDALPamDataset
 
     virtual char **GetFileList(void) override;
 
-    virtual void FlushCache(bool bAtClosing) override;
+    virtual CPLErr FlushCache(bool bAtClosing) override;
+
+    CPLStringList GetCompressionFormats(int nXOff, int nYOff, int nXSize,
+                                        int nYSize, int nBandCount,
+                                        const int *panBandList) override;
+    CPLErr ReadCompressedData(const char *pszFormat, int nXOff, int nYOff,
+                              int nXSize, int nYSize, int nBandCount,
+                              const int *panBandList, void **ppBuffer,
+                              size_t *pnBufferSize,
+                              char **ppszDetailedFormat) override;
 
     static int Identify(GDALOpenInfo *);
     static GDALDataset *Open(GDALOpenInfo *);
@@ -307,6 +317,10 @@ class JPGDataset final : public JPGDatasetCommon
     virtual int GetOutColorSpace() override
     {
         return sDInfo.out_color_space;
+    }
+    virtual int GetJPEGColorSpace() override
+    {
+        return sDInfo.jpeg_color_space;
     }
 
     int nQLevel;

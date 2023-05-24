@@ -78,6 +78,9 @@ class HDF5ImageDataset final : public HDF5Dataset
     HDF5CSKProductEnum iCSKProductType;
     double adfGeoTransform[6];
     bool bHasGeoTransform;
+    int m_nXIndex = -1;
+    int m_nYIndex = -1;
+    int m_nOtherDimIndex = -1;
 
     CPLErr CreateODIMH5Projection();
 
@@ -111,11 +114,11 @@ class HDF5ImageDataset final : public HDF5Dataset
     }
     int GetYIndex() const
     {
-        return IsComplexCSKL1A() ? 0 : ndims - 2;
+        return m_nYIndex;
     }
     int GetXIndex() const
     {
-        return IsComplexCSKL1A() ? 1 : ndims - 1;
+        return m_nXIndex;
     }
 
     /**
@@ -336,19 +339,12 @@ CPLErr HDF5ImageRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
     hsize_t col_dims[3] = {0, 0, 0};
     hsize_t rank = std::min(poGDS->ndims, 2);
 
-    if (poGDS->IsComplexCSKL1A())
+    if (poGDS->ndims == 3)
     {
         rank = 3;
-        offset[2] = nBand - 1;
-        count[2] = 1;
-        col_dims[2] = 1;
-    }
-    else if (poGDS->ndims == 3)
-    {
-        rank = 3;
-        offset[0] = nBand - 1;
-        count[0] = 1;
-        col_dims[0] = 1;
+        offset[poGDS->m_nOtherDimIndex] = nBand - 1;
+        count[poGDS->m_nOtherDimIndex] = 1;
+        col_dims[poGDS->m_nOtherDimIndex] = 1;
     }
 
     const int nYIndex = poGDS->GetYIndex();
@@ -488,13 +484,11 @@ GDALDataset *HDF5ImageDataset::Open(GDALOpenInfo *poOpenInfo)
     poDS->hGroupID = H5Gopen(poDS->hHDF5, "/");
     if (poDS->hGroupID < 0)
     {
-        poDS->bIsHDFEOS = false;
         delete poDS;
         return nullptr;
     }
 
     // This is an HDF5 file.
-    poDS->bIsHDFEOS = TRUE;
     poDS->ReadGlobalAttributes(FALSE);
 
     // Create HDF5 Data Hierarchy in a link list.
@@ -533,25 +527,123 @@ GDALDataset *HDF5ImageDataset::Open(GDALOpenInfo *poOpenInfo)
     // Check if the hdf5 is a well known product type
     poDS->IdentifyProductType();
 
+    poDS->m_nYIndex = poDS->IsComplexCSKL1A() ? 0 : poDS->ndims - 2;
+    poDS->m_nXIndex = poDS->IsComplexCSKL1A() ? 1 : poDS->ndims - 1;
+
+    if (poDS->IsComplexCSKL1A())
+    {
+        poDS->m_nOtherDimIndex = 2;
+    }
+    else if (poDS->ndims == 3)
+    {
+        poDS->m_nOtherDimIndex = 0;
+    }
+
+    if (HDF5EOSParser::HasHDFEOS(poDS->hGroupID))
+    {
+        HDF5EOSParser oHDFEOSParser;
+        if (oHDFEOSParser.Parse(poDS->hGroupID))
+        {
+            CPLDebug("HDF5", "Successfully parsed HDFEOS metadata");
+            HDF5EOSParser::GridDataFieldMetadata oGridDataFieldMetadata;
+            HDF5EOSParser::SwathDataFieldMetadata oSwathDataFieldMetadata;
+            if (oHDFEOSParser.GetDataModel() ==
+                    HDF5EOSParser::DataModel::GRID &&
+                oHDFEOSParser.GetGridDataFieldMetadata(
+                    osSubdatasetName.c_str(), oGridDataFieldMetadata) &&
+                static_cast<int>(oGridDataFieldMetadata.aoDimensions.size()) ==
+                    poDS->ndims)
+            {
+                int iDim = 0;
+                for (auto &oDim : oGridDataFieldMetadata.aoDimensions)
+                {
+                    if (oDim.osName == "XDim")
+                        poDS->m_nXIndex = iDim;
+                    else if (oDim.osName == "YDim")
+                        poDS->m_nYIndex = iDim;
+                    else
+                        poDS->m_nOtherDimIndex = iDim;
+                    ++iDim;
+                }
+
+                if (oGridDataFieldMetadata.poGridMetadata->GetGeoTransform(
+                        poDS->adfGeoTransform))
+                    poDS->bHasGeoTransform = true;
+
+                auto poSRS = oGridDataFieldMetadata.poGridMetadata->GetSRS();
+                if (poSRS)
+                    poDS->m_oSRS = *(poSRS.get());
+            }
+            else if (oHDFEOSParser.GetDataModel() ==
+                         HDF5EOSParser::DataModel::SWATH &&
+                     oHDFEOSParser.GetSwathDataFieldMetadata(
+                         osSubdatasetName.c_str(), oSwathDataFieldMetadata) &&
+                     static_cast<int>(
+                         oSwathDataFieldMetadata.aoDimensions.size()) ==
+                         poDS->ndims &&
+                     oSwathDataFieldMetadata.iXDim >= 0 &&
+                     oSwathDataFieldMetadata.iYDim >= 0)
+            {
+                poDS->m_nXIndex = oSwathDataFieldMetadata.iXDim;
+                poDS->m_nYIndex = oSwathDataFieldMetadata.iYDim;
+                poDS->m_nOtherDimIndex = oSwathDataFieldMetadata.iOtherDim;
+                if (!oSwathDataFieldMetadata.osLongitudeSubdataset.empty())
+                {
+                    // Arbitrary
+                    poDS->SetMetadataItem("SRS", SRS_WKT_WGS84_LAT_LONG,
+                                          "GEOLOCATION");
+                    poDS->SetMetadataItem(
+                        "X_DATASET",
+                        ("HDF5:\"" + osFilename +
+                         "\":" + oSwathDataFieldMetadata.osLongitudeSubdataset)
+                            .c_str(),
+                        "GEOLOCATION");
+                    poDS->SetMetadataItem("X_BAND", "1", "GEOLOCATION");
+                    poDS->SetMetadataItem(
+                        "Y_DATASET",
+                        ("HDF5:\"" + osFilename +
+                         "\":" + oSwathDataFieldMetadata.osLatitudeSubdataset)
+                            .c_str(),
+                        "GEOLOCATION");
+                    poDS->SetMetadataItem("Y_BAND", "1", "GEOLOCATION");
+                    poDS->SetMetadataItem(
+                        "PIXEL_OFFSET",
+                        CPLSPrintf("%d", oSwathDataFieldMetadata.nPixelOffset),
+                        "GEOLOCATION");
+                    poDS->SetMetadataItem(
+                        "PIXEL_STEP",
+                        CPLSPrintf("%d", oSwathDataFieldMetadata.nPixelStep),
+                        "GEOLOCATION");
+                    poDS->SetMetadataItem(
+                        "LINE_OFFSET",
+                        CPLSPrintf("%d", oSwathDataFieldMetadata.nLineOffset),
+                        "GEOLOCATION");
+                    poDS->SetMetadataItem(
+                        "LINE_STEP",
+                        CPLSPrintf("%d", oSwathDataFieldMetadata.nLineStep),
+                        "GEOLOCATION");
+                    // Not totally sure about that
+                    poDS->SetMetadataItem("GEOREFERENCING_CONVENTION",
+                                          "PIXEL_CENTER", "GEOLOCATION");
+                }
+            }
+        }
+    }
+
     poDS->nRasterYSize =
         poDS->GetYIndex() < 0
             ? 1
             : static_cast<int>(poDS->dims[poDS->GetYIndex()]);  // nRows
     poDS->nRasterXSize =
         static_cast<int>(poDS->dims[poDS->GetXIndex()]);  // nCols
-    if (poDS->IsComplexCSKL1A())
+    if (poDS->m_nOtherDimIndex >= 0)
     {
-        poDS->nBands = static_cast<int>(poDS->dims[2]);
-    }
-    else if (poDS->ndims == 3)
-    {
-        poDS->nBands = static_cast<int>(poDS->dims[0]);
+        poDS->nBands = static_cast<int>(poDS->dims[poDS->m_nOtherDimIndex]);
     }
     else
     {
         poDS->nBands = 1;
     }
-
     for (int i = 1; i <= poDS->nBands; i++)
     {
         HDF5ImageRasterBand *const poBand =
@@ -560,7 +652,8 @@ GDALDataset *HDF5ImageDataset::Open(GDALOpenInfo *poOpenInfo)
         poDS->SetBand(i, poBand);
     }
 
-    poDS->CreateProjections();
+    if (!poDS->GetMetadata("GEOLOCATION"))
+        poDS->CreateProjections();
 
     // Setup/check for pam .aux.xml.
     poDS->TryLoadXML();

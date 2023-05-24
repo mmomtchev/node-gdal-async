@@ -130,7 +130,7 @@ class OGRPGGeomFieldDefn final : public OGRGeomFieldDefn
     {
     }
 
-    virtual OGRSpatialReference *GetSpatialRef() const override;
+    virtual const OGRSpatialReference *GetSpatialRef() const override;
 
     void UnsetLayer()
     {
@@ -191,7 +191,6 @@ class OGRPGLayer CPL_NON_FINAL : public OGRLayer
     int nCursorPage = 0;
     GIntBig iNextShapeId = 0;
 
-    static char *GByteArrayToBYTEA(const GByte *pabyData, size_t nLen);
     static char *GeometryToBYTEA(const OGRGeometry *, int nPostGISMajor,
                                  int nPostGISMinor);
     static GByte *BYTEAToGByteArray(const char *pszBytea, int *pnLength);
@@ -293,7 +292,7 @@ class OGRPGTableLayer final : public OGRPGLayer
 
     char *pszTableName = nullptr;
     char *pszSchemaName = nullptr;
-    char *pszDescription = nullptr;
+    char *m_pszTableDescription = nullptr;
     CPLString osForcedDescription{};
     char *pszSqlTableName = nullptr;
     int bTableDefinitionValid = -1;
@@ -341,6 +340,7 @@ class OGRPGTableLayer final : public OGRPGLayer
 
     int bDeferredCreation = false;
     CPLString osCreateTable{};
+    std::vector<std::string> m_aosDeferredCommentOnColumns{};
 
     int iFIDAsRegularColumnIndex = -1;
 
@@ -356,7 +356,8 @@ class OGRPGTableLayer final : public OGRPGLayer
     }
 
     OGRErr RunAddGeometryColumn(const OGRPGGeomFieldDefn *poGeomField);
-    OGRErr RunCreateSpatialIndex(const OGRPGGeomFieldDefn *poGeomField);
+    OGRErr RunCreateSpatialIndex(const OGRPGGeomFieldDefn *poGeomField,
+                                 int nIdx);
 
     void UpdateSequenceIfNeeded();
 
@@ -383,6 +384,11 @@ class OGRPGTableLayer final : public OGRPGLayer
     virtual OGRErr SetAttributeFilter(const char *) override;
 
     virtual OGRErr ISetFeature(OGRFeature *poFeature) override;
+    OGRErr IUpdateFeature(OGRFeature *poFeature, int nUpdatedFieldsCount,
+                          const int *panUpdatedFieldsIdx,
+                          int nUpdatedGeomFieldsCount,
+                          const int *panUpdatedGeomFieldsIdx,
+                          bool bUpdateStyleString) override;
     virtual OGRErr DeleteFeature(GIntBig nFID) override;
     virtual OGRErr ICreateFeature(OGRFeature *poFeature) override;
 
@@ -595,6 +601,8 @@ class OGRPGDataSource final : public OGRDataSource
     int bHasLoadTables = false;
     CPLString osActiveSchema{};
     int bListAllTables = false;
+    bool m_bSkipViews = false;
+
     void LoadTables();
 
     CPLString osDebugLastTransactionCommand{};
@@ -610,7 +618,6 @@ class OGRPGDataSource final : public OGRDataSource
 
     int bUseBinaryCursor = false;
     int bBinaryTimeFormatIsInt8 = false;
-    int bUseEscapeStringSyntax = false;
 
     bool m_bHasGeometryColumns = false;
     bool m_bHasSpatialRefSys = false;
@@ -651,7 +658,7 @@ class OGRPGDataSource final : public OGRDataSource
     OGRLayer *GetLayer(int) override;
     OGRLayer *GetLayerByName(const char *pszName) override;
 
-    virtual void FlushCache(bool bAtClosing) override;
+    virtual CPLErr FlushCache(bool bAtClosing) override;
 
     virtual OGRLayer *ICreateLayer(const char *,
                                    OGRSpatialReference * = nullptr,

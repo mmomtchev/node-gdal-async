@@ -2069,6 +2069,7 @@ static OGRGeometry *GML2OGRGeometry_XMLNode_Internal(
                             oPoints.getZ(0));
         poBoxRing->setPoint(4, oPoints.getX(0), oPoints.getY(0),
                             oPoints.getZ(0));
+        poBoxRing->set3D(oPoints.Is3D());
 
         poBoxPoly->addRingDirectly(poBoxRing);
 
@@ -3840,6 +3841,11 @@ static OGRGeometry *GML2OGRGeometry_XMLNode_Internal(
         return poMP;
     }
 
+    if (strcmp(pszBaseGeometry, "null") == 0)
+    {
+        return nullptr;
+    }
+
     CPLError(CE_Failure, CPLE_AppDefined,
              "Unrecognized geometry type <%.500s>.", pszBaseGeometry);
 
@@ -3854,7 +3860,7 @@ static OGRGeometry *GML2OGRGeometry_XMLNode_Internal(
 OGRGeometryH OGR_G_CreateFromGMLTree(const CPLXMLNode *psTree)
 
 {
-    return reinterpret_cast<OGRGeometryH>(GML2OGRGeometry_XMLNode(psTree, -1));
+    return OGRGeometry::ToHandle(GML2OGRGeometry_XMLNode(psTree, -1));
 }
 
 /************************************************************************/
@@ -3921,5 +3927,5 @@ OGRGeometryH OGR_G_CreateFromGML(const char *pszGML)
 
     CPLDestroyXMLNode(psGML);
 
-    return reinterpret_cast<OGRGeometryH>(poGeometry);
+    return OGRGeometry::ToHandle(poGeometry);
 }

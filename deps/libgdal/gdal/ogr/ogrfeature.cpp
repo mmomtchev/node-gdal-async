@@ -2388,9 +2388,17 @@ static void OGRFeatureFormatDateTimeBuffer(char *szTempBuffer, size_t nMaxSize,
  * \fn OGRFeature::GetFieldAsString( const char* pszFName ) const
  * \brief Fetch field value as a string.
  *
- * OFTReal and OFTInteger fields will be translated to string using
+ * OFTReal, OFTInteger, OFTInteger64 fields will be translated to string using
  * sprintf(), but not necessarily using the established formatting rules.
- * Other field types, or errors will result in a return value of zero.
+ * OFTDateTime fields are formatted with "YYYY/MM/DD HH:MM:SS[.sss]+ZZ"
+ * (note this is not a ISO-8601 compliant string. Use
+ * GetFieldAsISO8601DateTime())
+ * OFTDate fields are formatted as "YYYY/MM/DD"
+ * OFTTime fields are formatted as "HH:MM:SS[.sss]"
+ * OFTRealList, OFTIntegerList, OFTInteger64List, OFTStringList fields are
+ * formatted as "(number_of_values:val1,val2,...,valN)"
+ * OFTBinary fields are formatted as an hexadecimal representation.
+ * Other field types, or errors will result in a return of an empty string.
  *
  * @param pszFName the name of the field to fetch.
  *
@@ -2401,9 +2409,17 @@ static void OGRFeatureFormatDateTimeBuffer(char *szTempBuffer, size_t nMaxSize,
 /**
  * \brief Fetch field value as a string.
  *
- * OFTReal and OFTInteger fields will be translated to string using
+ * OFTReal, OFTInteger, OFTInteger64 fields will be translated to string using
  * sprintf(), but not necessarily using the established formatting rules.
- * Other field types, or errors will result in a return value of zero.
+ * OFTDateTime fields are formatted with "YYYY/MM/DD HH:MM:SS[.sss]+ZZ"
+ * (note this is not a ISO-8601 compliant string. Use
+ * GetFieldAsISO8601DateTime())
+ * OFTDate fields are formatted as "YYYY/MM/DD"
+ * OFTTime fields are formatted as "HH:MM:SS[.sss]"
+ * OFTRealList, OFTIntegerList, OFTInteger64List, OFTStringList fields are
+ * formatted as "(number_of_values:val1,val2,...,valN)"
+ * OFTBinary fields are formatted as an hexadecimal representation.
+ * Other field types, or errors will result in a return of an empty string.
  *
  * This method is the same as the C function OGR_F_GetFieldAsString().
  *
@@ -2735,6 +2751,117 @@ const char *OGR_F_GetFieldAsString(OGRFeatureH hFeat, int iField)
     VALIDATE_POINTER1(hFeat, "OGR_F_GetFieldAsString", nullptr);
 
     return OGRFeature::FromHandle(hFeat)->GetFieldAsString(iField);
+}
+
+/************************************************************************/
+/*                     GetFieldAsISO8601DateTime()                      */
+/************************************************************************/
+
+/* clang-format off */
+/**
+ * \fn OGRFeature::GetFieldAsISO8601DateTime( const char* pszFName, CSLConstList papszOptions ) const
+ * \brief Fetch OFTDateTime field value as a ISO8601 representation.
+ *
+ * Return a string like "YYYY-MM-DDTHH:MM:SS(.sss)?(Z|([+|-]HH:MM))?"
+ * Milliseconds are omitted if equal to zero.
+ * Other field types, or errors will result in a return of an empty string.
+ *
+ * @param pszFName the name of the field to fetch.
+ * @param papszOptions NULL terminated list of strings, or NULL.
+ * No options are defined currently.
+ *
+ * @return the field value.  This string is internal, and should not be
+ * modified, or freed.  Its lifetime may be very brief.
+ *
+ * @since GDAL 3.7
+ */
+/* clang-format on */
+
+/**
+ * \brief Fetch OFTDateTime field value as a ISO8601 representation.
+ *
+ * Return a string like "YYYY-MM-DDTHH:MM:SS(.sss)?(Z|([+|-]HH:MM))?"
+ * Milliseconds are omitted if equal to zero.
+ * Other field types, or errors will result in a return of an empty string.
+ *
+ * This method is the same as the C function OGR_F_GetFieldAsISO8601DateTime().
+ *
+ * @param iField the field to fetch, from 0 to GetFieldCount()-1.
+ * @param papszOptions NULL terminated list of strings, or NULL.
+ * No options are defined currently.
+ *
+ * @return the field value.  This string is internal, and should not be
+ * modified, or freed.  Its lifetime may be very brief.
+ *
+ * @since GDAL 3.7
+ */
+
+const char *OGRFeature::GetFieldAsISO8601DateTime(
+    int iField, CPL_UNUSED CSLConstList papszOptions) const
+
+{
+    CPLFree(m_pszTmpFieldValue);
+    m_pszTmpFieldValue = nullptr;
+
+    const int iSpecialField = iField - poDefn->GetFieldCount();
+    if (iSpecialField >= 0)
+    {
+        return "";
+    }
+
+    OGRFieldDefn *poFDefn = poDefn->GetFieldDefn(iField);
+
+    if (poFDefn == nullptr)
+        return "";
+
+    if (!IsFieldSetAndNotNullUnsafe(iField))
+        return "";
+
+    OGRFieldType eType = poFDefn->GetType();
+    if (eType != OFTDateTime)
+        return "";
+
+    m_pszTmpFieldValue =
+        static_cast<char *>(CPLMalloc(OGR_SIZEOF_ISO8601_DATETIME_BUFFER));
+    constexpr bool bAlwaysMillisecond = false;
+    OGRGetISO8601DateTime(&pauFields[iField], bAlwaysMillisecond,
+                          m_pszTmpFieldValue);
+    return m_pszTmpFieldValue;
+    ;
+}
+
+/************************************************************************/
+/*                     OGR_F_GetFieldAsISO8601DateTime()                */
+/************************************************************************/
+
+/**
+ * \brief Fetch OFTDateTime field value as a ISO8601 representation.
+ *
+ * Return a string like "YYYY-MM6DDTHH:MM:SS(.sss)?(Z|([+|-]HH:MM))?"
+ * Milliseconds are omitted if equal to zero.
+ * Other field types, or errors will result in a return of an empty string.
+ *
+ * This function is the same as the C++ method OGRFeature::GetFieldAsISO8601DateTime().
+ *
+ * @param hFeat handle to the feature that owned the field.
+ * @param iField the field to fetch, from 0 to GetFieldCount()-1.
+ * @param papszOptions NULL terminated list of strings, or NULL.
+ * No options are defined currently.
+ *
+ * @return the field value.  This string is internal, and should not be
+ * modified, or freed.  Its lifetime may be very brief.
+ *
+ * @since GDAL 3.7
+ */
+
+const char *OGR_F_GetFieldAsISO8601DateTime(OGRFeatureH hFeat, int iField,
+                                            CSLConstList papszOptions)
+
+{
+    VALIDATE_POINTER1(hFeat, "OGR_F_GetFieldAsISO8601DateTime", nullptr);
+
+    return OGRFeature::FromHandle(hFeat)->GetFieldAsISO8601DateTime(
+        iField, papszOptions);
 }
 
 /************************************************************************/
@@ -3370,7 +3497,8 @@ static int OGRFeatureGetIntegerValue(OGRFieldDefn *poFDefn, int nValue)
 /**
  * \brief Fetch field value as a serialized JSon object.
  *
- * Currently this method only works for OFTStringList, OFTIntegerList,
+ * Currently this method only works for OFTString with OFSTJSON subtype,
+ * OFTStringList, OFTIntegerList,
  * OFTInteger64List and OFTRealList
  *
  * @param iField the field to fetch, from 0 to GetFieldCount()-1.
@@ -3397,7 +3525,27 @@ char *OGRFeature::GetFieldAsSerializedJSon(int iField) const
 
     char *pszRet = nullptr;
     OGRFieldType eType = poFDefn->GetType();
-    if (eType == OFTStringList)
+    if (eType == OFTString && poFDefn->GetSubType() == OFSTJSON)
+    {
+        if (pauFields[iField].String[0] != '[' &&
+            pauFields[iField].String[0] != '{' &&
+            strcmp(pauFields[iField].String, "true") != 0 &&
+            strcmp(pauFields[iField].String, "false") != 0 &&
+            CPLGetValueType(pauFields[iField].String) == CPL_VALUE_STRING)
+        {
+            pszRet = CPLStrdup(('"' +
+                                CPLString(pauFields[iField].String)
+                                    .replaceAll('\\', "\\\\")
+                                    .replaceAll('"', "\\\"") +
+                                '"')
+                                   .c_str());
+        }
+        else
+        {
+            pszRet = CPLStrdup(pauFields[iField].String);
+        }
+    }
+    else if (eType == OFTStringList)
     {
         char **papszValues = GetFieldAsStringList(iField);
         if (papszValues == nullptr)
@@ -3974,23 +4122,72 @@ void OGRFeature::SetField(int iField, const char *pszValue)
     }
     else if (eType == OFTInteger)
     {
-        // As allowed by C standard, some systems like MSVC do not reset errno.
-        errno = 0;
+        if (poFDefn->GetSubType() == OFSTBoolean)
+        {
+            constexpr char DIGIT_ZERO = '0';
+            if ((pszValue[0] == '1' && pszValue[1] == '\0') ||
+                EQUAL(pszValue, "true") || EQUAL(pszValue, "on") ||
+                EQUAL(pszValue, "yes"))
+            {
+                pauFields[iField].Integer = 1;
+                pauFields[iField].Set.nMarker2 = 0;
+                pauFields[iField].Set.nMarker3 = 0;
+            }
+            else if ((pszValue[0] == DIGIT_ZERO && pszValue[1] == '\0') ||
+                     EQUAL(pszValue, "false") || EQUAL(pszValue, "off") ||
+                     EQUAL(pszValue, "no"))
+            {
+                pauFields[iField].Integer = 0;
+                pauFields[iField].Set.nMarker2 = 0;
+                pauFields[iField].Set.nMarker3 = 0;
+            }
+            else
+            {
+                if (CPLGetValueType(pszValue) == CPL_VALUE_STRING)
+                {
+                    CPLError(CE_Warning, CPLE_AppDefined,
+                             "Invalid value '%s' for boolean field %s.%s. "
+                             "Assuming it to be false.",
+                             pszValue, poDefn->GetName(),
+                             poFDefn->GetNameRef());
+                    pauFields[iField].Integer = 0;
+                    pauFields[iField].Set.nMarker2 = 0;
+                    pauFields[iField].Set.nMarker3 = 0;
+                }
+                else
+                {
+                    CPLError(CE_Warning, CPLE_AppDefined,
+                             "Invalid value '%s' for boolean field %s.%s. "
+                             "Assuming it to be true.",
+                             pszValue, poDefn->GetName(),
+                             poFDefn->GetNameRef());
+                    pauFields[iField].Integer = 1;
+                    pauFields[iField].Set.nMarker2 = 0;
+                    pauFields[iField].Set.nMarker3 = 0;
+                }
+            }
+        }
+        else
+        {
+            // As allowed by C standard, some systems like MSVC do not reset errno.
+            errno = 0;
 
-        long long nVal64 = std::strtoll(pszValue, &pszLast, 10);
-        int nVal32 = nVal64 > INT_MAX   ? INT_MAX
-                     : nVal64 < INT_MIN ? INT_MIN
-                                        : static_cast<int>(nVal64);
-        pauFields[iField].Integer = OGRFeatureGetIntegerValue(poFDefn, nVal32);
-        if (bWarn && pauFields[iField].Integer == nVal32 &&
-            (errno == ERANGE || nVal32 != nVal64 || !pszLast || *pszLast))
-            CPLError(
-                CE_Warning, CPLE_AppDefined,
-                "Value '%s' of field %s.%s parsed incompletely to integer %d.",
-                pszValue, poDefn->GetName(), poFDefn->GetNameRef(),
-                pauFields[iField].Integer);
-        pauFields[iField].Set.nMarker2 = 0;
-        pauFields[iField].Set.nMarker3 = 0;
+            long long nVal64 = std::strtoll(pszValue, &pszLast, 10);
+            int nVal32 = nVal64 > INT_MAX   ? INT_MAX
+                         : nVal64 < INT_MIN ? INT_MIN
+                                            : static_cast<int>(nVal64);
+            pauFields[iField].Integer =
+                OGRFeatureGetIntegerValue(poFDefn, nVal32);
+            if (bWarn && pauFields[iField].Integer == nVal32 &&
+                (errno == ERANGE || nVal32 != nVal64 || !pszLast || *pszLast))
+                CPLError(CE_Warning, CPLE_AppDefined,
+                         "Value '%s' of field %s.%s parsed incompletely to "
+                         "integer %d.",
+                         pszValue, poDefn->GetName(), poFDefn->GetNameRef(),
+                         pauFields[iField].Integer);
+            pauFields[iField].Set.nMarker2 = 0;
+            pauFields[iField].Set.nMarker3 = 0;
+        }
     }
     else if (eType == OFTInteger64)
     {
@@ -5347,15 +5544,46 @@ void OGR_F_SetFieldRaw(OGRFeatureH hFeat, int iField, const OGRField *psValue)
  * @param papszOptions NULL terminated list of options (may be NULL)
  */
 
-void OGRFeature::DumpReadable(FILE *fpOut, char **papszOptions) const
+void OGRFeature::DumpReadable(FILE *fpOut, CSLConstList papszOptions) const
 
 {
     if (fpOut == nullptr)
         fpOut = stdout;
 
-    char szFID[32];
-    CPLsnprintf(szFID, sizeof(szFID), CPL_FRMT_GIB, GetFID());
-    fprintf(fpOut, "OGRFeature(%s):%s\n", poDefn->GetName(), szFID);
+    const auto osStr = DumpReadableAsString(papszOptions);
+    fprintf(fpOut, "%s", osStr.c_str());
+}
+
+/************************************************************************/
+/*                       DumpReadableAsString()                         */
+/************************************************************************/
+
+/**
+ * \brief Dump this feature in a human readable form.
+ *
+ * This dumps the attributes, and geometry; however, it doesn't definition
+ * information (other than field types and names), nor does it report the
+ * geometry spatial reference system.
+ *
+ * A few options can be defined to change the default dump :
+ * <ul>
+ * <li>DISPLAY_FIELDS=NO : to hide the dump of the attributes</li>
+ * <li>DISPLAY_STYLE=NO : to hide the dump of the style string</li>
+ * <li>DISPLAY_GEOMETRY=NO : to hide the dump of the geometry</li>
+ * <li>DISPLAY_GEOMETRY=SUMMARY : to get only a summary of the geometry</li>
+ * </ul>
+ *
+ * @param papszOptions NULL terminated list of options (may be NULL)
+ * @return a string with the feature representation.
+ * @since GDAL 3.7
+ */
+
+std::string OGRFeature::DumpReadableAsString(CSLConstList papszOptions) const
+{
+    std::string osRet;
+
+    osRet += CPLOPrintf("OGRFeature(%s):" CPL_FRMT_GIB "\n", poDefn->GetName(),
+                        GetFID());
 
     const char *pszDisplayFields =
         CSLFetchNameValue(papszOptions, "DISPLAY_FIELDS");
@@ -5375,12 +5603,12 @@ void OGRFeature::DumpReadable(FILE *fpOut, char **papszOptions) const
                           poFDefn->GetFieldSubTypeName(poFDefn->GetSubType()))
                     : poFDefn->GetFieldTypeName(poFDefn->GetType());
 
-            fprintf(fpOut, "  %s (%s) = ", poFDefn->GetNameRef(), pszType);
+            osRet += CPLOPrintf("  %s (%s) = ", poFDefn->GetNameRef(), pszType);
 
             if (IsFieldNull(iField))
-                fprintf(fpOut, "(null)\n");
+                osRet += "(null)\n";
             else
-                fprintf(fpOut, "%s\n", GetFieldAsString(iField));
+                osRet += CPLOPrintf("%s\n", GetFieldAsString(iField));
         }
     }
 
@@ -5390,7 +5618,7 @@ void OGRFeature::DumpReadable(FILE *fpOut, char **papszOptions) const
             CSLFetchNameValue(papszOptions, "DISPLAY_STYLE");
         if (pszDisplayStyle == nullptr || CPLTestBool(pszDisplayStyle))
         {
-            fprintf(fpOut, "  Style = %s\n", GetStyleString());
+            osRet += CPLOPrintf("  Style = %s\n", GetStyleString());
         }
     }
 
@@ -5407,18 +5635,19 @@ void OGRFeature::DumpReadable(FILE *fpOut, char **papszOptions) const
 
                 if (papoGeometries[iField] != nullptr)
                 {
-                    fprintf(fpOut, "  ");
+                    osRet += "  ";
                     if (strlen(poFDefn->GetNameRef()) > 0 &&
                         GetGeomFieldCount() > 1)
-                        fprintf(fpOut, "%s = ", poFDefn->GetNameRef());
-                    papoGeometries[iField]->dumpReadable(fpOut, "",
-                                                         papszOptions);
+                        osRet += CPLOPrintf("%s = ", poFDefn->GetNameRef());
+                    osRet += papoGeometries[iField]->dumpReadable(nullptr,
+                                                                  papszOptions);
                 }
             }
         }
     }
 
-    fprintf(fpOut, "\n");
+    osRet += "\n";
+    return osRet;
 }
 
 /************************************************************************/

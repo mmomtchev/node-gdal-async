@@ -126,8 +126,7 @@ class GDALEEDAIRasterBand final : public GDALRasterBand
                            int nBufXSize, int nBufYSize, bool bQueryAllBands);
 
   public:
-    GDALEEDAIRasterBand(GDALEEDAIDataset *poDSIn, GDALDataType eDT,
-                        bool bSignedByte);
+    GDALEEDAIRasterBand(GDALEEDAIDataset *poDSIn, GDALDataType eDT);
     virtual ~GDALEEDAIRasterBand();
 
     virtual CPLErr IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
@@ -214,16 +213,12 @@ GDALEEDAIDataset::~GDALEEDAIDataset()
 /************************************************************************/
 
 GDALEEDAIRasterBand::GDALEEDAIRasterBand(GDALEEDAIDataset *poDSIn,
-                                         GDALDataType eDT, bool bSignedByte)
+                                         GDALDataType eDT)
     : m_eInterp(GCI_Undefined)
 {
     eDataType = eDT;
     nBlockXSize = poDSIn->m_nBlockSize;
     nBlockYSize = poDSIn->m_nBlockSize;
-    if (bSignedByte)
-    {
-        SetMetadataItem("PIXELTYPE", "SIGNEDBYTE", "IMAGE_STRUCTURE");
-    }
 }
 
 /************************************************************************/
@@ -439,7 +434,7 @@ bool GDALEEDAIRasterBand::DecodeGDALDataset(const GByte *pabyData, int nDataLen,
     VSIFCloseL(VSIFileFromMemBuffer(
         osTmpFilename, const_cast<GByte *>(pabyData), nDataLen, false));
     const char *const apszDrivers[] = {"PNG", "JPEG", "GTIFF", nullptr};
-    GDALDataset *poTileDS = reinterpret_cast<GDALDataset *>(GDALOpenEx(
+    GDALDataset *poTileDS = GDALDataset::FromHandle(GDALOpenEx(
         osTmpFilename, GDAL_OF_RASTER, apszDrivers, nullptr, nullptr));
     if (poTileDS == nullptr)
     {
@@ -1328,8 +1323,8 @@ bool GDALEEDAIDataset::Open(GDALOpenInfo *poOpenInfo)
                 }
             }
 
-            GDALRasterBand *poBand = new GDALEEDAIRasterBand(
-                this, aoBandDesc[i].eDT, aoBandDesc[i].bSignedByte);
+            GDALRasterBand *poBand =
+                new GDALEEDAIRasterBand(this, aoBandDesc[i].eDT);
             const int iBand = nBands + 1;
             SetBand(iBand, poBand);
             poBand->SetDescription(aoBandDesc[i].osName);
@@ -1345,8 +1340,7 @@ bool GDALEEDAIDataset::Open(GDALOpenInfo *poOpenInfo)
             for (size_t iOvr = 0; iOvr < m_apoOverviewDS.size(); iOvr++)
             {
                 GDALRasterBand *poOvrBand = new GDALEEDAIRasterBand(
-                    m_apoOverviewDS[iOvr], aoBandDesc[i].eDT,
-                    aoBandDesc[i].bSignedByte);
+                    m_apoOverviewDS[iOvr], aoBandDesc[i].eDT);
                 m_apoOverviewDS[iOvr]->SetBand(iBand, poOvrBand);
                 poOvrBand->SetDescription(aoBandDesc[i].osName);
             }

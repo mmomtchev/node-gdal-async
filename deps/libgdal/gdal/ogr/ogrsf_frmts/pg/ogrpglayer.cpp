@@ -1751,38 +1751,6 @@ OGRGeometry *OGRPGLayer::BYTEAToGeometry(const char *pszBytea, int bIsPostGIS1)
 }
 
 /************************************************************************/
-/*                        GByteArrayToBYTEA()                           */
-/************************************************************************/
-
-char *OGRPGLayer::GByteArrayToBYTEA(const GByte *pabyData, size_t nLen)
-{
-    if (nLen > (std::numeric_limits<size_t>::max() - 1) / 5)
-        return CPLStrdup("");
-    const size_t nTextBufLen = nLen * 5 + 1;
-    char *pszTextBuf = static_cast<char *>(VSI_MALLOC_VERBOSE(nTextBufLen));
-    if (pszTextBuf == nullptr)
-        return CPLStrdup("");
-
-    size_t iDst = 0;
-
-    for (size_t iSrc = 0; iSrc < nLen; iSrc++)
-    {
-        if (pabyData[iSrc] < 40 || pabyData[iSrc] > 126 ||
-            pabyData[iSrc] == '\\')
-        {
-            snprintf(pszTextBuf + iDst, nTextBufLen - iDst, "\\\\%03o",
-                     pabyData[iSrc]);
-            iDst += 5;
-        }
-        else
-            pszTextBuf[iDst++] = pabyData[iSrc];
-    }
-    pszTextBuf[iDst] = '\0';
-
-    return pszTextBuf;
-}
-
-/************************************************************************/
 /*                          GeometryToBYTEA()                           */
 /************************************************************************/
 
@@ -1816,7 +1784,7 @@ char *OGRPGLayer::GeometryToBYTEA(const OGRGeometry *poGeometry,
         return CPLStrdup("");
     }
 
-    char *pszTextBuf = GByteArrayToBYTEA(pabyWKB, nWkbSize);
+    char *pszTextBuf = OGRPGCommonGByteArrayToBYTEA(pabyWKB, nWkbSize);
     CPLFree(pabyWKB);
 
     return pszTextBuf;
@@ -2314,7 +2282,7 @@ int OGRPGLayer::ReadResultDefinition(PGresult *hInitialResultIn)
 /*                          GetSpatialRef()                             */
 /************************************************************************/
 
-OGRSpatialReference *OGRPGGeomFieldDefn::GetSpatialRef() const
+const OGRSpatialReference *OGRPGGeomFieldDefn::GetSpatialRef() const
 {
     if (poLayer == nullptr)
         return nullptr;
@@ -2325,7 +2293,7 @@ OGRSpatialReference *OGRPGGeomFieldDefn::GetSpatialRef() const
     {
         poSRS = poLayer->GetDS()->FetchSRS(nSRSId);
         if (poSRS != nullptr)
-            poSRS->Reference();
+            const_cast<OGRSpatialReference *>(poSRS)->Reference();
     }
     return poSRS;
 }

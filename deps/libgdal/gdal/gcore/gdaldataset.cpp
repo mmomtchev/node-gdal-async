@@ -319,6 +319,7 @@ GDALDataset::~GDALDataset()
                 sStruct.nPID = nPIDCreatorForShared;
                 sStruct.eAccess = eAccess;
                 sStruct.pszDescription = const_cast<char *>(GetDescription());
+                sStruct.poDS = nullptr;
                 SharedDatasetCtxt *psStruct = static_cast<SharedDatasetCtxt *>(
                     CPLHashSetLookup(phSharedDatasetSet, &sStruct));
                 if (psStruct && psStruct->poDS == this)
@@ -390,6 +391,88 @@ GDALDataset::~GDALDataset()
 }
 
 /************************************************************************/
+/*                             Close()                                  */
+/************************************************************************/
+
+/** Do final cleanup before a dataset is destroyed.
+ *
+ * This method is typically called by GDALClose() or the destructor of a
+ * GDALDataset subclass. It might also be called by C++ users before
+ * destroying a dataset. It should not be called on a shared dataset whose
+ * reference count is greater than one.
+ *
+ * It gives a last chance to the closing process to return an error code if
+ * something goes wrong, in particular in creation / update scenarios where
+ * file write or network communication might occur when finalizing the dataset.
+ *
+ * Implementations should be robust to this method to be called several times
+ * (on subsequent calls, it should do nothing and return CE_None).
+ * Once it has been called, no other method than Close() or the dataset
+ * destructor should be called. RasterBand or OGRLayer owned by the dataset
+ * should be assumed as no longer being valid.
+ *
+ * If a driver implements this method, it must also call it from its
+ * dataset destructor.
+ *
+ * A typical implementation might look as the following
+ * \code{.cpp}
+ *
+ *  MyDataset::~MyDataset()
+ *  {
+ *     try
+ *     {
+ *         MyDataset::Close();
+ *     }
+ *     catch (const std::exception &exc)
+ *     {
+ *         // If Close() can throw exception
+ *         CPLError(CE_Failure, CPLE_AppDefined,
+ *                  "Exception thrown in MyDataset::Close(): %s",
+ *                  exc.what());
+ *     }
+ *     catch (...)
+ *     {
+ *         // If Close() can throw exception
+ *         CPLError(CE_Failure, CPLE_AppDefined,
+ *                  "Exception thrown in MyDataset::Close()");
+ *     }
+ *  }
+ *
+ *  CPLErr MyDataset::Close()
+ *  {
+ *      CPLErr eErr = CE_None;
+ *      if( nOpenFlags != OPEN_FLAGS_CLOSED )
+ *      {
+ *          if( MyDataset::FlushCache(true) != CE_None )
+ *              eErr = CE_Failure;
+ *
+ *          // Do something driver specific
+ *          if (m_fpImage)
+ *          {
+ *              if( VSIFCloseL(m_fpImage) != 0 )
+ *              {
+ *                  CPLError(CE_Failure, CPLE_FileIO, "VSIFCloseL() failed");
+ *                  eErr = CE_Failure;
+ *              }
+ *          }
+ *
+ *          // Call parent Close() implementation.
+ *          if( MyParentDatasetClass::Close() != CE_None )
+ *              eErr = CE_Failure;
+ *      }
+ *      return eErr;
+ *  }
+ * \endcode
+ *
+ * @since GDAL 3.7
+ */
+CPLErr GDALDataset::Close()
+{
+    nOpenFlags = OPEN_FLAGS_CLOSED;
+    return CE_None;
+}
+
+/************************************************************************/
 /*                      AddToDatasetOpenList()                          */
 /************************************************************************/
 
@@ -430,20 +513,25 @@ void GDALDataset::AddToDatasetOpenList()
  * This method is the same as the C function GDALFlushCache().
  *
  * @param bAtClosing Whether this is called from a GDALDataset destructor
+ * @return CE_None in case of success (note: return value added in GDAL 3.7)
  */
 
-void GDALDataset::FlushCache(bool bAtClosing)
+CPLErr GDALDataset::FlushCache(bool bAtClosing)
 
 {
+    CPLErr eErr = CE_None;
     // This sometimes happens if a dataset is destroyed before completely
     // built.
 
-    if (papoBands != nullptr)
+    if (papoBands)
     {
         for (int i = 0; i < nBands; ++i)
         {
-            if (papoBands[i] != nullptr)
-                papoBands[i]->FlushCache(bAtClosing);
+            if (papoBands[i])
+            {
+                if (papoBands[i]->FlushCache(bAtClosing) != CE_None)
+                    eErr = CE_Failure;
+            }
         }
     }
 
@@ -458,10 +546,13 @@ void GDALDataset::FlushCache(bool bAtClosing)
 
             if (poLayer)
             {
-                poLayer->SyncToDisk();
+                if (poLayer->SyncToDisk() != OGRERR_NONE)
+                    eErr = CE_Failure;
             }
         }
     }
+
+    return eErr;
 }
 
 /************************************************************************/
@@ -472,14 +563,45 @@ void GDALDataset::FlushCache(bool bAtClosing)
  * \brief Flush all write cached data to disk.
  *
  * @see GDALDataset::FlushCache().
+ * @return CE_None in case of success (note: return value added in GDAL 3.7)
  */
 
-void CPL_STDCALL GDALFlushCache(GDALDatasetH hDS)
+CPLErr CPL_STDCALL GDALFlushCache(GDALDatasetH hDS)
 
 {
-    VALIDATE_POINTER0(hDS, "GDALFlushCache");
+    VALIDATE_POINTER1(hDS, "GDALFlushCache", CE_Failure);
 
-    GDALDataset::FromHandle(hDS)->FlushCache(false);
+    return GDALDataset::FromHandle(hDS)->FlushCache(false);
+}
+
+/************************************************************************/
+/*                      GetEstimatedRAMUsage()                          */
+/************************************************************************/
+
+/**
+ * \brief Return the intrinsic RAM usage of this dataset.
+ *
+ * The returned value should take into account caches in the underlying driver
+ * and decoding library, but not the usage related to the GDAL block cache.
+ *
+ * At time of writing, this method is only implemented in the JP2OpenJPEG
+ * driver. For single-tiled JPEG2000 images, the decoding of the image,
+ * even partially, involves allocating at least
+ * width * height * number_of_bands * sizeof(uint32_t) bytes inside the libopenjp2
+ * library.
+ *
+ * This method is used by the GDALDatasetPool class, itself used by the GDAL VRT
+ * driver, to determine how long a dataset in the pool must be kept open, given
+ * the RAM usage of the dataset with respect to the usable total RAM.
+ *
+ * @since GDAL 3.7
+ * @return RAM usage in bytes, or -1 if unknown (the default implementation
+ * returns -1)
+ */
+
+GIntBig GDALDataset::GetEstimatedRAMUsage()
+{
+    return -1;
 }
 
 /************************************************************************/
@@ -494,14 +616,13 @@ void CPL_STDCALL GDALFlushCache(GDALDatasetH hDS)
 /************************************************************************/
 
 //! @cond Doxygen_Suppress
-void GDALDataset::BlockBasedFlushCache(bool bAtClosing)
+CPLErr GDALDataset::BlockBasedFlushCache(bool bAtClosing)
 
 {
     GDALRasterBand *poBand1 = GetRasterBand(1);
     if (poBand1 == nullptr || (bSuppressOnClose && bAtClosing))
     {
-        GDALDataset::FlushCache(bAtClosing);
-        return;
+        return GDALDataset::FlushCache(bAtClosing);
     }
 
     int nBlockXSize = 0;
@@ -519,8 +640,7 @@ void GDALDataset::BlockBasedFlushCache(bool bAtClosing)
         poBand->GetBlockSize(&nThisBlockXSize, &nThisBlockYSize);
         if (nThisBlockXSize != nBlockXSize && nThisBlockYSize != nBlockYSize)
         {
-            GDALDataset::FlushCache(bAtClosing);
-            return;
+            return GDALDataset::FlushCache(bAtClosing);
         }
     }
 
@@ -538,10 +658,11 @@ void GDALDataset::BlockBasedFlushCache(bool bAtClosing)
                 const CPLErr eErr = poBand->FlushBlock(iX, iY);
 
                 if (eErr != CE_None)
-                    return;
+                    return CE_Failure;
             }
         }
     }
+    return CE_None;
 }
 
 /************************************************************************/
@@ -680,6 +801,24 @@ void GDALDataset::SetBand(int nNewBand, GDALRasterBand *poBand)
     poBand->nRasterXSize = nRasterXSize;
     poBand->nRasterYSize = nRasterYSize;
     poBand->eAccess = eAccess;  // Default access to be same as dataset.
+}
+//! @endcond
+
+/************************************************************************/
+/*                              SetBand()                               */
+/************************************************************************/
+
+//! @cond Doxygen_Suppress
+/**  Set a band in the band array, updating the band count, and array size
+ * appropriately.
+ *
+ * @param nNewBand new band number (indexing starts at 1)
+ * @param poBand band object.
+ */
+
+void GDALDataset::SetBand(int nNewBand, std::unique_ptr<GDALRasterBand> poBand)
+{
+    SetBand(nNewBand, poBand.release());
 }
 //! @endcond
 
@@ -1547,7 +1686,6 @@ const char *GDALDataset::GetGCPProjection()
     m_poPrivate->m_pszWKTGCPCached = pszWKT;
     return m_poPrivate->m_pszWKTGCPCached;
 }
-//! @endcond
 
 /************************************************************************/
 /*                          GetGCPSpatialRef()                          */
@@ -3260,6 +3398,7 @@ GDALDatasetH CPL_STDCALL GDALOpenEx(const char *pszFilename,
             sStruct.pszDescription = const_cast<char *>(pszFilename);
             sStruct.eAccess =
                 (nOpenFlags & GDAL_OF_UPDATE) ? GA_Update : GA_ReadOnly;
+            sStruct.poDS = nullptr;
             SharedDatasetCtxt *psStruct = static_cast<SharedDatasetCtxt *>(
                 CPLHashSetLookup(phSharedDatasetSet, &sStruct));
             if (psStruct == nullptr && (nOpenFlags & GDAL_OF_UPDATE) == 0)
@@ -3653,13 +3792,16 @@ GDALDatasetH CPL_STDCALL GDALOpenShared(const char *pszFilename,
  * dereferenced, and closed only if the referenced count has dropped below 1.
  *
  * @param hDS The dataset to close.  May be cast from a "GDALDataset *".
+ * @return CE_None in case of success (return value since GDAL 3.7). On a
+ * shared dataset whose reference count is not dropped below 1, CE_None will
+ * be returned.
  */
 
-void CPL_STDCALL GDALClose(GDALDatasetH hDS)
+CPLErr CPL_STDCALL GDALClose(GDALDatasetH hDS)
 
 {
-    if (hDS == nullptr)
-        return;
+    if (!hDS)
+        return CE_None;
 
 #ifdef OGRAPISPY_ENABLED
     if (bOGRAPISpyEnabled)
@@ -3678,8 +3820,9 @@ void CPL_STDCALL GDALClose(GDALDatasetH hDS)
         /* --------------------------------------------------------------------
          */
         if (poDS->Dereference() > 0)
-            return;
+            return CE_None;
 
+        CPLErr eErr = poDS->Close();
         delete poDS;
 
 #ifdef OGRAPISPY_ENABLED
@@ -3687,18 +3830,20 @@ void CPL_STDCALL GDALClose(GDALDatasetH hDS)
             OGRAPISpyPostClose();
 #endif
 
-        return;
+        return eErr;
     }
 
     /* -------------------------------------------------------------------- */
     /*      This is not shared dataset, so directly delete it.              */
     /* -------------------------------------------------------------------- */
+    CPLErr eErr = poDS->Close();
     delete poDS;
 
 #ifdef OGRAPISPY_ENABLED
     if (bOGRAPISpyEnabled)
         OGRAPISpyPostClose();
 #endif
+    return eErr;
 }
 
 /************************************************************************/
@@ -5011,7 +5156,9 @@ GDALDataset::ICreateLayer(CPL_UNUSED const char *pszName,
  @param papszOptions a StringList of name=value options.  Options are driver
                      specific. There is a common option to set output layer
                      spatial reference: DST_SRSWKT. The option should be in
-                     WKT format.
+                     WKT format. Starting with GDAL 3.7, the common option
+                     COPY_MD can be set to NO to prevent the default copying
+                     of the metadata from the source layer to the target layer.
 
  @return a handle to the layer, or NULL if an error occurs.
 */
@@ -5036,33 +5183,33 @@ OGRLayer *GDALDataset::CopyLayer(OGRLayer *poSrcLayer, const char *pszNewName,
     OGRFeatureDefn *poSrcDefn = poSrcLayer->GetLayerDefn();
     OGRLayer *poDstLayer = nullptr;
 
+    CPLStringList aosCleanedUpOptions(CSLDuplicate(papszOptions));
+    aosCleanedUpOptions.SetNameValue("DST_SRSWKT", nullptr);
+    aosCleanedUpOptions.SetNameValue("COPY_MD", nullptr);
+
     CPLErrorReset();
     if (poSrcDefn->GetGeomFieldCount() > 1 &&
         TestCapability(ODsCCreateGeomFieldAfterCreateLayer))
     {
-        poDstLayer = ICreateLayer(pszNewName, nullptr, wkbNone, papszOptions);
+        poDstLayer = ICreateLayer(pszNewName, nullptr, wkbNone,
+                                  aosCleanedUpOptions.List());
     }
     else
     {
-        if (nullptr == pszSRSWKT)
-        {
-            poDstLayer = ICreateLayer(pszNewName, poSrcLayer->GetSpatialRef(),
-                                      poSrcDefn->GetGeomType(), papszOptions);
-        }
-        else
-        {
-            // Remove DST_WKT from option list to prevent warning from driver.
-            const int nSRSPos = CSLFindName(papszOptions, "DST_SRSWKT");
-            CPLStringList aosOptionsWithoutDstSRSWKT(CSLRemoveStrings(
-                CSLDuplicate(papszOptions), nSRSPos, 1, nullptr));
-            poDstLayer =
-                ICreateLayer(pszNewName, &oDstSpaRef, poSrcDefn->GetGeomType(),
-                             aosOptionsWithoutDstSRSWKT.List());
-        }
+        poDstLayer = ICreateLayer(
+            pszNewName, pszSRSWKT ? &oDstSpaRef : poSrcLayer->GetSpatialRef(),
+            poSrcDefn->GetGeomType(), aosCleanedUpOptions.List());
     }
 
     if (poDstLayer == nullptr)
         return nullptr;
+
+    if (CPLTestBool(CSLFetchNameValueDef(papszOptions, "COPY_MD", "YES")))
+    {
+        char **papszMD = poSrcLayer->GetMetadata();
+        if (papszMD)
+            poDstLayer->SetMetadata(papszMD);
+    }
 
     /* -------------------------------------------------------------------- */
     /*      Add fields.  Default to copy all fields, and make sure to       */
@@ -7526,6 +7673,16 @@ void GDALDataset::ShareLockWithParentDataset(GDALDataset *poParentDataset)
 }
 
 /************************************************************************/
+/*                   SetQueryLoggerFunc()                               */
+/************************************************************************/
+
+bool GDALDataset::SetQueryLoggerFunc(CPL_UNUSED GDALQueryLoggerFunc callback,
+                                     CPL_UNUSED void *context)
+{
+    return false;
+}
+
+/************************************************************************/
 /*                          EnterReadWrite()                            */
 /************************************************************************/
 
@@ -9006,6 +9163,35 @@ bool GDALDatasetUpdateRelationship(GDALDatasetH hDS,
     return bRet;
 }
 
+/************************************************************************/
+/*                  GDALDatasetSetQueryLoggerFunc()                     */
+/************************************************************************/
+
+/**
+ * Sets the SQL query logger callback.
+ *
+ * When supported by the driver, the callback will be called with
+ * the executed SQL text, the error message, the execution time in milliseconds,
+ * the number of records fetched/affected and the client status data.
+ *
+ * A value of -1 in the execution time or in the number of records indicates
+ * that the values are unknown.
+ *
+ * @param hDS                   Dataset handle.
+ * @param pfnQueryLoggerFunc    Callback function
+ * @param poQueryLoggerArg      Opaque client status data
+ * @return                      true in case of success.
+ * @since                       GDAL 3.7
+ */
+bool GDALDatasetSetQueryLoggerFunc(GDALDatasetH hDS,
+                                   GDALQueryLoggerFunc pfnQueryLoggerFunc,
+                                   void *poQueryLoggerArg)
+{
+    VALIDATE_POINTER1(hDS, __func__, false);
+    return GDALDataset::FromHandle(hDS)->SetQueryLoggerFunc(pfnQueryLoggerFunc,
+                                                            poQueryLoggerArg);
+}
+
 //! @cond Doxygen_Suppress
 
 /************************************************************************/
@@ -9029,4 +9215,430 @@ bool GDALDataset::AreOverviewsEnabled() const
     return m_poPrivate ? m_poPrivate->m_bOverviewsEnabled : true;
 }
 
+/************************************************************************/
+/*                             IsAllBands()                             */
+/************************************************************************/
+
+bool GDALDataset::IsAllBands(int nBandCount, const int *panBandList) const
+{
+    if (nBands != nBandCount)
+        return false;
+    if (panBandList)
+    {
+        for (int i = 0; i < nBandCount; ++i)
+        {
+            if (panBandList[i] != i + 1)
+                return false;
+        }
+    }
+    return true;
+}
+
 //! @endcond
+
+/************************************************************************/
+/*                       GetCompressionFormats()                        */
+/************************************************************************/
+
+/** Return the compression formats that can be natively obtained for the
+ * window of interest and requested bands.
+ *
+ * For example, a tiled dataset may be able to return data in a compressed
+ * format if the window of interest matches exactly a tile. For some formats,
+ * drivers may also be able to merge several tiles together (not currently
+ * implemented though).
+ *
+ * Each format string is a pseudo MIME type, whose first part can be passed
+ * as the pszFormat argument of ReadCompressedData(), with additional
+ * parameters specified as key=value with a semi-colon separator.
+ *
+ * The amount and types of optional parameters passed after the MIME type is
+ * format dependent, and driver dependent (some drivers might not be able to
+ * return those extra information without doing a rather costly processing).
+ *
+ * For example, a driver might return "JPEG;frame_type=SOF0_baseline;"
+ * "bit_depth=8;num_components=3;subsampling=4:2:0;colorspace=YCbCr", and
+ * consequently "JPEG" can be passed as the pszFormat argument of
+ * ReadCompressedData(). For JPEG, implementations can use the
+ * GDALGetCompressionFormatForJPEG() helper method to generate a string like
+ * above from a JPEG codestream.
+ *
+ * Several values might be returned. For example,
+ * the JPEGXL driver will return "JXL", but also potentially "JPEG"
+ * if the JPEGXL codestream includes a JPEG reconstruction box.
+ *
+ * In the general case this method will return an empty list.
+ *
+ * This is the same as C function GDALDatasetGetCompressionFormats().
+ *
+ * @param nXOff The pixel offset to the top left corner of the region
+ * of the band to be accessed.  This would be zero to start from the left side.
+ *
+ * @param nYOff The line offset to the top left corner of the region
+ * of the band to be accessed.  This would be zero to start from the top.
+ *
+ * @param nXSize The width of the region of the band to be accessed in pixels.
+ *
+ * @param nYSize The height of the region of the band to be accessed in lines.
+ *
+ * @param nBandCount the number of bands being requested.
+ *
+ * @param panBandList the list of nBandCount band numbers.
+ * Note band numbers are 1 based. This may be NULL to select the first
+ * nBandCount bands.
+ *
+ * @return a list of compatible formats (which may be empty)
+ *
+ * For example, to check if native compression format(s) are available on the
+ * whole image:
+ * \code{.cpp}
+ *   const CPLStringList aosFormats =
+ *      poDataset->GetCompressionFormats(0, 0,
+ *                                       poDataset->GetRasterXSize(),
+ *                                       poDataset->GetRasterYSize(),
+ *                                       poDataset->GetRasterCount(),
+ *                                       nullptr);
+ *   for( const char* pszFormat: aosFormats )
+ *   {
+ *      // Remove optional parameters and just print out the MIME type.
+ *      const CPLStringList aosTokens(CSLTokenizeString2(pszFormat, ";", 0));
+ *      printf("Found format %s\n, aosTokens[0]);
+ *   }
+ * \endcode
+ *
+ * @since GDAL 3.7
+ */
+CPLStringList
+GDALDataset::GetCompressionFormats(CPL_UNUSED int nXOff, CPL_UNUSED int nYOff,
+                                   CPL_UNUSED int nXSize, CPL_UNUSED int nYSize,
+                                   CPL_UNUSED int nBandCount,
+                                   CPL_UNUSED const int *panBandList)
+{
+    return CPLStringList();
+}
+
+/************************************************************************/
+/*                 GDALDatasetGetCompressionFormats()                   */
+/************************************************************************/
+
+/** Return the compression formats that can be natively obtained for the
+ * window of interest and requested bands.
+ *
+ * For example, a tiled dataset may be able to return data in a compressed
+ * format if the window of interest matches exactly a tile. For some formats,
+ * drivers may also be able to merge several tiles together (not currently
+ * implemented though).
+ *
+ * Each format string is a pseudo MIME type, whose first part can be passed
+ * as the pszFormat argument of ReadCompressedData(), with additional
+ * parameters specified as key=value with a semi-colon separator.
+ *
+ * The amount and types of optional parameters passed after the MIME type is
+ * format dependent, and driver dependent (some drivers might not be able to
+ * return those extra information without doing a rather costly processing).
+ *
+ * For example, a driver might return "JPEG;frame_type=SOF0_baseline;"
+ * "bit_depth=8;num_components=3;subsampling=4:2:0;colorspace=YCbCr", and
+ * consequently "JPEG" can be passed as the pszFormat argument of
+ * ReadCompressedData(). For JPEG, implementations can use the
+ * GDALGetCompressionFormatForJPEG() helper method to generate a string like
+ * above from a JPEG codestream.
+ *
+ * Several values might be returned. For example,
+ * the JPEGXL driver will return "JXL", but also potentially "JPEG"
+ * if the JPEGXL codestream includes a JPEG reconstruction box.
+ *
+ * In the general case this method will return an empty list.
+ *
+ * This is the same as C++ method GDALDataset::GetCompressionFormats().
+ *
+ * @param hDS Dataset handle.
+ *
+ * @param nXOff The pixel offset to the top left corner of the region
+ * of the band to be accessed.  This would be zero to start from the left side.
+ *
+ * @param nYOff The line offset to the top left corner of the region
+ * of the band to be accessed.  This would be zero to start from the top.
+ *
+ * @param nXSize The width of the region of the band to be accessed in pixels.
+ *
+ * @param nYSize The height of the region of the band to be accessed in lines.
+ *
+ * @param nBandCount the number of bands being requested.
+ *
+ * @param panBandList the list of nBandCount band numbers.
+ * Note band numbers are 1 based. This may be NULL to select the first
+ * nBandCount bands.
+ *
+ * @return a list of compatible formats (which may be empty) that should be
+ * freed with CSLDestroy(), or nullptr.
+ *
+ * @since GDAL 3.7
+ */
+char **GDALDatasetGetCompressionFormats(GDALDatasetH hDS, int nXOff, int nYOff,
+                                        int nXSize, int nYSize, int nBandCount,
+                                        const int *panBandList)
+{
+    VALIDATE_POINTER1(hDS, __func__, nullptr);
+    return GDALDataset::FromHandle(hDS)
+        ->GetCompressionFormats(nXOff, nYOff, nXSize, nYSize, nBandCount,
+                                panBandList)
+        .StealList();
+}
+
+/************************************************************************/
+/*                         ReadCompressedData()                         */
+/************************************************************************/
+
+/** Return the compressed content that can be natively obtained for the
+ * window of interest and requested bands.
+ *
+ * For example, a tiled dataset may be able to return data in compressed format
+ * if the window of interest matches exactly a tile. For some formats, drivers
+ * may also be example to merge several tiles together (not currently
+ * implemented though).
+ *
+ * The implementation should make sure that the content returned forms a valid
+ * standalone file. For example, for the GeoTIFF implementation of this method,
+ * when extracting a JPEG tile, the method will automatically add the content
+ * of the JPEG Huffman and/or quantization tables that might be stored in the
+ * TIFF JpegTables tag, and not in tile data itself.
+ *
+ * In the general case this method will return CE_Failure.
+ *
+ * This is the same as C function GDALDatasetReadCompressedData().
+ *
+ * @param pszFormat Requested compression format (e.g. "JPEG",
+ * "WEBP", "JXL"). This is the MIME type of one of the values
+ * returned by GetCompressionFormats(). The format string is designed to
+ * potentially include at a later point key=value optional parameters separated
+ * by a semi-colon character. At time of writing, none are implemented.
+ * ReadCompressedData() implementations should verify optional parameters and
+ * return CE_Failure if they cannot support one of them.
+ *
+ * @param nXOff The pixel offset to the top left corner of the region
+ * of the band to be accessed.  This would be zero to start from the left side.
+ *
+ * @param nYOff The line offset to the top left corner of the region
+ * of the band to be accessed.  This would be zero to start from the top.
+ *
+ * @param nXSize The width of the region of the band to be accessed in pixels.
+ *
+ * @param nYSize The height of the region of the band to be accessed in lines.
+ *
+ * @param nBandCount the number of bands being requested.
+ *
+ * @param panBandList the list of nBandCount band numbers.
+ * Note band numbers are 1 based. This may be NULL to select the first
+ * nBandCount bands.
+ *
+ * @param ppBuffer Pointer to a buffer to store the compressed data or nullptr.
+ * If ppBuffer is not nullptr, then pnBufferSize should also not be nullptr.
+ * If ppBuffer is not nullptr, and *ppBuffer is not nullptr, then the provided
+ * buffer will be filled with the compressed data, provided that pnBufferSize
+ * and *pnBufferSize are not nullptr, and *pnBufferSize, indicating the size
+ * of *ppBuffer, is sufficiently large to hold the data.
+ * If ppBuffer is not nullptr, but *ppBuffer is nullptr, then the method will
+ * allocate *ppBuffer using VSIMalloc(), and thus the caller is responsible to
+ * free it with VSIFree().
+ * If ppBuffer is nullptr, then the compressed data itself will not be returned,
+ * but *pnBufferSize will be updated with an upper bound of the size that would
+ * be necessary to hold it (if pnBufferSize != nullptr).
+ *
+ * @param pnBufferSize Output buffer size, or nullptr.
+ * If ppBuffer != nullptr && *ppBuffer != nullptr, then pnBufferSize should
+ * be != nullptr and *pnBufferSize contain the size of *ppBuffer. If the
+ * method is successful, *pnBufferSize will be updated with the actual size
+ * used.
+ *
+ * @param ppszDetailedFormat Pointer to an output string, or nullptr.
+ * If ppszDetailedFormat is not nullptr, then, on success, the method will
+ * allocate a new string in *ppszDetailedFormat (to be freed with VSIFree())
+ * *ppszDetailedFormat might contain strings like
+ * "JPEG;frame_type=SOF0_baseline;bit_depth=8;num_components=3;"
+ * "subsampling=4:2:0;colorspace=YCbCr" or simply the MIME type.
+ * The string will contain at least as much information as what
+ * GetCompressionFormats() returns, and potentially more when
+ * ppBuffer != nullptr.
+ *
+ * @return CE_None in case of success, CE_Failure otherwise.
+ *
+ * For example, to request JPEG content on the whole image and let GDAL deal
+ * with the buffer allocation.
+ * \code{.cpp}
+ *   void* pBuffer = nullptr;
+ *   size_t nBufferSize = 0;
+ *   CPLErr eErr =
+ *      poDataset->ReadCompressedData("JPEG",
+ *                                    0, 0,
+ *                                    poDataset->GetRasterXSize(),
+ *                                    poDataset->GetRasterYSize(),
+ *                                    poDataset->GetRasterCount(),
+ *                                    nullptr, // panBandList
+ *                                    &pBuffer,
+ *                                    &nBufferSize,
+ *                                    nullptr // ppszDetailedFormat
+ *                                   );
+ *   if (eErr == CE_None)
+ *   {
+ *       CPLAssert(pBuffer != nullptr);
+ *       CPLAssert(nBufferSize > 0);
+ *       VSILFILE* fp = VSIFOpenL("my.jpeg", "wb");
+ *       if (fp)
+ *       {
+ *           VSIFWriteL(pBuffer, nBufferSize, 1, fp);
+ *           VSIFCloseL(fp);
+ *       }
+ *       VSIFree(pBuffer);
+ *   }
+ * \endcode
+ *
+ * Or to manage the buffer allocation on your side:
+ * \code{.cpp}
+ *   size_t nUpperBoundBufferSize = 0;
+ *   CPLErr eErr =
+ *      poDataset->ReadCompressedData("JPEG",
+ *                                    0, 0,
+ *                                    poDataset->GetRasterXSize(),
+ *                                    poDataset->GetRasterYSize(),
+ *                                    poDataset->GetRasterCount(),
+ *                                    nullptr, // panBandList
+ *                                    nullptr, // ppBuffer,
+ *                                    &nUpperBoundBufferSize,
+ *                                    nullptr // ppszDetailedFormat
+ *                                   );
+ *   if (eErr == CE_None)
+ *   {
+ *       std::vector<uint8_t> myBuffer;
+ *       myBuffer.resize(nUpperBoundBufferSize);
+ *       void* pBuffer = myBuffer.data();
+ *       size_t nActualSize = nUpperBoundBufferSize;
+ *       char* pszDetailedFormat = nullptr;
+ *       // We also request detailed format, but we could have passed it to
+ *       // nullptr as well.
+ *       eErr =
+ *         poDataset->ReadCompressedData("JPEG",
+ *                                       0, 0,
+ *                                       poDataset->GetRasterXSize(),
+ *                                       poDataset->GetRasterYSize(),
+ *                                       poDataset->GetRasterCount(),
+ *                                       nullptr, // panBandList
+ *                                       &pBuffer,
+ *                                       &nActualSize,
+ *                                       &pszDetailedFormat);
+ *       if (eErr == CE_None)
+ *       {
+ *          CPLAssert(pBuffer == myBuffer.data()); // pointed value not modified
+ *          CPLAssert(nActualSize <= nUpperBoundBufferSize);
+ *          myBuffer.resize(nActualSize);
+ *          // do something useful
+ *          VSIFree(pszDetailedFormat);
+ *       }
+ *   }
+ * \endcode
+ *
+ * @since GDAL 3.7
+ */
+CPLErr GDALDataset::ReadCompressedData(
+    CPL_UNUSED const char *pszFormat, CPL_UNUSED int nXOff,
+    CPL_UNUSED int nYOff, CPL_UNUSED int nXSize, CPL_UNUSED int nYSize,
+    CPL_UNUSED int nBandCount, CPL_UNUSED const int *panBandList,
+    CPL_UNUSED void **ppBuffer, CPL_UNUSED size_t *pnBufferSize,
+    CPL_UNUSED char **ppszDetailedFormat)
+{
+    return CE_Failure;
+}
+
+/************************************************************************/
+/*                  GDALDatasetReadCompressedData()                     */
+/************************************************************************/
+
+/** Return the compressed content that can be natively obtained for the
+ * window of interest and requested bands.
+ *
+ * For example, a tiled dataset may be able to return data in compressed format
+ * if the window of interest matches exactly a tile. For some formats, drivers
+ * may also be example to merge several tiles together (not currently
+ * implemented though).
+ *
+ * The implementation should make sure that the content returned forms a valid
+ * standalone file. For example, for the GeoTIFF implementation of this method,
+ * when extracting a JPEG tile, the method will automatically adds the content
+ * of the JPEG Huffman and/or quantization tables that might be stored in the
+ * TIFF JpegTables tag, and not in tile data itself.
+ *
+ * In the general case this method will return CE_Failure.
+ *
+ * This is the same as C++ method GDALDataset:ReadCompressedData().
+ *
+ * @param hDS Dataset handle.
+ *
+ * @param pszFormat Requested compression format (e.g. "JPEG",
+ * "WEBP", "JXL"). This is the MIME type of one of the values
+ * returned by GetCompressionFormats(). The format string is designed to
+ * potentially include at a later point key=value optional parameters separated
+ * by a semi-colon character. At time of writing, none are implemented.
+ * ReadCompressedData() implementations should verify optional parameters and
+ * return CE_Failure if they cannot support one of them.
+ *
+ * @param nXOff The pixel offset to the top left corner of the region
+ * of the band to be accessed.  This would be zero to start from the left side.
+ *
+ * @param nYOff The line offset to the top left corner of the region
+ * of the band to be accessed.  This would be zero to start from the top.
+ *
+ * @param nXSize The width of the region of the band to be accessed in pixels.
+ *
+ * @param nYSize The height of the region of the band to be accessed in lines.
+ *
+ * @param nBandCount the number of bands being requested.
+ *
+ * @param panBandList the list of nBandCount band numbers.
+ * Note band numbers are 1 based. This may be NULL to select the first
+ * nBandCount bands.
+ *
+ * @param ppBuffer Pointer to a buffer to store the compressed data or nullptr.
+ * If ppBuffer is not nullptr, then pnBufferSize should also not be nullptr.
+ * If ppBuffer is not nullptr, and *ppBuffer is not nullptr, then the provided
+ * buffer will be filled with the compressed data, provided that pnBufferSize
+ * and *pnBufferSize are not nullptr, and *pnBufferSize, indicating the size
+ * of *ppBuffer, is sufficiently large to hold the data.
+ * If ppBuffer is not nullptr, but *ppBuffer is nullptr, then the method will
+ * allocate *ppBuffer using VSIMalloc(), and thus the caller is responsible to
+ * free it with VSIFree().
+ * If ppBuffer is nullptr, then the compressed data itself will not be returned,
+ * but *pnBufferSize will be updated with an upper bound of the size that would
+ * be necessary to hold it (if pnBufferSize != nullptr).
+ *
+ * @param pnBufferSize Output buffer size, or nullptr.
+ * If ppBuffer != nullptr && *ppBuffer != nullptr, then pnBufferSize should
+ * be != nullptr and *pnBufferSize contain the size of *ppBuffer. If the
+ * method is successful, *pnBufferSize will be updated with the actual size
+ * used.
+ *
+ * @param ppszDetailedFormat Pointer to an output string, or nullptr.
+ * If ppszDetailedFormat is not nullptr, then, on success, the method will
+ * allocate a new string in *ppszDetailedFormat (to be freed with VSIFree())
+ * *ppszDetailedFormat might contain strings like
+ * "JPEG;frame_type=SOF0_baseline;bit_depth=8;num_components=3;"
+ * "subsampling=4:2:0;colorspace=YCbCr" or simply the MIME type.
+ * The string will contain at least as much information as what
+ * GetCompressionFormats() returns, and potentially more when
+ * ppBuffer != nullptr.
+ *
+ * @return CE_None in case of success, CE_Failure otherwise.
+ *
+ * @since GDAL 3.7
+ */
+CPLErr GDALDatasetReadCompressedData(GDALDatasetH hDS, const char *pszFormat,
+                                     int nXOff, int nYOff, int nXSize,
+                                     int nYSize, int nBandCount,
+                                     const int *panBandList, void **ppBuffer,
+                                     size_t *pnBufferSize,
+                                     char **ppszDetailedFormat)
+{
+    VALIDATE_POINTER1(hDS, __func__, CE_Failure);
+    return GDALDataset::FromHandle(hDS)->ReadCompressedData(
+        pszFormat, nXOff, nYOff, nXSize, nYSize, nBandCount, panBandList,
+        ppBuffer, pnBufferSize, ppszDetailedFormat);
+}

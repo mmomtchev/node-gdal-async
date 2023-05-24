@@ -170,11 +170,11 @@ class OGRDXFInsertTransformer final : public OGRCoordinateTransformation
         return new OGRDXFInsertTransformer(*this);
     }
 
-    OGRSpatialReference *GetSourceCS() override
+    const OGRSpatialReference *GetSourceCS() const override
     {
         return nullptr;
     }
-    OGRSpatialReference *GetTargetCS() override
+    const OGRSpatialReference *GetTargetCS() const override
     {
         return nullptr;
     }
@@ -287,11 +287,11 @@ class OGRDXFOCSTransformer final : public OGRCoordinateTransformation
   public:
     explicit OGRDXFOCSTransformer(double adfNIn[3], bool bInverse = false);
 
-    OGRSpatialReference *GetSourceCS() override
+    const OGRSpatialReference *GetSourceCS() const override
     {
         return nullptr;
     }
-    OGRSpatialReference *GetTargetCS() override
+    const OGRSpatialReference *GetTargetCS() const override
     {
         return nullptr;
     }
@@ -516,7 +516,7 @@ class OGRDXFLayer final : public OGRLayer
                                      OGRDXFFeatureQueue &apoExtraFeatures,
                                      const bool bInlineNestedBlocks,
                                      const bool bMergeGeometry);
-    OGRDXFFeature *
+    static OGRDXFFeature *
     InsertBlockReference(const CPLString &osBlockName,
                          const OGRDXFInsertTransformer &oTransformer,
                          OGRDXFFeature *const poFeature);
@@ -939,7 +939,8 @@ class OGRDXFWriterDS final : public OGRDataSource
                            char **papszOptions = nullptr) override;
 
     bool CheckEntityID(const char *pszEntityID);
-    long WriteEntityID(VSILFILE *fp, long nPreferredFID = OGRNullFID);
+    bool WriteEntityID(VSILFILE *fp, long &nAssignedFID,
+                       long nPreferredFID = OGRNullFID);
 
     void UpdateExtent(OGREnvelope *psEnvelope);
 };

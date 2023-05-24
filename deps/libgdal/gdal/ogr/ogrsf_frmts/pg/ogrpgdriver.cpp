@@ -143,6 +143,9 @@ void RegisterOGRPG()
         "  <Option name='CLOSING_STATEMENTS' type='string' description='SQL "
         "statements() to send on the PostgreSQL client connection after any "
         "other ones'/>"
+        "  <Option name='SKIP_VIEWS' type='boolean' description='Whether "
+        "views should be omitted from the list' "
+        "default='NO'/>"
         "</OpenOptionList>");
 
     poDriver->SetMetadataItem(GDAL_DMD_CREATIONOPTIONLIST,
@@ -207,9 +210,12 @@ void RegisterOGRPG()
                               "StringList Binary");
     poDriver->SetMetadataItem(GDAL_DMD_CREATIONFIELDDATASUBTYPES,
                               "Boolean Int16 Float32");
+    poDriver->SetMetadataItem(GDAL_DMD_CREATION_FIELD_DEFN_FLAGS,
+                              "WidthPrecision Nullable Unique Default Comment");
+
     poDriver->SetMetadataItem(
         GDAL_DMD_ALTER_FIELD_DEFN_FLAGS,
-        "Name Type WidthPrecision Nullable Default Unique");
+        "Name Type WidthPrecision Nullable Default Unique Comment");
     poDriver->SetMetadataItem(GDAL_DCAP_NOTNULL_FIELDS, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_DEFAULT_FIELDS, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_UNIQUE_FIELDS, "YES");
@@ -219,6 +225,9 @@ void RegisterOGRPG()
 
     poDriver->SetMetadataItem(GDAL_DMD_ALTER_GEOM_FIELD_DEFN_FLAGS,
                               "Name Type Nullable SRS");
+    // see https://www.postgresql.org/docs/current/ddl-system-columns.html
+    poDriver->SetMetadataItem(GDAL_DMD_ILLEGAL_FIELD_NAMES,
+                              "tableoid xmin cmin xmax cmax ctid");
 
     poDriver->pfnOpen = OGRPGDriverOpen;
     poDriver->pfnIdentify = OGRPGDriverIdentify;

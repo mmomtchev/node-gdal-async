@@ -75,6 +75,8 @@ class ISIS2Dataset final : public RawDataset
     const char *GetKeywordSub(const char *pszPath, int iSubscript,
                               const char *pszDefault = "");
 
+    CPLErr Close() override;
+
   public:
     ISIS2Dataset();
     virtual ~ISIS2Dataset();
@@ -138,9 +140,29 @@ ISIS2Dataset::ISIS2Dataset() : fpImage(nullptr), bGotTransform(FALSE)
 ISIS2Dataset::~ISIS2Dataset()
 
 {
-    FlushCache(true);
-    if (fpImage != nullptr)
-        VSIFCloseL(fpImage);
+    ISIS2Dataset::Close();
+}
+
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr ISIS2Dataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
+    {
+        if (ISIS2Dataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
+        if (fpImage != nullptr)
+        {
+            if (VSIFCloseL(fpImage) != 0)
+                eErr = CE_Failure;
+        }
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
+    }
+    return eErr;
 }
 
 /************************************************************************/
@@ -696,28 +718,27 @@ GDALDataset *ISIS2Dataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create band information objects.                                */
     /* -------------------------------------------------------------------- */
-    poDS->nBands = nBands;
-    for (int i = 0; i < poDS->nBands; i++)
+    for (int i = 0; i < nBands; i++)
     {
-        RawRasterBand *poBand = new RawRasterBand(
+        auto poBand = RawRasterBand::Create(
             poDS.get(), i + 1, poDS->fpImage, nSkipBytes + nBandOffset * i,
             nPixelOffset, nLineOffset, eDataType,
-#ifdef CPL_LSB
-            chByteOrder == 'I' || chByteOrder == 'L',
-#else
-            chByteOrder == 'M',
-#endif
+            chByteOrder == 'I' || chByteOrder == 'L'
+                ? RawRasterBand::ByteOrder::ORDER_LITTLE_ENDIAN
+                : RawRasterBand::ByteOrder::ORDER_BIG_ENDIAN,
             RawRasterBand::OwnFP::NO);
+        if (!poBand)
+            return nullptr;
 
         if (bNoDataSet)
             poBand->SetNoDataValue(dfNoData);
-
-        poDS->SetBand(i + 1, poBand);
 
         // Set offset/scale values at the PAM level.
         poBand->SetOffset(CPLAtofM(poDS->GetKeyword("QUBE.CORE_BASE", "0.0")));
         poBand->SetScale(
             CPLAtofM(poDS->GetKeyword("QUBE.CORE_MULTIPLIER", "1.0")));
+
+        poDS->SetBand(i + 1, std::move(poBand));
     }
 
     /* -------------------------------------------------------------------- */
@@ -973,7 +994,7 @@ GDALDataset *ISIS2Dataset::Create(const char *pszFilename, int nXSize,
                                    pszInterleaving))
         return nullptr;
 
-    return reinterpret_cast<GDALDataset *>(GDALOpen(osOutFile, GA_Update));
+    return GDALDataset::FromHandle(GDALOpen(osOutFile, GA_Update));
 }
 
 /************************************************************************/

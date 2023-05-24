@@ -41,15 +41,17 @@ static void Usage(const char *pszErrorMsg = nullptr)
 {
     printf(
         "Usage: gdal_rasterize [-b band]* [-i] [-at]\n"
+        "       [-oo NAME=VALUE]*\n"
         "       {[-burn value]* | [-a attribute_name] | [-3d]} [-add]\n"
-        "       [-l layername]* [-where expression] [-sql select_statement]\n"
+        "       [-l layername]* [-where expression] "
+        "[-sql select_statement|@filename]\n"
         "       [-dialect dialect] [-of format] [-a_srs srs_def] [-to "
         "\"NAME=VALUE\"]*\n"
         "       [-co \"NAME=VALUE\"]* [-a_nodata value] [-init value]*\n"
         "       [-te xmin ymin xmax ymax] [-tr xres yres] [-tap] [-ts width "
         "height]\n"
         "       [-ot "
-        "{Byte/Int16/UInt16/UInt32/Int32/UInt64/Int64/Float32/Float64/\n"
+        "{Byte/Int8/Int16/UInt16/UInt32/Int32/UInt64/Int64/Float32/Float64/\n"
         "             CInt16/CInt32/CFloat32/CFloat64}] [-optim "
         "{[AUTO]/VECTOR/RASTER}] [-q]\n"
         "       <src_datasource> <dst_filename>\n");
@@ -59,30 +61,6 @@ static void Usage(const char *pszErrorMsg = nullptr)
     exit(1);
 }
 
-/************************************************************************/
-/*                       GDALRasterizeOptionsForBinaryNew()             */
-/************************************************************************/
-
-static GDALRasterizeOptionsForBinary *GDALRasterizeOptionsForBinaryNew(void)
-{
-    return static_cast<GDALRasterizeOptionsForBinary *>(
-        CPLCalloc(1, sizeof(GDALRasterizeOptionsForBinary)));
-}
-
-/************************************************************************/
-/*                       GDALRasterizeOptionsForBinaryFree()            */
-/************************************************************************/
-
-static void GDALRasterizeOptionsForBinaryFree(
-    GDALRasterizeOptionsForBinary *psOptionsForBinary)
-{
-    if (psOptionsForBinary == nullptr)
-        return;
-
-    CPLFree(psOptionsForBinary->pszSource);
-    CPLFree(psOptionsForBinary->pszDest);
-    CPLFree(psOptionsForBinary);
-}
 /************************************************************************/
 /*                                main()                                */
 /************************************************************************/
@@ -119,11 +97,10 @@ MAIN_START(argc, argv)
         }
     }
 
-    GDALRasterizeOptionsForBinary *psOptionsForBinary =
-        GDALRasterizeOptionsForBinaryNew();
+    GDALRasterizeOptionsForBinary sOptionsForBinary;
     // coverity[tainted_data]
     GDALRasterizeOptions *psOptions =
-        GDALRasterizeOptionsNew(argv + 1, psOptionsForBinary);
+        GDALRasterizeOptionsNew(argv + 1, &sOptionsForBinary);
     CSLDestroy(argv);
 
     if (psOptions == nullptr)
@@ -131,23 +108,25 @@ MAIN_START(argc, argv)
         Usage();
     }
 
-    if (!(psOptionsForBinary->bQuiet))
+    if (!(sOptionsForBinary.bQuiet))
     {
         GDALRasterizeOptionsSetProgress(psOptions, GDALTermProgress, nullptr);
     }
 
-    if (psOptionsForBinary->pszSource == nullptr)
+    if (sOptionsForBinary.osSource.empty())
         Usage("No input file specified.");
 
-    if (psOptionsForBinary->pszDest == nullptr)
+    if (!sOptionsForBinary.bDestSpecified)
         Usage("No output file specified.");
 
     /* -------------------------------------------------------------------- */
     /*      Open input file.                                                */
     /* -------------------------------------------------------------------- */
-    GDALDatasetH hInDS = GDALOpenEx(psOptionsForBinary->pszSource,
+    GDALDatasetH hInDS = GDALOpenEx(sOptionsForBinary.osSource.c_str(),
                                     GDAL_OF_VECTOR | GDAL_OF_VERBOSE_ERROR,
-                                    nullptr, nullptr, nullptr);
+                                    /*papszAllowedDrivers=*/nullptr,
+                                    sOptionsForBinary.aosOpenOptions.List(),
+                                    /*papszSiblingFiles=*/nullptr);
 
     if (hInDS == nullptr)
         exit(1);
@@ -156,22 +135,22 @@ MAIN_START(argc, argv)
     /*      Open output file if it exists.                                  */
     /* -------------------------------------------------------------------- */
     GDALDatasetH hDstDS = nullptr;
-    if (!(psOptionsForBinary->bCreateOutput))
+    if (!(sOptionsForBinary.bCreateOutput))
     {
         CPLPushErrorHandler(CPLQuietErrorHandler);
         hDstDS =
-            GDALOpenEx(psOptionsForBinary->pszDest,
+            GDALOpenEx(sOptionsForBinary.osDest.c_str(),
                        GDAL_OF_RASTER | GDAL_OF_VERBOSE_ERROR | GDAL_OF_UPDATE,
                        nullptr, nullptr, nullptr);
         CPLPopErrorHandler();
     }
 
-    if (psOptionsForBinary->pszFormat != nullptr &&
-        (psOptionsForBinary->bCreateOutput || hDstDS == nullptr))
+    if (!sOptionsForBinary.osFormat.empty() &&
+        (sOptionsForBinary.bCreateOutput || hDstDS == nullptr))
     {
         GDALDriverManager *poDM = GetGDALDriverManager();
         GDALDriver *poDriver =
-            poDM->GetDriverByName(psOptionsForBinary->pszFormat);
+            poDM->GetDriverByName(sOptionsForBinary.osFormat.c_str());
         char **papszDriverMD = (poDriver) ? poDriver->GetMetadata() : nullptr;
         if (poDriver == nullptr ||
             !CPLTestBool(CSLFetchNameValueDef(papszDriverMD, GDAL_DCAP_RASTER,
@@ -182,7 +161,7 @@ MAIN_START(argc, argv)
             fprintf(stderr,
                     "Output driver `%s' not recognised or does not support "
                     "direct output file creation.\n",
-                    psOptionsForBinary->pszFormat);
+                    sOptionsForBinary.osFormat.c_str());
             fprintf(stderr, "The following format drivers are configured and "
                             "support direct output:\n");
 
@@ -203,16 +182,16 @@ MAIN_START(argc, argv)
     }
 
     int bUsageError = FALSE;
-    GDALDatasetH hRetDS = GDALRasterize(psOptionsForBinary->pszDest, hDstDS,
-                                        hInDS, psOptions, &bUsageError);
+    GDALDatasetH hRetDS = GDALRasterize(sOptionsForBinary.osDest.c_str(),
+                                        hDstDS, hInDS, psOptions, &bUsageError);
     if (bUsageError == TRUE)
         Usage();
-    const int nRetCode = hRetDS ? 0 : 1;
+    int nRetCode = hRetDS ? 0 : 1;
 
     GDALClose(hInDS);
-    GDALClose(hRetDS);
+    if (GDALClose(hRetDS) != CE_None)
+        nRetCode = 1;
     GDALRasterizeOptionsFree(psOptions);
-    GDALRasterizeOptionsForBinaryFree(psOptionsForBinary);
 
     GDALDestroyDriverManager();
 

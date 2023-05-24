@@ -386,6 +386,8 @@ class PDS4Dataset final : public RawDataset
                                        GDALDataType eType,
                                        const char *const *papszOptions);
 
+    CPLErr Close() override;
+
   public:
     PDS4Dataset();
     virtual ~PDS4Dataset();
@@ -462,7 +464,7 @@ class PDS4RawRasterBand final : public RawRasterBand
     PDS4RawRasterBand(GDALDataset *l_poDS, int l_nBand, VSILFILE *l_fpRaw,
                       vsi_l_offset l_nImgOffset, int l_nPixelOffset,
                       int l_nLineOffset, GDALDataType l_eDataType,
-                      int l_bNativeOrder);
+                      RawRasterBand::ByteOrder eByteOrderIn);
     virtual ~PDS4RawRasterBand()
     {
     }
@@ -513,7 +515,8 @@ class PDS4WrapperRasterBand final : public GDALProxyRasterBand
     double m_dfNoData;
 
   protected:
-    virtual GDALRasterBand *RefUnderlyingRasterBand() const override
+    virtual GDALRasterBand *
+    RefUnderlyingRasterBand(bool /*bForceOpen*/) const override
     {
         return m_poBaseBand;
     }

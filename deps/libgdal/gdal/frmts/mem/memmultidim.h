@@ -31,6 +31,8 @@
 
 #include "gdal_priv.h"
 
+#include <set>
+
 // If modifying the below declaration, modify it in gdal_array.i too
 std::shared_ptr<GDALMDArray> CPL_DLL MEMGroupCreateMDArray(
     GDALGroup *poGroup, const std::string &osName,
@@ -48,11 +50,17 @@ class CPL_DLL MEMGroup CPL_NON_FINAL : public GDALGroup
     std::map<CPLString, std::shared_ptr<GDALMDArray>> m_oMapMDArrays{};
     std::map<CPLString, std::shared_ptr<GDALAttribute>> m_oMapAttributes{};
     std::map<CPLString, std::shared_ptr<GDALDimension>> m_oMapDimensions{};
+    std::weak_ptr<MEMGroup> m_pSelf{};
 
   public:
     MEMGroup(const std::string &osParentName, const char *pszName)
         : GDALGroup(osParentName, pszName ? pszName : "")
     {
+    }
+
+    void SetSelf(std::weak_ptr<MEMGroup> self)
+    {
+        m_pSelf = self;
     }
 
     std::vector<std::string>
@@ -110,10 +118,6 @@ class CPL_DLL MEMGroup CPL_NON_FINAL : public GDALGroup
 class CPL_DLL MEMAbstractMDArray : virtual public GDALAbstractMDArray
 {
     std::vector<std::shared_ptr<GDALDimension>> m_aoDims;
-    size_t m_nTotalSize = 0;
-    GByte *m_pabyArray{};
-    bool m_bOwnArray = false;
-    std::vector<GPtrDiff_t> m_anStrides{};
 
     struct StackReadWrite
     {
@@ -133,7 +137,14 @@ class CPL_DLL MEMAbstractMDArray : virtual public GDALAbstractMDArray
     MEMAbstractMDArray &operator=(const MEMAbstractMDArray &) = delete;
 
   protected:
+    bool m_bOwnArray = false;
+    bool m_bValid = true;
+    bool m_bWritable = true;
+    bool m_bModified = false;
     GDALExtendedDataType m_oType;
+    size_t m_nTotalSize = 0;
+    GByte *m_pabyArray{};
+    std::vector<GPtrDiff_t> m_anStrides{};
 
     bool
     IRead(const GUInt64 *arrayStartIdx,    // array of size GetDimensionCount()
@@ -151,8 +162,7 @@ class CPL_DLL MEMAbstractMDArray : virtual public GDALAbstractMDArray
            const GDALExtendedDataType &bufferDataType,
            const void *pSrcBuffer) override;
 
-    bool m_bWritable = true;
-    bool m_bModified = false;
+    void FreeArray();
 
   public:
     MEMAbstractMDArray(
@@ -216,9 +226,13 @@ class MEMMDArray CPL_NON_FINAL : public MEMAbstractMDArray, public GDALMDArray
     GDALDataType m_eOffsetStorageType = GDT_Unknown;
     GDALDataType m_eScaleStorageType = GDT_Unknown;
     std::string m_osFilename{};
+    std::weak_ptr<GDALGroup> m_poGroupWeak{};
 
     MEMMDArray(const MEMMDArray &) = delete;
     MEMMDArray &operator=(const MEMMDArray &) = delete;
+
+    bool Resize(const std::vector<GUInt64> &anNewDimSizes,
+                bool bResizeOtherArrays);
 
   protected:
     MEMMDArray(const std::string &osParentName, const std::string &osName,
@@ -239,6 +253,11 @@ class MEMMDArray CPL_NON_FINAL : public MEMAbstractMDArray, public GDALMDArray
     }
     ~MEMMDArray();
 
+    void Invalidate()
+    {
+        m_bValid = false;
+    }
+
     bool IsWritable() const override
     {
         return m_bWritable;
@@ -247,6 +266,11 @@ class MEMMDArray CPL_NON_FINAL : public MEMAbstractMDArray, public GDALMDArray
     const std::string &GetFilename() const override
     {
         return m_osFilename;
+    }
+
+    void RegisterGroup(std::weak_ptr<GDALGroup> group)
+    {
+        m_poGroupWeak = group;
     }
 
     std::shared_ptr<GDALAttribute>
@@ -322,6 +346,12 @@ class MEMMDArray CPL_NON_FINAL : public MEMAbstractMDArray, public GDALMDArray
         m_eScaleStorageType = eStorageType;
         return true;
     }
+
+    std::vector<std::shared_ptr<GDALMDArray>>
+    GetCoordinateVariables() const override;
+
+    bool Resize(const std::vector<GUInt64> &anNewDimSizes,
+                CSLConstList) override;
 };
 
 /************************************************************************/
@@ -353,22 +383,21 @@ class MEMAttribute CPL_NON_FINAL : public MEMAbstractMDArray,
 /*                               MEMDimension                           */
 /************************************************************************/
 
-class MEMDimension CPL_NON_FINAL : public GDALDimension
+class MEMDimension CPL_NON_FINAL : public GDALDimensionWeakIndexingVar
 {
-    std::weak_ptr<GDALMDArray> m_poIndexingVariable{};
+    std::set<MEMMDArray *> m_oSetArrays{};
 
   public:
     MEMDimension(const std::string &osParentName, const std::string &osName,
                  const std::string &osType, const std::string &osDirection,
                  GUInt64 nSize);
 
-    std::shared_ptr<GDALMDArray> GetIndexingVariable() const override
+    void RegisterUsingArray(MEMMDArray *poArray);
+    void UnRegisterUsingArray(MEMMDArray *poArray);
+    const std::set<MEMMDArray *> &GetUsingArrays() const
     {
-        return m_poIndexingVariable.lock();
+        return m_oSetArrays;
     }
-
-    bool SetIndexingVariable(
-        std::shared_ptr<GDALMDArray> poIndexingVariable) override;
 };
 
 #endif  //  MEMMULTIDIM_H

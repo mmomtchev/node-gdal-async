@@ -1,3 +1,4 @@
+
 /******************************************************************************
  *
  * Project:  GDAL Core
@@ -51,9 +52,9 @@
 #include "gdal_thread_pool.h"
 #include "gdalwarper.h"
 
-// Restrict to 64bit processors because they are guaranteed to have SSE2.
-// Could possibly be used too on 32bit, but we would need to check at runtime.
-#if defined(__x86_64) || defined(_M_X64)
+// Restrict to 64bit processors because they are guaranteed to have SSE2,
+// or if __AVX2__ is defined.
+#if defined(__x86_64) || defined(_M_X64) || defined(__AVX2__)
 #define USE_SSE2
 
 #include "gdalsse_priv.h"
@@ -66,6 +67,9 @@
 #endif
 #ifdef __SSE4_1__
 #include <smmintrin.h>
+#endif
+#ifdef __AVX2__
+#include <immintrin.h>
 #endif
 
 #endif
@@ -245,6 +249,14 @@ static float GetReplacementValueIfNoData(GDALDataType dt, int bHasNoData,
             if (fNoDataValue == std::numeric_limits<unsigned char>::max())
                 fReplacementVal = static_cast<float>(
                     std::numeric_limits<unsigned char>::max() - 1);
+            else
+                fReplacementVal = fNoDataValue + 1;
+        }
+        else if (dt == GDT_Int8)
+        {
+            if (fNoDataValue == std::numeric_limits<GInt8>::max())
+                fReplacementVal =
+                    static_cast<float>(std::numeric_limits<GInt8>::max() - 1);
             else
                 fReplacementVal = fNoDataValue + 1;
         }
@@ -432,6 +444,7 @@ inline __m128i sse2_hadd_epi16(__m128i a, __m128i b)
 #endif
 
 #ifdef __AVX2__
+
 #define DEST_ELTS 16
 #define set1_epi16 _mm256_set1_epi16
 #define set1_epi32 _mm256_set1_epi32
@@ -493,8 +506,26 @@ inline __m128i sse2_hadd_epi16(__m128i a, __m128i b)
 #define zeroupper() (void)0
 #endif
 
+#if defined(__GNUC__) && defined(__AVX2__)
+// Disabling inlining works around a bug with gcc 9.3 (Ubuntu 20.04) in
+// -O2 -mavx2 mode in QuadraticMeanFloatSSE2(),
+// where the registry that contains minus_zero is correctly
+// loaded the first time the function is called (looking at the disassembly,
+// one sees it is loaded much earlier than the function), but gets corrupted
+// (zeroed) in following iterations.
+// It appears the bug is due to the explicit zeroupper() call at the end of
+// the function.
+// The bug is at least solved in gcc 10.2.
+// Inlining doesn't bring much here to performance.
+// This is also needed with gcc 9.3 on QuadraticMeanByteSSE2OrAVX2() in
+// -O3 -mavx2 mode
+#define NOINLINE __attribute__((noinline))
+#else
+#define NOINLINE
+#endif
+
 template <class T>
-static int
+static int NOINLINE
 QuadraticMeanByteSSE2OrAVX2(int nDstXWidth, int nChunkXSize,
                             const T *&CPL_RESTRICT pSrcScanlineShiftedInOut,
                             T *CPL_RESTRICT pDstScanline)
@@ -653,6 +684,11 @@ inline __m128d SQUARE(__m128d x)
 
 #ifdef __AVX2__
 
+inline __m256d SQUARE(__m256d x)
+{
+    return _mm256_mul_pd(x, x);
+}
+
 inline __m256d FIXUP_LANES(__m256d x)
 {
     return _mm256_permute4x64_pd(x, _MM_SHUFFLE(3, 1, 2, 0));
@@ -704,8 +740,15 @@ QuadraticMeanUInt16SSE2(int nDstXWidth, int nChunkXSize,
         // and we can do a much faster implementation.
         const auto maskTmp =
             _mm_srli_epi16(_mm_or_si128(firstLine, secondLine), 14);
+#if defined(__i386__) || defined(_M_IX86)
+        uint64_t nMaskFitsIn14Bits = 0;
+        _mm_storel_epi64(
+            reinterpret_cast<__m128i *>(&nMaskFitsIn14Bits),
+            _mm_packus_epi16(maskTmp, maskTmp /* could be anything */));
+#else
         const auto nMaskFitsIn14Bits = _mm_cvtsi128_si64(
             _mm_packus_epi16(maskTmp, maskTmp /* could be anything */));
+#endif
         if (nMaskFitsIn14Bits == 0)
         {
             // Multiplication of 16 bit values and horizontal
@@ -1010,21 +1053,6 @@ inline __m128 FIXUP_LANES(__m128 x)
 
 #endif
 
-#if defined(__GNUC__) && defined(__AVX2__)
-// Disabling inlining works around a bug with gcc 9.3 (Ubuntu 20.04) in
-// -O2 -mavx2 mode, where the registry that contains minus_zero is correctly
-// loaded the first time the function is called (looking at the disassembly,
-// one sees it is loaded much earlier than the function), but gets corrupted
-// (zeroed) in following iterations.
-// It appears the bug is due to the explicit zeroupper() call at the end of
-// the function.
-// The bug is at least solved in gcc 10.2.
-// Inlining doesn't bring much here to performance.
-#define NOINLINE __attribute__((noinline))
-#else
-#define NOINLINE
-#endif
-
 template <class T>
 static int NOINLINE
 QuadraticMeanFloatSSE2(int nDstXWidth, int nChunkXSize,
@@ -1169,11 +1197,11 @@ static int AverageFloatSSE2(int nDstXWidth, int nChunkXSize,
 #endif
 
 /************************************************************************/
-/*                    GDALResampleChunk32R_Average()                    */
+/*                    GDALResampleChunk32R_AverageOrRMS()               */
 /************************************************************************/
 
 template <class T, class Tsum, GDALDataType eWrkDataType>
-static CPLErr GDALResampleChunk32R_AverageT(
+static CPLErr GDALResampleChunk32R_AverageOrRMS_T(
     double dfXRatioDstToSrc, double dfYRatioDstToSrc, double dfSrcXDelta,
     double dfSrcYDelta, const T *pChunk, const GByte *pabyChunkNodataMask,
     int nChunkXOff, int nChunkXSize, int nChunkYOff, int nChunkYSize,
@@ -1750,7 +1778,7 @@ static CPLErr GDALResampleChunk32R_AverageT(
     return CE_None;
 }
 
-static CPLErr GDALResampleChunk32R_Average(
+static CPLErr GDALResampleChunk32R_AverageOrRMS(
     double dfXRatioDstToSrc, double dfYRatioDstToSrc, double dfSrcXDelta,
     double dfSrcYDelta, GDALDataType eWrkDataType, const void *pChunk,
     const GByte *pabyChunkNodataMask, int nChunkXOff, int nChunkXSize,
@@ -1763,7 +1791,7 @@ static CPLErr GDALResampleChunk32R_Average(
     if (eWrkDataType == GDT_Byte)
     {
         *peDstBufferDataType = eWrkDataType;
-        return GDALResampleChunk32R_AverageT<GByte, int, GDT_Byte>(
+        return GDALResampleChunk32R_AverageOrRMS_T<GByte, int, GDT_Byte>(
             dfXRatioDstToSrc, dfYRatioDstToSrc, dfSrcXDelta, dfSrcYDelta,
             static_cast<const GByte *>(pChunk), pabyChunkNodataMask, nChunkXOff,
             nChunkXSize, nChunkYOff, nChunkYSize, nDstXOff, nDstXOff2, nDstYOff,
@@ -1776,7 +1804,8 @@ static CPLErr GDALResampleChunk32R_Average(
         if (EQUAL(pszResampling, "RMS"))
         {
             // Use double as accumulation type, because UInt32 could overflow
-            return GDALResampleChunk32R_AverageT<GUInt16, double, GDT_UInt16>(
+            return GDALResampleChunk32R_AverageOrRMS_T<GUInt16, double,
+                                                       GDT_UInt16>(
                 dfXRatioDstToSrc, dfYRatioDstToSrc, dfSrcXDelta, dfSrcYDelta,
                 static_cast<const GUInt16 *>(pChunk), pabyChunkNodataMask,
                 nChunkXOff, nChunkXSize, nChunkYOff, nChunkYSize, nDstXOff,
@@ -1786,7 +1815,8 @@ static CPLErr GDALResampleChunk32R_Average(
         }
         else
         {
-            return GDALResampleChunk32R_AverageT<GUInt16, GUInt32, GDT_UInt16>(
+            return GDALResampleChunk32R_AverageOrRMS_T<GUInt16, GUInt32,
+                                                       GDT_UInt16>(
                 dfXRatioDstToSrc, dfYRatioDstToSrc, dfSrcXDelta, dfSrcYDelta,
                 static_cast<const GUInt16 *>(pChunk), pabyChunkNodataMask,
                 nChunkXOff, nChunkXSize, nChunkYOff, nChunkYSize, nDstXOff,
@@ -1798,7 +1828,7 @@ static CPLErr GDALResampleChunk32R_Average(
     else if (eWrkDataType == GDT_Float32)
     {
         *peDstBufferDataType = eWrkDataType;
-        return GDALResampleChunk32R_AverageT<float, double, GDT_Float32>(
+        return GDALResampleChunk32R_AverageOrRMS_T<float, double, GDT_Float32>(
             dfXRatioDstToSrc, dfYRatioDstToSrc, dfSrcXDelta, dfSrcYDelta,
             static_cast<const float *>(pChunk), pabyChunkNodataMask, nChunkXOff,
             nChunkXSize, nChunkYOff, nChunkYSize, nDstXOff, nDstXOff2, nDstYOff,
@@ -2973,6 +3003,11 @@ static CPLErr GDALResampleChunk32R_ConvolutionT(
         fDstMin = std::numeric_limits<GByte>::min();
         fDstMax = std::numeric_limits<GByte>::max();
     }
+    else if (dstDataType == GDT_Int8)
+    {
+        fDstMin = std::numeric_limits<GInt8>::min();
+        fDstMax = std::numeric_limits<GInt8>::max();
+    }
     else if (dstDataType == GDT_UInt16)
     {
         fDstMin = std::numeric_limits<GUInt16>::min();
@@ -3966,7 +4001,7 @@ GDALResampleFunction GDALGetResampleFunction(const char *pszResampling,
         return GDALResampleChunk32R_Near;
     else if (STARTS_WITH_CI(pszResampling, "AVER") ||
              EQUAL(pszResampling, "RMS"))
-        return GDALResampleChunk32R_Average;
+        return GDALResampleChunk32R_AverageOrRMS;
     else if (EQUAL(pszResampling, "GAUSS"))
     {
         if (pnRadius)

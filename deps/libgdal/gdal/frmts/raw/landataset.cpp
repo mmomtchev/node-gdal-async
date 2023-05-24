@@ -148,6 +148,8 @@ class LANDataset final : public RawDataset
 
     char **GetFileList() override;
 
+    CPLErr Close() override;
+
   public:
     LANDataset();
     ~LANDataset() override;
@@ -331,18 +333,37 @@ LANDataset::LANDataset() : fpImage(nullptr)
 LANDataset::~LANDataset()
 
 {
-    FlushCache(true);
+    LANDataset::Close();
+}
 
-    if (fpImage != nullptr)
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr LANDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
     {
-        if (VSIFCloseL(fpImage) != 0)
-        {
-            CPLError(CE_Failure, CPLE_FileIO, "I/O error");
-        }
-    }
+        if (LANDataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
 
-    if (m_poSRS)
-        m_poSRS->Release();
+        if (fpImage)
+        {
+            if (VSIFCloseL(fpImage) != 0)
+            {
+                CPLError(CE_Failure, CPLE_FileIO, "I/O error");
+                eErr = CE_Failure;
+            }
+        }
+
+        if (m_poSRS)
+            m_poSRS->Release();
+
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
+    }
+    return eErr;
 }
 
 /************************************************************************/
@@ -375,26 +396,22 @@ GDALDataset *LANDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create a corresponding GDALDataset.                             */
     /* -------------------------------------------------------------------- */
-    LANDataset *poDS = new LANDataset();
+    auto poDS = cpl::make_unique<LANDataset>();
 
     poDS->eAccess = poOpenInfo->eAccess;
-    poDS->fpImage = poOpenInfo->fpL;
-    poOpenInfo->fpL = nullptr;
+    std::swap(poDS->fpImage, poOpenInfo->fpL);
 
     /* -------------------------------------------------------------------- */
     /*      Do we need to byte swap the headers to local machine order?     */
     /* -------------------------------------------------------------------- */
-    int bBigEndian = poOpenInfo->pabyHeader[8] == 0;
+    const RawRasterBand::ByteOrder eByteOrder =
+        poOpenInfo->pabyHeader[8] == 0
+            ? RawRasterBand::ByteOrder::ORDER_BIG_ENDIAN
+            : RawRasterBand::ByteOrder::ORDER_LITTLE_ENDIAN;
 
     memcpy(poDS->pachHeader, poOpenInfo->pabyHeader, ERD_HEADER_SIZE);
 
-#ifdef CPL_LSB
-    const int bNeedSwap = bBigEndian;
-#else
-    const int bNeedSwap = !bBigEndian;
-#endif
-
-    if (bNeedSwap)
+    if (eByteOrder != RawRasterBand::NATIVE_BYTE_ORDER)
     {
         CPL_SWAP16PTR(poDS->pachHeader + 6);
         CPL_SWAP16PTR(poDS->pachHeader + 8);
@@ -459,8 +476,6 @@ GDALDataset *LANDataset::Open(GDALOpenInfo *poOpenInfo)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "Unsupported pixel type (%d).",
                  nTmp16);
-
-        delete poDS;
         return nullptr;
     }
 
@@ -470,7 +485,6 @@ GDALDataset *LANDataset::Open(GDALOpenInfo *poOpenInfo)
     if (!GDALCheckDatasetDimensions(poDS->nRasterXSize, poDS->nRasterYSize) ||
         !GDALCheckBandCount(nBandCount, FALSE))
     {
-        delete poDS;
         return nullptr;
     }
 
@@ -479,31 +493,27 @@ GDALDataset *LANDataset::Open(GDALOpenInfo *poOpenInfo)
         poDS->nRasterXSize > INT_MAX / (nPixelOffset * nBandCount))
     {
         CPLError(CE_Failure, CPLE_AppDefined, "Int overflow occurred.");
-        delete poDS;
         return nullptr;
     }
 
     /* -------------------------------------------------------------------- */
     /*      Create band information object.                                 */
     /* -------------------------------------------------------------------- */
-    CPLErrorReset();
     for (int iBand = 1; iBand <= nBandCount; iBand++)
     {
         if (nPixelOffset == -1) /* 4 bit case */
-            poDS->SetBand(iBand, new LAN4BitRasterBand(poDS, iBand));
+            poDS->SetBand(iBand, new LAN4BitRasterBand(poDS.get(), iBand));
         else
-            poDS->SetBand(iBand,
-                          new RawRasterBand(
-                              poDS, iBand, poDS->fpImage,
-                              ERD_HEADER_SIZE + (iBand - 1) * nPixelOffset *
-                                                    poDS->nRasterXSize,
-                              nPixelOffset,
-                              poDS->nRasterXSize * nPixelOffset * nBandCount,
-                              eDataType, !bNeedSwap, RawRasterBand::OwnFP::NO));
-        if (CPLGetLastErrorType() != CE_None)
         {
-            delete poDS;
-            return nullptr;
+            auto poBand = RawRasterBand::Create(
+                poDS.get(), iBand, poDS->fpImage,
+                ERD_HEADER_SIZE +
+                    (iBand - 1) * nPixelOffset * poDS->nRasterXSize,
+                nPixelOffset, poDS->nRasterXSize * nPixelOffset * nBandCount,
+                eDataType, eByteOrder, RawRasterBand::OwnFP::NO);
+            if (!poBand)
+                return nullptr;
+            poDS->SetBand(iBand, std::move(poBand));
         }
     }
 
@@ -517,7 +527,7 @@ GDALDataset *LANDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Check for overviews.                                            */
     /* -------------------------------------------------------------------- */
-    poDS->oOvManager.Initialize(poDS, poOpenInfo->pszFilename);
+    poDS->oOvManager.Initialize(poDS.get(), poOpenInfo->pszFilename);
 
     /* -------------------------------------------------------------------- */
     /*      Try to interpret georeferencing.                                */
@@ -593,7 +603,7 @@ GDALDataset *LANDataset::Open(GDALOpenInfo *poOpenInfo)
         CPL_IGNORE_RET_VAL(VSIFReadL(szTRLData, 1, 896, fpTRL));
         CPL_IGNORE_RET_VAL(VSIFCloseL(fpTRL));
 
-        GDALColorTable *poCT = new GDALColorTable();
+        GDALColorTable oCT;
         for (int iColor = 0; iColor < 256; iColor++)
         {
             GDALColorEntry sEntry = {0, 0, 0, 0};
@@ -604,23 +614,21 @@ GDALDataset *LANDataset::Open(GDALOpenInfo *poOpenInfo)
             sEntry.c3 =
                 reinterpret_cast<GByte *>(szTRLData)[iColor + 128 + 512];
             sEntry.c4 = 255;
-            poCT->SetColorEntry(iColor, &sEntry);
+            oCT.SetColorEntry(iColor, &sEntry);
 
             // Only 16 colors in 4bit files.
             if (nPixelOffset == -1 && iColor == 15)
                 break;
         }
 
-        poDS->GetRasterBand(1)->SetColorTable(poCT);
+        poDS->GetRasterBand(1)->SetColorTable(&oCT);
         poDS->GetRasterBand(1)->SetColorInterpretation(GCI_PaletteIndex);
-
-        delete poCT;
     }
 
     CPLFree(pszPath);
     CPLFree(pszBasename);
 
-    return poDS;
+    return poDS.release();
 }
 
 /************************************************************************/

@@ -48,10 +48,12 @@ class WSIOCILobFSHandle : public VSIFilesystemHandler
     int Unlink(const char *pszFilename) override;
 
   private:
-    char **ParseIdentificator(const char *pszFilename);
-    OWConnection *GetConnection(char **papszParam);
-    OWStatement *GetStatement(const char *tableName, const char *rasterid,
-                              boolean bUpdate, OWConnection *pConnection);
+    static char **ParseIdentificator(const char *pszFilename);
+    static OWConnection *GetConnection(char **papszParam);
+
+    static OWStatement *GetStatement(const char *tableName,
+                                     const char *rasterid, boolean bUpdate,
+                                     OWConnection *pConnection);
 };
 
 // *****************************************************************************

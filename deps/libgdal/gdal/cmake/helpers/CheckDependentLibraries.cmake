@@ -103,7 +103,7 @@ endfunction()
 # the GDAL_IMPORT_DEPENDENCIES string.
 macro (gdal_check_package name purpose)
   set(_options CONFIG CAN_DISABLE RECOMMENDED DISABLED_BY_DEFAULT ALWAYS_ON_WHEN_FOUND)
-  set(_oneValueArgs VERSION NAMES)
+  set(_oneValueArgs VERSION NAMES MINIMUM_VERSION)
   set(_multiValueArgs COMPONENTS TARGETS PATHS)
   cmake_parse_arguments(_GCP "${_options}" "${_oneValueArgs}" "${_multiValueArgs}" ${ARGN})
   string(TOUPPER ${name} key)
@@ -155,7 +155,30 @@ macro (gdal_check_package name purpose)
     endif ()
   endif ()
   if (${key}_FOUND OR ${name}_FOUND)
-    set(HAVE_${key} ON)
+    if(_GCP_MINIMUM_VERSION)
+
+      if( "${name}" STREQUAL "TileDB" AND NOT DEFINED TileDB_VERSION)
+        get_property(_dirs TARGET TileDB::tiledb_shared PROPERTY INTERFACE_INCLUDE_DIRECTORIES)
+        foreach(_dir IN LISTS _dirs)
+          set(TILEDB_VERSION_FILENAME "${_dir}/tiledb/tiledb_version.h")
+          if(EXISTS ${TILEDB_VERSION_FILENAME})
+            file(READ ${TILEDB_VERSION_FILENAME} _tiledb_version_contents)
+            string(REGEX REPLACE "^.*TILEDB_VERSION_MAJOR +([0-9]+).*$" "\\1" TILEDB_VERSION_MAJOR "${_tiledb_version_contents}")
+            string(REGEX REPLACE "^.*TILEDB_VERSION_MINOR +([0-9]+).*$" "\\1" TILEDB_VERSION_MINOR "${_tiledb_version_contents}")
+            set(TileDB_VERSION "${TILEDB_VERSION_MAJOR}.${TILEDB_VERSION_MINOR}")
+          endif()
+        endforeach()
+      endif()
+
+      if( ${name}_VERSION VERSION_LESS ${_GCP_MINIMUM_VERSION})
+          message(WARNING "Ignoring ${name} because it is at version ${${name}_VERSION}, whereas the minimum version required is ${_GCP_MINIMUM_VERSION}")
+        set(HAVE_${key} OFF)
+      else()
+        set(HAVE_${key} ON)
+      endif()
+    else()
+      set(HAVE_${key} ON)
+    endif()
   else ()
     set(HAVE_${key} OFF)
   endif ()
@@ -247,7 +270,6 @@ endfunction ()
 # Custom find_package definitions
 
 define_find_package2(Crnlib crunch/crnlib.h crunch)
-define_find_package2(RASDAMAN rasdaman.hh raslib)
 
 if (WIN32)
   gdal_check_package(ODBC "Enable DB support through ODBC" CAN_DISABLE)
@@ -402,6 +424,29 @@ if (TARGET JPEG::JPEG)
     set_property(TARGET JPEG::JPEG PROPERTY
                  INTERFACE_COMPILE_DEFINITIONS "${_jpeg_old_icd};EXPECTED_JPEG_LIB_VERSION=${EXPECTED_JPEG_LIB_VERSION}")
   endif()
+
+  # Check for jpeg12_read_scanlines() which has been added in libjpeg-turbo 2.2
+  # for dual 8/12 bit mode.
+  include(CheckCSourceCompiles)
+  include(CMakePushCheckState)
+  cmake_push_check_state(RESET)
+  set(CMAKE_REQUIRED_INCLUDES "${JPEG_INCLUDE_DIRS}")
+  set(CMAKE_REQUIRED_LIBRARIES "${JPEG_LIBRARIES}")
+  check_c_source_compiles(
+      "
+      #include <stddef.h>
+      #include <stdio.h>
+      #include \"jpeglib.h\"
+      int main()
+      {
+          jpeg_read_scanlines(0,0,0);
+          jpeg12_read_scanlines(0,0,0);
+          return 0;
+      }
+      "
+      HAVE_JPEGTURBO_DUAL_MODE_8_12)
+  cmake_pop_check_state()
+
 endif()
 gdal_internal_library(JPEG)
 
@@ -485,19 +530,6 @@ if (SQLite3_FOUND)
   if (NOT DEFINED SQLite3_HAS_COLUMN_METADATA)
     message(FATAL_ERROR "missing SQLite3_HAS_COLUMN_METADATA")
   endif ()
-  if (NOT DEFINED SQLite3_HAS_RTREE)
-    message(FATAL_ERROR "missing SQLite3_HAS_RTREE")
-  endif ()
-  if (GDAL_USE_SQLITE3 AND NOT SQLite3_HAS_RTREE)
-    if (NOT ACCEPT_MISSING_SQLITE3_RTREE)
-      message(
-        FATAL_ERROR
-          "${SQLite3_LIBRARIES} lacks the RTree extension! Spatialite and GPKG will not behave properly. Define the ACCEPT_MISSING_SQLITE3_RTREE:BOOL=ON CMake variable if you want to build despite this limitation."
-        )
-    else ()
-      message(WARNING "${SQLite3_LIBRARIES} lacks the RTree extension! Spatialite and GPKG will not behave properly.")
-    endif ()
-  endif ()
   if (NOT DEFINED SQLite3_HAS_MUTEX_ALLOC)
     message(FATAL_ERROR "missing SQLite3_HAS_MUTEX_ALLOC")
   endif ()
@@ -513,25 +545,26 @@ if (SQLite3_FOUND)
   endif ()
 endif ()
 
-gdal_check_package(SPATIALITE "Enable spatialite support for sqlite3" CAN_DISABLE)
-gdal_check_package(RASTERLITE2 "Enable RasterLite2 support for sqlite3" CAN_DISABLE)
+# Checks that SQLite3 has RTree support
+# Called by ogr/ogrsf_frmts/sqlite/CMakeLists.txt and ogr/ogrsf_frmts/gpkg/CMakeLists.txt
+function (check_sqlite3_rtree driver_name)
+  if (NOT DEFINED SQLite3_HAS_RTREE)
+    message(FATAL_ERROR "missing SQLite3_HAS_RTREE")
+  endif ()
+  if (GDAL_USE_SQLITE3 AND NOT SQLite3_HAS_RTREE)
+    if (NOT ACCEPT_MISSING_SQLITE3_RTREE)
+      message(
+        FATAL_ERROR
+          "${SQLite3_LIBRARIES} lacks the RTree extension! ${driver_name} will not behave properly. Define the ACCEPT_MISSING_SQLITE3_RTREE:BOOL=ON CMake variable if you want to build despite this limitation."
+        )
+    else ()
+      message(WARNING "${SQLite3_LIBRARIES} lacks the RTree extension! ${driver_name} will not behave properly.")
+    endif ()
+  endif ()
+endfunction()
 
-set(HAVE_RASTERLITE2 ${RASTERLITE2_FOUND})
-if (RASTERLITE2_FOUND AND NOT RASTERLITE2_VERSION_STRING STREQUAL "unknown")
-  if (NOT RASTERLITE2_VERSION_STRING VERSION_GREATER_EQUAL 1.1.0)
-    message(STATUS "Rasterlite2 requires version 1.1.0 and later, detected: ${RASTERLITE2_VERSION_STRING}")
-    message(STATUS "Turn off rasterlite2 support")
-    set(HAVE_RASTERLITE2
-        OFF
-        CACHE INTERNAL "HAVE_RASTERLITE2")
-  endif ()
-endif ()
-if (GDAL_USE_RASTERLITE2)
-  if (NOT HAVE_RASTERLITE2)
-    message(FATAL_ERROR "Configured to use GDAL_USE_RASTERLITE2, but not found")
-  endif ()
-endif ()
-cmake_dependent_option(GDAL_USE_RASTERLITE2 "Set ON to use Rasterlite2" ON HAVE_RASTERLITE2 OFF)
+gdal_check_package(SPATIALITE "Enable spatialite support for sqlite3" VERSION 4.1.2 CAN_DISABLE)
+gdal_check_package(RASTERLITE2 "Enable RasterLite2 support for sqlite3" VERSION 1.1.0 CAN_DISABLE)
 
 find_package(LibKML COMPONENTS DOM ENGINE)
 if (GDAL_USE_LIBKML)
@@ -659,8 +692,7 @@ gdal_check_package(NetCDF "Enable netCDF driver" CAN_DISABLE
   NAMES netCDF
   TARGETS netCDF::netcdf NETCDF::netCDF)
 gdal_check_package(OGDI "Enable ogr_OGDI driver" CAN_DISABLE)
-# OpenCL warping gives different results than the ones expected by autotest, so disable it by default even if found.
-gdal_check_package(OpenCL "Enable OpenCL (may be used for warping)" DISABLED_BY_DEFAULT)
+gdal_check_package(OpenCL "Enable OpenCL (may be used for warping)" CAN_DISABLE)
 
 set(PostgreSQL_ADDITIONAL_VERSIONS "14" CACHE STRING "Additional PostgreSQL versions to check")
 gdal_check_package(PostgreSQL "" CAN_DISABLE)
@@ -674,6 +706,9 @@ gdal_check_package(LibLZMA "LZMA compression" CAN_DISABLE)
 gdal_check_package(LZ4 "LZ4 compression" CAN_DISABLE)
 gdal_check_package(Blosc "Blosc compression" CAN_DISABLE)
 
+define_find_package2(ARCHIVE archive.h archive)
+gdal_check_package(ARCHIVE "Multi-format archive and compression library library (used for /vsi7z/" CAN_DISABLE)
+
 define_find_package2(JXL jxl/decode.h jxl PKGCONFIG_NAME libjxl)
 gdal_check_package(JXL "JPEG-XL compression" CAN_DISABLE)
 
@@ -684,10 +719,9 @@ gdal_check_package(JXL_THREADS "JPEG-XL threading" CAN_DISABLE)
 gdal_check_package(Crnlib "enable gdal_DDS driver" CAN_DISABLE)
 gdal_check_package(basisu "Enable BASISU driver" CONFIG CAN_DISABLE)
 gdal_check_package(IDB "enable ogr_IDB driver" CAN_DISABLE)
-# TODO: implement FindRASDAMAN libs: -lrasodmg -lclientcomm -lcompression -lnetwork -lraslib
-gdal_check_package(RASDAMAN "enable rasdaman driver" CAN_DISABLE)
 gdal_check_package(rdb "enable RIEGL RDB library" CONFIG CAN_DISABLE)
-gdal_check_package(TileDB "enable TileDB driver" CONFIG CAN_DISABLE)
+gdal_check_package(TileDB "enable TileDB driver" CONFIG CAN_DISABLE MINIMUM_VERSION "2.7")
+
 gdal_check_package(OpenEXR "OpenEXR >=2.2" CAN_DISABLE)
 gdal_check_package(MONGOCXX "Enable MongoDBV3 driver" CAN_DISABLE)
 
@@ -736,16 +770,11 @@ if (Arrow_FOUND)
     if (Parquet_FOUND AND NOT ArrowDataset_FOUND)
         message(WARNING "Parquet library found, but not ArrowDataset: partitioned datasets will not be supported")
     endif()
+    option(ARROW_USE_STATIC_LIBRARIES "Use statically built Arrow libraries" OFF)
+    mark_as_advanced(ARROW_USE_STATIC_LIBRARIES)
 endif()
 
 # bindings
-gdal_check_package(SWIG "Enable language bindings" ALWAYS_ON_WHEN_FOUND)
-set_package_properties(
-  SWIG PROPERTIES
-  DESCRIPTION
-    "software development tool that connects programs written in C and C++ with a variety of high-level programming languages."
-  URL "http://swig.org/"
-  TYPE RECOMMENDED)
 
 # finding python in top of project because of common for autotest and bindings
 

@@ -68,6 +68,8 @@ class MFFDataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(MFFDataset)
 
+    CPLErr Close() override;
+
   public:
     MFFDataset();
     ~MFFDataset() override;
@@ -113,12 +115,13 @@ class MFFTiledBand final : public GDALRasterBand
     friend class MFFDataset;
 
     VSILFILE *fpRaw;
-    bool bNative;
+    RawRasterBand::ByteOrder eByteOrder;
 
     CPL_DISALLOW_COPY_ASSIGN(MFFTiledBand)
 
   public:
-    MFFTiledBand(MFFDataset *, int, VSILFILE *, int, int, GDALDataType, int);
+    MFFTiledBand(MFFDataset *, int, VSILFILE *, int, int, GDALDataType,
+                 RawRasterBand::ByteOrder);
     ~MFFTiledBand() override;
 
     CPLErr IReadBlock(int, int, void *) override;
@@ -130,8 +133,9 @@ class MFFTiledBand final : public GDALRasterBand
 
 MFFTiledBand::MFFTiledBand(MFFDataset *poDSIn, int nBandIn, VSILFILE *fp,
                            int nTileXSize, int nTileYSize,
-                           GDALDataType eDataTypeIn, int bNativeIn)
-    : fpRaw(fp), bNative(CPL_TO_BOOL(bNativeIn))
+                           GDALDataType eDataTypeIn,
+                           RawRasterBand::ByteOrder eByteOrderIn)
+    : fpRaw(fp), eByteOrder(eByteOrderIn)
 {
     poDS = poDSIn;
     nBand = nBandIn;
@@ -179,7 +183,7 @@ CPLErr MFFTiledBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
         return CE_Failure;
     }
 
-    if (!bNative && nWordSize > 1)
+    if (eByteOrder != RawRasterBand::NATIVE_BYTE_ORDER && nWordSize > 1)
     {
         if (GDALDataTypeIsComplex(eDataType))
         {
@@ -267,29 +271,49 @@ MFFDataset::MFFDataset()
 MFFDataset::~MFFDataset()
 
 {
-    FlushCache(true);
-    CSLDestroy(papszHdrLines);
-    if (pafpBandFiles != nullptr)
+    MFFDataset::Close();
+}
+
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr MFFDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
     {
-        for (int i = 0; i < GetRasterCount(); i++)
+        if (MFFDataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
+
+        CSLDestroy(papszHdrLines);
+        if (pafpBandFiles)
         {
-            if (pafpBandFiles[i] != nullptr)
+            for (int i = 0; i < GetRasterCount(); i++)
             {
-                if (VSIFCloseL(pafpBandFiles[i]) != 0)
+                if (pafpBandFiles[i])
                 {
-                    CPLError(CE_Failure, CPLE_FileIO, "I/O error");
+                    if (VSIFCloseL(pafpBandFiles[i]) != 0)
+                    {
+                        eErr = CE_Failure;
+                        CPLError(CE_Failure, CPLE_FileIO, "I/O error");
+                    }
                 }
             }
+            CPLFree(pafpBandFiles);
         }
-        CPLFree(pafpBandFiles);
-    }
 
-    if (nGCPCount > 0)
-    {
-        GDALDeinitGCPs(nGCPCount, pasGCPList);
+        if (nGCPCount > 0)
+        {
+            GDALDeinitGCPs(nGCPCount, pasGCPList);
+        }
+        CPLFree(pasGCPList);
+        CSLDestroy(m_papszFileList);
+
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
     }
-    CPLFree(pasGCPList);
-    CSLDestroy(m_papszFileList);
+    return eErr;
 }
 
 /************************************************************************/
@@ -705,7 +729,7 @@ GDALDataset *MFFDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create a corresponding GDALDataset.                             */
     /* -------------------------------------------------------------------- */
-    MFFDataset *poDS = new MFFDataset();
+    auto poDS = cpl::make_unique<MFFDataset>();
 
     poDS->papszHdrLines = papszHdrLines;
 
@@ -731,18 +755,17 @@ GDALDataset *MFFDataset::Open(GDALOpenInfo *poOpenInfo)
 
     if (!GDALCheckDatasetDimensions(poDS->nRasterXSize, poDS->nRasterYSize))
     {
-        delete poDS;
         return nullptr;
     }
 
-    bool bNative = true;
-    if (CSLFetchNameValue(papszHdrLines, "BYTE_ORDER") != nullptr)
+    RawRasterBand::ByteOrder eByteOrder = RawRasterBand::NATIVE_BYTE_ORDER;
+
+    const char *pszByteOrder = CSLFetchNameValue(papszHdrLines, "BYTE_ORDER");
+    if (pszByteOrder)
     {
-#ifdef CPL_MSB
-        bNative = EQUAL(CSLFetchNameValue(papszHdrLines, "BYTE_ORDER"), "MSB");
-#else
-        bNative = EQUAL(CSLFetchNameValue(papszHdrLines, "BYTE_ORDER"), "LSB");
-#endif
+        eByteOrder = EQUAL(pszByteOrder, "LSB")
+                         ? RawRasterBand::ByteOrder::ORDER_LITTLE_ENDIAN
+                         : RawRasterBand::ByteOrder::ORDER_BIG_ENDIAN;
     }
 
     /* -------------------------------------------------------------------- */
@@ -766,7 +789,6 @@ GDALDataset *MFFDataset::Open(GDALOpenInfo *poOpenInfo)
             poDS->nRasterXSize - 1 > INT_MAX - nTileXSize ||
             poDS->nRasterYSize - 1 > INT_MAX - nTileYSize)
         {
-            delete poDS;
             return nullptr;
         }
     }
@@ -782,7 +804,6 @@ GDALDataset *MFFDataset::Open(GDALOpenInfo *poOpenInfo)
     {
         CPLFree(pszTargetPath);
         CPLFree(pszTargetBase);
-        delete poDS;
         return nullptr;
     }
 
@@ -911,17 +932,19 @@ GDALDataset *MFFDataset::Open(GDALOpenInfo *poOpenInfo)
 
         const int nBand = poDS->GetRasterCount() + 1;
 
-        const int nPixelOffset = GDALGetDataTypeSize(eDataType) / 8;
-        GDALRasterBand *poBand = nullptr;
+        const int nPixelOffset = GDALGetDataTypeSizeBytes(eDataType);
+        std::unique_ptr<GDALRasterBand> poBand;
 
         if (bTiled)
         {
-            poBand = new MFFTiledBand(poDS, nBand, fpRaw, nTileXSize,
-                                      nTileYSize, eDataType, bNative);
+            poBand = cpl::make_unique<MFFTiledBand>(poDS.get(), nBand, fpRaw,
+                                                    nTileXSize, nTileYSize,
+                                                    eDataType, eByteOrder);
         }
         else
         {
-            if (poDS->GetRasterXSize() > INT_MAX / nPixelOffset)
+            if (nPixelOffset != 0 &&
+                poDS->GetRasterXSize() > INT_MAX / nPixelOffset)
             {
                 CPLError(CE_Warning, CPLE_AppDefined,
                          "Int overflow occurred... skipping");
@@ -930,13 +953,13 @@ GDALDataset *MFFDataset::Open(GDALOpenInfo *poOpenInfo)
                 continue;
             }
 
-            poBand = new RawRasterBand(poDS, nBand, fpRaw, 0, nPixelOffset,
-                                       nPixelOffset * poDS->GetRasterXSize(),
-                                       eDataType, bNative,
-                                       RawRasterBand::OwnFP::YES);
+            poBand = RawRasterBand::Create(
+                poDS.get(), nBand, fpRaw, 0, nPixelOffset,
+                nPixelOffset * poDS->GetRasterXSize(), eDataType, eByteOrder,
+                RawRasterBand::OwnFP::YES);
         }
 
-        poDS->SetBand(nBand, poBand);
+        poDS->SetBand(nBand, std::move(poBand));
     }
 
     CPLFree(pszTargetPath);
@@ -954,7 +977,6 @@ GDALDataset *MFFDataset::Open(GDALOpenInfo *poOpenInfo)
                      "Failed to open %d files that were apparently bands.  "
                      "Perhaps this dataset is readonly?",
                      nSkipped);
-            delete poDS;
             return nullptr;
         }
         else
@@ -962,7 +984,6 @@ GDALDataset *MFFDataset::Open(GDALOpenInfo *poOpenInfo)
             CPLError(CE_Failure, CPLE_OpenFailed,
                      "MFF header file read successfully, but no bands "
                      "were successfully found and opened.");
-            delete poDS;
             return nullptr;
         }
     }
@@ -1010,9 +1031,9 @@ GDALDataset *MFFDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Check for overviews.                                            */
     /* -------------------------------------------------------------------- */
-    poDS->oOvManager.Initialize(poDS, poOpenInfo->pszFilename);
+    poDS->oOvManager.Initialize(poDS.get(), poOpenInfo->pszFilename);
 
-    return poDS;
+    return poDS.release();
 }
 
 int GetMFFProjectionType(const OGRSpatialReference *poSRS)

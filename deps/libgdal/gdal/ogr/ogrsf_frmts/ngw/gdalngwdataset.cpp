@@ -39,7 +39,8 @@ class NGWWrapperRasterBand : public GDALProxyRasterBand
     GDALRasterBand *poBaseBand;
 
   protected:
-    virtual GDALRasterBand *RefUnderlyingRasterBand() const override
+    virtual GDALRasterBand *
+    RefUnderlyingRasterBand(bool /*bForceOpen*/) const override
     {
         return poBaseBand;
     }
@@ -380,7 +381,7 @@ bool OGRNGWDataset::Init(int nOpenFlagsIn)
 
                 CPLFree(pszRasterUrl);
 
-                poRasterDS = reinterpret_cast<GDALDataset *>(GDALOpenEx(
+                poRasterDS = GDALDataset::FromHandle(GDALOpenEx(
                     pszConnStr,
                     GDAL_OF_READONLY | GDAL_OF_RASTER | GDAL_OF_INTERNAL,
                     nullptr, nullptr, nullptr));
@@ -837,10 +838,12 @@ CPLErr OGRNGWDataset::SetMetadataItem(const char *pszName, const char *pszValue,
 /*
  * FlushCache()
  */
-void OGRNGWDataset::FlushCache(bool bAtClosing)
+CPLErr OGRNGWDataset::FlushCache(bool bAtClosing)
 {
-    GDALDataset::FlushCache(bAtClosing);
-    FlushMetadata(GetMetadata("NGW"));
+    CPLErr eErr = GDALDataset::FlushCache(bAtClosing);
+    if (!FlushMetadata(GetMetadata("NGW")))
+        eErr = CE_Failure;
+    return eErr;
 }
 
 /*

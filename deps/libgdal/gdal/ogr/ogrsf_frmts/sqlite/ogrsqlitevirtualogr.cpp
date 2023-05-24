@@ -43,19 +43,48 @@
 #include "cpl_conv.h"
 #include "cpl_error.h"
 #include "cpl_string.h"
-#include "gdal_priv.h"
-#include "ogr_api.h"
-#include "ogr_core.h"
-#include "ogr_feature.h"
-#include "ogr_geometry.h"
-#include "ogr_p.h"
-#include "ogr_spatialref.h"
-#include "ogrsf_frmts.h"
-#include "ogrsqlite3ext.h"
-#include "ogrsqlitesqlfunctions.h"
-#include "ogrsqliteutility.h"
-#include "ogr_swq.h"
-#include "sqlite3.h"
+
+/************************************************************************/
+/*                  OGR2SQLITE_GetNameForGeometryColumn()               */
+/************************************************************************/
+
+CPLString OGR2SQLITE_GetNameForGeometryColumn(OGRLayer *poLayer)
+{
+    const char *pszGeomColumn = poLayer->GetGeometryColumn();
+    if (pszGeomColumn != nullptr && !EQUAL(pszGeomColumn, ""))
+    {
+        if (poLayer->GetLayerDefn()->GetFieldIndex(pszGeomColumn) < 0)
+            return pszGeomColumn;
+    }
+
+    CPLString osGeomCol("GEOMETRY");
+    int nTry = 2;
+    while (poLayer->GetLayerDefn()->GetFieldIndex(osGeomCol) >= 0)
+    {
+        osGeomCol.Printf("GEOMETRY%d", nTry++);
+    }
+    return osGeomCol;
+}
+
+#if !defined(HAVE_SQLITE3EXT_H)
+
+// Stub functions
+
+void OGR2SQLITE_Register()
+{
+}
+
+OGR2SQLITEModule *OGR2SQLITE_Setup(GDALDataset *, OGRSQLiteDataSource *)
+{
+    return nullptr;
+}
+
+int OGR2SQLITE_AddExtraDS(OGR2SQLITEModule *, OGRDataSource *)
+{
+    return 0;
+}
+
+#else
 
 /************************************************************************/
 /*                           OGR2SQLITE_Register()                      */
@@ -87,7 +116,19 @@ void OGR2SQLITE_Register()
 #define VIRTUAL_OGR_DYNAMIC_EXTENSION_ENABLED
 // #define DEBUG_OGR2SQLITE
 
-#include "ogrsqlite3ext.h"
+#include "gdal_priv.h"
+#include "ogr_api.h"
+#include "ogr_core.h"
+#include "ogr_feature.h"
+#include "ogr_geometry.h"
+#include "ogr_p.h"
+#include "ogr_spatialref.h"
+#include "ogrsf_frmts.h"
+#include "ogrsqlitesqlfunctions.h"
+#include "ogrsqliteutility.h"
+#include "ogr_swq.h"
+#include "sqlite3.h"
+#include "sqlite3ext.h"
 
 #undef SQLITE_EXTENSION_INIT1
 #define SQLITE_EXTENSION_INIT1                                                 \
@@ -143,7 +184,7 @@ static SQLITE_EXTENSION_INIT1
     int AddExtraDS(OGRDataSource *poDS);
     OGRDataSource *GetExtraDS(int nIndex);
 
-    int FetchSRSId(OGRSpatialReference *poSRS);
+    int FetchSRSId(const OGRSpatialReference *poSRS);
 
     void RegisterVTable(const char *pszVTableName, OGRLayer *poLayer);
     void UnregisterVTable(const char *pszVTableName);
@@ -233,7 +274,7 @@ int OGR2SQLITEModule::Setup(GDALDataset *poDSIn,
 /************************************************************************/
 
 // TODO(schwehr): Refactor FetchSRSId to be much simpler.
-int OGR2SQLITEModule::FetchSRSId(OGRSpatialReference *poSRS)
+int OGR2SQLITEModule::FetchSRSId(const OGRSpatialReference *poSRS)
 {
     int nSRSId = -1;
 
@@ -290,7 +331,11 @@ OGRLayer *OGR2SQLITEModule::GetLayerForVTable(const char *pszVTableName)
     std::map<CPLString, OGRLayer *>::iterator oIter =
         oMapVTableToOGRLayer.find(pszVTableName);
     if (oIter == oMapVTableToOGRLayer.end())
+    {
+        if (poDS == poSQLiteDS)
+            return poSQLiteDS->GetLayerByName(pszVTableName);
         return nullptr;
+    }
 
     OGRLayer *poLayer = oIter->second;
     if (poLayer == nullptr)
@@ -357,28 +402,6 @@ typedef struct
     GByte *pabyGeomBLOB;
     int nGeomBLOBLen;
 } OGR2SQLITE_vtab_cursor;
-
-/************************************************************************/
-/*                  OGR2SQLITE_GetNameForGeometryColumn()               */
-/************************************************************************/
-
-CPLString OGR2SQLITE_GetNameForGeometryColumn(OGRLayer *poLayer)
-{
-    const char *pszGeomColumn = poLayer->GetGeometryColumn();
-    if (pszGeomColumn != nullptr && !EQUAL(pszGeomColumn, ""))
-    {
-        if (poLayer->GetLayerDefn()->GetFieldIndex(pszGeomColumn) < 0)
-            return pszGeomColumn;
-    }
-
-    CPLString osGeomCol("GEOMETRY");
-    int bTry = 2;
-    while (poLayer->GetLayerDefn()->GetFieldIndex(osGeomCol) >= 0)
-    {
-        osGeomCol.Printf("GEOMETRY%d", bTry++);
-    }
-    return osGeomCol;
-}
 
 #ifdef VIRTUAL_OGR_DYNAMIC_EXTENSION_ENABLED
 
@@ -713,7 +736,7 @@ static int OGR2SQLITE_ConnectCreate(sqlite3 *hDB, void *pAux, int argc,
                 osSQL += "Z";
             if (wkbHasM(poFieldDefn->GetType()))
                 osSQL += "M";
-            OGRSpatialReference *poSRS = poFieldDefn->GetSpatialRef();
+            const OGRSpatialReference *poSRS = poFieldDefn->GetSpatialRef();
             if (poSRS == nullptr && i == 0)
                 poSRS = poLayer->GetSpatialRef();
             int nSRID = poModule->FetchSRSId(poSRS);
@@ -1412,7 +1435,8 @@ static int OGR2SQLITE_Column(sqlite3_vtab_cursor *pCursor,
             {
                 CPLAssert(pMyCursor->pabyGeomBLOB == nullptr);
 
-                OGRSpatialReference *poSRS = poGeom->getSpatialReference();
+                const OGRSpatialReference *poSRS =
+                    poGeom->getSpatialReference();
                 int nSRSId = pMyCursor->pVTab->poModule->FetchSRSId(poSRS);
 
                 OGR2SQLITE_ExportGeometry(poGeom, nSRSId,
@@ -1448,7 +1472,7 @@ static int OGR2SQLITE_Column(sqlite3_vtab_cursor *pCursor,
         }
         else
         {
-            OGRSpatialReference *poSRS = poGeom->getSpatialReference();
+            const OGRSpatialReference *poSRS = poGeom->getSpatialReference();
             int nSRSId = pMyCursor->pVTab->poModule->FetchSRSId(poSRS);
 
             GByte *pabyGeomBLOB = nullptr;
@@ -1816,12 +1840,12 @@ static const struct sqlite3_module sOGR2SQLITEModule = {
     /* xFindFunction */  // OGR2SQLITE_FindFunction;
     OGR2SQLITE_Rename,
 #if SQLITE_VERSION_NUMBER >=                                                   \
-    3007007L  /* should be the first version with the below symbols */
+    3007007L /* should be the first version with the below symbols */
     nullptr,  // xSavepoint
     nullptr,  // xRelease
     nullptr,  // xRollbackTo
 #if SQLITE_VERSION_NUMBER >=                                                   \
-    3025003L  /* should be the first version with the below symbols */
+    3025003L /* should be the first version with the below symbols */
     nullptr,  // xShadowName
 #endif
 #endif
@@ -2714,14 +2738,14 @@ int sqlite3_extension_init(sqlite3 *hDB, char **pzErrMsg,
 /*                        OGR2SQLITE_static_register()                  */
 /************************************************************************/
 
-#ifndef WIN32
+#ifndef _WIN32
 extern const struct sqlite3_api_routines OGRSQLITE_static_routines;
 #endif
 
 int OGR2SQLITE_static_register(sqlite3 *hDB, char **pzErrMsg, void *_pApi)
 {
     const sqlite3_api_routines *pApi = (const sqlite3_api_routines *)_pApi;
-#ifndef WIN32
+#ifndef _WIN32
     if ((pApi == nullptr) || (pApi->create_module == nullptr))
     {
         pApi = &OGRSQLITE_static_routines;
@@ -2758,3 +2782,5 @@ int OGR2SQLITE_static_register(sqlite3 *hDB, char **pzErrMsg, void *_pApi)
 
     return SQLITE_OK;
 }
+
+#endif  // HAVE_SQLITE3EXT_H

@@ -289,10 +289,11 @@ int PostGISRasterDataset::CloseDependentDatasets()
 /*                            FlushCache()                              */
 /************************************************************************/
 
-void PostGISRasterDataset::FlushCache(bool bAtClosing)
+CPLErr PostGISRasterDataset::FlushCache(bool bAtClosing)
 {
-    VRTDataset::FlushCache(bAtClosing);
+    const CPLErr eErr = VRTDataset::FlushCache(bAtClosing);
     oOutDBDatasetCache.clear();
+    return eErr;
 }
 
 /************************************************************************/
@@ -766,9 +767,9 @@ PostGISRasterDataset *PostGISRasterDataset::GetOverviewDS(int iOvr)
  *
  * This method is adapted from gdalbuildvrt as is in GDAL 1.10.0
  ***********************************************************************/
-GBool PostGISRasterDataset::GetDstWin(PostGISRasterTileDataset *psDP,
-                                      int *pnDstXOff, int *pnDstYOff,
-                                      int *pnDstXSize, int *pnDstYSize)
+void PostGISRasterDataset::GetDstWin(PostGISRasterTileDataset *psDP,
+                                     int *pnDstXOff, int *pnDstYOff,
+                                     int *pnDstXSize, int *pnDstYSize)
 {
     double we_res = this->adfGeoTransform[GEOTRSFRM_WE_RES];
     double ns_res = this->adfGeoTransform[GEOTRSFRM_NS_RES];
@@ -792,8 +793,6 @@ GBool PostGISRasterDataset::GetDstWin(PostGISRasterTileDataset *psDP,
     *pnDstYSize = static_cast<int>(
         0.5 + psDP->GetRasterYSize() * adfTileGeoTransform[GEOTRSFRM_NS_RES] /
                   ns_res);
-
-    return true;
 }
 
 /***********************************************************************
@@ -808,10 +807,7 @@ GBool PostGISRasterDataset::AddComplexSource(PostGISRasterTileDataset *poRTDS)
     int nDstYSize = 0;
 
     // Get src and dst parameters
-    GBool bValidTile =
-        GetDstWin(poRTDS, &nDstXOff, &nDstYOff, &nDstXSize, &nDstYSize);
-    if (!bValidTile)
-        return false;
+    GetDstWin(poRTDS, &nDstXOff, &nDstYOff, &nDstXSize, &nDstYSize);
 
 #ifdef DEBUG_VERBOSE
     CPLDebug("PostGIS_Raster",
@@ -1651,8 +1647,7 @@ BandMetadata *PostGISRasterDataset::GetBandsMetadata(int *pnBands)
 
         // If the band doesn't have nodata, NULL is returned as nodata
         TranslateDataType(papszParams[POS_PIXELTYPE], &(poBMD[iBand].eDataType),
-                          &(poBMD[iBand].nBitsDepth),
-                          &(poBMD[iBand].bSignedByte));
+                          &(poBMD[iBand].nBitsDepth));
 
         if (papszParams[POS_NODATAVALUE] == nullptr ||
             EQUAL(papszParams[POS_NODATAVALUE], "NULL") ||
@@ -1910,12 +1905,6 @@ void PostGISRasterDataset::BuildBands(BandMetadata *poBandMetaData,
 
         // Set some band metadata items
         GDALRasterBand *b = GetRasterBand(iBand + 1);
-
-        if (poBandMetaData[iBand].bSignedByte)
-        {
-            b->SetMetadataItem("PIXELTYPE", "SIGNEDBYTE", "IMAGE_STRUCTURE");
-        }
-
         if (poBandMetaData[iBand].nBitsDepth < 8)
         {
             b->SetMetadataItem(

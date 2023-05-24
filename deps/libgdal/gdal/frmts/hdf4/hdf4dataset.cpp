@@ -132,6 +132,12 @@ char *SPrintArray(GDALDataType eDataType, const void *paDataArray, int nValues,
                              const_cast<void *>(paDataArray))[i],
                          (i < nValues - 1) ? pszDelimiter : "");
                 break;
+            case GDT_Int8:
+                snprintf(pszField, iFieldSize + 1, "%d%s",
+                         reinterpret_cast<GInt8 *>(
+                             const_cast<void *>(paDataArray))[i],
+                         (i < nValues - 1) ? pszDelimiter : "");
+                break;
             case GDT_UInt16:
                 snprintf(pszField, iFieldSize + 1, "%u%s",
                          reinterpret_cast<GUInt16 *>(
@@ -186,9 +192,10 @@ GDALDataType HDF4Dataset::GetDataType(int32 iNumType)
     {
         case DFNT_CHAR8:   // The same as DFNT_CHAR
         case DFNT_UCHAR8:  // The same as DFNT_UCHAR
-        case DFNT_INT8:
         case DFNT_UINT8:
             return GDT_Byte;
+        case DFNT_INT8:
+            return GDT_Int8;
         case DFNT_INT16:
             return GDT_Int16;
         case DFNT_UINT16:
@@ -294,7 +301,7 @@ double HDF4Dataset::AnyTypeToDouble(int32 iNumType, void *pData)
     switch (iNumType)
     {
         case DFNT_INT8:
-            return static_cast<double>(*reinterpret_cast<char *>(pData));
+            return static_cast<double>(*reinterpret_cast<signed char *>(pData));
         case DFNT_UINT8:
             return static_cast<double>(*reinterpret_cast<GByte *>(pData));
         case DFNT_INT16:
@@ -1268,8 +1275,8 @@ GDALDataset *HDF4Dataset::Open(GDALOpenInfo *poOpenInfo)
         delete poDS;
         poDS = nullptr;
 
-        GDALDataset *poRetDS = reinterpret_cast<GDALDataset *>(
-            GDALOpen(pszSDSName, poOpenInfo->eAccess));
+        GDALDataset *poRetDS =
+            GDALDataset::FromHandle(GDALOpen(pszSDSName, poOpenInfo->eAccess));
         CPLFree(pszSDSName);
 
         CPLAcquireMutex(hHDF4Mutex, 1000.0);

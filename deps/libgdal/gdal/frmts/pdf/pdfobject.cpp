@@ -2107,11 +2107,12 @@ char *GDALPDFStreamPodofo::GetRawBytes()
 class GDALPDFDictionaryPdfium : public GDALPDFDictionary
 {
   private:
-    CPDF_Dictionary *m_poDict;
+    RetainPtr<const CPDF_Dictionary> m_poDict;
     std::map<CPLString, GDALPDFObject *> m_map;
 
   public:
-    GDALPDFDictionaryPdfium(CPDF_Dictionary *poDict) : m_poDict(poDict)
+    GDALPDFDictionaryPdfium(RetainPtr<const CPDF_Dictionary> poDict)
+        : m_poDict(poDict)
     {
     }
     virtual ~GDALPDFDictionaryPdfium();
@@ -2129,11 +2130,11 @@ class GDALPDFDictionaryPdfium : public GDALPDFDictionary
 class GDALPDFArrayPdfium : public GDALPDFArray
 {
   private:
-    CPDF_Array *m_poArray;
+    const CPDF_Array *m_poArray;
     std::vector<GDALPDFObject *> m_v;
 
   public:
-    GDALPDFArrayPdfium(CPDF_Array *poArray) : m_poArray(poArray)
+    GDALPDFArrayPdfium(const CPDF_Array *poArray) : m_poArray(poArray)
     {
     }
     virtual ~GDALPDFArrayPdfium();
@@ -2151,7 +2152,7 @@ class GDALPDFArrayPdfium : public GDALPDFArray
 class GDALPDFStreamPdfium : public GDALPDFStream
 {
   private:
-    CPDF_Stream *m_pStream;
+    RetainPtr<const CPDF_Stream> m_pStream;
     int m_nSize = 0;
     std::unique_ptr<uint8_t, CPLFreeReleaser> m_pData = nullptr;
     int m_nRawSize = 0;
@@ -2161,7 +2162,8 @@ class GDALPDFStreamPdfium : public GDALPDFStream
     void FillRaw();
 
   public:
-    GDALPDFStreamPdfium(CPDF_Stream *pStream) : m_pStream(pStream)
+    GDALPDFStreamPdfium(RetainPtr<const CPDF_Stream> pStream)
+        : m_pStream(pStream)
     {
     }
     virtual ~GDALPDFStreamPdfium()
@@ -2185,10 +2187,10 @@ class GDALPDFStreamPdfium : public GDALPDFStream
 /*                          GDALPDFObjectPdfium()                       */
 /************************************************************************/
 
-GDALPDFObjectPdfium::GDALPDFObjectPdfium(CPDF_Object *po)
-    : m_po(po), m_poDict(nullptr), m_poArray(nullptr), m_poStream(nullptr)
+GDALPDFObjectPdfium::GDALPDFObjectPdfium(RetainPtr<const CPDF_Object> obj)
+    : m_obj(obj), m_poDict(nullptr), m_poArray(nullptr), m_poStream(nullptr)
 {
-    CPLAssert(m_po != nullptr);
+    CPLAssert(m_obj != nullptr);
 }
 
 /************************************************************************/
@@ -2206,21 +2208,22 @@ GDALPDFObjectPdfium::~GDALPDFObjectPdfium()
 /*                               Build()                                */
 /************************************************************************/
 
-GDALPDFObjectPdfium *GDALPDFObjectPdfium::Build(CPDF_Object *poVal)
+GDALPDFObjectPdfium *
+GDALPDFObjectPdfium::Build(RetainPtr<const CPDF_Object> obj)
 {
-    if (poVal == nullptr)
+    if (obj == nullptr)
         return nullptr;
-    if (poVal->GetType() == CPDF_Object::Type::kReference)
+    if (obj->GetType() == CPDF_Object::Type::kReference)
     {
-        poVal = poVal->GetDirect();
-        if (poVal == nullptr)
+        obj = obj->GetDirect();
+        if (obj == nullptr)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
                      "Cannot resolve indirect object");
             return nullptr;
         }
     }
-    return new GDALPDFObjectPdfium(poVal);
+    return new GDALPDFObjectPdfium(obj);
 }
 
 /************************************************************************/
@@ -2229,14 +2232,15 @@ GDALPDFObjectPdfium *GDALPDFObjectPdfium::Build(CPDF_Object *poVal)
 
 GDALPDFObjectType GDALPDFObjectPdfium::GetType()
 {
-    switch (m_po->GetType())
+    switch (m_obj->GetType())
     {
         case CPDF_Object::Type::kNullobj:
             return PDFObjectType_Null;
         case CPDF_Object::Type::kBoolean:
             return PDFObjectType_Bool;
         case CPDF_Object::Type::kNumber:
-            return (reinterpret_cast<CPDF_Number *>(m_po))->IsInteger()
+            return (cpl::down_cast<const CPDF_Number *>(m_obj.Get()))
+                           ->IsInteger()
                        ? PDFObjectType_Int
                        : PDFObjectType_Real;
         case CPDF_Object::Type::kString:
@@ -2264,7 +2268,7 @@ GDALPDFObjectType GDALPDFObjectPdfium::GetType()
 
 const char *GDALPDFObjectPdfium::GetTypeNameNative()
 {
-    if (m_po->GetType() == CPDF_Object::Type::kStream)
+    if (m_obj->GetType() == CPDF_Object::Type::kStream)
         return "stream";
     else
         return "";
@@ -2276,7 +2280,7 @@ const char *GDALPDFObjectPdfium::GetTypeNameNative()
 
 int GDALPDFObjectPdfium::GetBool()
 {
-    return m_po->GetInteger();
+    return m_obj->GetInteger();
 }
 
 /************************************************************************/
@@ -2285,7 +2289,7 @@ int GDALPDFObjectPdfium::GetBool()
 
 int GDALPDFObjectPdfium::GetInt()
 {
-    return m_po->GetInteger();
+    return m_obj->GetInteger();
 }
 
 /************************************************************************/
@@ -2339,7 +2343,7 @@ static double CPLRoundToMoreLikelyDouble(float f)
 
 double GDALPDFObjectPdfium::GetReal()
 {
-    return CPLRoundToMoreLikelyDouble(m_po->GetNumber());
+    return CPLRoundToMoreLikelyDouble(m_obj->GetNumber());
 }
 
 /************************************************************************/
@@ -2350,7 +2354,7 @@ const CPLString &GDALPDFObjectPdfium::GetString()
 {
     if (GetType() == PDFObjectType_String)
     {
-        const auto bs = m_po->GetString();
+        const auto bs = m_obj->GetString();
         // If empty string, code crashes
         if (bs.IsEmpty())
             return (osStr = "");
@@ -2369,7 +2373,7 @@ const CPLString &GDALPDFObjectPdfium::GetString()
 const CPLString &GDALPDFObjectPdfium::GetName()
 {
     if (GetType() == PDFObjectType_Name)
-        return (osStr = m_po->GetString().c_str());
+        return (osStr = m_obj->GetString().c_str());
     else
         return (osStr = "");
 }
@@ -2386,7 +2390,7 @@ GDALPDFDictionary *GDALPDFObjectPdfium::GetDictionary()
     if (m_poDict)
         return m_poDict;
 
-    m_poDict = new GDALPDFDictionaryPdfium(m_po->GetDict());
+    m_poDict = new GDALPDFDictionaryPdfium(m_obj->GetDict());
     return m_poDict;
 }
 
@@ -2402,7 +2406,8 @@ GDALPDFArray *GDALPDFObjectPdfium::GetArray()
     if (m_poArray)
         return m_poArray;
 
-    m_poArray = new GDALPDFArrayPdfium(reinterpret_cast<CPDF_Array *>(m_po));
+    m_poArray =
+        new GDALPDFArrayPdfium(cpl::down_cast<const CPDF_Array *>(m_obj.Get()));
     return m_poArray;
 }
 
@@ -2412,12 +2417,12 @@ GDALPDFArray *GDALPDFObjectPdfium::GetArray()
 
 GDALPDFStream *GDALPDFObjectPdfium::GetStream()
 {
-    if (m_po->GetType() != CPDF_Object::Type::kStream)
+    if (m_obj->GetType() != CPDF_Object::Type::kStream)
         return nullptr;
 
     if (m_poStream)
         return m_poStream;
-    CPDF_Stream *pStream = reinterpret_cast<CPDF_Stream *>(m_po);
+    auto pStream = pdfium::WrapRetain(m_obj->AsStream());
     if (pStream)
     {
         m_poStream = new GDALPDFStreamPdfium(pStream);
@@ -2433,7 +2438,7 @@ GDALPDFStream *GDALPDFObjectPdfium::GetStream()
 
 GDALPDFObjectNum GDALPDFObjectPdfium::GetRefNum()
 {
-    return GDALPDFObjectNum(m_po->GetObjNum());
+    return GDALPDFObjectNum(m_obj->GetObjNum());
 }
 
 /************************************************************************/
@@ -2442,7 +2447,7 @@ GDALPDFObjectNum GDALPDFObjectPdfium::GetRefNum()
 
 int GDALPDFObjectPdfium::GetRefGen()
 {
-    return m_po->GetGenNum();
+    return m_obj->GetGenNum();
 }
 
 /************************************************************************/
@@ -2474,8 +2479,8 @@ GDALPDFObject *GDALPDFDictionaryPdfium::Get(const char *pszKey)
         return oIter->second;
 
     ByteString pdfiumKey(pszKey);
-    CPDF_Object *poVal = m_poDict->GetObjectFor(pdfiumKey);
-    GDALPDFObjectPdfium *poObj = GDALPDFObjectPdfium::Build(poVal);
+    GDALPDFObjectPdfium *poObj =
+        GDALPDFObjectPdfium::Build(m_poDict->GetObjectFor(pdfiumKey));
     if (poObj)
     {
         m_map[pszKey] = poObj;
@@ -2504,8 +2509,7 @@ std::map<CPLString, GDALPDFObject *> &GDALPDFDictionaryPdfium::GetValues()
         // Objects exists in the map
         if (m_map.find(pszKey) != m_map.end())
             continue;
-        GDALPDFObjectPdfium *poObj =
-            GDALPDFObjectPdfium::Build(iter.second.Get());
+        GDALPDFObjectPdfium *poObj = GDALPDFObjectPdfium::Build(iter.second);
         if (poObj == nullptr)
             continue;
         m_map[pszKey] = poObj;
@@ -2559,8 +2563,8 @@ GDALPDFObject *GDALPDFArrayPdfium::Get(int nIndex)
     if (m_v[nIndex] != nullptr)
         return m_v[nIndex];
 
-    CPDF_Object *poVal = m_poArray->GetObjectAt(nIndex);
-    GDALPDFObjectPdfium *poObj = GDALPDFObjectPdfium::Build(poVal);
+    GDALPDFObjectPdfium *poObj =
+        GDALPDFObjectPdfium::Build(m_poArray->GetObjectAt(nIndex));
     if (poObj == nullptr)
         return nullptr;
     m_v[nIndex] = poObj;
@@ -2581,14 +2585,10 @@ void GDALPDFStreamPdfium::Decompress()
     acc->LoadAllDataFiltered();
     m_nSize = static_cast<int>(acc->GetSize());
     m_pData.reset();
-    // We don't use m_pData->Detach() as we don't want to deal with
-    // std::unique_ptr<uint8_t, FxFreeDeleter>, and FxFreeDeleter behavior
-    // depends on whether GDAL and pdfium are compiled with the same
-    // NDEBUG and DCHECK_ALWAYS_ON settings
     if (m_nSize)
     {
         m_pData.reset(static_cast<uint8_t *>(CPLMalloc(m_nSize)));
-        memcpy(&m_pData.get()[0], acc->GetData(), m_nSize);
+        memcpy(&m_pData.get()[0], acc->DetachData().data(), m_nSize);
     }
 }
 
@@ -2631,14 +2631,10 @@ void GDALPDFStreamPdfium::FillRaw()
     acc->LoadAllDataRaw();
     m_nRawSize = static_cast<int>(acc->GetSize());
     m_pRawData.reset();
-    // We don't use m_pData->Detach() as we don't want to deal with
-    // std::unique_ptr<uint8_t, FxFreeDeleter>, and FxFreeDeleter behavior
-    // depends on whether GDAL and pdfium are compiled with the same
-    // NDEBUG and DCHECK_ALWAYS_ON settings
     if (m_nRawSize)
     {
         m_pRawData.reset(static_cast<uint8_t *>(CPLMalloc(m_nRawSize)));
-        memcpy(&m_pRawData.get()[0], acc->GetData(), m_nRawSize);
+        memcpy(&m_pRawData.get()[0], acc->DetachData().data(), m_nRawSize);
     }
 }
 

@@ -454,9 +454,10 @@ static CPLErr ProcessLayer(OGRLayerH hSrcLayer, GDALDatasetH hDstDS,
         return CE_Failure;
     }
 
-    int nBlock = 0;
-    const int nBlockCount = ((nXSize + nBlockXSize - 1) / nBlockXSize) *
-                            ((nYSize + nBlockYSize - 1) / nBlockYSize);
+    GIntBig nBlock = 0;
+    const double dfBlockCount =
+        static_cast<double>(DIV_ROUND_UP(nXSize, nBlockXSize)) *
+        DIV_ROUND_UP(nYSize, nBlockYSize);
 
     GDALGridContext *psContext = GDALGridContextCreate(
         eAlgorithm, pOptions, static_cast<int>(oVisitor.adfX.size()),
@@ -475,17 +476,17 @@ static CPLErr ProcessLayer(OGRLayerH hSrcLayer, GDALDatasetH hDstDS,
              nXOffset += nBlockXSize)
         {
             void *pScaledProgress = GDALCreateScaledProgress(
-                static_cast<double>(nBlock) / nBlockCount,
-                static_cast<double>(nBlock + 1) / nBlockCount, pfnProgress,
+                static_cast<double>(nBlock) / dfBlockCount,
+                static_cast<double>(nBlock + 1) / dfBlockCount, pfnProgress,
                 pProgressData);
             nBlock++;
 
             int nXRequest = nBlockXSize;
-            if (nXOffset + nXRequest > nXSize)
+            if (nXOffset > nXSize - nXRequest)
                 nXRequest = nXSize - nXOffset;
 
             int nYRequest = nBlockYSize;
-            if (nYOffset + nYRequest > nYSize)
+            if (nYOffset > nYSize - nYRequest)
                 nYRequest = nYSize - nYOffset;
 
             eErr = GDALGridContextProcess(
@@ -503,6 +504,8 @@ static CPLErr ProcessLayer(OGRLayerH hSrcLayer, GDALDatasetH hDstDS,
             GDALDestroyScaledProgress(pScaledProgress);
         }
     }
+    if (eErr == CE_None && pfnProgress)
+        pfnProgress(1.0, "", pProgressData);
 
     GDALGridContextFree(psContext);
 
@@ -821,13 +824,13 @@ GDALDatasetH GDALGrid(const char *pszDest, GDALDatasetH hSrcDataset,
         {
             // Custom layer will be rasterized in the first band.
             eErr = ProcessLayer(
-                reinterpret_cast<OGRLayerH>(poLayer), hDstDS,
-                psOptions->poSpatialFilter, nXSize, nYSize, 1, bIsXExtentSet,
-                bIsYExtentSet, dfXMin, dfXMax, dfYMin, dfYMax,
-                psOptions->pszBurnAttribute, psOptions->dfIncreaseBurnValue,
-                psOptions->dfMultiplyBurnValue, psOptions->eOutputType,
-                psOptions->eAlgorithm, psOptions->pOptions, psOptions->bQuiet,
-                psOptions->pfnProgress, psOptions->pProgressData);
+                OGRLayer::ToHandle(poLayer), hDstDS, psOptions->poSpatialFilter,
+                nXSize, nYSize, 1, bIsXExtentSet, bIsYExtentSet, dfXMin, dfXMax,
+                dfYMin, dfYMax, psOptions->pszBurnAttribute,
+                psOptions->dfIncreaseBurnValue, psOptions->dfMultiplyBurnValue,
+                psOptions->eOutputType, psOptions->eAlgorithm,
+                psOptions->pOptions, psOptions->bQuiet, psOptions->pfnProgress,
+                psOptions->pProgressData);
 
             poSrcDS->ReleaseResultSet(poLayer);
         }
@@ -862,8 +865,8 @@ GDALDatasetH GDALGrid(const char *pszDest, GDALDatasetH hSrcDataset,
         }
 
         if (psOptions->poSpatialFilter != nullptr)
-            OGR_L_SetSpatialFilter(hLayer, reinterpret_cast<OGRGeometryH>(
-                                               psOptions->poSpatialFilter));
+            OGR_L_SetSpatialFilter(
+                hLayer, OGRGeometry::ToHandle(psOptions->poSpatialFilter));
 
         // Fetch the first meaningful SRS definition
         if (!pszOutputSRS)
@@ -991,8 +994,8 @@ GDALGridOptionsNew(char **papszArgv,
     psOptions->bNoDataSet = false;
     psOptions->dfNoDataValue = 0;
 
-    ParseAlgorithmAndOptions(szAlgNameInvDist, &psOptions->eAlgorithm,
-                             &psOptions->pOptions);
+    GDALGridParseAlgorithmAndOptions(szAlgNameInvDist, &psOptions->eAlgorithm,
+                                     &psOptions->pOptions);
 
     bool bGotSourceFilename = false;
     bool bGotDestFilename = false;
@@ -1014,7 +1017,15 @@ GDALGridOptionsNew(char **papszArgv,
         else if (EQUAL(papszArgv[i], "-q") || EQUAL(papszArgv[i], "-quiet"))
         {
             if (psOptionsForBinary)
+            {
                 psOptionsForBinary->bQuiet = true;
+            }
+            else
+            {
+                CPLError(CE_Failure, CPLE_NotSupported,
+                         "%s switch only supported from gdal_grid binary.",
+                         papszArgv[i]);
+            }
         }
 
         else if (EQUAL(papszArgv[i], "-ot") && papszArgv[i + 1])
@@ -1242,8 +1253,9 @@ GDALGridOptionsNew(char **papszArgv,
         {
             const char *pszAlgorithm = papszArgv[++i];
             CPLFree(psOptions->pOptions);
-            if (ParseAlgorithmAndOptions(pszAlgorithm, &psOptions->eAlgorithm,
-                                         &psOptions->pOptions) != CE_None)
+            if (GDALGridParseAlgorithmAndOptions(
+                    pszAlgorithm, &psOptions->eAlgorithm,
+                    &psOptions->pOptions) != CE_None)
             {
                 CPLError(CE_Failure, CPLE_AppDefined,
                          "Failed to process algorithm name and parameters");
@@ -1261,6 +1273,19 @@ GDALGridOptionsNew(char **papszArgv,
             }
             CSLDestroy(papszParams);
         }
+        else if (i + 1 < argc && EQUAL(papszArgv[i], "-oo"))
+        {
+            i++;
+            if (psOptionsForBinary)
+            {
+                psOptionsForBinary->aosOpenOptions.AddString(papszArgv[i]);
+            }
+            else
+            {
+                CPLError(CE_Failure, CPLE_NotSupported,
+                         "-oo switch only supported from gdal_grid binary.");
+            }
+        }
         else if (papszArgv[i][0] == '-')
         {
             CPLError(CE_Failure, CPLE_NotSupported, "Unknown option name '%s'",
@@ -1272,13 +1297,30 @@ GDALGridOptionsNew(char **papszArgv,
         {
             bGotSourceFilename = true;
             if (psOptionsForBinary)
-                psOptionsForBinary->pszSource = CPLStrdup(papszArgv[i]);
+            {
+                psOptionsForBinary->osSource = papszArgv[i];
+            }
+            else
+            {
+                CPLError(
+                    CE_Failure, CPLE_NotSupported,
+                    "{source_filename} only supported from gdal_grid binary.");
+            }
         }
         else if (!bGotDestFilename)
         {
             bGotDestFilename = true;
             if (psOptionsForBinary)
-                psOptionsForBinary->pszDest = CPLStrdup(papszArgv[i]);
+            {
+                psOptionsForBinary->bDestSpecified = true;
+                psOptionsForBinary->osDest = papszArgv[i];
+            }
+            else
+            {
+                CPLError(
+                    CE_Failure, CPLE_NotSupported,
+                    "{dest_filename} only supported from gdal_grid binary.");
+            }
         }
         else
         {
@@ -1335,14 +1377,6 @@ GDALGridOptionsNew(char **papszArgv,
         {
             psOptions->poSpatialFilter = psOptions->poClipSrc;
             psOptions->poClipSrc = nullptr;
-        }
-    }
-
-    if (psOptionsForBinary)
-    {
-        if (psOptions->pszFormat)
-        {
-            psOptionsForBinary->pszFormat = CPLStrdup(psOptions->pszFormat);
         }
     }
 

@@ -37,7 +37,7 @@ typedef struct
     OGRDataSource *poDS;
     OGRFeatureDefn *poFDefn;
     int nUniqueGeomGMLId;
-    OGRSpatialReference *poSRS;
+    const OGRSpatialReference *poSRS;
     const char *pszNSPrefix;
 } ExprDumpFilterOptions;
 
@@ -323,13 +323,14 @@ static bool WFS_ExprDumpAsOGCFilter(CPLString &osFilter,
                 ? "true"
                 : "false";
         if (psOptions->nVersion == 100)
-            osFilter += CPLSPrintf("<%sPropertyIsLike wildCard='*' "
-                                   "singleChar='_' escape='!' matchCase='%s'>",
-                                   psOptions->pszNSPrefix, pszMatchCase);
+            osFilter +=
+                CPLSPrintf("<%sPropertyIsLike wildCard=\"*\" singleChar=\"_\" "
+                           "escape=\"!\" matchCase=\"%s\">",
+                           psOptions->pszNSPrefix, pszMatchCase);
         else
             osFilter +=
-                CPLSPrintf("<%sPropertyIsLike wildCard='*' singleChar='_' "
-                           "escapeChar='!' matchCase='%s'>",
+                CPLSPrintf("<%sPropertyIsLike wildCard=\"*\" singleChar=\"_\" "
+                           "escapeChar=\"!\" matchCase=\"%s\">",
                            psOptions->pszNSPrefix, pszMatchCase);
         if (!WFS_ExprDumpAsOGCFilter(osFilter, poExpr->papoSubExpr[0], FALSE,
                                      psOptions))

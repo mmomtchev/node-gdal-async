@@ -34,6 +34,9 @@
 
 #include "gdal_pam.h"
 
+#include <atomic>
+#include <utility>
+
 /************************************************************************/
 /* ==================================================================== */
 /*                              RawDataset                              */
@@ -54,15 +57,20 @@ class CPL_DLL RawDataset : public GDALPamDataset
                      GDALDataType, int, int *, GSpacing nPixelSpace,
                      GSpacing nLineSpace, GSpacing nBandSpace,
                      GDALRasterIOExtraArg *psExtraArg) override;
+    virtual CPLErr Close() override = 0;
 
   public:
     RawDataset();
     virtual ~RawDataset() = 0;
 
     bool GetRawBinaryLayout(GDALDataset::RawBinaryLayout &) override;
+    void ClearCachedConfigOption(void);
 
   private:
     CPL_DISALLOW_COPY_ASSIGN(RawDataset)
+  protected:
+    std::atomic<int> cachedCPLOneBigReadOption = {
+        0};  // [0-7] bits are "valid", [8-15] bits are "value"
 };
 
 /************************************************************************/
@@ -85,6 +93,13 @@ class CPL_DLL RawRasterBand : public GDALPamRasterBand
         ORDER_BIG_ENDIAN,
         ORDER_VAX  // only valid for Float32, Float64, CFloat32 and CFloat64
     };
+
+#ifdef CPL_LSB
+    static constexpr ByteOrder NATIVE_BYTE_ORDER =
+        ByteOrder::ORDER_LITTLE_ENDIAN;
+#else
+    static constexpr ByteOrder NATIVE_BYTE_ORDER = ByteOrder::ORDER_BIG_ENDIAN;
+#endif
 
   protected:
     friend class RawDataset;
@@ -118,7 +133,6 @@ class CPL_DLL RawRasterBand : public GDALPamRasterBand
     size_t Read(void *, size_t, size_t);
     size_t Write(void *, size_t, size_t);
 
-    CPLErr AccessBlock(vsi_l_offset nBlockOff, size_t nBlockSize, void *pData);
     CPLErr AccessBlock(vsi_l_offset nBlockOff, size_t nBlockSize, void *pData,
                        size_t nValues);
     int IsSignificantNumberOfLinesLoaded(int nLineOff, int nLines);
@@ -138,23 +152,44 @@ class CPL_DLL RawRasterBand : public GDALPamRasterBand
         YES
     };
 
+    // IsValid() should be called afterwards
     RawRasterBand(GDALDataset *poDS, int nBand, VSILFILE *fpRaw,
                   vsi_l_offset nImgOffset, int nPixelOffset, int nLineOffset,
                   GDALDataType eDataType, int bNativeOrder, OwnFP bOwnsFP);
 
+    // IsValid() should be called afterwards
     RawRasterBand(GDALDataset *poDS, int nBand, VSILFILE *fpRaw,
                   vsi_l_offset nImgOffset, int nPixelOffset, int nLineOffset,
                   GDALDataType eDataType, ByteOrder eByteOrder, OwnFP bOwnsFP);
 
+    // IsValid() should be called afterwards
     RawRasterBand(VSILFILE *fpRaw, vsi_l_offset nImgOffset, int nPixelOffset,
                   int nLineOffset, GDALDataType eDataType, int bNativeOrder,
                   int nXSize, int nYSize, OwnFP bOwnsFP);
 
+    // IsValid() should be called afterwards
     RawRasterBand(VSILFILE *fpRaw, vsi_l_offset nImgOffset, int nPixelOffset,
                   int nLineOffset, GDALDataType eDataType, ByteOrder eByteOrder,
                   int nXSize, int nYSize, OwnFP bOwnsFP);
 
+    // Returns nullptr in case of error
+    static std::unique_ptr<RawRasterBand>
+    Create(GDALDataset *poDS, int nBand, VSILFILE *fpRaw,
+           vsi_l_offset nImgOffset, int nPixelOffset, int nLineOffset,
+           GDALDataType eDataType, ByteOrder eByteOrder, OwnFP bOwnsFP);
+
+    // Returns nullptr in case of error
+    static std::unique_ptr<RawRasterBand>
+    Create(VSILFILE *fpRaw, vsi_l_offset nImgOffset, int nPixelOffset,
+           int nLineOffset, GDALDataType eDataType, ByteOrder eByteOrder,
+           int nXSize, int nYSize, OwnFP bOwnsFP);
+
     virtual ~RawRasterBand() /* = 0 */;
+
+    bool IsValid() const
+    {
+        return pLineStart != nullptr;
+    }
 
     CPLErr IReadBlock(int, int, void *) override;
     CPLErr IWriteBlock(int, int, void *) override;

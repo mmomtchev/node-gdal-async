@@ -93,11 +93,11 @@ class NITFDataset final : public GDALPamDataset
     void InitializeNITFDESMetadata();
     void InitializeNITFTREs();
 #endif
-    void InitializeNITFDESs();
+    bool InitializeNITFDESs(bool bValidate);
     void InitializeNITFMetadata();
     void InitializeCGMMetadata();
     void InitializeTextMetadata();
-    void InitializeTREMetadata();
+    bool InitializeTREMetadata(bool bValidate);
     void InitializeImageStructureMetadata();
 
     GIntBig *panJPEGBlockOffset;
@@ -130,6 +130,8 @@ class NITFDataset final : public GDALPamDataset
     {
         return bExposeUnderlyingJPEGDatasetOverviews;
     }
+
+    bool Validate();
 
   protected:
     virtual int CloseDependentDatasets() override;
@@ -165,7 +167,7 @@ class NITFDataset final : public GDALPamDataset
     virtual char **GetMetadata(const char *pszDomain = "") override;
     virtual const char *GetMetadataItem(const char *pszName,
                                         const char *pszDomain = "") override;
-    virtual void FlushCache(bool bAtClosing) override;
+    virtual CPLErr FlushCache(bool bAtClosing) override;
     virtual CPLErr IBuildOverviews(const char *, int, const int *, int,
                                    const int *, GDALProgressFunc, void *,
                                    CSLConstList papszOptions) override;

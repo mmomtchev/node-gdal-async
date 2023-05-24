@@ -62,6 +62,8 @@ class LCPDataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(LCPDataset)
 
+    CPLErr Close() override;
+
   public:
     LCPDataset();
     ~LCPDataset() override;
@@ -100,14 +102,34 @@ LCPDataset::LCPDataset() : fpImage(nullptr)
 LCPDataset::~LCPDataset()
 
 {
-    FlushCache(true);
-    if (fpImage != nullptr)
+    LCPDataset::Close();
+}
+
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr LCPDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
     {
-        if (VSIFCloseL(fpImage) != 0)
+        if (LCPDataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
+
+        if (fpImage)
         {
-            CPLError(CE_Failure, CPLE_FileIO, "I/O error");
+            if (VSIFCloseL(fpImage) != 0)
+            {
+                CPLError(CE_Failure, CPLE_FileIO, "I/O error");
+                eErr = CE_Failure;
+            }
         }
+
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
     }
+    return eErr;
 }
 
 /************************************************************************/
@@ -228,9 +250,8 @@ GDALDataset *LCPDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create a corresponding GDALDataset.                             */
     /* -------------------------------------------------------------------- */
-    LCPDataset *poDS = new LCPDataset();
-    poDS->fpImage = poOpenInfo->fpL;
-    poOpenInfo->fpL = nullptr;
+    auto poDS = cpl::make_unique<LCPDataset>();
+    std::swap(poDS->fpImage, poOpenInfo->fpL);
 
     /* -------------------------------------------------------------------- */
     /*      Read the header and extract some information.                   */
@@ -240,7 +261,6 @@ GDALDataset *LCPDataset::Open(GDALOpenInfo *poOpenInfo)
             LCP_HEADER_SIZE)
     {
         CPLError(CE_Failure, CPLE_FileIO, "File too short");
-        delete poDS;
         return nullptr;
     }
 
@@ -252,7 +272,6 @@ GDALDataset *LCPDataset::Open(GDALOpenInfo *poOpenInfo)
 
     if (!GDALCheckDatasetDimensions(poDS->nRasterXSize, poDS->nRasterYSize))
     {
-        delete poDS;
         return nullptr;
     }
 
@@ -305,28 +324,19 @@ GDALDataset *LCPDataset::Open(GDALOpenInfo *poOpenInfo)
     if (nWidth > INT_MAX / iPixelSize)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "Int overflow occurred");
-        delete poDS;
         return nullptr;
     }
 
-#ifdef CPL_LSB
-    const bool bNativeOrder = true;
-#else
-    const bool bNativeOrder = false;
-#endif
-
-    // TODO(schwehr): Explain the 2048.
-    char *pszList = static_cast<char *>(CPLMalloc(2048));
-    pszList[0] = '\0';
-
     for (int iBand = 1; iBand <= nBands; iBand++)
     {
-        GDALRasterBand *poBand = new RawRasterBand(
-            poDS, iBand, poDS->fpImage, LCP_HEADER_SIZE + ((iBand - 1) * 2),
-            iPixelSize, iPixelSize * nWidth, GDT_Int16, bNativeOrder,
-            RawRasterBand::OwnFP::NO);
-
-        poDS->SetBand(iBand, poBand);
+        auto poBand =
+            RawRasterBand::Create(poDS.get(), iBand, poDS->fpImage,
+                                  LCP_HEADER_SIZE + ((iBand - 1) * 2),
+                                  iPixelSize, iPixelSize * nWidth, GDT_Int16,
+                                  RawRasterBand::ByteOrder::ORDER_LITTLE_ENDIAN,
+                                  RawRasterBand::OwnFP::NO);
+        if (!poBand)
+            return nullptr;
 
         switch (iBand)
         {
@@ -460,9 +470,9 @@ GDALDataset *LCPDataset::Open(GDALOpenInfo *poOpenInfo)
                 snprintf(szTemp, sizeof(szTemp), "%d", nTemp);
                 poBand->SetMetadataItem("FUEL_MODEL_NUM_CLASSES", szTemp);
 
+                std::string osValues;
                 if (nTemp > 0 && nTemp <= 100)
                 {
-                    strcpy(pszList, "");
                     for (int i = 0; i <= nTemp; i++)
                     {
                         const int nTemp2 = CPL_LSBSINT32PTR(poDS->pachHeader +
@@ -470,13 +480,13 @@ GDALDataset *LCPDataset::Open(GDALOpenInfo *poOpenInfo)
                         if (nTemp2 >= nMinFM && nTemp2 <= nMaxFM)
                         {
                             snprintf(szTemp, sizeof(szTemp), "%d", nTemp2);
-                            strcat(pszList, szTemp);
-                            if (i < nTemp)
-                                strcat(pszList, ",");
+                            if (!osValues.empty())
+                                osValues += ',';
+                            osValues += szTemp;
                         }
                     }
                 }
-                poBand->SetMetadataItem("FUEL_MODEL_VALUES", pszList);
+                poBand->SetMetadataItem("FUEL_MODEL_VALUES", osValues.c_str());
 
                 *(poDS->pachHeader + 5012 + 255) = '\0';
                 poBand->SetMetadataItem("FUEL_MODEL_FILE",
@@ -739,6 +749,8 @@ GDALDataset *LCPDataset::Open(GDALOpenInfo *poOpenInfo)
 
                 break;
         }
+
+        poDS->SetBand(iBand, std::move(poBand));
     }
 
     /* -------------------------------------------------------------------- */
@@ -785,12 +797,10 @@ GDALDataset *LCPDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Check for external overviews.                                   */
     /* -------------------------------------------------------------------- */
-    poDS->oOvManager.Initialize(poDS, poOpenInfo->pszFilename,
+    poDS->oOvManager.Initialize(poDS.get(), poOpenInfo->pszFilename,
                                 poOpenInfo->GetSiblingFiles());
 
-    CPLFree(pszList);
-
-    return poDS;
+    return poDS.release();
 }
 
 /************************************************************************/

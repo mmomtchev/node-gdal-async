@@ -123,6 +123,22 @@ static GDALDataset *OGRFileGDBDriverOpen(GDALOpenInfo *poOpenInfo)
         GDAL_IDENTIFY_FALSE)
         return nullptr;
 
+    // If this is a raster-only GDB, do not try to open it, to be consistent
+    // with OpenFileGDB behavior.
+    const char *const apszOpenFileGDBDriver[] = {"OpenFileGDB", nullptr};
+    auto poOpenFileGDBDS = std::unique_ptr<GDALDataset>(GDALDataset::Open(
+        pszFilename, GDAL_OF_RASTER, apszOpenFileGDBDriver, nullptr, nullptr));
+    if (poOpenFileGDBDS)
+    {
+        poOpenFileGDBDS.reset();
+        poOpenFileGDBDS = std::unique_ptr<GDALDataset>(
+            GDALDataset::Open(pszFilename, GDAL_OF_VECTOR,
+                              apszOpenFileGDBDriver, nullptr, nullptr));
+        if (!poOpenFileGDBDS)
+            return nullptr;
+    }
+    poOpenFileGDBDS.reset();
+
     const bool bUpdate = poOpenInfo->eAccess == GA_Update;
     long hr;
 
@@ -965,6 +981,9 @@ void RegisterOGRFileGDB()
                               "Integer Real String Date DateTime Binary");
     poDriver->SetMetadataItem(GDAL_DMD_CREATIONFIELDDATASUBTYPES,
                               "Int16 Float32");
+    poDriver->SetMetadataItem(GDAL_DMD_CREATION_FIELD_DEFN_FLAGS,
+                              "Nullable Default "
+                              "AlternativeName Domain");
     poDriver->SetMetadataItem(GDAL_DCAP_NOTNULL_FIELDS, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_DEFAULT_FIELDS, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_NOTNULL_GEOMFIELDS, "YES");
@@ -977,10 +996,18 @@ void RegisterOGRFileGDB()
     poDriver->SetMetadataItem(GDAL_DMD_GEOMETRY_FLAGS,
                               "EquatesMultiAndSingleLineStringDuringWrite "
                               "EquatesMultiAndSinglePolygonDuringWrite");
+    // see https://support.esri.com/en/technical-article/000010906
+    poDriver->SetMetadataItem(
+        GDAL_DMD_ILLEGAL_FIELD_NAMES,
+        "ADD ALTER AND BETWEEN BY COLUMN CREATE DELETE DROP EXISTS FOR FROM "
+        "GROUP IN INSERT INTO IS LIKE NOT NULL OR ORDER SELECT SET TABLE "
+        "UPDATE VALUES WHERE");
     poDriver->SetMetadataItem(GDAL_DMD_CREATION_FIELD_DOMAIN_TYPES,
                               "Coded Range");
     poDriver->SetMetadataItem(GDAL_DMD_SUPPORTED_SQL_DIALECTS,
                               "NATIVE OGRSQL SQLITE");
+    poDriver->SetMetadataItem(GDAL_DMD_RELATIONSHIP_RELATED_TABLE_TYPES,
+                              "features media");
 
     poDriver->pfnOpen = OGRFileGDBDriverOpen;
     poDriver->pfnIdentify = OGRFileGDBDriverIdentify;

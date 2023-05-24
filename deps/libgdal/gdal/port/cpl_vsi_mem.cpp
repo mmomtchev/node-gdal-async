@@ -156,13 +156,17 @@ class VSIMemHandle final : public VSIVirtualHandle
 
 class VSIMemFilesystemHandler final : public VSIFilesystemHandler
 {
+    const std::string m_osPrefix;
     CPL_DISALLOW_COPY_ASSIGN(VSIMemFilesystemHandler)
 
   public:
     std::map<CPLString, std::shared_ptr<VSIMemFile>> oFileList{};
     CPLMutex *hMutex = nullptr;
 
-    VSIMemFilesystemHandler() = default;
+    explicit VSIMemFilesystemHandler(const char *pszPrefix)
+        : m_osPrefix(pszPrefix)
+    {
+    }
     ~VSIMemFilesystemHandler() override;
 
     // TODO(schwehr): Fix VSIFileFromMemBuffer so that using is not needed.
@@ -183,6 +187,11 @@ class VSIMemFilesystemHandler final : public VSIFilesystemHandler
     static std::string NormalizePath(const std::string &in);
 
     int Unlink_unlocked(const char *pszFilename);
+
+    VSIFilesystemHandler *Duplicate(const char *pszPrefix) override
+    {
+        return new VSIMemFilesystemHandler(pszPrefix);
+    }
 };
 
 /************************************************************************/
@@ -615,7 +624,7 @@ int VSIMemFilesystemHandler::Stat(const char *pszFilename,
 
     memset(pStatBuf, 0, sizeof(VSIStatBufL));
 
-    if (osFilename == "/vsimem" || osFilename == "/vsimem/")
+    if (osFilename + '/' == m_osPrefix || osFilename == m_osPrefix)
     {
         pStatBuf->st_size = 0;
         pStatBuf->st_mode = S_IFDIR;
@@ -786,7 +795,7 @@ int VSIMemFilesystemHandler::Rename(const char *pszOldPath,
 
     const CPLString osOldPath = NormalizePath(pszOldPath);
     const CPLString osNewPath = NormalizePath(pszNewPath);
-    if (!STARTS_WITH(pszNewPath, "/vsimem/"))
+    if (!STARTS_WITH(pszNewPath, m_osPrefix.c_str()))
         return -1;
 
     if (osOldPath.compare(osNewPath) == 0)
@@ -831,7 +840,15 @@ std::string VSIMemFilesystemHandler::NormalizePath(const std::string &in)
     s.replaceAll("//", '/');
     if (!s.empty() && s.back() == '/')
         s.resize(s.size() - 1);
+#if __GNUC__ >= 13
+    // gcc 13 complains about below explicit std::move()
+    return s;
+#else
+    // Android NDK (and probably other compilers) warn about
+    // "warning: local variable 's' will be copied despite being returned by name [-Wreturn-std-move]"
+    // if not specifying std::move()
     return std::move(s);
+#endif
 }
 
 /************************************************************************/
@@ -901,7 +918,8 @@ GIntBig VSIMemFilesystemHandler::GetDiskFreeSpace(const char * /*pszDirname*/)
 
 void VSIInstallMemFileHandler()
 {
-    VSIFileManager::InstallHandler("/vsimem/", new VSIMemFilesystemHandler);
+    VSIFileManager::InstallHandler("/vsimem/",
+                                   new VSIMemFilesystemHandler("/vsimem/"));
 }
 
 /************************************************************************/
@@ -973,7 +991,7 @@ VSILFILE *VSIFileFromMemBuffer(const char *pszFilename, GByte *pabyData,
 
     poHandle->poFile = poFile;
     poHandle->bUpdate = true;
-    return reinterpret_cast<VSILFILE *>(poHandle);
+    return poHandle;
 }
 
 /************************************************************************/

@@ -566,7 +566,7 @@ void ILWISDataset::CollectTransformCoef(std::string &pszRefName)
 /*      Try to write a geo-reference file for the dataset to create     */
 /************************************************************************/
 
-CPLErr ILWISDataset::WriteGeoReference()
+void ILWISDataset::WriteGeoReference()
 {
     // Check whether we should write out a georeference file.
     // Dataset must be north up.
@@ -622,7 +622,6 @@ CPLErr ILWISDataset::WriteGeoReference()
             }
         }
     }
-    return CE_None;
 }
 
 /************************************************************************/
@@ -883,17 +882,19 @@ GDALDataset *ILWISDataset::Open(GDALOpenInfo *poOpenInfo)
 /*                             FlushCache()                             */
 /************************************************************************/
 
-void ILWISDataset::FlushCache(bool bAtClosing)
+CPLErr ILWISDataset::FlushCache(bool bAtClosing)
 
 {
-    GDALDataset::FlushCache(bAtClosing);
+    CPLErr eErr = GDALDataset::FlushCache(bAtClosing);
 
     if (bGeoDirty == TRUE)
     {
         WriteGeoReference();
-        WriteProjection();
+        if (WriteProjection() != CE_None)
+            eErr = CE_Failure;
         bGeoDirty = FALSE;
     }
+    return eErr;
 }
 
 /************************************************************************/
@@ -1090,11 +1091,14 @@ GDALDataset *ILWISDataset::CreateCopy(const char *pszFilename,
     /* -------------------------------------------------------------------- */
     /*      Create the basic dataset.                                       */
     /* -------------------------------------------------------------------- */
-    GDALDataType eType = GDT_Byte;
+    GDALDataType eType = GDT_Unknown;
     for (int iBand = 0; iBand < nBands; iBand++)
     {
         GDALRasterBand *poBand = poSrcDS->GetRasterBand(iBand + 1);
-        eType = GDALDataTypeUnion(eType, poBand->GetRasterDataType());
+        if (iBand == 0)
+            eType = poBand->GetRasterDataType();
+        else
+            eType = GDALDataTypeUnion(eType, poBand->GetRasterDataType());
     }
 
     ILWISDataset *poDS = (ILWISDataset *)Create(

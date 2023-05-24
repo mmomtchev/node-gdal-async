@@ -114,9 +114,14 @@ CPLErr VRTRasterBand::CopyCommonInfoFrom(GDALRasterBand *poSrcBand)
     const char *pszNBits =
         poSrcBand->GetMetadataItem("NBITS", "IMAGE_STRUCTURE");
     SetMetadataItem("NBITS", pszNBits, "IMAGE_STRUCTURE");
-    const char *pszPixelType =
-        poSrcBand->GetMetadataItem("PIXELTYPE", "IMAGE_STRUCTURE");
-    SetMetadataItem("PIXELTYPE", pszPixelType, "IMAGE_STRUCTURE");
+    if (poSrcBand->GetRasterDataType() == GDT_Byte)
+    {
+        poSrcBand->EnablePixelTypeSignedByteWarning(false);
+        const char *pszPixelType =
+            poSrcBand->GetMetadataItem("PIXELTYPE", "IMAGE_STRUCTURE");
+        poSrcBand->EnablePixelTypeSignedByteWarning(true);
+        SetMetadataItem("PIXELTYPE", pszPixelType, "IMAGE_STRUCTURE");
+    }
     SetColorTable(poSrcBand->GetColorTable());
     SetColorInterpretation(poSrcBand->GetColorInterpretation());
     if (strlen(poSrcBand->GetDescription()) > 0)
@@ -666,7 +671,7 @@ CPLXMLNode *VRTRasterBand::SerializeToXML(const char *pszVRTPath)
     {
         CPLSetXMLValue(
             psTree, "NoDataValue",
-            VRTSerializeNoData(m_dfNoDataValue, eDataType, 16).c_str());
+            VRTSerializeNoData(m_dfNoDataValue, eDataType, 18).c_str());
     }
     else if (m_bNoDataSetAsInt64)
     {

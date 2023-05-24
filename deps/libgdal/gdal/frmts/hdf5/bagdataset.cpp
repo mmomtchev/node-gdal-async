@@ -1462,7 +1462,8 @@ CreateRAT(const std::shared_ptr<GDALMDArray> &poValues)
         poRAT->CreateColumn(poComponent->GetName().c_str(), eType, GFU_Generic);
     }
 
-    std::vector<GByte> abyRow(poValues->GetDataType().GetSize());
+    const auto &oValuesDT = poValues->GetDataType();
+    std::vector<GByte> abyRow(oValuesDT.GetSize());
     const int nRows = static_cast<int>(poValues->GetDimensions()[0]->GetSize());
     for (int iRow = 0; iRow < nRows; iRow++)
     {
@@ -1471,7 +1472,7 @@ CreateRAT(const std::shared_ptr<GDALMDArray> &poValues)
         const GInt64 arrayStep = 0;
         const GPtrDiff_t bufferStride = 0;
         poValues->Read(&arrayStartIdx, &count, &arrayStep, &bufferStride,
-                       poValues->GetDataType(), &abyRow[0]);
+                       oValuesDT, &abyRow[0]);
         int iCol = 0;
         for (const auto &poComponent : poComponents)
         {
@@ -1506,6 +1507,7 @@ CreateRAT(const std::shared_ptr<GDALMDArray> &poValues)
             }
             iCol++;
         }
+        oValuesDT.FreeDynamicMemory(&abyRow[0]);
     }
     return poRAT;
 }
@@ -2052,7 +2054,8 @@ GDALDataset *BAGDataset::Open(GDALOpenInfo *poOpenInfo)
     H5Pset_driver(fapl, HDF5GetFileDriver(), nullptr);
     hid_t hHDF5 = H5Fopen(
         osFilename,
-        poOpenInfo->eAccess == GA_Update ? H5F_ACC_RDWR : H5F_ACC_RDONLY, fapl);
+        /*poOpenInfo->eAccess == GA_Update ? H5F_ACC_RDWR : */ H5F_ACC_RDONLY,
+        fapl);
     H5Pclose(fapl);
     if (hHDF5 < 0)
         return nullptr;
@@ -2072,8 +2075,7 @@ GDALDataset *BAGDataset::Open(GDALOpenInfo *poOpenInfo)
     }
     H5Aclose(hVersion);
 
-    auto poSharedResources =
-        std::make_shared<GDAL::HDF5SharedResources>(osFilename);
+    auto poSharedResources = GDAL::HDF5SharedResources::Create(osFilename);
     poSharedResources->m_hHDF5 = hHDF5;
 
     auto poRootGroup = HDF5Dataset::OpenGroup(poSharedResources);
@@ -2963,8 +2965,7 @@ GDALDataset *BAGDataset::OpenForCreate(GDALOpenInfo *poOpenInfo, int nXSizeIn,
     if (hHDF5 < 0)
         return nullptr;
 
-    auto poSharedResources =
-        std::make_shared<GDAL::HDF5SharedResources>(osFilename);
+    auto poSharedResources = GDAL::HDF5SharedResources::Create(osFilename);
     poSharedResources->m_hHDF5 = hHDF5;
 
     auto poRootGroup = HDF5Dataset::OpenGroup(poSharedResources);

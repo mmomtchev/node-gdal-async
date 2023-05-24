@@ -32,6 +32,7 @@
 #include "ogr_spatialref.h"
 #include "rawdataset.h"
 
+#include <algorithm>
 #include <cstdlib>
 
 /* ==================================================================== */
@@ -84,6 +85,8 @@ class GenBinDataset final : public RawDataset
     void ParseCoordinateSystem(char **);
 
     CPL_DISALLOW_COPY_ASSIGN(GenBinDataset)
+
+    CPLErr Close() override;
 
   public:
     GenBinDataset();
@@ -244,18 +247,42 @@ GenBinDataset::GenBinDataset()
 }
 
 /************************************************************************/
-/*                            ~GenBinDataset()                            */
+/*                            ~GenBinDataset()                          */
 /************************************************************************/
 
 GenBinDataset::~GenBinDataset()
 
 {
-    FlushCache(true);
+    GenBinDataset::Close();
+}
 
-    if (fpImage != nullptr)
-        CPL_IGNORE_RET_VAL(VSIFCloseL(fpImage));
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
 
-    CSLDestroy(papszHDR);
+CPLErr GenBinDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
+    {
+        if (GenBinDataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
+
+        if (fpImage)
+        {
+            if (VSIFCloseL(fpImage) != 0)
+            {
+                CPLError(CE_Failure, CPLE_FileIO, "I/O error");
+                eErr = CE_Failure;
+            }
+        }
+
+        CSLDestroy(papszHDR);
+
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
+    }
+    return eErr;
 }
 
 /************************************************************************/
@@ -530,7 +557,7 @@ GDALDataset *GenBinDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create a corresponding GDALDataset.                             */
     /* -------------------------------------------------------------------- */
-    GenBinDataset *poDS = new GenBinDataset();
+    auto poDS = cpl::make_unique<GenBinDataset>();
 
     /* -------------------------------------------------------------------- */
     /*      Capture some information from the file that is of interest.     */
@@ -544,23 +571,23 @@ GDALDataset *GenBinDataset::Open(GDALOpenInfo *poOpenInfo)
     if (!GDALCheckDatasetDimensions(poDS->nRasterXSize, poDS->nRasterYSize) ||
         !GDALCheckBandCount(nBands, FALSE))
     {
-        delete poDS;
         return nullptr;
     }
 
-    poDS->fpImage = poOpenInfo->fpL;
-    poOpenInfo->fpL = nullptr;
+    std::swap(poDS->fpImage, poOpenInfo->fpL);
     poDS->eAccess = poOpenInfo->eAccess;
 
     /* -------------------------------------------------------------------- */
     /*      Figure out the data type.                                       */
     /* -------------------------------------------------------------------- */
     const char *pszDataType = CSLFetchNameValue(papszHdr, "DATATYPE");
-    GDALDataType eDataType = GDT_Unknown;
+    GDALDataType eDataType = GDT_Byte;
     int nBits = -1;  // Only needed for partial byte types
 
     if (pszDataType == nullptr)
-        eDataType = GDT_Byte;
+    {
+        // nothing to do
+    }
     else if (EQUAL(pszDataType, "U16"))
         eDataType = GDT_UInt16;
     else if (EQUAL(pszDataType, "S16"))
@@ -570,23 +597,22 @@ GDALDataset *GenBinDataset::Open(GDALOpenInfo *poOpenInfo)
     else if (EQUAL(pszDataType, "F64"))
         eDataType = GDT_Float64;
     else if (EQUAL(pszDataType, "U8"))
-        eDataType = GDT_Byte;
+    {
+        // nothing to do
+    }
     else if (EQUAL(pszDataType, "U1") || EQUAL(pszDataType, "U2") ||
              EQUAL(pszDataType, "U4"))
     {
         nBits = atoi(pszDataType + 1);
-        eDataType = GDT_Byte;
         if (nBands != 1)
         {
             CPLError(CE_Failure, CPLE_OpenFailed,
                      "Only one band is supported for U1/U2/U4 data type");
-            delete poDS;
             return nullptr;
         }
     }
     else
     {
-        eDataType = GDT_Byte;
         CPLError(CE_Warning, CPLE_AppDefined,
                  "DATATYPE=%s not recognised, assuming Byte.", pszDataType);
     }
@@ -594,16 +620,15 @@ GDALDataset *GenBinDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Do we need byte swapping?                                       */
     /* -------------------------------------------------------------------- */
-    const char *pszBYTE_ORDER = CSLFetchNameValue(papszHdr, "BYTE_ORDER");
-    bool bNative = true;
 
-    if (pszBYTE_ORDER != nullptr)
+    RawRasterBand::ByteOrder eByteOrder = RawRasterBand::NATIVE_BYTE_ORDER;
+
+    const char *pszByteOrder = CSLFetchNameValue(papszHdr, "BYTE_ORDER");
+    if (pszByteOrder)
     {
-#ifdef CPL_LSB
-        bNative = STARTS_WITH_CI(pszBYTE_ORDER, "LSB");
-#else
-        bNative = !STARTS_WITH_CI(pszBYTE_ORDER, "LSB");
-#endif
+        eByteOrder = EQUAL(pszByteOrder, "LSB")
+                         ? RawRasterBand::ByteOrder::ORDER_LITTLE_ENDIAN
+                         : RawRasterBand::ByteOrder::ORDER_BIG_ENDIAN;
     }
 
     /* -------------------------------------------------------------------- */
@@ -622,7 +647,7 @@ GDALDataset *GenBinDataset::Open(GDALOpenInfo *poOpenInfo)
     if (EQUAL(pszInterleaving, "BSQ") || EQUAL(pszInterleaving, "NA"))
     {
         nPixelOffset = nItemSize;
-        if (poDS->nRasterXSize > INT_MAX / nItemSize)
+        if (nItemSize <= 0 || poDS->nRasterXSize > INT_MAX / nItemSize)
             bIntOverflow = true;
         else
         {
@@ -663,7 +688,6 @@ GDALDataset *GenBinDataset::Open(GDALOpenInfo *poOpenInfo)
 
     if (bIntOverflow)
     {
-        delete poDS;
         CPLError(CE_Failure, CPLE_AppDefined, "Int overflow occurred.");
         return nullptr;
     }
@@ -673,7 +697,6 @@ GDALDataset *GenBinDataset::Open(GDALOpenInfo *poOpenInfo)
                                     nBands, nItemSize, nPixelOffset,
                                     nLineOffset, 0, nBandOffset, poDS->fpImage))
     {
-        delete poDS;
         return nullptr;
     }
 
@@ -683,20 +706,20 @@ GDALDataset *GenBinDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create band information objects.                                */
     /* -------------------------------------------------------------------- */
-    poDS->nBands = nBands;
-    for (int i = 0; i < poDS->nBands; i++)
+    for (int i = 0; i < nBands; i++)
     {
         if (nBits != -1)
         {
-            poDS->SetBand(i + 1, new GenBinBitRasterBand(poDS, nBits));
+            poDS->SetBand(i + 1, new GenBinBitRasterBand(poDS.get(), nBits));
         }
         else
         {
-            poDS->SetBand(i + 1,
-                          new RawRasterBand(poDS, i + 1, poDS->fpImage,
-                                            nBandOffset * i, nPixelOffset,
-                                            nLineOffset, eDataType, bNative,
-                                            RawRasterBand::OwnFP::NO));
+            auto poBand = RawRasterBand::Create(
+                poDS.get(), i + 1, poDS->fpImage, nBandOffset * i, nPixelOffset,
+                nLineOffset, eDataType, eByteOrder, RawRasterBand::OwnFP::NO);
+            if (!poBand)
+                return nullptr;
+            poDS->SetBand(i + 1, std::move(poBand));
         }
     }
 
@@ -742,9 +765,9 @@ GDALDataset *GenBinDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Check for overviews.                                            */
     /* -------------------------------------------------------------------- */
-    poDS->oOvManager.Initialize(poDS, poOpenInfo->pszFilename);
+    poDS->oOvManager.Initialize(poDS.get(), poOpenInfo->pszFilename);
 
-    return poDS;
+    return poDS.release();
 }
 
 /************************************************************************/

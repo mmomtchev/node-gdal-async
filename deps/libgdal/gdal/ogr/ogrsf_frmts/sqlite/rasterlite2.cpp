@@ -358,7 +358,6 @@ bool OGRSQLiteDataSource::OpenRasterSubDataset(
         return false;
     int nBits = 0;
     GDALDataType eDT = GDT_Unknown;
-    bool bSigned = false;
     switch (nSampleType)
     {
         default:
@@ -393,57 +392,49 @@ bool OGRSQLiteDataSource::OpenRasterSubDataset(
         case RL2_SAMPLE_INT8:
         {
             nBits = 8;
-            eDT = GDT_Byte;
-            bSigned = true;
+            eDT = GDT_Int8;
             break;
         }
         case RL2_SAMPLE_UINT8:
         {
             nBits = 8;
             eDT = GDT_Byte;
-            bSigned = false;
             break;
         }
         case RL2_SAMPLE_INT16:
         {
             nBits = 16;
             eDT = GDT_Int16;
-            bSigned = true;
             break;
         }
         case RL2_SAMPLE_UINT16:
         {
             nBits = 16;
             eDT = GDT_UInt16;
-            bSigned = false;
             break;
         }
         case RL2_SAMPLE_INT32:
         {
             nBits = 32;
             eDT = GDT_Int32;
-            bSigned = true;
             break;
         }
         case RL2_SAMPLE_UINT32:
         {
             nBits = 32;
             eDT = GDT_UInt32;
-            bSigned = false;
             break;
         }
         case RL2_SAMPLE_FLOAT:
         {
             nBits = 32;
             eDT = GDT_Float32;
-            bSigned = true;
             break;
         }
         case RL2_SAMPLE_DOUBLE:
         {
             nBits = 64;
             eDT = GDT_Float64;
-            bSigned = true;
             break;
         }
     }
@@ -653,7 +644,7 @@ bool OGRSQLiteDataSource::OpenRasterSubDataset(
         const double dfNoDataValue = bHasNoData ? adfNoDataValues[0] : 0.0;
         SetBand(iBand,
                 new RL2RasterBand(iBand, nPixelType, eDT, nBits,
-                                  m_bPromote1BitAs8Bit, bSigned, nBlockXSize,
+                                  m_bPromote1BitAs8Bit, nBlockXSize,
                                   nBlockYSize, bHasNoData, dfNoDataValue));
     }
 
@@ -911,7 +902,7 @@ void OGRSQLiteDataSource::CreateRL2OverviewDatasetIfNeeded(double dfXRes,
 /************************************************************************/
 
 RL2RasterBand::RL2RasterBand(int nBandIn, int nPixelType, GDALDataType eDT,
-                             int nBits, bool bPromote1BitAs8Bit, bool bSigned,
+                             int nBits, bool bPromote1BitAs8Bit,
                              int nBlockXSizeIn, int nBlockYSizeIn,
                              bool bHasNoDataIn, double dfNoDataValueIn)
     : m_bHasNoData(bHasNoDataIn), m_dfNoDataValue(dfNoDataValueIn),
@@ -925,11 +916,6 @@ RL2RasterBand::RL2RasterBand(int nBandIn, int nPixelType, GDALDataType eDT,
         GDALRasterBand::SetMetadataItem(
             (nBits == 1 && bPromote1BitAs8Bit) ? "SOURCE_NBITS" : "NBITS",
             CPLSPrintf("%d", nBits), "IMAGE_STRUCTURE");
-    }
-    if (nBits == 8 && bSigned)
-    {
-        GDALRasterBand::SetMetadataItem("PIXELTYPE", "SIGNEDBYTE",
-                                        "IMAGE_STRUCTURE");
     }
 
     if (nPixelType == RL2_PIXEL_MONOCHROME || nPixelType == RL2_PIXEL_GRAYSCALE)
@@ -960,11 +946,6 @@ RL2RasterBand::RL2RasterBand(const RL2RasterBand *poOther)
         "NBITS",
         const_cast<RL2RasterBand *>(poOther)->GetMetadataItem(
             "NBITS", "IMAGE_STRUCTURE"),
-        "IMAGE_STRUCTURE");
-    GDALRasterBand::SetMetadataItem(
-        "PIXELTYPE",
-        const_cast<RL2RasterBand *>(poOther)->GetMetadataItem(
-            "PIXELTYPE", "IMAGE_STRUCTURE"),
         "IMAGE_STRUCTURE");
     m_eColorInterp = poOther->m_eColorInterp;
     m_bHasNoData = poOther->m_bHasNoData;
@@ -1643,7 +1624,9 @@ GDALDataset *OGRSQLiteDriverCreateCopy(const char *pszName,
     }
 
     // Guess sample type in other cases
-    if (eDT == GDT_UInt16)
+    if (eDT == GDT_Int8)
+        nSampleType = RL2_SAMPLE_INT8;
+    else if (eDT == GDT_UInt16)
         nSampleType = RL2_SAMPLE_UINT16;
     else if (eDT == GDT_Int16)
         nSampleType = RL2_SAMPLE_INT16;

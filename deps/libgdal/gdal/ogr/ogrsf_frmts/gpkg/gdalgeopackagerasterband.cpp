@@ -247,11 +247,11 @@ GDALColorTable *GDALGPKGMBTilesLikeRasterBand::GetColorTable()
                     VSIFCloseL(fp);
 
                     // Only PNG can have color table.
-                    const char *apszDrivers[] = {"PNG", nullptr};
-                    GDALDataset *poDSTile = reinterpret_cast<GDALDataset *>(
-                        GDALOpenEx(osMemFileName.c_str(),
-                                   GDAL_OF_RASTER | GDAL_OF_INTERNAL,
-                                   apszDrivers, nullptr, nullptr));
+                    const char *const apszDrivers[] = {"PNG", nullptr};
+                    auto poDSTile = std::unique_ptr<GDALDataset>(
+                        GDALDataset::Open(osMemFileName.c_str(),
+                                          GDAL_OF_RASTER | GDAL_OF_INTERNAL,
+                                          apszDrivers, nullptr, nullptr));
                     if (poDSTile != nullptr)
                     {
                         if (poDSTile->GetRasterCount() == 1)
@@ -265,7 +265,6 @@ GDALColorTable *GDALGPKGMBTilesLikeRasterBand::GetColorTable()
                         {
                             bRetry = true;
                         }
-                        GDALClose(poDSTile);
                     }
                     else
                         bRetry = true;
@@ -444,18 +443,18 @@ CPLErr GDALGPKGMBTilesLikePseudoDataset::ReadTile(
     const CPLString &osMemFileName, GByte *pabyTileData, double dfTileOffset,
     double dfTileScale, bool *pbIsLossyFormat)
 {
-    const char *apszDriversByte[] = {"JPEG", "PNG", "WEBP", nullptr};
-    const char *apszDriversInt[] = {"PNG", nullptr};
-    const char *apszDriversFloat[] = {"GTiff", nullptr};
+    const char *const apszDriversByte[] = {"JPEG", "PNG", "WEBP", nullptr};
+    const char *const apszDriversInt[] = {"PNG", nullptr};
+    const char *const apszDriversFloat[] = {"GTiff", nullptr};
     int nBlockXSize, nBlockYSize;
     IGetRasterBand(1)->GetBlockSize(&nBlockXSize, &nBlockYSize);
     const int nBands = IGetRasterCount();
-    GDALDataset *poDSTile = reinterpret_cast<GDALDataset *>(
-        GDALOpenEx(osMemFileName.c_str(), GDAL_OF_RASTER | GDAL_OF_INTERNAL,
-                   (m_eDT == GDT_Byte)                   ? apszDriversByte
-                   : (m_eTF == GPKG_TF_TIFF_32BIT_FLOAT) ? apszDriversFloat
-                                                         : apszDriversInt,
-                   nullptr, nullptr));
+    auto poDSTile = std::unique_ptr<GDALDataset>(GDALDataset::Open(
+        osMemFileName.c_str(), GDAL_OF_RASTER | GDAL_OF_INTERNAL,
+        (m_eDT == GDT_Byte)                   ? apszDriversByte
+        : (m_eTF == GPKG_TF_TIFF_32BIT_FLOAT) ? apszDriversFloat
+                                              : apszDriversInt,
+        nullptr, nullptr));
     if (poDSTile == nullptr)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "Cannot parse tile data");
@@ -472,7 +471,6 @@ CPLErr GDALGPKGMBTilesLikePseudoDataset::ReadTile(
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Inconsistent tiles characteristics");
-        GDALClose(poDSTile);
         FillEmptyTile(pabyTileData);
         return CE_Failure;
     }
@@ -495,7 +493,6 @@ CPLErr GDALGPKGMBTilesLikePseudoDataset::ReadTile(
                            poDSTile->GetRasterCount(), nullptr, 0, 0, 0,
                            nullptr) != CE_None)
     {
-        GDALClose(poDSTile);
         FillEmptyTile(pabyTileData);
         return CE_Failure;
     }
@@ -571,8 +568,6 @@ CPLErr GDALGPKGMBTilesLikePseudoDataset::ReadTile(
             }
         }
 
-        GDALClose(poDSTile);
-
         return CE_None;
     }
 
@@ -633,7 +628,6 @@ CPLErr GDALGPKGMBTilesLikePseudoDataset::ReadTile(
                         static_cast<GByte>(oMapEntryToIndexIter->second);
             }
         }
-        GDALClose(poDSTile);
         return CE_None;
     }
 
@@ -722,8 +716,6 @@ CPLErr GDALGPKGMBTilesLikePseudoDataset::ReadTile(
         /* Create fully opaque alpha */
         memset(pabyTileData + 3 * nBlockPixels, 255, nBlockPixels);
     }
-
-    GDALClose(poDSTile);
 
     return CE_None;
 }
@@ -3627,6 +3619,83 @@ CPLErr GDALGeoPackageRasterBand::SetNoDataValue(double dfNoDataValue)
 }
 
 /************************************************************************/
+/*                         LoadBandMetadata()                           */
+/************************************************************************/
+
+void GDALGeoPackageRasterBand::LoadBandMetadata()
+{
+    GDALGeoPackageDataset *poGDS =
+        cpl::down_cast<GDALGeoPackageDataset *>(poDS);
+
+    if (m_bHasReadMetadataFromStorage)
+        return;
+
+    m_bHasReadMetadataFromStorage = true;
+
+    poGDS->TryLoadXML();
+
+    if (!poGDS->HasMetadataTables())
+        return;
+
+    char *pszSQL = sqlite3_mprintf(
+        "SELECT md.metadata, md.md_standard_uri, md.mime_type "
+        "FROM gpkg_metadata md "
+        "JOIN gpkg_metadata_reference mdr ON (md.id = mdr.md_file_id ) "
+        "WHERE "
+        "mdr.reference_scope = 'table' AND lower(mdr.table_name) = "
+        "lower('%q') ORDER BY md.id "
+        "LIMIT 1000",  // to avoid denial of service
+        poGDS->m_osRasterTable.c_str());
+
+    auto oResult = SQLQuery(poGDS->hDB, pszSQL);
+    sqlite3_free(pszSQL);
+    if (!oResult)
+    {
+        return;
+    }
+
+    /* GDAL metadata */
+    for (int i = 0; i < oResult->RowCount(); i++)
+    {
+        const char *pszMetadata = oResult->GetValue(0, i);
+        const char *pszMDStandardURI = oResult->GetValue(1, i);
+        const char *pszMimeType = oResult->GetValue(2, i);
+        if (pszMetadata && pszMDStandardURI && pszMimeType &&
+            EQUAL(pszMDStandardURI, "http://gdal.org") &&
+            EQUAL(pszMimeType, "text/xml"))
+        {
+            CPLXMLNode *psXMLNode = CPLParseXMLString(pszMetadata);
+            if (psXMLNode)
+            {
+                GDALMultiDomainMetadata oLocalMDMD;
+                oLocalMDMD.XMLInit(psXMLNode, FALSE);
+
+                CSLConstList papszDomainList = oLocalMDMD.GetDomainList();
+                for (CSLConstList papszIter = papszDomainList;
+                     papszIter && *papszIter; ++papszIter)
+                {
+                    if (STARTS_WITH(*papszIter, "BAND_"))
+                    {
+                        int l_nBand = atoi(*papszIter + strlen("BAND_"));
+                        if (l_nBand >= 1 && l_nBand <= poGDS->GetRasterCount())
+                        {
+                            auto l_poBand =
+                                cpl::down_cast<GDALGeoPackageRasterBand *>(
+                                    poGDS->GetRasterBand(l_nBand));
+                            l_poBand->m_bHasReadMetadataFromStorage = true;
+                            l_poBand->GDALPamRasterBand::SetMetadata(
+                                oLocalMDMD.GetMetadata(*papszIter));
+                        }
+                    }
+                }
+
+                CPLDestroyXMLNode(psXMLNode);
+            }
+        }
+    }
+}
+
+/************************************************************************/
 /*                            GetMetadata()                             */
 /************************************************************************/
 
@@ -3634,11 +3703,15 @@ char **GDALGeoPackageRasterBand::GetMetadata(const char *pszDomain)
 {
     GDALGeoPackageDataset *poGDS =
         reinterpret_cast<GDALGeoPackageDataset *>(poDS);
+    LoadBandMetadata(); /* force loading from storage if needed */
 
     if (poGDS->eAccess == GA_ReadOnly && eDataType != GDT_Byte &&
-        (pszDomain == nullptr || EQUAL(pszDomain, "")) && !m_bStatsComputed)
+        (pszDomain == nullptr || EQUAL(pszDomain, "")) &&
+        !m_bMinMaxComputedFromTileAncillary &&
+        !GDALGPKGMBTilesLikeRasterBand::GetMetadataItem("STATISTICS_MINIMUM") &&
+        !GDALGPKGMBTilesLikeRasterBand::GetMetadataItem("STATISTICS_MAXIMUM"))
     {
-        m_bStatsComputed = true;
+        m_bMinMaxComputedFromTileAncillary = true;
 
         const int nColMin = poGDS->m_nShiftXTiles;
         const int nColMax =
@@ -3704,20 +3777,38 @@ char **GDALGeoPackageRasterBand::GetMetadata(const char *pszDomain)
                 const char *pszMax = sResult->GetValue(1, 0);
                 if (pszMin)
                 {
-                    GDALGPKGMBTilesLikeRasterBand::SetMetadataItem(
-                        "STATISTICS_MINIMUM",
-                        CPLSPrintf("%.14g", CPLAtof(pszMin)));
+                    m_dfStatsMinFromTileAncillary = CPLAtof(pszMin);
                 }
                 if (pszMax)
                 {
-                    GDALGPKGMBTilesLikeRasterBand::SetMetadataItem(
-                        "STATISTICS_MAXIMUM",
-                        CPLSPrintf("%.14g", CPLAtof(pszMax)));
+                    m_dfStatsMaxFromTileAncillary = CPLAtof(pszMax);
                 }
             }
             sqlite3_free(pszSQL);
         }
     }
+
+    if (m_bAddImplicitStatistics && m_bMinMaxComputedFromTileAncillary &&
+        (pszDomain == nullptr || EQUAL(pszDomain, "")) &&
+        !GDALGPKGMBTilesLikeRasterBand::GetMetadataItem("STATISTICS_MINIMUM") &&
+        !GDALGPKGMBTilesLikeRasterBand::GetMetadataItem("STATISTICS_MAXIMUM"))
+    {
+        m_aosMD = GDALGPKGMBTilesLikeRasterBand::GetMetadata(pszDomain);
+        if (!std::isnan(m_dfStatsMinFromTileAncillary))
+        {
+            m_aosMD.SetNameValue(
+                "STATISTICS_MINIMUM",
+                CPLSPrintf("%.14g", m_dfStatsMinFromTileAncillary));
+        }
+        if (!std::isnan(m_dfStatsMaxFromTileAncillary))
+        {
+            m_aosMD.SetNameValue(
+                "STATISTICS_MAXIMUM",
+                CPLSPrintf("%.14g", m_dfStatsMaxFromTileAncillary));
+        }
+        return m_aosMD.List();
+    }
+
     return GDALGPKGMBTilesLikeRasterBand::GetMetadata(pszDomain);
 }
 
@@ -3728,12 +3819,77 @@ char **GDALGeoPackageRasterBand::GetMetadata(const char *pszDomain)
 const char *GDALGeoPackageRasterBand::GetMetadataItem(const char *pszName,
                                                       const char *pszDomain)
 {
-    if (eDataType != GDT_Byte &&
+    LoadBandMetadata(); /* force loading from storage if needed */
+
+    if (m_bAddImplicitStatistics && eDataType != GDT_Byte &&
         (pszDomain == nullptr || EQUAL(pszDomain, "")) &&
         (EQUAL(pszName, "STATISTICS_MINIMUM") ||
          EQUAL(pszName, "STATISTICS_MAXIMUM")))
     {
-        GetMetadata();
+        return CSLFetchNameValue(GetMetadata(), pszName);
     }
+
     return GDALGPKGMBTilesLikeRasterBand::GetMetadataItem(pszName, pszDomain);
+}
+
+/************************************************************************/
+/*                            SetMetadata()                             */
+/************************************************************************/
+
+CPLErr GDALGeoPackageRasterBand::SetMetadata(char **papszMetadata,
+                                             const char *pszDomain)
+{
+    GDALGeoPackageDataset *poGDS =
+        cpl::down_cast<GDALGeoPackageDataset *>(poDS);
+    LoadBandMetadata(); /* force loading from storage if needed */
+    poGDS->m_bMetadataDirty = true;
+    for (CSLConstList papszIter = papszMetadata; papszIter && *papszIter;
+         ++papszIter)
+    {
+        if (STARTS_WITH(*papszIter, "STATISTICS_"))
+            m_bStatsMetadataSetInThisSession = true;
+    }
+    return GDALPamRasterBand::SetMetadata(papszMetadata, pszDomain);
+}
+
+/************************************************************************/
+/*                          SetMetadataItem()                           */
+/************************************************************************/
+
+CPLErr GDALGeoPackageRasterBand::SetMetadataItem(const char *pszName,
+                                                 const char *pszValue,
+                                                 const char *pszDomain)
+{
+    GDALGeoPackageDataset *poGDS =
+        cpl::down_cast<GDALGeoPackageDataset *>(poDS);
+    LoadBandMetadata(); /* force loading from storage if needed */
+    poGDS->m_bMetadataDirty = true;
+    if (STARTS_WITH(pszName, "STATISTICS_"))
+        m_bStatsMetadataSetInThisSession = true;
+    return GDALPamRasterBand::SetMetadataItem(pszName, pszValue, pszDomain);
+}
+
+/************************************************************************/
+/*                         InvalidateStatistics()                       */
+/************************************************************************/
+
+void GDALGeoPackageRasterBand::InvalidateStatistics()
+{
+    bool bModified = false;
+    CPLStringList aosMD(CSLDuplicate(GetMetadata()));
+    for (CSLConstList papszIter = GetMetadata(); papszIter && *papszIter;
+         ++papszIter)
+    {
+        if (STARTS_WITH(*papszIter, "STATISTICS_"))
+        {
+            char *pszKey = nullptr;
+            CPLParseNameValue(*papszIter, &pszKey);
+            CPLAssert(pszKey);
+            aosMD.SetNameValue(pszKey, nullptr);
+            CPLFree(pszKey);
+            bModified = true;
+        }
+    }
+    if (bModified)
+        SetMetadata(aosMD.List());
 }

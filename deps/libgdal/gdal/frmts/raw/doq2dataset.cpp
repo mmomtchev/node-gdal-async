@@ -71,6 +71,8 @@ class DOQ2Dataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(DOQ2Dataset)
 
+    CPLErr Close() override;
+
   public:
     DOQ2Dataset();
     ~DOQ2Dataset();
@@ -100,10 +102,34 @@ DOQ2Dataset::DOQ2Dataset()
 DOQ2Dataset::~DOQ2Dataset()
 
 {
-    FlushCache(true);
+    DOQ2Dataset::Close();
+}
 
-    if (fpImage != nullptr)
-        CPL_IGNORE_RET_VAL(VSIFCloseL(fpImage));
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr DOQ2Dataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
+    {
+        if (DOQ2Dataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
+
+        if (fpImage)
+        {
+            if (VSIFCloseL(fpImage) != 0)
+            {
+                CPLError(CE_Failure, CPLE_FileIO, "I/O error");
+                eErr = CE_Failure;
+            }
+        }
+
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
+    }
+    return eErr;
 }
 
 /************************************************************************/
@@ -348,7 +374,7 @@ GDALDataset *DOQ2Dataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create a corresponding GDALDataset.                             */
     /* -------------------------------------------------------------------- */
-    DOQ2Dataset *poDS = new DOQ2Dataset();
+    auto poDS = cpl::make_unique<DOQ2Dataset>();
 
     poDS->nRasterXSize = nWidth;
     poDS->nRasterYSize = nHeight;
@@ -368,7 +394,6 @@ GDALDataset *DOQ2Dataset::Open(GDALOpenInfo *poOpenInfo)
         nBandCount = nBytesPerPixel;
         if (!GDALCheckBandCount(nBandCount, FALSE))
         {
-            delete poDS;
             return nullptr;
         }
     }
@@ -376,7 +401,6 @@ GDALDataset *DOQ2Dataset::Open(GDALOpenInfo *poOpenInfo)
     {
         if (nBytesPerPixel > INT_MAX / nBandCount)
         {
-            delete poDS;
             return nullptr;
         }
         nBytesPerPixel *= nBandCount;
@@ -384,7 +408,6 @@ GDALDataset *DOQ2Dataset::Open(GDALOpenInfo *poOpenInfo)
 
     if (nBytesPerPixel > INT_MAX / nWidth)
     {
-        delete poDS;
         return nullptr;
     }
     const int nBytesPerLine = nBytesPerPixel * nWidth;
@@ -392,18 +415,16 @@ GDALDataset *DOQ2Dataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create band information objects.                                */
     /* -------------------------------------------------------------------- */
-    CPLErrorReset();
     for (int i = 0; i < nBandCount; i++)
     {
-        poDS->SetBand(i + 1, new RawRasterBand(poDS, i + 1, poDS->fpImage,
-                                               nSkipBytes + i, nBytesPerPixel,
-                                               nBytesPerLine, GDT_Byte, TRUE,
-                                               RawRasterBand::OwnFP::NO));
-        if (CPLGetLastErrorType() != CE_None)
-        {
-            delete poDS;
+        auto poBand = RawRasterBand::Create(
+            poDS.get(), i + 1, poDS->fpImage, nSkipBytes + i, nBytesPerPixel,
+            nBytesPerLine, GDT_Byte,
+            RawRasterBand::ByteOrder::ORDER_LITTLE_ENDIAN,
+            RawRasterBand::OwnFP::NO);
+        if (!poBand)
             return nullptr;
-        }
+        poDS->SetBand(i + 1, std::move(poBand));
     }
 
     if (nProjType == 1)
@@ -430,9 +451,9 @@ GDALDataset *DOQ2Dataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Check for overviews.                                            */
     /* -------------------------------------------------------------------- */
-    poDS->oOvManager.Initialize(poDS, poOpenInfo->pszFilename);
+    poDS->oOvManager.Initialize(poDS.get(), poOpenInfo->pszFilename);
 
-    return poDS;
+    return poDS.release();
 }
 
 /************************************************************************/

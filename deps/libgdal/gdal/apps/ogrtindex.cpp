@@ -250,7 +250,7 @@ MAIN_START(nArgc, papszArgv)
     /*      Try to open as an existing dataset for update access.           */
     /* -------------------------------------------------------------------- */
     GDALDataset *poDstDS =
-        reinterpret_cast<GDALDataset *>(OGROpen(pszOutputName, TRUE, nullptr));
+        GDALDataset::FromHandle(OGROpen(pszOutputName, TRUE, nullptr));
 
     /* -------------------------------------------------------------------- */
     /*      If that failed, find the driver so we can create the tile index.*/
@@ -327,7 +327,7 @@ MAIN_START(nArgc, papszArgv)
         /* --------------------------------------------------------------------
          */
 
-        poDstDS = reinterpret_cast<GDALDataset *>(
+        poDstDS = GDALDataset::FromHandle(
             GDALCreate(hDriver, pszOutputName, 0, 0, 0, GDT_Unknown, nullptr));
         if (poDstDS == nullptr)
         {
@@ -354,7 +354,7 @@ MAIN_START(nArgc, papszArgv)
             }
             else if (nFirstSourceDataset < nArgc)
             {
-                GDALDataset *poDS = reinterpret_cast<GDALDataset *>(
+                GDALDataset *poDS = GDALDataset::FromHandle(
                     OGROpen(papszArgv[nFirstSourceDataset], FALSE, nullptr));
                 if (poDS != nullptr)
                 {
@@ -458,7 +458,7 @@ MAIN_START(nArgc, papszArgv)
                 {
                     const int iLayer = atoi(filename + j + 1);
                     filename[j] = 0;
-                    poDS = reinterpret_cast<GDALDataset *>(
+                    poDS = GDALDataset::FromHandle(
                         OGROpen(filename, FALSE, nullptr));
                     if (poDS != nullptr)
                     {
@@ -519,7 +519,7 @@ MAIN_START(nArgc, papszArgv)
             fileNameToWrite = CPLStrdup(papszArgv[nFirstSourceDataset]);
         }
 
-        GDALDataset *poDS = reinterpret_cast<GDALDataset *>(
+        GDALDataset *poDS = GDALDataset::FromHandle(
             OGROpen(papszArgv[nFirstSourceDataset], FALSE, nullptr));
 
         if (poDS == nullptr)
@@ -848,7 +848,9 @@ MAIN_START(nArgc, papszArgv)
     /* -------------------------------------------------------------------- */
     /*      Close tile index and clear buffers.                             */
     /* -------------------------------------------------------------------- */
-    GDALClose(poDstDS);
+    int nRetCode = 0;
+    if (GDALClose(poDstDS) != CE_None)
+        nRetCode = 1;
     OGRFeatureDefn::DestroyFeatureDefn(poFeatureDefn);
 
     if (alreadyExistingSpatialRef != nullptr)
@@ -868,6 +870,6 @@ MAIN_START(nArgc, papszArgv)
 
     OGRCleanupAll();
 
-    return 0;
+    return nRetCode;
 }
 MAIN_END

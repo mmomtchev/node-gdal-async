@@ -287,7 +287,12 @@ char *GDALInfo(GDALDatasetH hDataset, const GDALInfoOptions *psOptions)
                GDALGetDriverShortName(hDriver), GDALGetDriverLongName(hDriver));
     }
 
-    char **papszFileList = GDALGetFileList(hDataset);
+    // The list of files of a raster FileGDB is not super useful and potentially
+    // super long, so omit it, unless the -json mode is enabled
+    char **papszFileList =
+        (!bJson && EQUAL(GDALGetDriverShortName(hDriver), "OpenFileGDB"))
+            ? nullptr
+            : GDALGetFileList(hDataset);
 
     if (papszFileList == nullptr || *papszFileList == nullptr)
     {
@@ -399,16 +404,21 @@ char *GDALInfo(GDALDatasetH hDataset, const GDALInfoOptions *psOptions)
                 json_object *poEPSG = json_object_new_int64(atoi(pszAuthCode));
                 json_object_object_add(poStac, "proj:epsg", poEPSG);
             }
-            char *pszProjJson = nullptr;
-            CPLPushErrorHandler(
-                CPLQuietErrorHandler);  // PROJJSON requires PROJ >= 6.2
-            OGRErr result = OSRExportToPROJJSON(hSRS, &pszProjJson, nullptr);
-            CPLPopErrorHandler();
-            if (result == OGRERR_NONE)
             {
-                json_object *poStacProjJson = json_tokener_parse(pszProjJson);
-                json_object_object_add(poStac, "proj:projjson", poStacProjJson);
-                CPLFree(pszProjJson);
+                // PROJJSON requires PROJ >= 6.2
+                CPLErrorHandlerPusher oPusher(CPLQuietErrorHandler);
+                CPLErrorStateBackuper oCPLErrorHandlerPusher;
+                char *pszProjJson = nullptr;
+                OGRErr result =
+                    OSRExportToPROJJSON(hSRS, &pszProjJson, nullptr);
+                if (result == OGRERR_NONE)
+                {
+                    json_object *poStacProjJson =
+                        json_tokener_parse(pszProjJson);
+                    json_object_object_add(poStac, "proj:projjson",
+                                           poStacProjJson);
+                    CPLFree(pszProjJson);
+                }
             }
 
             json_object *poAxisMapping = json_object_new_array();
@@ -846,6 +856,9 @@ char *GDALInfo(GDALDatasetH hDataset, const GDALInfoOptions *psOptions)
             {
                 case GDT_Byte:
                     stacDataType = "uint8";
+                    break;
+                case GDT_Int8:
+                    stacDataType = "int8";
                     break;
                 case GDT_UInt16:
                     stacDataType = "uint16";

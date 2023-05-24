@@ -166,6 +166,49 @@ std::shared_ptr<GDALDimension> ZarrGroupBase::CreateDimension(
 }
 
 /************************************************************************/
+/*                  ZarrGroupBase::UpdateDimensionSize()                */
+/************************************************************************/
+
+void ZarrGroupBase::UpdateDimensionSize(
+    const std::shared_ptr<GDALDimension> &poUpdatedDim)
+{
+    const auto aosGroupNames = GetGroupNames();
+    for (const auto &osGroupName : aosGroupNames)
+    {
+        auto poSubGroup = OpenZarrGroup(osGroupName);
+        if (poSubGroup)
+        {
+            poSubGroup->UpdateDimensionSize(poUpdatedDim);
+        }
+    }
+    const auto aosArrayNames = GetMDArrayNames();
+    for (const auto &osArrayName : aosArrayNames)
+    {
+        // Disable checks that size of variables referenced by _ARRAY_DIMENSIONS
+        // are consistent with array shapes, as we are in the middle of updating
+        // things
+        m_bDimSizeInUpdate = true;
+        auto poArray = OpenZarrArray(osArrayName);
+        m_bDimSizeInUpdate = false;
+        if (poArray)
+        {
+            for (auto &poDim : poArray->GetDimensions())
+            {
+                if (poDim->GetFullName() == poUpdatedDim->GetFullName())
+                {
+                    auto poModifiableDim =
+                        std::dynamic_pointer_cast<GDALDimensionWeakIndexingVar>(
+                            poDim);
+                    CPLAssert(poModifiableDim);
+                    poModifiableDim->SetSize(poUpdatedDim->GetSize());
+                    poArray->SetDefinitionModified(true);
+                }
+            }
+        }
+    }
+}
+
+/************************************************************************/
 /*                      ZarrGroupV2::Create()                           */
 /************************************************************************/
 
@@ -239,10 +282,10 @@ void ZarrGroupV2::ExploreDirectory() const
 }
 
 /************************************************************************/
-/*                             OpenMDArray()                            */
+/*                             OpenZarrArray()                          */
 /************************************************************************/
 
-std::shared_ptr<GDALMDArray> ZarrGroupV2::OpenMDArray(const std::string &osName,
+std::shared_ptr<ZarrArray> ZarrGroupV2::OpenZarrArray(const std::string &osName,
                                                       CSLConstList) const
 {
     auto oIter = m_oMapMDArrays.find(osName);
@@ -272,11 +315,11 @@ std::shared_ptr<GDALMDArray> ZarrGroupV2::OpenMDArray(const std::string &osName,
 }
 
 /************************************************************************/
-/*                              OpenGroup()                             */
+/*                              OpenZarrGroup()                             */
 /************************************************************************/
 
-std::shared_ptr<GDALGroup> ZarrGroupV2::OpenGroup(const std::string &osName,
-                                                  CSLConstList) const
+std::shared_ptr<ZarrGroupBase>
+ZarrGroupV2::OpenZarrGroup(const std::string &osName, CSLConstList) const
 {
     auto oIter = m_oMapGroups.find(osName);
     if (oIter != m_oMapGroups.end())
@@ -351,10 +394,10 @@ ZarrGroupV3::Create(const std::shared_ptr<ZarrSharedResource> &poSharedResource,
 }
 
 /************************************************************************/
-/*                             OpenMDArray()                            */
+/*                             OpenZarrArray()                          */
 /************************************************************************/
 
-std::shared_ptr<GDALMDArray> ZarrGroupV3::OpenMDArray(const std::string &osName,
+std::shared_ptr<ZarrArray> ZarrGroupV3::OpenZarrArray(const std::string &osName,
                                                       CSLConstList) const
 {
     auto oIter = m_oMapMDArrays.find(osName);
@@ -900,6 +943,12 @@ static CPLJSONObject FillDTypeElts(const GDALExtendedDataType &oDataType,
                     dtype.Set(dummy, bZarrV2 ? "|u1" : "u1");
                     break;
                 }
+                case GDT_Int8:
+                {
+                    elt.nativeType = DtypeElt::NativeType::SIGNED_INT;
+                    dtype.Set(dummy, bZarrV2 ? "|i1" : "i1");
+                    break;
+                }
                 case GDT_UInt16:
                 {
                     elt.nativeType = DtypeElt::NativeType::UNSIGNED_INT;
@@ -979,8 +1028,8 @@ static CPLJSONObject FillDTypeElts(const GDALExtendedDataType &oDataType,
                 }
                 case GDT_TypeCount:
                 {
-                    static_assert(GDT_TypeCount == GDT_Int64 + 1,
-                                  "GDT_TypeCount == GDT_Int64 + 1");
+                    static_assert(GDT_TypeCount == GDT_Int8 + 1,
+                                  "GDT_TypeCount == GDT_Int8 + 1");
                     break;
                 }
             }
@@ -1284,6 +1333,9 @@ std::shared_ptr<GDALMDArray> ZarrGroupV2::CreateMDArray(
                 case GDT_Byte:
                     oFilter.Add("dtype", "u1");
                     break;
+                case GDT_Int8:
+                    oFilter.Add("dtype", "i1");
+                    break;
                 case GDT_UInt16:
                     oFilter.Add("dtype", "<u2");
                     break;
@@ -1375,6 +1427,7 @@ std::shared_ptr<GDALMDArray> ZarrGroupV2::CreateMDArray(
     poArray->SetFilters(oFilters);
     poArray->SetUpdatable(true);
     poArray->SetDefinitionModified(true);
+    poArray->Flush();
     RegisterArray(poArray);
 
     return poArray;
@@ -1508,11 +1561,11 @@ ZarrGroupV3::~ZarrGroupV3()
 }
 
 /************************************************************************/
-/*                              OpenGroup()                             */
+/*                            OpenZarrGroup()                           */
 /************************************************************************/
 
-std::shared_ptr<GDALGroup> ZarrGroupV3::OpenGroup(const std::string &osName,
-                                                  CSLConstList) const
+std::shared_ptr<ZarrGroupBase>
+ZarrGroupV3::OpenZarrGroup(const std::string &osName, CSLConstList) const
 {
     auto oIter = m_oMapGroups.find(osName);
     if (oIter != m_oMapGroups.end())
@@ -1844,6 +1897,7 @@ std::shared_ptr<GDALMDArray> ZarrGroupV3::CreateMDArray(
         poArray->SetCompressorJsonV3(oCompressor);
     poArray->SetUpdatable(true);
     poArray->SetDefinitionModified(true);
+    poArray->Flush();
     RegisterArray(poArray);
 
     return poArray;
@@ -1853,7 +1907,9 @@ std::shared_ptr<GDALMDArray> ZarrGroupV3::CreateMDArray(
 /*              ZarrSharedResource::ZarrSharedResource()                */
 /************************************************************************/
 
-ZarrSharedResource::ZarrSharedResource(const std::string &osRootDirectoryName)
+ZarrSharedResource::ZarrSharedResource(const std::string &osRootDirectoryName,
+                                       bool bUpdatable)
+    : m_bUpdatable(bUpdatable)
 {
     m_oObj.Add("zarr_consolidated_format", 1);
     m_oObj.Add("metadata", CPLJSONObject());
@@ -1865,6 +1921,18 @@ ZarrSharedResource::ZarrSharedResource(const std::string &osRootDirectoryName)
     }
     m_poPAM = std::make_shared<GDALPamMultiDim>(
         CPLFormFilename(m_osRootDirectoryName.c_str(), "pam", nullptr));
+}
+
+/************************************************************************/
+/*              ZarrSharedResource::Create()                            */
+/************************************************************************/
+
+std::shared_ptr<ZarrSharedResource>
+ZarrSharedResource::Create(const std::string &osRootDirectoryName,
+                           bool bUpdatable)
+{
+    return std::shared_ptr<ZarrSharedResource>(
+        new ZarrSharedResource(osRootDirectoryName, bUpdatable));
 }
 
 /************************************************************************/
@@ -1880,6 +1948,92 @@ ZarrSharedResource::~ZarrSharedResource()
         oDoc.Save(CPLFormFilename(m_osRootDirectoryName.c_str(), ".zmetadata",
                                   nullptr));
     }
+}
+
+/************************************************************************/
+/*             ZarrSharedResource::OpenRootGroup()                      */
+/************************************************************************/
+
+std::shared_ptr<ZarrGroupBase> ZarrSharedResource::OpenRootGroup()
+{
+    auto poRG = ZarrGroupV2::Create(shared_from_this(), std::string(), "/");
+    poRG->SetUpdatable(m_bUpdatable);
+    poRG->SetDirectoryName(m_osRootDirectoryName);
+
+    const std::string osZarrayFilename(
+        CPLFormFilename(m_osRootDirectoryName.c_str(), ".zarray", nullptr));
+    VSIStatBufL sStat;
+    if (VSIStatL(osZarrayFilename.c_str(), &sStat) == 0)
+    {
+        CPLJSONDocument oDoc;
+        if (!oDoc.Load(osZarrayFilename))
+            return nullptr;
+        const auto oRoot = oDoc.GetRoot();
+        if (oRoot["_NCZARR_ARRAY"].IsValid())
+        {
+            // If opening a NCZarr array, initialize its group from NCZarr
+            // metadata.
+            const std::string osGroupFilename(
+                CPLFormFilename(CPLGetDirname(m_osRootDirectoryName.c_str()),
+                                ".zgroup", nullptr));
+            if (VSIStatL(osGroupFilename.c_str(), &sStat) == 0)
+            {
+                CPLJSONDocument oDocGroup;
+                if (oDocGroup.Load(osGroupFilename))
+                {
+                    if (!poRG->InitFromZGroup(oDocGroup.GetRoot()))
+                        return nullptr;
+                }
+            }
+        }
+        const std::string osArrayName(
+            CPLGetBasename(m_osRootDirectoryName.c_str()));
+        std::set<std::string> oSetFilenamesInLoading;
+        if (!poRG->LoadArray(osArrayName, osZarrayFilename, oRoot, false,
+                             CPLJSONObject(), oSetFilenamesInLoading))
+            return nullptr;
+
+        return poRG;
+    }
+
+    const std::string osZmetadataFilename(
+        CPLFormFilename(m_osRootDirectoryName.c_str(), ".zmetadata", nullptr));
+    if (CPLTestBool(
+            CSLFetchNameValueDef(GetOpenOptions(), "USE_ZMETADATA", "YES")) &&
+        VSIStatL(osZmetadataFilename.c_str(), &sStat) == 0)
+    {
+        if (!m_bZMetadataEnabled)
+        {
+            CPLJSONDocument oDoc;
+            if (!oDoc.Load(osZmetadataFilename))
+                return nullptr;
+
+            m_bZMetadataEnabled = true;
+            m_oObj = oDoc.GetRoot();
+        }
+        poRG->InitFromZMetadata(m_oObj);
+
+        return poRG;
+    }
+
+    const std::string osGroupFilename(
+        CPLFormFilename(m_osRootDirectoryName.c_str(), ".zgroup", nullptr));
+    if (VSIStatL(osGroupFilename.c_str(), &sStat) == 0)
+    {
+        CPLJSONDocument oDoc;
+        if (!oDoc.Load(osGroupFilename))
+            return nullptr;
+
+        if (!poRG->InitFromZGroup(oDoc.GetRoot()))
+            return nullptr;
+        return poRG;
+    }
+
+    // Zarr v3
+    auto poRG_V3 = ZarrGroupV3::Create(shared_from_this(), std::string(), "/",
+                                       m_osRootDirectoryName);
+    poRG_V3->SetUpdatable(m_bUpdatable);
+    return poRG_V3;
 }
 
 /************************************************************************/
@@ -1901,4 +2055,25 @@ void ZarrSharedResource::SetZMetadataItem(const std::string &osFilename,
         m_oObj["metadata"].DeleteNoSplitName(pszKey);
         m_oObj["metadata"].AddNoSplitName(pszKey, obj);
     }
+}
+
+/************************************************************************/
+/*             ZarrSharedResource::UpdateDimensionSize()                */
+/************************************************************************/
+
+void ZarrSharedResource::UpdateDimensionSize(
+    const std::shared_ptr<GDALDimension> &poDim)
+{
+    auto poRG = m_poWeakRootGroup.lock();
+    if (!poRG)
+        poRG = OpenRootGroup();
+    if (poRG)
+    {
+        poRG->UpdateDimensionSize(poDim);
+    }
+    else
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "UpdateDimensionSize() failed");
+    }
+    poRG.reset();
 }

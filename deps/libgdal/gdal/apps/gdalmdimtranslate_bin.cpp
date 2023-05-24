@@ -39,15 +39,14 @@
 static void Usage(const char *pszErrorMsg = nullptr)
 
 {
-    printf(
-        "Usage: gdalmultidimtranslate [--help-general] [-co \"NAME=VALUE\"]*\n"
-        "                             [-if format]* [-of format]\n"
-        "                             [-array <array_spec>]*\n"
-        "                             [-group <group_spec>]* \n"
-        "                             [-subset <subset_spec>]* \n"
-        "                             [-scaleaxes <scaleaxes_spec>] \n"
-        "                             [-oo NAME=VALUE]*\n"
-        "                             <src_filename> <dst_filename>\n");
+    printf("Usage: gdalmdimtranslate [--help-general] [-co \"NAME=VALUE\"]*\n"
+           "                         [-if format]* [-of format]\n"
+           "                         [-array <array_spec>]*\n"
+           "                         [-group <group_spec>]* \n"
+           "                         [-subset <subset_spec>]* \n"
+           "                         [-scaleaxes <scaleaxes_spec>] \n"
+           "                         [-oo NAME=VALUE]*\n"
+           "                         <src_filename> <dst_filename>\n");
 
     if (pszErrorMsg != nullptr)
         fprintf(stderr, "\nFAILURE: %s\n", pszErrorMsg);
@@ -145,9 +144,11 @@ MAIN_START(argc, argv)
                               &hInDS, psOptions, &bUsageError);
     if (bUsageError == TRUE)
         Usage();
-    const int nRetCode = hRetDS ? 0 : 1;
+    int nRetCode = hRetDS ? 0 : 1;
 
-    GDALClose(hRetDS);
+    if (GDALClose(hRetDS) != CE_None)
+        nRetCode = 1;
+
     GDALClose(hInDS);
     GDALMultiDimTranslateOptionsFree(psOptions);
 

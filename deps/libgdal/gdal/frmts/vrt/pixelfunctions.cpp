@@ -42,6 +42,8 @@ inline double GetSrcVal(const void *pSource, GDALDataType eSrcType, T ii)
             return 0;
         case GDT_Byte:
             return static_cast<const GByte *>(pSource)[ii];
+        case GDT_Int8:
+            return static_cast<const GInt8 *>(pSource)[ii];
         case GDT_UInt16:
             return static_cast<const GUInt16 *>(pSource)[ii];
         case GDT_Int16:
@@ -1259,7 +1261,7 @@ static CPLErr PowPixelFunc(void **papoSources, int nSources, void *pData,
     return CE_None;
 }
 
-// Given nt intervals spaced by dt and beginning at t0, return the the index of
+// Given nt intervals spaced by dt and beginning at t0, return the index of
 // the lower bound of the interval that should be used to
 // interpolate/extrapolate a value for t.
 static std::size_t intervalLeft(double t0, double dt, std::size_t nt, double t)

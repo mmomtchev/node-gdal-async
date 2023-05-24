@@ -35,6 +35,10 @@
 
 #include "zlib.h"
 
+#ifdef ENABLE_DEFLATE64
+#include "infback9.h"
+#endif
+
 #ifdef LINUX
 #include "node_version.h"
 #if NODE_MODULE_VERSION >= 111

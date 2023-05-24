@@ -1234,7 +1234,10 @@ CPLErr GDALWarpDstAlphaMasker(void *pMaskFuncArg, int nBandCount,
  * <li>SAMPLE_STEPS: Modifies the density of the sampling grid.  The default
  * number of steps is 21.   Increasing this can increase the computational
  * cost, but improves the accuracy with which the source region is
- * computed.</li>
+ * computed.
+ * Starting with GDAL 3.7, this can be set to ALL to mean to sample
+ * along all edge points of the destination region (if SAMPLE_GRID=NO or not
+ * specified), or all points of the destination region if SAMPLE_GRID=YES.</li>
  *
  * <li>SOURCE_EXTRA: This is a number of extra pixels added around the source
  * window for a given request, and by default it is 1 to take care of rounding
@@ -1293,8 +1296,8 @@ void CPL_STDCALL GDALDestroyWarpOptions(GDALWarpOptions *psOptions)
     CPLFree(psOptions->papSrcPerBandValidityMaskFuncArg);
 
     if (psOptions->hCutline != nullptr)
-        OGR_G_DestroyGeometry(
-            reinterpret_cast<OGRGeometryH>(psOptions->hCutline));
+        delete OGRGeometry::FromHandle(
+            static_cast<OGRGeometryH>(psOptions->hCutline));
 
     CPLFree(psOptions);
 }
@@ -1346,7 +1349,7 @@ GDALCloneWarpOptions(const GDALWarpOptions *psSrcOptions)
 
     if (psSrcOptions->hCutline != nullptr)
         psDstOptions->hCutline =
-            OGR_G_Clone(reinterpret_cast<OGRGeometryH>(psSrcOptions->hCutline));
+            OGR_G_Clone(static_cast<OGRGeometryH>(psSrcOptions->hCutline));
     psDstOptions->dfCutlineBlendDist = psSrcOptions->dfCutlineBlendDist;
 
     return psDstOptions;
@@ -1827,7 +1830,7 @@ CPLXMLNode *CPL_STDCALL GDALSerializeWarpOptions(const GDALWarpOptions *psWO)
     if (psWO->hCutline != nullptr)
     {
         char *pszWKT = nullptr;
-        if (OGR_G_ExportToWkt(reinterpret_cast<OGRGeometryH>(psWO->hCutline),
+        if (OGR_G_ExportToWkt(static_cast<OGRGeometryH>(psWO->hCutline),
                               &pszWKT) == OGRERR_NONE)
         {
             CPLCreateXMLElementAndValue(psTree, "Cutline", pszWKT);
@@ -2101,8 +2104,9 @@ GDALWarpOptions *CPL_STDCALL GDALDeserializeWarpOptions(CPLXMLNode *psTree)
     if (pszWKT)
     {
         char *pszWKTTemp = const_cast<char *>(pszWKT);
-        OGR_G_CreateFromWkt(&pszWKTTemp, nullptr,
-                            reinterpret_cast<OGRGeometryH *>(&psWO->hCutline));
+        OGRGeometryH hCutline = nullptr;
+        OGR_G_CreateFromWkt(&pszWKTTemp, nullptr, &hCutline);
+        psWO->hCutline = hCutline;
     }
 
     psWO->dfCutlineBlendDist =

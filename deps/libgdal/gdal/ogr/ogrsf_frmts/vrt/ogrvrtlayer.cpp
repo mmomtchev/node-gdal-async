@@ -89,7 +89,7 @@ OGRVRTGeomFieldProps::OGRVRTGeomFieldProps()
 OGRVRTGeomFieldProps::~OGRVRTGeomFieldProps()
 {
     if (poSRS != nullptr)
-        poSRS->Release();
+        const_cast<OGRSpatialReference *>(poSRS)->Release();
     if (poSrcRegion != nullptr)
         delete poSrcRegion;
 }
@@ -440,7 +440,7 @@ bool OGRVRTLayer::ParseGeometryField(CPLXMLNode *psNode,
         pszSRS = CPLGetXMLValue(psNodeParent, "LayerSRS", nullptr);
     if (pszSRS == nullptr)
     {
-        OGRSpatialReference *poSRS = nullptr;
+        const OGRSpatialReference *poSRS = nullptr;
         if (GetSrcLayerDefn()->GetGeomFieldCount() == 1)
         {
             poSRS = poSrcLayer->GetSpatialRef();
@@ -981,6 +981,16 @@ try_again:
             // Default attribute.
             oFieldDefn.SetDefault(CPLGetXMLValue(psChild, "default", nullptr));
 
+            const char *pszAlternativeName =
+                CPLGetXMLValue(psChild, "alternativeName", nullptr);
+            if (pszAlternativeName)
+                oFieldDefn.SetAlternativeName(pszAlternativeName);
+
+            const char *pszComment =
+                CPLGetXMLValue(psChild, "comment", nullptr);
+            if (pszComment)
+                oFieldDefn.SetComment(pszComment);
+
             // Create the field.
             poFeatureDefn->AddFieldDefn(&oFieldDefn);
 
@@ -1083,11 +1093,15 @@ try_again:
             for (int i = 0; i < poFeatureDefn->GetGeomFieldCount(); i++)
             {
                 if (apoGeomFieldProps[i]->poSRS != nullptr)
-                    apoGeomFieldProps[i]->poSRS->Release();
+                    const_cast<OGRSpatialReference *>(
+                        apoGeomFieldProps[i]->poSRS)
+                        ->Release();
                 apoGeomFieldProps[i]->poSRS =
                     poFeatureDefn->GetGeomFieldDefn(i)->GetSpatialRef();
                 if (apoGeomFieldProps[i]->poSRS != nullptr)
-                    apoGeomFieldProps[i]->poSRS->Reference();
+                    const_cast<OGRSpatialReference *>(
+                        apoGeomFieldProps[i]->poSRS)
+                        ->Reference();
             }
         }
     }

@@ -563,7 +563,8 @@ end:
 /*                              NITFDESGetXml()                         */
 /************************************************************************/
 
-CPLXMLNode *NITFDESGetXml(NITFFile *psFile, int iSegment)
+CPLXMLNode *NITFDESGetXml(NITFFile *psFile, int iSegment, bool bValidate,
+                          bool *pbGotError)
 {
     CPLXMLNode *psDesNode;
     char **papszTmp;
@@ -619,8 +620,8 @@ CPLXMLNode *NITFDESGetXml(NITFFile *psFile, int iSegment)
             if (strcmp(pszMDname, "DESSHF") == 0)
             {
                 CPLAddXMLAttributeAndValue(psFieldNode, "value", pszMDval);
-                CPLXMLNode *psChild =
-                    NITFCreateXMLDesUserDefinedSubHeader(psFile, psDes);
+                CPLXMLNode *psChild = NITFCreateXMLDesUserDefinedSubHeader(
+                    psFile, psDes, bValidate, pbGotError);
                 if (psChild)
                 {
                     CPLAddXMLChild(psFieldNode, psChild);
@@ -633,21 +634,29 @@ CPLXMLNode *NITFDESGetXml(NITFFile *psFile, int iSegment)
                     CPLUnescapeString(pszMDval, &nLen, CPLES_BackslashQuotable);
                 char *pszBase64 =
                     CPLBase64Encode(nLen, (const GByte *)pszUnescaped);
-                CPLFree(pszUnescaped);
 
                 if (pszBase64 == NULL)
                 {
                     NITFDESDeaccess(psDes);
                     CPLDestroyXMLNode(psDesNode);
                     CPLFree(pszMDname);
+                    CPLFree(pszUnescaped);
                     CPLError(CE_Failure, CPLE_AppDefined,
                              "NITF DES data could not be encoded");
                     return NULL;
                 }
 
                 CPLAddXMLAttributeAndValue(psFieldNode, "value", pszBase64);
+                CPLXMLNode *psChild = NITFCreateXMLDesDataFields(
+                    psFile, psDes, (GByte *)pszUnescaped, nLen, bValidate,
+                    pbGotError);
+                if (psChild)
+                {
+                    CPLAddXMLChild(psFieldNode, psChild);
+                }
 
                 CPLFree(pszBase64);
+                CPLFree(pszUnescaped);
             }
             else
             {

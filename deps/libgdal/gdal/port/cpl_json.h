@@ -29,6 +29,7 @@
 #define CPL_JSON_H_INCLUDED
 
 #include "cpl_progress.h"
+#include "cpl_string.h"
 
 #include <string>
 #include <vector>
@@ -279,5 +280,12 @@ class CPL_DLL CPLJSONDocument
 };
 
 CPL_C_END
+
+#if defined(__cplusplus) && !defined(CPL_SUPRESS_CPLUSPLUS)
+extern "C++"
+{
+    CPLStringList CPLParseKeyValueJson(const char *pszJson);
+}
+#endif
 
 #endif  // CPL_JSON_H_INCLUDED

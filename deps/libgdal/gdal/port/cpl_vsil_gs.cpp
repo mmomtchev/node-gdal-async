@@ -68,6 +68,7 @@ namespace cpl
 class VSIGSFSHandler final : public IVSIS3LikeFSHandler
 {
     CPL_DISALLOW_COPY_ASSIGN(VSIGSFSHandler)
+    const std::string m_osPrefix;
 
   protected:
     VSICurlHandle *CreateFileHandle(const char *pszFilename) override;
@@ -78,7 +79,7 @@ class VSIGSFSHandler final : public IVSIS3LikeFSHandler
 
     CPLString GetFSPrefix() const override
     {
-        return "/vsigs/";
+        return m_osPrefix;
     }
     CPLString GetURLFromFilename(const CPLString &osFilename) override;
 
@@ -93,7 +94,9 @@ class VSIGSFSHandler final : public IVSIS3LikeFSHandler
     }
 
   public:
-    VSIGSFSHandler() = default;
+    explicit VSIGSFSHandler(const char *pszPrefix) : m_osPrefix(pszPrefix)
+    {
+    }
     ~VSIGSFSHandler() override;
 
     VSIVirtualHandle *Open(const char *pszFilename, const char *pszAccess,
@@ -130,6 +133,11 @@ class VSIGSFSHandler final : public IVSIS3LikeFSHandler
 
     std::string
     GetStreamingFilename(const std::string &osFilename) const override;
+
+    VSIFilesystemHandler *Duplicate(const char *pszPrefix) override
+    {
+        return new VSIGSFSHandler(pszPrefix);
+    }
 };
 
 /************************************************************************/
@@ -236,12 +244,12 @@ VSIVirtualHandle *VSIGSFSHandler::Open(const char *pszFilename,
 /*                        SupportsRandomWrite()                         */
 /************************************************************************/
 
-bool VSIGSFSHandler::SupportsRandomWrite(const char * /* pszPath */,
+bool VSIGSFSHandler::SupportsRandomWrite(const char *pszPath,
                                          bool bAllowLocalTempFile)
 {
     return bAllowLocalTempFile &&
-           CPLTestBool(CPLGetConfigOption(
-               "CPL_VSIL_USE_TEMP_FILE_FOR_RANDOM_WRITE", "NO"));
+           CPLTestBool(VSIGetPathSpecificOption(
+               pszPath, "CPL_VSIL_USE_TEMP_FILE_FOR_RANDOM_WRITE", "NO"));
 }
 
 /************************************************************************/
@@ -369,12 +377,16 @@ char **VSIGSFSHandler::GetFileMetadata(const char *pszFilename,
     NetworkStatisticsFileSystem oContextFS(GetFSPrefix());
     NetworkStatisticsAction oContextAction("GetFileMetadata");
 
+    const CPLStringList aosHTTPOptions(CPLHTTPGetOptionsFromEnv(pszFilename));
+
     bool bRetry;
     // coverity[tainted_data]
-    double dfRetryDelay = CPLAtof(CPLGetConfigOption(
-        "GDAL_HTTP_RETRY_DELAY", CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
-    const int nMaxRetry = atoi(CPLGetConfigOption(
-        "GDAL_HTTP_MAX_RETRY", CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
+    double dfRetryDelay = CPLAtof(
+        VSIGetPathSpecificOption(pszFilename, "GDAL_HTTP_RETRY_DELAY",
+                                 CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    const int nMaxRetry =
+        atoi(VSIGetPathSpecificOption(pszFilename, "GDAL_HTTP_MAX_RETRY",
+                                      CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
     int nRetryCount = 0;
 
     CPLStringList aosResult;
@@ -384,9 +396,9 @@ char **VSIGSFSHandler::GetFileMetadata(const char *pszFilename,
         CURL *hCurlHandle = curl_easy_init();
         poHandleHelper->AddQueryParameter("acl", "");
 
-        struct curl_slist *headers =
-            static_cast<struct curl_slist *>(CPLHTTPSetOptions(
-                hCurlHandle, poHandleHelper->GetURL().c_str(), nullptr));
+        struct curl_slist *headers = static_cast<struct curl_slist *>(
+            CPLHTTPSetOptions(hCurlHandle, poHandleHelper->GetURL().c_str(),
+                              aosHTTPOptions.List()));
         headers = VSICurlMergeHeaders(
             headers, poHandleHelper->GetCurlHeaders("GET", headers));
 
@@ -478,13 +490,17 @@ bool VSIGSFSHandler::SetFileMetadata(const char *pszFilename,
 
     bool bRetry;
     // coverity[tainted_data]
-    double dfRetryDelay = CPLAtof(CPLGetConfigOption(
-        "GDAL_HTTP_RETRY_DELAY", CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
-    const int nMaxRetry = atoi(CPLGetConfigOption(
-        "GDAL_HTTP_MAX_RETRY", CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
+    double dfRetryDelay = CPLAtof(
+        VSIGetPathSpecificOption(pszFilename, "GDAL_HTTP_RETRY_DELAY",
+                                 CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    const int nMaxRetry =
+        atoi(VSIGetPathSpecificOption(pszFilename, "GDAL_HTTP_MAX_RETRY",
+                                      CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
     int nRetryCount = 0;
 
     bool bRet = false;
+
+    const CPLStringList aosHTTPOptions(CPLHTTPGetOptionsFromEnv(pszFilename));
 
     do
     {
@@ -494,9 +510,9 @@ bool VSIGSFSHandler::SetFileMetadata(const char *pszFilename,
         unchecked_curl_easy_setopt(hCurlHandle, CURLOPT_CUSTOMREQUEST, "PUT");
         unchecked_curl_easy_setopt(hCurlHandle, CURLOPT_POSTFIELDS, pszXML);
 
-        struct curl_slist *headers =
-            static_cast<struct curl_slist *>(CPLHTTPSetOptions(
-                hCurlHandle, poHandleHelper->GetURL().c_str(), nullptr));
+        struct curl_slist *headers = static_cast<struct curl_slist *>(
+            CPLHTTPSetOptions(hCurlHandle, poHandleHelper->GetURL().c_str(),
+                              aosHTTPOptions.List()));
         headers = curl_slist_append(headers, "Content-Type: application/xml");
         headers = VSICurlMergeHeaders(
             headers, poHandleHelper->GetCurlHeaders("PUT", headers, pszXML,
@@ -569,23 +585,31 @@ int *VSIGSFSHandler::UnlinkBatch(CSLConstList papszFiles)
     int *panRet =
         static_cast<int *>(CPLCalloc(sizeof(int), CSLCount(papszFiles)));
 
-    if (!poHandleHelper)
+    const char *pszFirstFilename =
+        papszFiles && papszFiles[0] ? papszFiles[0] : nullptr;
+    if (!poHandleHelper || pszFirstFilename == nullptr)
         return panRet;
 
     NetworkStatisticsFileSystem oContextFS(GetFSPrefix());
     NetworkStatisticsAction oContextAction("UnlinkBatch");
 
     // coverity[tainted_data]
-    double dfRetryDelay = CPLAtof(CPLGetConfigOption(
-        "GDAL_HTTP_RETRY_DELAY", CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
-    const int nMaxRetry = atoi(CPLGetConfigOption(
-        "GDAL_HTTP_MAX_RETRY", CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
+    double dfRetryDelay = CPLAtof(
+        VSIGetPathSpecificOption(pszFirstFilename, "GDAL_HTTP_RETRY_DELAY",
+                                 CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    const int nMaxRetry =
+        atoi(VSIGetPathSpecificOption(pszFirstFilename, "GDAL_HTTP_MAX_RETRY",
+                                      CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
 
     // For debug / testing only
     const int nBatchSize =
         std::max(1, std::min(100, atoi(CPLGetConfigOption(
                                       "CPL_VSIGS_UNLINK_BATCH_SIZE", "100"))));
     CPLString osPOSTContent;
+
+    const CPLStringList aosHTTPOptions(
+        CPLHTTPGetOptionsFromEnv(pszFirstFilename));
+
     for (int i = 0; papszFiles && papszFiles[i]; i++)
     {
         CPLAssert(STARTS_WITH_CI(papszFiles[i], GetFSPrefix()));
@@ -613,7 +637,8 @@ int *VSIGSFSHandler::UnlinkBatch(CSLConstList papszFiles)
             CURL *hCurlHandle = curl_easy_init();
             struct curl_slist *subrequest_headers =
                 static_cast<struct curl_slist *>(CPLHTTPSetOptions(
-                    hCurlHandle, poTmpHandleHelper->GetURL().c_str(), nullptr));
+                    hCurlHandle, poTmpHandleHelper->GetURL().c_str(),
+                    aosHTTPOptions.List()));
             subrequest_headers = poTmpHandleHelper->GetCurlHeaders(
                 "DELETE", subrequest_headers, nullptr, 0);
             for (struct curl_slist *iter = subrequest_headers; iter;
@@ -679,7 +704,7 @@ int *VSIGSFSHandler::UnlinkBatch(CSLConstList papszFiles)
                 struct curl_slist *headers =
                     static_cast<struct curl_slist *>(CPLHTTPSetOptions(
                         hCurlHandle, poHandleHelper->GetURL().c_str(),
-                        nullptr));
+                        aosHTTPOptions.List()));
                 headers = curl_slist_append(
                     headers,
                     "Content-Type: multipart/mixed; "
@@ -840,7 +865,8 @@ VSIGSHandle::GetCurlHeaders(const CPLString &osVerb,
 
 void VSIInstallGSFileHandler(void)
 {
-    VSIFileManager::InstallHandler("/vsigs/", new cpl::VSIGSFSHandler);
+    VSIFileManager::InstallHandler("/vsigs/",
+                                   new cpl::VSIGSFSHandler("/vsigs/"));
 }
 
 #endif /* HAVE_CURL */

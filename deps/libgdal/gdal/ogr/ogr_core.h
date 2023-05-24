@@ -671,13 +671,25 @@ typedef enum
  */
 #define ALTER_DOMAIN_FLAG 0x40
 
+/** Alter field alternative name.
+ * Used by OGR_L_AlterFieldDefn().
+ * @since GDAL 3.7
+ */
+#define ALTER_ALTERNATIVE_NAME_FLAG 0x80
+
+/** Alter field comment.
+ * Used by OGR_L_AlterFieldDefn().
+ * @since GDAL 3.7
+ */
+#define ALTER_COMMENT_FLAG 0x100
+
 /** Alter all parameters of field definition.
  * Used by OGR_L_AlterFieldDefn().
  */
 #define ALTER_ALL_FLAG                                                         \
     (ALTER_NAME_FLAG | ALTER_TYPE_FLAG | ALTER_WIDTH_PRECISION_FLAG |          \
      ALTER_NULLABLE_FLAG | ALTER_DEFAULT_FLAG | ALTER_UNIQUE_FLAG |            \
-     ALTER_DOMAIN_FLAG)
+     ALTER_DOMAIN_FLAG | ALTER_ALTERNATIVE_NAME_FLAG | ALTER_COMMENT_FLAG)
 
 /** Alter geometry field name.
  * Used by OGR_L_AlterGeomFieldDefn().
@@ -975,6 +987,9 @@ int CPL_DLL OGRParseDate(const char *pszInput, OGRField *psOutput,
     "DeleteFeature" /**< Layer capability for feature deletion */
 #define OLCUpsertFeature                                                       \
     "UpsertFeature" /**< Layer capability for feature upsert */
+#define OLCUpdateFeature                                                       \
+    "UpdateFeature" /**< Layer capability for specialized \
+                                              UpdateFeature() implementation */
 #define OLCFastSetNextByIndex                                                  \
     "FastSetNextByIndex" /**< Layer capability for setting next feature index  \
                           */

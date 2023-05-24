@@ -711,6 +711,103 @@ OGRErr OGR_L_UpsertFeature(OGRLayerH hLayer, OGRFeatureH hFeat)
 }
 
 /************************************************************************/
+/*                           UpdateFeature()                            */
+/************************************************************************/
+
+OGRErr OGRLayer::UpdateFeature(OGRFeature *poFeature, int nUpdatedFieldsCount,
+                               const int *panUpdatedFieldsIdx,
+                               int nUpdatedGeomFieldsCount,
+                               const int *panUpdatedGeomFieldsIdx,
+                               bool bUpdateStyleString)
+
+{
+    ConvertGeomsIfNecessary(poFeature);
+    const int nFieldCount = GetLayerDefn()->GetFieldCount();
+    for (int i = 0; i < nUpdatedFieldsCount; ++i)
+    {
+        if (panUpdatedFieldsIdx[i] < 0 || panUpdatedFieldsIdx[i] >= nFieldCount)
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Invalid panUpdatedFieldsIdx[%d] = %d", i,
+                     panUpdatedFieldsIdx[i]);
+            return OGRERR_FAILURE;
+        }
+    }
+    const int nGeomFieldCount = GetLayerDefn()->GetGeomFieldCount();
+    for (int i = 0; i < nUpdatedGeomFieldsCount; ++i)
+    {
+        if (panUpdatedGeomFieldsIdx[i] < 0 ||
+            panUpdatedGeomFieldsIdx[i] >= nGeomFieldCount)
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Invalid panUpdatedGeomFieldsIdx[%d] = %d", i,
+                     panUpdatedGeomFieldsIdx[i]);
+            return OGRERR_FAILURE;
+        }
+    }
+    return IUpdateFeature(poFeature, nUpdatedFieldsCount, panUpdatedFieldsIdx,
+                          nUpdatedGeomFieldsCount, panUpdatedGeomFieldsIdx,
+                          bUpdateStyleString);
+}
+
+/************************************************************************/
+/*                           IUpdateFeature()                           */
+/************************************************************************/
+
+OGRErr OGRLayer::IUpdateFeature(OGRFeature *poFeature, int nUpdatedFieldsCount,
+                                const int *panUpdatedFieldsIdx,
+                                int nUpdatedGeomFieldsCount,
+                                const int *panUpdatedGeomFieldsIdx,
+                                bool bUpdateStyleString)
+{
+    if (!TestCapability(OLCRandomWrite))
+        return OGRERR_UNSUPPORTED_OPERATION;
+
+    auto poFeatureExisting =
+        std::unique_ptr<OGRFeature>(GetFeature(poFeature->GetFID()));
+    if (!poFeatureExisting)
+        return OGRERR_NON_EXISTING_FEATURE;
+
+    for (int i = 0; i < nUpdatedFieldsCount; ++i)
+    {
+        poFeatureExisting->SetField(
+            panUpdatedFieldsIdx[i],
+            poFeature->GetRawFieldRef(panUpdatedFieldsIdx[i]));
+    }
+    for (int i = 0; i < nUpdatedGeomFieldsCount; ++i)
+    {
+        poFeatureExisting->SetGeomFieldDirectly(
+            panUpdatedGeomFieldsIdx[i],
+            poFeature->StealGeometry(panUpdatedGeomFieldsIdx[i]));
+    }
+    if (bUpdateStyleString)
+    {
+        poFeatureExisting->SetStyleString(poFeature->GetStyleString());
+    }
+    return ISetFeature(poFeatureExisting.get());
+}
+
+/************************************************************************/
+/*                        OGR_L_UpdateFeature()                         */
+/************************************************************************/
+
+OGRErr OGR_L_UpdateFeature(OGRLayerH hLayer, OGRFeatureH hFeat,
+                           int nUpdatedFieldsCount,
+                           const int *panUpdatedFieldsIdx,
+                           int nUpdatedGeomFieldsCount,
+                           const int *panUpdatedGeomFieldsIdx,
+                           bool bUpdateStyleString)
+
+{
+    VALIDATE_POINTER1(hLayer, "OGR_L_UpdateFeature", OGRERR_INVALID_HANDLE);
+    VALIDATE_POINTER1(hFeat, "OGR_L_UpdateFeature", OGRERR_INVALID_HANDLE);
+
+    return OGRLayer::FromHandle(hLayer)->UpdateFeature(
+        OGRFeature::FromHandle(hFeat), nUpdatedFieldsCount, panUpdatedFieldsIdx,
+        nUpdatedGeomFieldsCount, panUpdatedGeomFieldsIdx, bUpdateStyleString);
+}
+
+/************************************************************************/
 /*                            CreateField()                             */
 /************************************************************************/
 
@@ -1128,7 +1225,8 @@ int OGRLayer::FindFieldIndex(const char *pszFieldName,
 OGRSpatialReference *OGRLayer::GetSpatialRef()
 {
     if (GetLayerDefn()->GetGeomFieldCount() > 0)
-        return GetLayerDefn()->GetGeomFieldDefn(0)->GetSpatialRef();
+        return const_cast<OGRSpatialReference *>(
+            GetLayerDefn()->GetGeomFieldDefn(0)->GetSpatialRef());
     else
         return nullptr;
 }
@@ -7101,4 +7199,145 @@ OGRGeometryTypeCounter *OGR_L_GetGeometryTypes(OGRLayerH hLayer, int iGeomField,
 
     return OGRLayer::FromHandle(hLayer)->GetGeometryTypes(
         iGeomField, nFlags, *pnEntryCount, pfnProgress, pProgressData);
+}
+
+/************************************************************************/
+/*                    OGRLayer::GetSupportedSRSList()                   */
+/************************************************************************/
+
+/** \brief Get the list of SRS supported.
+ *
+ * The base implementation of this method will return an empty list. Some
+ * drivers (OAPIF, WFS) may return a non-empty list.
+ *
+ * One of the SRS returned may be passed to SetActiveSRS() to change the
+ * active SRS.
+ *
+ * @param iGeomField Geometry field index.
+ * @return list of supported SRS.
+ * @since GDAL 3.7
+ */
+const OGRLayer::GetSupportedSRSListRetType &
+OGRLayer::GetSupportedSRSList(CPL_UNUSED int iGeomField)
+{
+    static OGRLayer::GetSupportedSRSListRetType empty;
+    return empty;
+}
+
+/************************************************************************/
+/*                    OGR_L_GetSupportedSRSList()                       */
+/************************************************************************/
+
+/** \brief Get the list of SRS supported.
+ *
+ * The base implementation of this method will return an empty list. Some
+ * drivers (OAPIF, WFS) may return a non-empty list.
+ *
+ * One of the SRS returned may be passed to SetActiveSRS() to change the
+ * active SRS.
+ *
+ * @param hLayer Layer.
+ * @param iGeomField Geometry field index.
+ * @param[out] pnCount Number of values in returned array. Must not be null.
+ * @return list of supported SRS, to be freeds with OSRFreeSRSArray(), or
+ * nullptr
+ * @since GDAL 3.7
+ */
+OGRSpatialReferenceH *OGR_L_GetSupportedSRSList(OGRLayerH hLayer,
+                                                int iGeomField, int *pnCount)
+{
+    VALIDATE_POINTER1(hLayer, "OGR_L_GetSupportedSRSList", nullptr);
+    VALIDATE_POINTER1(pnCount, "OGR_L_GetSupportedSRSList", nullptr);
+
+    const auto &srsList =
+        OGRLayer::FromHandle(hLayer)->GetSupportedSRSList(iGeomField);
+    *pnCount = static_cast<int>(srsList.size());
+    if (srsList.empty())
+    {
+        return nullptr;
+    }
+    OGRSpatialReferenceH *pahRet = static_cast<OGRSpatialReferenceH *>(
+        CPLMalloc((1 + srsList.size()) * sizeof(OGRSpatialReferenceH)));
+    size_t i = 0;
+    for (const auto &poSRS : srsList)
+    {
+        poSRS->Reference();
+        pahRet[i] = OGRSpatialReference::ToHandle(poSRS.get());
+        ++i;
+    }
+    pahRet[i] = nullptr;
+    return pahRet;
+}
+
+/************************************************************************/
+/*                       OGRLayer::SetActiveSRS()                       */
+/************************************************************************/
+
+/** \brief Change the active SRS.
+ *
+ * The passed SRS must be in the list returned by GetSupportedSRSList()
+ * (the actual pointer may be different, but should be tested as identical
+ * with OGRSpatialReference::IsSame()).
+ *
+ * Changing the active SRS affects:
+ * <ul>
+ * <li>the SRS in which geometries of returned features are expressed,</li>
+ * <li>the SRS in which geometries of passed features (CreateFeature(),
+ * SetFeature()) are expressed,</li> <li>the SRS returned by GetSpatialRef() and
+ * GetGeomFieldDefn()->GetSpatialRef(),</li> <li>the SRS used to interpret
+ * SetSpatialFilter() values.</li>
+ * </ul>
+ * This also resets feature reading and the spatial filter.
+ * Note however that this does not modify the storage SRS of the features of
+ * geometries. Said otherwise, this setting is volatile and has no persistent
+ * effects after dataset reopening.
+ *
+ * @param iGeomField Geometry field index.
+ * @param poSRS SRS to use
+ * @return OGRERR_NONE in case of success, or OGRERR_FAILURE if
+ *         the passed SRS is not in GetSupportedSRSList()
+ * @since GDAL 3.7
+ */
+OGRErr OGRLayer::SetActiveSRS(CPL_UNUSED int iGeomField,
+                              CPL_UNUSED const OGRSpatialReference *poSRS)
+{
+    return OGRERR_FAILURE;
+}
+
+/************************************************************************/
+/*                         OGR_L_SetActiveSRS()                         */
+/************************************************************************/
+
+/** \brief Change the active SRS.
+ *
+ * The passed SRS must be in the list returned by GetSupportedSRSList()
+ * (the actual pointer may be different, but should be tested as identical
+ * with OGRSpatialReference::IsSame()).
+ *
+ * Changing the active SRS affects:
+ * <ul>
+ * <li>the SRS in which geometries of returned features are expressed,</li>
+ * <li>the SRS in which geometries of passed features (CreateFeature(),
+ * SetFeature()) are expressed,</li> <li>the SRS returned by GetSpatialRef() and
+ * GetGeomFieldDefn()->GetSpatialRef(),</li> <li>the SRS used to interpret
+ * SetSpatialFilter() values.</li>
+ * </ul>
+ * This also resets feature reading and the spatial filter.
+ * Note however that this does not modify the storage SRS of the features of
+ * geometries. Said otherwise, this setting is volatile and has no persistent
+ * effects after dataset reopening.
+ *
+ * @param hLayer Layer.
+ * @param iGeomField Geometry field index.
+ * @param hSRS SRS to use
+ * @return OGRERR_NONE in case of success, OGRERR_FAILURE if
+ *         the passed SRS is not in GetSupportedSRSList().
+ * @since GDAL 3.7
+ */
+OGRErr OGR_L_SetActiveSRS(OGRLayerH hLayer, int iGeomField,
+                          OGRSpatialReferenceH hSRS)
+{
+    VALIDATE_POINTER1(hLayer, "OGR_L_SetActiveSRS", OGRERR_FAILURE);
+    return OGRLayer::FromHandle(hLayer)->SetActiveSRS(
+        iGeomField, OGRSpatialReference::FromHandle(hSRS));
 }

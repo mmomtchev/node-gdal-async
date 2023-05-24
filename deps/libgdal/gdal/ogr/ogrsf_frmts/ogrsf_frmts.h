@@ -119,6 +119,11 @@ class CPL_DLL OGRLayer : public GDALMajorObject
     virtual OGRErr ISetFeature(OGRFeature *poFeature) CPL_WARN_UNUSED_RESULT;
     virtual OGRErr ICreateFeature(OGRFeature *poFeature) CPL_WARN_UNUSED_RESULT;
     virtual OGRErr IUpsertFeature(OGRFeature *poFeature) CPL_WARN_UNUSED_RESULT;
+    virtual OGRErr
+    IUpdateFeature(OGRFeature *poFeature, int nUpdatedFieldsCount,
+                   const int *panUpdatedFieldsIdx, int nUpdatedGeomFieldsCount,
+                   const int *panUpdatedGeomFieldsIdx,
+                   bool bUpdateStyleString) CPL_WARN_UNUSED_RESULT;
 
     //! @cond Doxygen_Suppress
     CPLStringList m_aosArrowArrayStreamOptions{};
@@ -192,6 +197,11 @@ class CPL_DLL OGRLayer : public GDALMajorObject
     OGRErr SetFeature(OGRFeature *poFeature) CPL_WARN_UNUSED_RESULT;
     OGRErr CreateFeature(OGRFeature *poFeature) CPL_WARN_UNUSED_RESULT;
     OGRErr UpsertFeature(OGRFeature *poFeature) CPL_WARN_UNUSED_RESULT;
+    OGRErr UpdateFeature(OGRFeature *poFeature, int nUpdatedFieldsCount,
+                         const int *panUpdatedFieldsIdx,
+                         int nUpdatedGeomFieldsCount,
+                         const int *panUpdatedGeomFieldsIdx,
+                         bool bUpdateStyleString) CPL_WARN_UNUSED_RESULT;
 
     virtual OGRErr DeleteFeature(GIntBig nFID) CPL_WARN_UNUSED_RESULT;
 
@@ -201,6 +211,15 @@ class CPL_DLL OGRLayer : public GDALMajorObject
     virtual int FindFieldIndex(const char *pszFieldName, int bExactMatch);
 
     virtual OGRSpatialReference *GetSpatialRef();
+
+    /** Return type of OGRLayer::GetSupportedSRSList() */
+    typedef std::vector<
+        std::unique_ptr<OGRSpatialReference, OGRSpatialReferenceReleaser>>
+        GetSupportedSRSListRetType;
+    virtual const GetSupportedSRSListRetType &
+    GetSupportedSRSList(int iGeomField);
+    virtual OGRErr SetActiveSRS(int iGeomField,
+                                const OGRSpatialReference *poSRS);
 
     virtual GIntBig GetFeatureCount(int bForce = TRUE);
     virtual OGRErr GetExtent(OGREnvelope *psExtent,
@@ -633,6 +652,7 @@ void CPL_DLL RegisterOGRLVBAG();
 void CPL_DLL RegisterOGRHANA();
 void CPL_DLL RegisterOGRParquet();
 void CPL_DLL RegisterOGRArrow();
+void CPL_DLL RegisterOGRGTFS();
 // @endcond
 
 CPL_C_END

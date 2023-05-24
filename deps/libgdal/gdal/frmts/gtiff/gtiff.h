@@ -39,11 +39,11 @@
 #include "tiffio.h"
 
 CPL_C_START
-int GTiffOneTimeInit();
+void GTiffOneTimeInit();
 void CPL_DLL LibgeotiffOneTimeInit();
 CPL_C_END
 
-void GTIFFSetInExternalOvr(bool b);
+void GTIFFSetThreadLocalInExternalOvr(bool b);
 void GTIFFGetOverviewBlockSize(GDALRasterBandH hBand, int *pnBlockXSize,
                                int *pnBlockYSize);
 void GTIFFSetJpegQuality(GDALDatasetH hGTIFFDS, int nJpegQuality);

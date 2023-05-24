@@ -32,6 +32,7 @@
 #include "vrtdataset.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -910,10 +911,16 @@ CPLErr VRTSourcedRasterBand::ComputeRasterMinMax(int bApproxOK,
             return eErr;
         }
 
-        const char *pszPixelType =
-            GetMetadataItem("PIXELTYPE", "IMAGE_STRUCTURE");
-        const bool bSignedByte =
-            pszPixelType != nullptr && EQUAL(pszPixelType, "SIGNEDBYTE");
+        bool bSignedByte = false;
+        if (eDataType == GDT_Byte)
+        {
+            EnablePixelTypeSignedByteWarning(false);
+            const char *pszPixelType =
+                GetMetadataItem("PIXELTYPE", "IMAGE_STRUCTURE");
+            EnablePixelTypeSignedByteWarning(true);
+            bSignedByte =
+                pszPixelType != nullptr && EQUAL(pszPixelType, "SIGNEDBYTE");
+        }
 
         double dfGlobalMin = std::numeric_limits<double>::max();
         double dfGlobalMax = -std::numeric_limits<double>::max();
@@ -1330,7 +1337,9 @@ CPLErr VRTSourcedRasterBand::ComputeStatistics(int bApproxOK, double *pdfMin,
                 {
                     auto poSimpleSource =
                         cpl::down_cast<VRTSimpleSource *>(papoSources[i]);
+                    assert(poSimpleSource);
                     auto poSimpleSourceBand = poSimpleSource->GetRasterBand();
+                    assert(poSimpleSourceBand);
                     auto poSourceDataset = poSimpleSourceBand->GetDataset();
                     if (poSourceDataset == nullptr)
                     {
@@ -1372,8 +1381,10 @@ CPLErr VRTSourcedRasterBand::ComputeStatistics(int bApproxOK, double *pdfMin,
         for (int i = 0; i < nSources; ++i)
         {
             auto poSimpleSource =
-                cpl::down_cast<VRTSimpleSource *>(papoSources[i]);
+                static_cast<VRTSimpleSource *>(papoSources[i]);
+            assert(poSimpleSource);
             auto poSimpleSourceBand = poSimpleSource->GetRasterBand();
+            assert(poSimpleSourceBand);
             sContext.nTotalPixelsOfSources +=
                 static_cast<uint64_t>(poSimpleSourceBand->GetXSize()) *
                 poSimpleSourceBand->GetYSize();
@@ -1388,8 +1399,10 @@ CPLErr VRTSourcedRasterBand::ComputeStatistics(int bApproxOK, double *pdfMin,
             for (int i = 0; i < nSources; ++i)
             {
                 auto poSimpleSource =
-                    cpl::down_cast<VRTSimpleSource *>(papoSources[i]);
+                    static_cast<VRTSimpleSource *>(papoSources[i]);
+                assert(poSimpleSource);
                 auto poSimpleSourceBand = poSimpleSource->GetRasterBand();
+                assert(poSimpleSourceBand);
                 asJobs[i].psContext = &sContext;
                 asJobs[i].poRasterBand = poSimpleSourceBand;
                 if (!poQueue->SubmitJob(JobRunner, &asJobs[i]))
@@ -1415,8 +1428,10 @@ CPLErr VRTSourcedRasterBand::ComputeStatistics(int bApproxOK, double *pdfMin,
             for (int i = 0; i < nSources; ++i)
             {
                 auto poSimpleSource =
-                    cpl::down_cast<VRTSimpleSource *>(papoSources[i]);
+                    static_cast<VRTSimpleSource *>(papoSources[i]);
+                assert(poSimpleSource);
                 auto poSimpleSourceBand = poSimpleSource->GetRasterBand();
+                assert(poSimpleSourceBand);
                 Job sJob;
                 sJob.psContext = &sContext;
                 sJob.poRasterBand = poSimpleSourceBand;
@@ -2459,6 +2474,7 @@ CPLErr VRTSourcedRasterBand::SetMetadata(char **papszNewMD,
                 return CE_Failure;
 
             const CPLErr eErr = AddSource(poSource);
+            // cppcheck-suppress knownConditionTrueFalse
             if (eErr != CE_None)
                 return eErr;
         }

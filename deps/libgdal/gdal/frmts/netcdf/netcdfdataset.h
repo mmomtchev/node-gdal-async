@@ -92,6 +92,18 @@
 /* Config Options
 
    GDAL_NETCDF_BOTTOMUP=YES/NO overrides bottom-up value on import
+   GDAL_NETCDF_VERIFY_DIMS=[YES/STRICT] : Try to guess which dimensions
+   represent the latitude and longitude only by their attributes (STRICT) or
+   also by guessing the name (YES), default is YES.
+   GDAL_NETCDF_IGNORE_XY_AXIS_NAME_CHECKS=[YES/NO] Whether X/Y dimensions should
+   be always considered as geospatial axis, even if the lack conventional
+   attributes confirming it. Default is NO. GDAL_NETCDF_ASSUME_LONGLAT=[YES/NO]
+   Whether when all else has failed for determining a CRS, a meaningful
+   geotransform has been found, and is within the bounds -180,360 -90,90, if YES
+   assume OGC:CRS84. Default is NO.
+
+   // TODO: this unusued and a few others occur in the source that are not
+   documented, flush out unused opts and document the rest mdsumner@gmail.com
    GDAL_NETCDF_CONVERT_LAT_180=YES/NO convert longitude values from ]180,360] to
    [-180,180]
 */
@@ -868,7 +880,7 @@ class netCDFDataset final : public GDALPamDataset
     int DefVarDeflate(int nVarId, bool bChunkingArg = true);
     CPLErr AddProjectionVars(bool bDefsOnly, GDALProgressFunc pfnProgress,
                              void *pProgressData);
-    void AddGridMappingRef();
+    bool AddGridMappingRef();
 
     bool GetDefineMode() const
     {
@@ -884,6 +896,10 @@ class netCDFDataset final : public GDALPamDataset
                               const char *pszGivenGM, std::string *,
                               nccfdriver::SGeometry_Reader *);
     void SetProjectionFromVar(int nGroupId, int nVarId, bool bReadSRSOnly);
+
+#ifdef NETCDF_HAS_NC4
+    bool ProcessNASAL2OceanGeoLocation(int nGroupId, int nVarId);
+#endif
 
     int ProcessCFGeolocation(int nGroupId, int nVarId,
                              std::string &osGeolocXNameOut,
@@ -937,10 +953,12 @@ class netCDFDataset final : public GDALPamDataset
                                    OGRwkbGeometryType eGType,
                                    char **papszOptions) override;
 
+    CPLErr Close() override;
+
   public:
     netCDFDataset();
     virtual ~netCDFDataset();
-    void SGCommitPendingTransaction();
+    bool SGCommitPendingTransaction();
     void SGLogPendingTransaction();
     static std::string generateLogName();
 
@@ -1156,7 +1174,7 @@ void NCDFWriteLonLatVarsAttributes(nccfdriver::netCDFVID &vcdf, int nVarLonID,
 void NCDFWriteRLonRLatVarsAttributes(nccfdriver::netCDFVID &vcdf,
                                      int nVarRLonID, int nVarRLatID);
 void NCDFWriteXYVarsAttributes(nccfdriver::netCDFVID &vcdf, int nVarXID,
-                               int nVarYID, OGRSpatialReference *poSRS);
+                               int nVarYID, const OGRSpatialReference *poSRS);
 int NCDFWriteSRSVariable(int cdfid, const OGRSpatialReference *poSRS,
                          char **ppszCFProjection, bool bWriteGDALTags,
                          const std::string & = std::string());

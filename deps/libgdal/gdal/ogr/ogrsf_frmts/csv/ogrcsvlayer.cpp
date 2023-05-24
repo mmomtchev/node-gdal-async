@@ -1389,7 +1389,7 @@ OGRFeature *OGRCSVLayer::GetNextUnfilteredFeature()
                     poFeature->SetGeomFieldDirectly(iGeom, poGeom);
                 }
                 else if (*pszStr == '{' &&
-                         (poGeom = reinterpret_cast<OGRGeometry *>(
+                         (poGeom = OGRGeometry::FromHandle(
                               OGR_G_CreateGeometryFromJson(pszStr))) != nullptr)
                 {
                     poFeature->SetGeomFieldDirectly(iGeom, poGeom);
@@ -1875,10 +1875,13 @@ OGRErr OGRCSVLayer::CreateGeomField(OGRGeomFieldDefn *poGeomField,
         return OGRERR_FAILURE;
     }
     OGRGeomFieldDefn oGeomField(poGeomField);
-    if (oGeomField.GetSpatialRef())
+    auto poSRSOri = poGeomField->GetSpatialRef();
+    if (poSRSOri)
     {
-        oGeomField.GetSpatialRef()->SetAxisMappingStrategy(
-            OAMS_TRADITIONAL_GIS_ORDER);
+        auto poSRS = poSRSOri->Clone();
+        poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        oGeomField.SetSpatialRef(poSRS);
+        poSRS->Release();
     }
     poFeatureDefn->AddGeomFieldDefn(&oGeomField);
 
@@ -2458,12 +2461,7 @@ GIntBig OGRCSVLayer::GetFeatureCount(int bForce)
 {
     if (m_poFilterGeom != nullptr || m_poAttrQuery != nullptr)
     {
-        GIntBig nRet = OGRLayer::GetFeatureCount(bForce);
-        if (nRet >= 0)
-        {
-            nTotalFeatures = nNextFID - 1;
-        }
-        return nRet;
+        return OGRLayer::GetFeatureCount(bForce);
     }
 
     if (nTotalFeatures >= 0)

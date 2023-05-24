@@ -238,7 +238,7 @@ int NITFDataset::CloseDependentDatasets()
 /*                             FlushCache()                             */
 /************************************************************************/
 
-void NITFDataset::FlushCache(bool bAtClosing)
+CPLErr NITFDataset::FlushCache(bool bAtClosing)
 
 {
     // If the JPEG/JP2K dataset has dirty pam info, then we should consider
@@ -255,10 +255,13 @@ void NITFDataset::FlushCache(bool bAtClosing)
          GPF_DIRTY))
         MarkPamDirty();
 
+    CPLErr eErr = CE_None;
     if (poJ2KDataset != nullptr && bJP2Writing)
-        poJ2KDataset->FlushCache(bAtClosing);
+        eErr = poJ2KDataset->FlushCache(bAtClosing);
 
-    GDALPamDataset::FlushCache(bAtClosing);
+    if (GDALPamDataset::FlushCache(bAtClosing) != CE_None)
+        eErr = CE_Failure;
+    return eErr;
 }
 
 #ifdef ESRI_BUILD
@@ -627,7 +630,7 @@ NITFDataset *NITFDataset::OpenInternal(GDALOpenInfo *poOpenInfo,
             // to be opened by a random driver.
             static const char *const apszDrivers[] = {
                 "JP2KAK", "JP2ECW", "JP2MRSID", "JP2OPENJPEG", nullptr};
-            poDS->poJ2KDataset = reinterpret_cast<GDALDataset *>(GDALOpenEx(
+            poDS->poJ2KDataset = GDALDataset::FromHandle(GDALOpenEx(
                 osDSName, GDAL_OF_RASTER, apszDrivers, nullptr, nullptr));
 
             if (poDS->poJ2KDataset == nullptr)
@@ -753,7 +756,7 @@ NITFDataset *NITFDataset::OpenInternal(GDALOpenInfo *poOpenInfo,
         CPLDebug("GDAL", "NITFDataset::Open() as IC=C3 (JPEG compressed)\n");
 
         poDS->poJPEGDataset =
-            reinterpret_cast<GDALDataset *>(GDALOpen(osDSName, GA_ReadOnly));
+            GDALDataset::FromHandle(GDALOpen(osDSName, GA_ReadOnly));
         if (poDS->poJPEGDataset == nullptr)
         {
             int bFoundJPEGDriver = GDALGetDriverByName("JPEG") != nullptr;
@@ -1789,7 +1792,30 @@ NITFDataset *NITFDataset::OpenInternal(GDALOpenInfo *poOpenInfo,
             (reinterpret_cast<GDALPamRasterBand *>(poDS->GetRasterBand(1)))
                 ->GDALPamRasterBand::GetOverviewCount() == 0;
 
+    if (CPLFetchBool(poOpenInfo->papszOpenOptions, "VALIDATE", false))
+    {
+        if (!poDS->Validate() &&
+            CPLFetchBool(poOpenInfo->papszOpenOptions,
+                         "FAIL_IF_VALIDATION_ERROR", false))
+        {
+            delete poDS;
+            poDS = nullptr;
+        }
+    }
+
     return poDS;
+}
+
+/************************************************************************/
+/*                             Validate()                               */
+/************************************************************************/
+
+bool NITFDataset::Validate()
+{
+    bool bSuccess = InitializeTREMetadata(true);
+    if (!InitializeNITFDESs(true))
+        bSuccess = false;
+    return bSuccess;
 }
 
 /************************************************************************/
@@ -2557,15 +2583,16 @@ void NITFDataset::InitializeNITFTREs()
 /*                       InitializeNITFDESs()                           */
 /************************************************************************/
 
-void NITFDataset::InitializeNITFDESs()
+bool NITFDataset::InitializeNITFDESs(bool bValidate)
 {
     char **papszDESsList = oSpecialMD.GetMetadata("xml:DES");
 
     if (papszDESsList != nullptr)
     {
-        return;
+        return true;
     }
 
+    bool bSuccess = true;
     CPLXMLNode *psDesListNode =
         CPLCreateXMLNode(nullptr, CXT_Element, "des_list");
 
@@ -2575,7 +2602,11 @@ void NITFDataset::InitializeNITFDESs()
 
         if (EQUAL(psSegInfo->szSegmentType, "DE"))
         {
-            CPLXMLNode *psDesNode = NITFDESGetXml(psFile, iSegment);
+            bool bGotError = false;
+            CPLXMLNode *psDesNode =
+                NITFDESGetXml(psFile, iSegment, bValidate, &bGotError);
+            if (bGotError)
+                bSuccess = false;
 
             if (psDesNode != nullptr)
             {
@@ -2592,6 +2623,7 @@ void NITFDataset::InitializeNITFDESs()
         CPLFree(pszXML);
     }
     CPLDestroyXMLNode(psDesListNode);
+    return bSuccess;
 }
 
 /************************************************************************/
@@ -2910,12 +2942,14 @@ void NITFDataset::InitializeTextMetadata()
 /*                       InitializeTREMetadata()                        */
 /************************************************************************/
 
-void NITFDataset::InitializeTREMetadata()
+bool NITFDataset::InitializeTREMetadata(bool bValidate)
 
 {
-    if (oSpecialMD.GetMetadata("TRE") != nullptr)
-        return;
+    if (oSpecialMD.GetMetadata("TRE") != nullptr ||
+        oSpecialMD.GetMetadata("xml:TRE") != nullptr)
+        return true;
 
+    bool bGotError = false;
     CPLXMLNode *psTresNode = CPLCreateXMLNode(nullptr, CXT_Element, "tres");
 
     /* -------------------------------------------------------------------- */
@@ -2964,14 +2998,16 @@ void NITFDataset::InitializeTREMetadata()
                 CPLError(CE_Failure, CPLE_AppDefined,
                          "Invalid size (%d) for TRE %s", nThisTRESize, szTemp);
                 CPLDestroyXMLNode(psTresNode);
-                return;
+                bGotError = true;
+                return bGotError;
             }
             if (nThisTRESize > nTREBytes - 11)
             {
                 CPLError(CE_Failure, CPLE_AppDefined,
                          "Not enough bytes in TRE");
                 CPLDestroyXMLNode(psTresNode);
-                return;
+                bGotError = true;
+                return bGotError;
             }
 
             strncpy(szTag, pszTREData, 6);
@@ -2982,7 +3018,8 @@ void NITFDataset::InitializeTREMetadata()
                 szTag[strlen(szTag) - 1] = '\0';
 
             CPLXMLNode *psTreNode =
-                NITFCreateXMLTre(psFile, szTag, pszTREData + 11, nThisTRESize);
+                NITFCreateXMLTre(psFile, szTag, pszTREData + 11, nThisTRESize,
+                                 bValidate, &bGotError);
             if (psTreNode)
             {
                 CPLCreateXMLNode(
@@ -2996,20 +3033,23 @@ void NITFDataset::InitializeTREMetadata()
                 pszTREData + 11, nThisTRESize, CPLES_BackslashQuotable);
             if (pszEscapedData == nullptr)
             {
-                return;
+                bGotError = true;
             }
-
-            char szUniqueTag[32];
-            strcpy(szUniqueTag, szTag);
-            int nCountUnique = 2;
-            while (oSpecialMD.GetMetadataItem(szUniqueTag, "TRE") != nullptr)
+            else
             {
-                snprintf(szUniqueTag, sizeof(szUniqueTag), "%s_%d", szTag,
-                         nCountUnique);
-                nCountUnique++;
+                char szUniqueTag[32];
+                strcpy(szUniqueTag, szTag);
+                int nCountUnique = 2;
+                while (oSpecialMD.GetMetadataItem(szUniqueTag, "TRE") !=
+                       nullptr)
+                {
+                    snprintf(szUniqueTag, sizeof(szUniqueTag), "%s_%d", szTag,
+                             nCountUnique);
+                    nCountUnique++;
+                }
+                oSpecialMD.SetMetadataItem(szUniqueTag, pszEscapedData, "TRE");
+                CPLFree(pszEscapedData);
             }
-            oSpecialMD.SetMetadataItem(szUniqueTag, pszEscapedData, "TRE");
-            CPLFree(pszEscapedData);
 
             nTREBytes -= (nThisTRESize + 11);
             pszTREData += (nThisTRESize + 11);
@@ -3042,8 +3082,8 @@ void NITFDataset::InitializeTREMetadata()
             if (pszEscapedData == nullptr)
             {
                 NITFDESFreeTREData(pabyTREData);
-                NITFDESDeaccess(psDES);
-                return;
+                bGotError = true;
+                break;
             }
 
             // trim white off tag.
@@ -3052,7 +3092,8 @@ void NITFDataset::InitializeTREMetadata()
                 szTREName[strlen(szTREName) - 1] = '\0';
 
             CPLXMLNode *psTreNode =
-                NITFCreateXMLTre(psFile, szTREName, pabyTREData, nThisTRESize);
+                NITFCreateXMLTre(psFile, szTREName, pabyTREData, nThisTRESize,
+                                 bValidate, &bGotError);
             if (psTreNode)
             {
                 const char *pszDESID =
@@ -3093,6 +3134,8 @@ void NITFDataset::InitializeTREMetadata()
         CPLFree(pszXML);
     }
     CPLDestroyXMLNode(psTresNode);
+
+    return !bGotError;
 }
 
 /************************************************************************/
@@ -3153,7 +3196,7 @@ char **NITFDataset::GetMetadata(const char *pszDomain)
         // InitializeNITFDESs retrieves all the DES file headers (NOTE: The
         // returned strings are base64-encoded).
 
-        InitializeNITFDESs();
+        InitializeNITFDESs(false);
         return oSpecialMD.GetMetadata(pszDomain);
     }
 
@@ -3163,7 +3206,7 @@ char **NITFDataset::GetMetadata(const char *pszDomain)
         // InitializeNITFDESs retrieves all the DES file headers (NOTE: The
         // returned strings are base64-encoded).
 
-        InitializeNITFDESMetadata();
+        InitializeNITFDESMetadata(false);
         return oSpecialMD.GetMetadata(pszDomain);
     }
 
@@ -3202,13 +3245,13 @@ char **NITFDataset::GetMetadata(const char *pszDomain)
 
     if (pszDomain != nullptr && EQUAL(pszDomain, "TRE"))
     {
-        InitializeTREMetadata();
+        InitializeTREMetadata(false);
         return oSpecialMD.GetMetadata(pszDomain);
     }
 
     if (pszDomain != nullptr && EQUAL(pszDomain, "xml:TRE"))
     {
-        InitializeTREMetadata();
+        InitializeTREMetadata(false);
         return oSpecialMD.GetMetadata(pszDomain);
     }
 
@@ -3246,7 +3289,7 @@ const char *NITFDataset::GetMetadataItem(const char *pszName,
         // InitializeNITFDESs retrieves all the DES file headers (NOTE: The
         // returned strings are base64-encoded).
 
-        InitializeNITFDESMetadata();
+        InitializeNITFDESMetadata(false);
         return oSpecialMD.GetMetadataItem(pszName, pszDomain);
     }
 
@@ -3285,7 +3328,7 @@ const char *NITFDataset::GetMetadataItem(const char *pszName,
 
     if (pszDomain != nullptr && EQUAL(pszDomain, "TRE"))
     {
-        InitializeTREMetadata();
+        InitializeTREMetadata(false);
         return oSpecialMD.GetMetadataItem(pszName, pszDomain);
     }
 
@@ -3784,7 +3827,7 @@ CPLErr NITFDataset::ReadJPEGBlock(int iBlockX, int iBlockY)
                       panJPEGBlockOffset[iBlock], 0, osNITFFilename.c_str());
 
     GDALDataset *poDS =
-        reinterpret_cast<GDALDataset *>(GDALOpen(osFilename, GA_ReadOnly));
+        GDALDataset::FromHandle(GDALOpen(osFilename, GA_ReadOnly));
     if (poDS == nullptr)
         return CE_Failure;
 
@@ -7179,6 +7222,16 @@ void GDALRegister_NITF()
     poDriver->SetMetadataItem(GDAL_DMD_SUBDATASETS, "YES");
     poDriver->SetMetadataItem(GDAL_DMD_CREATIONDATATYPES,
                               "Byte UInt16 Int16 UInt32 Int32 Float32");
+
+    poDriver->SetMetadataItem(
+        GDAL_DMD_OPENOPTIONLIST,
+        "<OpenOptionList>"
+        "  <Option name='VALIDATE' type='boolean' description='Whether "
+        "validation of metadata should be done' default='NO' />"
+        "  <Option name='FAIL_IF_VALIDATION_ERROR' type='boolean' "
+        "description='Whether a validation error should cause dataset opening "
+        "to fail' default='NO' />"
+        "</OpenOptionList>");
 
     poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");
 

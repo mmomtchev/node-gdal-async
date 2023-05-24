@@ -115,11 +115,13 @@ class ENVIDataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(ENVIDataset)
 
+    CPLErr Close() override;
+
   public:
     ENVIDataset();
     ~ENVIDataset() override;
 
-    void FlushCache(bool bAtClosing) override;
+    CPLErr FlushCache(bool bAtClosing) override;
     CPLErr GetGeoTransform(double *padfTransform) override;
     CPLErr SetGeoTransform(double *) override;
 
@@ -162,10 +164,7 @@ class ENVIRasterBand final : public RawRasterBand
     ENVIRasterBand(GDALDataset *poDSIn, int nBandIn, VSILFILE *fpRawIn,
                    vsi_l_offset nImgOffsetIn, int nPixelOffsetIn,
                    int nLineOffsetIn, GDALDataType eDataTypeIn,
-                   int bNativeOrderIn);
-    ~ENVIRasterBand() override
-    {
-    }
+                   RawRasterBand::ByteOrder eByteOrderIn);
 
     void SetDescription(const char *) override;
     CPLErr SetNoDataValue(double) override;

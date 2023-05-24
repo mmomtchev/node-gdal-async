@@ -328,6 +328,13 @@ OGRErr OGRSpatialReference::importFromPCI(const char *pszProj,
     }
     else if (STARTS_WITH_CI(pszProj, "MER"))
     {
+        if (EQUAL(pszEM, "D894") && padfPrjParams[3] == 0 &&
+            padfPrjParams[2] == 0 && padfPrjParams[8] == 1.0 &&
+            padfPrjParams[6] == 0 && padfPrjParams[7] == 0)
+        {
+            // Special case for Web Mercator
+            return importFromEPSG(3857);
+        }
         SetMercator(padfPrjParams[3], padfPrjParams[2],
                     (padfPrjParams[8] != 0.0) ? padfPrjParams[8] : 1.0,
                     padfPrjParams[6], padfPrjParams[7]);
@@ -1044,6 +1051,16 @@ OGRErr OGRSpatialReference::exportToPCI(char **ppszProj, char **ppszUnits,
     else if (EQUAL(pszDatum, SRS_DN_WGS84))
     {
         CPLPrintStringFill(szEarthModel, "D000", 4);
+        if (pszProjection && EQUAL(pszProjection, SRS_PT_MERCATOR_1SP))
+        {
+            // Special case for Web Mercator
+            const char *method_name = "";
+            GetWKT2ProjectionMethod(&method_name, nullptr, nullptr);
+            if (EQUAL(method_name, "Popular Visualisation Pseudo Mercator"))
+            {
+                CPLPrintStringFill(szEarthModel, "D894", 4);
+            }
+        }
     }
 
     /* -------------------------------------------------------------------- */
@@ -1074,11 +1091,10 @@ OGRErr OGRSpatialReference::exportToPCI(char **ppszProj, char **ppszUnits,
     /*      If we haven't found something yet, try translating the          */
     /*      ellipsoid.                                                      */
     /* -------------------------------------------------------------------- */
+    const double dfSemiMajor = GetSemiMajor();
+    const double dfInvFlattening = GetInvFlattening();
     if (szEarthModel[0] == '\0')
     {
-        const double dfSemiMajor = GetSemiMajor();
-        const double dfInvFlattening = GetInvFlattening();
-
         const PCIDatums *pasDatum = asEllips;
 
         while (pasDatum->pszPCIDatum)
@@ -1097,47 +1113,47 @@ OGRErr OGRSpatialReference::exportToPCI(char **ppszProj, char **ppszUnits,
 
             pasDatum++;
         }
+    }
 
-        // Try to find in pci_ellips.txt.
-        if (szEarthModel[0] == '\0')
+    // Try to find in pci_ellips.txt.
+    if (szEarthModel[0] == '\0')
+    {
+        const char *pszCSV = CSVFilename("pci_ellips.txt");
+        const double dfSemiMinor =
+            OSRCalcSemiMinorFromInvFlattening(dfSemiMajor, dfInvFlattening);
+
+        VSILFILE *fp = pszCSV ? VSIFOpenL(pszCSV, "r") : nullptr;
+
+        if (fp != nullptr)
         {
-            const char *pszCSV = CSVFilename("pci_ellips.txt");
-            const double dfSemiMinor =
-                OSRCalcSemiMinorFromInvFlattening(dfSemiMajor, dfInvFlattening);
+            char **papszLineItems = nullptr;
 
-            VSILFILE *fp = pszCSV ? VSIFOpenL(pszCSV, "r") : nullptr;
-
-            if (fp != nullptr)
+            while ((papszLineItems = CSVReadParseLineL(fp)) != nullptr)
             {
-                char **papszLineItems = nullptr;
-
-                while ((papszLineItems = CSVReadParseLineL(fp)) != nullptr)
+                if (CSLCount(papszLineItems) >= 4 &&
+                    CPLIsEqual(dfSemiMajor, CPLAtof(papszLineItems[2])) &&
+                    CPLIsEqual(dfSemiMinor, CPLAtof(papszLineItems[3])))
                 {
-                    if (CSLCount(papszLineItems) >= 4 &&
-                        CPLIsEqual(dfSemiMajor, CPLAtof(papszLineItems[2])) &&
-                        CPLIsEqual(dfSemiMinor, CPLAtof(papszLineItems[3])))
-                    {
-                        snprintf(szEarthModel, sizeof(szEarthModel), "%s",
-                                 papszLineItems[0]);
-                        break;
-                    }
-
-                    CSLDestroy(papszLineItems);
+                    snprintf(szEarthModel, sizeof(szEarthModel), "%s",
+                             papszLineItems[0]);
+                    break;
                 }
 
                 CSLDestroy(papszLineItems);
-                VSIFCloseL(fp);
             }
-        }
 
-        // Custom ellipsoid parameters.
-        if (szEarthModel[0] == '\0')
-        {
-            CPLPrintStringFill(szEarthModel, "E999", 4);
-            (*ppadfPrjParams)[0] = dfSemiMajor;
-            (*ppadfPrjParams)[1] =
-                OSRCalcSemiMinorFromInvFlattening(dfSemiMajor, dfInvFlattening);
+            CSLDestroy(papszLineItems);
+            VSIFCloseL(fp);
         }
+    }
+
+    // Custom ellipsoid parameters.
+    if (szEarthModel[0] == '\0')
+    {
+        CPLPrintStringFill(szEarthModel, "E999", 4);
+        (*ppadfPrjParams)[0] = dfSemiMajor;
+        (*ppadfPrjParams)[1] =
+            OSRCalcSemiMinorFromInvFlattening(dfSemiMajor, dfInvFlattening);
     }
 
     /* -------------------------------------------------------------------- */

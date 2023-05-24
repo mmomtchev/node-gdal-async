@@ -93,7 +93,8 @@ static int OGRCSVDriverIdentify(GDALOpenInfo *poOpenInfo)
         {
             return TRUE;
         }
-        else if (EQUAL(osExt, "csv") || EQUAL(osExt, "tsv"))
+        else if (EQUAL(osExt, "csv") || EQUAL(osExt, "tsv") ||
+                 EQUAL(osExt, "psv"))
         {
             return TRUE;
         }
@@ -301,6 +302,8 @@ void RegisterOGRCSV()
     poDriver->SetMetadataItem(GDAL_DCAP_CREATE_FIELD, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_DELETE_FIELD, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_REORDER_FIELDS, "YES");
+    poDriver->SetMetadataItem(GDAL_DMD_CREATION_FIELD_DEFN_FLAGS,
+                              "WidthPrecision");
     poDriver->SetMetadataItem(GDAL_DMD_ALTER_FIELD_DEFN_FLAGS,
                               "Name Type WidthPrecision");
 
@@ -310,9 +313,13 @@ void RegisterOGRCSV()
 
     poDriver->SetMetadataItem(GDAL_DMD_LONGNAME,
                               "Comma Separated Value (.csv)");
-    poDriver->SetMetadataItem(GDAL_DMD_EXTENSION, "csv");
+    poDriver->SetMetadataItem(GDAL_DMD_EXTENSIONS, "csv tsv psv");
     poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "drivers/vector/csv.html");
     poDriver->SetMetadataItem(GDAL_DMD_SUPPORTED_SQL_DIALECTS, "OGRSQL SQLITE");
+    poDriver->SetMetadataItem(GDAL_DMD_NUMERIC_FIELD_WIDTH_INCLUDES_SIGN,
+                              "YES");
+    poDriver->SetMetadataItem(
+        GDAL_DMD_NUMERIC_FIELD_WIDTH_INCLUDES_DECIMAL_SEPARATOR, "YES");
 
     poDriver->SetMetadataItem(GDAL_DMD_CREATIONOPTIONLIST,
                               "<CreationOptionList>"

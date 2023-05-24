@@ -587,8 +587,7 @@ void GDALPDFBaseWriter::StartObjWithStream(const GDALPDFObjectNum &nObjectId,
     m_fpBack = m_fp;
     if (bDeflate)
     {
-        m_fpGZip = reinterpret_cast<VSILFILE *>(VSICreateGZipWritable(
-            reinterpret_cast<VSIVirtualHandle *>(m_fp), TRUE, FALSE));
+        m_fpGZip = VSICreateGZipWritable(m_fp, TRUE, FALSE);
         m_fp = m_fpGZip;
     }
 }
@@ -2171,9 +2170,6 @@ bool GDALPDFWriter::WriteOGRDataSource(const char *pszOGRDataSource,
                                        const char *pszOGRLinkField,
                                        int bWriteOGRAttributes)
 {
-    if (OGRGetDriverCount() == 0)
-        OGRRegisterAll();
-
     OGRDataSourceH hDS = OGROpen(pszOGRDataSource, 0, nullptr);
     if (hDS == nullptr)
         return false;

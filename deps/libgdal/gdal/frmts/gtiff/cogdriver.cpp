@@ -394,14 +394,16 @@ static bool COGGetWarpingCharacteristics(
         const double dfOriY =
             bInvertAxis ? tmList[0].mTopLeftX : tmList[0].mTopLeftY;
         const double dfTileExtent = dfRes * nBlockSize;
+        constexpr double TOLERANCE_IN_PIXEL = 0.499;
+        const double dfEps = TOLERANCE_IN_PIXEL * dfRes;
         int nTLTileX = static_cast<int>(
-            std::floor((dfMinX - dfOriX) / dfTileExtent + 1e-10));
+            std::floor((dfMinX - dfOriX + dfEps) / dfTileExtent));
         int nTLTileY = static_cast<int>(
-            std::floor((dfOriY - dfMaxY) / dfTileExtent + 1e-10));
+            std::floor((dfOriY - dfMaxY + dfEps) / dfTileExtent));
         int nBRTileX = static_cast<int>(
-            std::ceil((dfMaxX - dfOriX) / dfTileExtent - 1e-10));
+            std::ceil((dfMaxX - dfOriX - dfEps) / dfTileExtent));
         int nBRTileY = static_cast<int>(
-            std::ceil((dfOriY - dfMinY) / dfTileExtent - 1e-10));
+            std::ceil((dfOriY - dfMinY - dfEps) / dfTileExtent));
 
         nAlignedLevels =
             std::min(std::min(10, atoi(CSLFetchNameValueDef(
@@ -660,6 +662,14 @@ static std::unique_ptr<GDALDataset> CreateReprojectedDS(
                                   pScaledProgress);
     CPLString osTmpFile(GetTmpFilename(pszDstFilename, "warped.tif.tmp"));
     auto hSrcDS = GDALDataset::ToHandle(poSrcDS);
+
+    std::unique_ptr<CPLConfigOptionSetter> poWarpThreadSetter;
+    if (pszNumThreads)
+    {
+        poWarpThreadSetter.reset(new CPLConfigOptionSetter(
+            "GDAL_NUM_THREADS", pszNumThreads, false));
+    }
+
     auto hRet = GDALWarp(osTmpFile, nullptr, 1, &hSrcDS, psOptions, nullptr);
     GDALWarpAppOptionsFree(psOptions);
     CPLDebug("COG", "Reprojecting source dataset: end");
@@ -1109,12 +1119,13 @@ GDALDataset *GDALCOGCreator::Create(const char *pszFilename,
 
     if (STARTS_WITH_CI(osCompress, "JXL"))
     {
-        aosOptions.SetNameValue(
-            "JXL_LOSSLESS", CSLFetchNameValue(papszOptions, "JXL_LOSSLESS"));
-        aosOptions.SetNameValue("JXL_EFFORT",
-                                CSLFetchNameValue(papszOptions, "JXL_EFFORT"));
-        aosOptions.SetNameValue(
-            "JXL_DISTANCE", CSLFetchNameValue(papszOptions, "JXL_DISTANCE"));
+        for (const char *pszKey : {"JXL_LOSSLESS", "JXL_EFFORT", "JXL_DISTANCE",
+                                   "JXL_ALPHA_DISTANCE"})
+        {
+            const char *pszValue = CSLFetchNameValue(papszOptions, pszKey);
+            if (pszValue)
+                aosOptions.SetNameValue(pszKey, pszValue);
+        }
     }
 
     aosOptions.SetNameValue("BIGTIFF",
@@ -1125,6 +1136,7 @@ GDALDataset *GDALCOGCreator::Create(const char *pszFilename,
                             CSLFetchNameValue(papszOptions, "GEOTIFF_VERSION"));
     aosOptions.SetNameValue("SPARSE_OK",
                             CSLFetchNameValue(papszOptions, "SPARSE_OK"));
+    aosOptions.SetNameValue("NBITS", CSLFetchNameValue(papszOptions, "NBITS"));
 
     if (EQUAL(osOverviews, "NONE"))
     {
@@ -1367,11 +1379,21 @@ void GDALCOGDriver::InitializeCreationOptionList()
         "   <Option name='JXL_DISTANCE' type='float' description='Distance "
         "level for lossy compression (0=mathematically lossless, 1.0=visually "
         "lossless, usual range [0.5,3])' default='1.0' min='0.1' max='15.0'/>";
+#ifdef HAVE_JxlEncoderSetExtraChannelDistance
+    osOptions += "   <Option name='JXL_ALPHA_DISTANCE' type='float' "
+                 "description='Distance level for alpha channel "
+                 "(-1=same as non-alpha channels, "
+                 "0=mathematically lossless, 1.0=visually lossless, "
+                 "usual range [0.5,3])' default='-1' min='-1' max='15.0'/>";
+#endif
 #endif
     osOptions +=
         "   <Option name='NUM_THREADS' type='string' "
         "description='Number of worker threads for compression. "
         "Can be set to ALL_CPUS' default='1'/>"
+        "   <Option name='NBITS' type='int' description='BITS for sub-byte "
+        "files (1-7), sub-uint16_t (9-15), sub-uint32_t (17-31), or float32 "
+        "(16)'/>"
         "   <Option name='BLOCKSIZE' type='int' "
         "description='Tile size in pixels' min='128' default='512'/>"
         "   <Option name='BIGTIFF' type='string-select' description='"
@@ -1472,7 +1494,7 @@ void GDALRegister_COG()
 
     poDriver->SetMetadataItem(
         GDAL_DMD_CREATIONDATATYPES,
-        "Byte UInt16 Int16 UInt32 Int32 UInt64 Int64 Float32 "
+        "Byte Int8 UInt16 Int16 UInt32 Int32 UInt64 Int64 Float32 "
         "Float64 CInt16 CInt32 CFloat32 CFloat64");
 
     poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");

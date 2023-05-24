@@ -145,6 +145,9 @@ void RegisterOGRFlatGeobuf()
         "Integer Integer64 Real String Date DateTime Binary");
     poDriver->SetMetadataItem(GDAL_DMD_CREATIONFIELDDATASUBTYPES,
                               "Boolean Int16 Float32");
+    poDriver->SetMetadataItem(GDAL_DMD_CREATION_FIELD_DEFN_FLAGS,
+                              "WidthPrecision Comment AlternativeName");
+
     poDriver->SetMetadataItem(
         GDAL_DS_LAYER_CREATIONOPTIONLIST,
         "<LayerCreationOptionList>"
@@ -162,6 +165,8 @@ void RegisterOGRFlatGeobuf()
 
     poDriver->SetMetadataItem(GDAL_DCAP_COORDINATE_EPOCH, "YES");
     poDriver->SetMetadataItem(GDAL_DMD_SUPPORTED_SQL_DIALECTS, "OGRSQL SQLITE");
+    poDriver->SetMetadataItem(GDAL_DMD_ALTER_FIELD_DEFN_FLAGS,
+                              "Name WidthPrecision AlternativeName Comment");
 
     poDriver->pfnOpen = OGRFlatGeobufDataset::Open;
     poDriver->pfnCreate = OGRFlatGeobufDataset::Create;
@@ -188,6 +193,31 @@ OGRFlatGeobufDataset::OGRFlatGeobufDataset(const char *pszName, bool bIsDir,
 
 OGRFlatGeobufDataset::~OGRFlatGeobufDataset()
 {
+    OGRFlatGeobufDataset::Close();
+}
+
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr OGRFlatGeobufDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
+    {
+        if (OGRFlatGeobufDataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
+
+        for (auto &poLayer : m_apoLayers)
+        {
+            if (poLayer->Close() != CE_None)
+                eErr = CE_Failure;
+        }
+
+        if (GDALDataset::Close() != CE_None)
+            eErr = CE_Failure;
+    }
+    return eErr;
 }
 
 /************************************************************************/

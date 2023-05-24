@@ -39,7 +39,8 @@ class CADWrapperRasterBand : public GDALProxyRasterBand
     GDALRasterBand *poBaseBand;
 
   protected:
-    virtual GDALRasterBand *RefUnderlyingRasterBand() const override
+    virtual GDALRasterBand *
+    RefUnderlyingRasterBand(bool /* bForceOpen */) const override
     {
         return poBaseBand;
     }
@@ -251,7 +252,7 @@ int GDALCADDataset::Open(GDALOpenInfo *poOpenInfo, CADFileIO *pFileIO,
                                  nullptr))
                 return poOpenInfo->nOpenFlags & GDAL_OF_VECTOR;
 
-            poRasterDS = reinterpret_cast<GDALDataset *>(
+            poRasterDS = GDALDataset::FromHandle(
                 GDALOpen(osImgFilename, poOpenInfo->eAccess));
             if (poRasterDS == nullptr)
             {

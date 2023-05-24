@@ -31,6 +31,7 @@
 #include "ehdrdataset.h"
 #include "rawdataset.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <climits>
@@ -71,15 +72,18 @@ constexpr int HAS_ALL_FLAGS =
 EHdrRasterBand::EHdrRasterBand(GDALDataset *poDSIn, int nBandIn,
                                VSILFILE *fpRawIn, vsi_l_offset nImgOffsetIn,
                                int nPixelOffsetIn, int nLineOffsetIn,
-                               GDALDataType eDataTypeIn, int bNativeOrderIn,
+                               GDALDataType eDataTypeIn,
+                               RawRasterBand::ByteOrder eByteOrderIn,
                                int nBitsIn)
     : RawRasterBand(poDSIn, nBandIn, fpRawIn, nImgOffsetIn, nPixelOffsetIn,
-                    nLineOffsetIn, eDataTypeIn, bNativeOrderIn,
+                    nLineOffsetIn, eDataTypeIn, eByteOrderIn,
                     RawRasterBand::OwnFP::NO),
       nBits(nBitsIn), nStartBit(0), nPixelOffsetBits(0), nLineOffsetBits(0),
       bNoDataSet(FALSE), dfNoData(0.0), dfMin(0.0), dfMax(0.0), dfMean(0.0),
       dfStdDev(0.0), minmaxmeanstddev(0)
 {
+    m_bValid = RawRasterBand::IsValid();
+
     EHdrDataset *poEDS = reinterpret_cast<EHdrDataset *>(poDS);
 
     if (nBits < 8)
@@ -87,6 +91,7 @@ EHdrRasterBand::EHdrRasterBand(GDALDataset *poDSIn, int nBandIn,
         int nSkipBytes = atoi(poEDS->GetKeyValue("SKIPBYTES"));
         if (nSkipBytes < 0 || nSkipBytes > std::numeric_limits<int>::max() / 8)
         {
+            m_bValid = false;
             CPLError(CE_Failure, CPLE_AppDefined, "Invalid SKIPBYTES: %d",
                      nSkipBytes);
             nStartBit = 0;
@@ -101,6 +106,7 @@ EHdrRasterBand::EHdrRasterBand(GDALDataset *poDSIn, int nBandIn,
                 CPLAtoGIntBig(poEDS->GetKeyValue("BANDROWBYTES"));
             if (nBandRowBytes < 0)
             {
+                m_bValid = false;
                 CPLError(CE_Failure, CPLE_AppDefined,
                          "Invalid BANDROWBYTES: " CPL_FRMT_GIB, nBandRowBytes);
                 nBandRowBytes = 0;
@@ -123,6 +129,7 @@ EHdrRasterBand::EHdrRasterBand(GDALDataset *poDSIn, int nBandIn,
         if (nTotalRowBytes < 0 ||
             nTotalRowBytes > GINTBIG_MAX / 8 / poDS->GetRasterYSize())
         {
+            m_bValid = false;
             CPLError(CE_Failure, CPLE_AppDefined,
                      "Invalid TOTALROWBYTES: " CPL_FRMT_GIB, nTotalRowBytes);
             nTotalRowBytes = 0;
@@ -139,18 +146,6 @@ EHdrRasterBand::EHdrRasterBand(GDALDataset *poDSIn, int nBandIn,
         SetMetadataItem("NBITS", CPLString().Printf("%d", nBits),
                         "IMAGE_STRUCTURE");
     }
-
-    if (eDataType == GDT_Byte &&
-        EQUAL(poEDS->GetKeyValue("PIXELTYPE", ""), "SIGNEDINT"))
-        SetMetadataItem("PIXELTYPE", "SIGNEDBYTE", "IMAGE_STRUCTURE");
-}
-
-/************************************************************************/
-/*                          ~EHdrRasterBand()                           */
-/************************************************************************/
-
-EHdrRasterBand::~EHdrRasterBand()
-{
 }
 
 /************************************************************************/
@@ -377,36 +372,57 @@ EHdrDataset::EHdrDataset()
 EHdrDataset::~EHdrDataset()
 
 {
-    FlushCache(true);
+    EHdrDataset::Close();
+}
 
-    if (nBands > 0 && GetAccess() == GA_Update)
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr EHdrDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
     {
-        int bNoDataSet;
-        RawRasterBand *poBand =
-            reinterpret_cast<RawRasterBand *>(GetRasterBand(1));
+        if (EHdrDataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
 
-        const double dfNoData = poBand->GetNoDataValue(&bNoDataSet);
-        if (bNoDataSet)
+        if (nBands > 0 && GetAccess() == GA_Update)
         {
-            ResetKeyValue("NODATA", CPLString().Printf("%.8g", dfNoData));
+            int bNoDataSet;
+            RawRasterBand *poBand =
+                reinterpret_cast<RawRasterBand *>(GetRasterBand(1));
+
+            const double dfNoData = poBand->GetNoDataValue(&bNoDataSet);
+            if (bNoDataSet)
+            {
+                ResetKeyValue("NODATA", CPLString().Printf("%.8g", dfNoData));
+            }
+
+            if (bCLRDirty)
+                RewriteCLR(poBand);
+
+            if (bHDRDirty)
+            {
+                if (RewriteHDR() != CE_None)
+                    eErr = CE_Failure;
+            }
         }
 
-        if (bCLRDirty)
-            RewriteCLR(poBand);
-
-        if (bHDRDirty)
-            RewriteHDR();
-    }
-
-    if (fpImage != nullptr)
-    {
-        if (VSIFCloseL(fpImage) != 0)
+        if (fpImage)
         {
-            CPLError(CE_Failure, CPLE_FileIO, "I/O error");
+            if (VSIFCloseL(fpImage) != 0)
+            {
+                CPLError(CE_Failure, CPLE_FileIO, "I/O error");
+                eErr = CE_Failure;
+            }
         }
-    }
 
-    CSLDestroy(papszHDR);
+        CSLDestroy(papszHDR);
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
+    }
+    return eErr;
 }
 
 /************************************************************************/
@@ -973,7 +989,7 @@ GDALDataset *EHdrDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
     // searching for something starting with nrows or ncols.
     int nRows = -1;
     int nCols = -1;
-    int nBands = 1;
+    int l_nBands = 1;
     int nSkipBytes = 0;
     double dfULXMap = 0.5;
     double dfULYMap = 0.5;
@@ -1060,7 +1076,7 @@ GDALDataset *EHdrDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
         }
         else if (EQUAL(papszTokens[0], "nbands"))
         {
-            nBands = atoi(papszTokens[1]);
+            l_nBands = atoi(papszTokens[1]);
         }
         else if (EQUAL(papszTokens[0], "layout"))
         {
@@ -1117,7 +1133,7 @@ GDALDataset *EHdrDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
     }
 
     if (!GDALCheckDatasetDimensions(nCols, nRows) ||
-        !GDALCheckBandCount(nBands, FALSE))
+        !GDALCheckBandCount(l_nBands, FALSE))
     {
         CSLDestroy(papszHDR);
         return nullptr;
@@ -1144,8 +1160,8 @@ GDALDataset *EHdrDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
         VSIStatBufL sStatBuf;
         if (VSIStatL(poOpenInfo->pszFilename, &sStatBuf) == 0)
         {
-            const size_t nBytes =
-                static_cast<size_t>(sStatBuf.st_size / nCols / nRows / nBands);
+            const size_t nBytes = static_cast<size_t>(sStatBuf.st_size / nCols /
+                                                      nRows / l_nBands);
             if (nBytes > 0 && nBytes != 3)
                 nBits = static_cast<int>(nBytes * 8);
 
@@ -1170,15 +1186,14 @@ GDALDataset *EHdrDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
         chPixelType = 'S';
     }
 
-    EHdrDataset *poDS = new EHdrDataset();
+    auto poDS = cpl::make_unique<EHdrDataset>();
 
     poDS->osHeaderExt = pszHeaderExt;
 
     poDS->nRasterXSize = nCols;
     poDS->nRasterYSize = nRows;
     poDS->papszHDR = papszHDR;
-    poDS->fpImage = poOpenInfo->fpL;
-    poOpenInfo->fpL = nullptr;
+    std::swap(poDS->fpImage, poOpenInfo->fpL);
     poDS->eAccess = poOpenInfo->eAccess;
 
     // Figure out the data type.
@@ -1200,7 +1215,10 @@ GDALDataset *EHdrDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
     }
     else if (nBits >= 1 && nBits <= 8)
     {
-        eDataType = GDT_Byte;
+        if (chPixelType == 'S')
+            eDataType = GDT_Int8;
+        else
+            eDataType = GDT_Byte;
         nBits = 8;
     }
     else if (nBits == -1)
@@ -1220,14 +1238,13 @@ GDALDataset *EHdrDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "EHdr driver does not support %d NBITS value.", nBits);
-        delete poDS;
         return nullptr;
     }
 
     // Compute the line offset.
     const int nItemSize = GDALGetDataTypeSizeBytes(eDataType);
     CPLAssert(nItemSize != 0);
-    CPLAssert(nBands != 0);
+    CPLAssert(l_nBands != 0);
 
     int nPixelOffset = 0;
     int nLineOffset = 0;
@@ -1235,13 +1252,12 @@ GDALDataset *EHdrDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
 
     if (EQUAL(szLayout, "BIP"))
     {
-        if (nCols > std::numeric_limits<int>::max() / (nItemSize * nBands))
+        if (nCols > std::numeric_limits<int>::max() / (nItemSize * l_nBands))
         {
             CPLError(CE_Failure, CPLE_AppDefined, "Int overflow occurred.");
-            delete poDS;
             return nullptr;
         }
-        nPixelOffset = nItemSize * nBands;
+        nPixelOffset = nItemSize * l_nBands;
         nLineOffset = nPixelOffset * nCols;
         nBandOffset = static_cast<vsi_l_offset>(nItemSize);
     }
@@ -1250,7 +1266,6 @@ GDALDataset *EHdrDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
         if (nCols > std::numeric_limits<int>::max() / nItemSize)
         {
             CPLError(CE_Failure, CPLE_AppDefined, "Int overflow occurred.");
-            delete poDS;
             return nullptr;
         }
         nPixelOffset = nItemSize;
@@ -1260,23 +1275,21 @@ GDALDataset *EHdrDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
     else
     {
         // Assume BIL.
-        if (nCols > std::numeric_limits<int>::max() / (nItemSize * nBands))
+        if (nCols > std::numeric_limits<int>::max() / (nItemSize * l_nBands))
         {
             CPLError(CE_Failure, CPLE_AppDefined, "Int overflow occurred.");
-            delete poDS;
             return nullptr;
         }
         nPixelOffset = nItemSize;
-        nLineOffset = nItemSize * nBands * nCols;
+        nLineOffset = nItemSize * l_nBands * nCols;
         nBandOffset = static_cast<vsi_l_offset>(nItemSize) * nCols;
     }
 
     if (nBits >= 8 && bFileSizeCheck &&
         !RAWDatasetCheckMemoryUsage(
-            poDS->nRasterXSize, poDS->nRasterYSize, nBands, nItemSize,
+            poDS->nRasterXSize, poDS->nRasterYSize, l_nBands, nItemSize,
             nPixelOffset, nLineOffset, nSkipBytes, nBandOffset, poDS->fpImage))
     {
-        delete poDS;
         return nullptr;
     }
 
@@ -1284,19 +1297,17 @@ GDALDataset *EHdrDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
     poDS->PamInitialize();
 
     // Create band information objects.
-    poDS->nBands = nBands;
-    CPLErrorReset();
-    for (int i = 0; i < poDS->nBands; i++)
+    for (int i = 0; i < l_nBands; i++)
     {
-        EHdrRasterBand *poBand = new EHdrRasterBand(
-            poDS, i + 1, poDS->fpImage, nSkipBytes + nBandOffset * i,
+        auto poBand = cpl::make_unique<EHdrRasterBand>(
+            poDS.get(), i + 1, poDS->fpImage, nSkipBytes + nBandOffset * i,
             nPixelOffset, nLineOffset, eDataType,
-#ifdef CPL_LSB
-            chByteOrder == 'I' || chByteOrder == 'L',
-#else
-            chByteOrder == 'M',
-#endif
+            chByteOrder == 'I' || chByteOrder == 'L'
+                ? RawRasterBand::ByteOrder::ORDER_LITTLE_ENDIAN
+                : RawRasterBand::ByteOrder::ORDER_BIG_ENDIAN,
             nBits);
+        if (!poBand->IsValid())
+            return nullptr;
 
         poBand->bNoDataSet = bNoDataSet;
         poBand->dfNoData = dfNoData;
@@ -1308,13 +1319,7 @@ GDALDataset *EHdrDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
             poBand->minmaxmeanstddev = HAS_MIN_FLAG | HAS_MAX_FLAG;
         }
 
-        poDS->SetBand(i + 1, poBand);
-        if (CPLGetLastErrorType() != CE_None)
-        {
-            poDS->nBands = i + 1;
-            delete poDS;
-            return nullptr;
-        }
+        poDS->SetBand(i + 1, std::move(poBand));
     }
 
     // If we didn't get bounds in the .hdr, look for a worldfile.
@@ -1631,9 +1636,9 @@ GDALDataset *EHdrDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
     poDS->TryLoadXML();
 
     // Check for overviews.
-    poDS->oOvManager.Initialize(poDS, poOpenInfo->pszFilename);
+    poDS->oOvManager.Initialize(poDS.get(), poOpenInfo->pszFilename);
 
-    return poDS;
+    return poDS.release();
 }
 
 /************************************************************************/
@@ -1653,8 +1658,9 @@ GDALDataset *EHdrDataset::Create(const char *pszFilename, int nXSize,
         return nullptr;
     }
 
-    if (eType != GDT_Byte && eType != GDT_Float32 && eType != GDT_UInt16 &&
-        eType != GDT_Int16 && eType != GDT_Int32 && eType != GDT_UInt32)
+    if (eType != GDT_Byte && eType != GDT_Int8 && eType != GDT_Float32 &&
+        eType != GDT_UInt16 && eType != GDT_Int16 && eType != GDT_Int32 &&
+        eType != GDT_UInt32)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Attempt to create ESRI .hdr labelled dataset with an illegal"
@@ -1723,7 +1729,7 @@ GDALDataset *EHdrDataset::Create(const char *pszFilename, int nXSize,
 
     if (eType == GDT_Float32)
         bOK &= VSIFPrintfL(fp, "PIXELTYPE      FLOAT\n") >= 0;
-    else if (eType == GDT_Int16 || eType == GDT_Int32)
+    else if (eType == GDT_Int8 || eType == GDT_Int16 || eType == GDT_Int32)
         bOK &= VSIFPrintfL(fp, "PIXELTYPE      SIGNEDINT\n") >= 0;
     else if (eType == GDT_Byte && EQUAL(pszPixelType, "SIGNEDBYTE"))
         bOK &= VSIFPrintfL(fp, "PIXELTYPE      SIGNEDINT\n") >= 0;
@@ -1765,24 +1771,27 @@ GDALDataset *EHdrDataset::CreateCopy(const char *pszFilename,
     char **papszAdjustedOptions = CSLDuplicate(papszOptions);
 
     // Ensure we pass on NBITS and PIXELTYPE structure information.
-    if (poSrcDS->GetRasterBand(1)->GetMetadataItem(
-            "NBITS", "IMAGE_STRUCTURE") != nullptr &&
+    auto poSrcBand = poSrcDS->GetRasterBand(1);
+    if (poSrcBand->GetMetadataItem("NBITS", "IMAGE_STRUCTURE") != nullptr &&
         CSLFetchNameValue(papszOptions, "NBITS") == nullptr)
     {
-        papszAdjustedOptions =
-            CSLSetNameValue(papszAdjustedOptions, "NBITS",
-                            poSrcDS->GetRasterBand(1)->GetMetadataItem(
-                                "NBITS", "IMAGE_STRUCTURE"));
+        papszAdjustedOptions = CSLSetNameValue(
+            papszAdjustedOptions, "NBITS",
+            poSrcBand->GetMetadataItem("NBITS", "IMAGE_STRUCTURE"));
     }
 
-    if (poSrcDS->GetRasterBand(1)->GetMetadataItem(
-            "PIXELTYPE", "IMAGE_STRUCTURE") != nullptr &&
+    if (poSrcBand->GetRasterDataType() == GDT_Byte &&
         CSLFetchNameValue(papszOptions, "PIXELTYPE") == nullptr)
     {
-        papszAdjustedOptions =
-            CSLSetNameValue(papszAdjustedOptions, "PIXELTYPE",
-                            poSrcDS->GetRasterBand(1)->GetMetadataItem(
-                                "PIXELTYPE", "IMAGE_STRUCTURE"));
+        poSrcBand->EnablePixelTypeSignedByteWarning(false);
+        const char *pszPixelType =
+            poSrcBand->GetMetadataItem("PIXELTYPE", "IMAGE_STRUCTURE");
+        poSrcBand->EnablePixelTypeSignedByteWarning(true);
+        if (pszPixelType != nullptr)
+        {
+            papszAdjustedOptions = CSLSetNameValue(papszAdjustedOptions,
+                                                   "PIXELTYPE", pszPixelType);
+        }
     }
 
     // Proceed with normal copying using the default createcopy  operators.
@@ -2017,7 +2026,7 @@ void GDALRegister_EHdr()
     poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "drivers/raster/ehdr.html");
     poDriver->SetMetadataItem(GDAL_DMD_EXTENSION, "bil");
     poDriver->SetMetadataItem(GDAL_DMD_CREATIONDATATYPES,
-                              "Byte Int16 UInt16 Int32 UInt32 Float32");
+                              "Byte Int8 Int16 UInt16 Int32 UInt32 Float32");
 
     poDriver->SetMetadataItem(
         GDAL_DMD_CREATIONOPTIONLIST,

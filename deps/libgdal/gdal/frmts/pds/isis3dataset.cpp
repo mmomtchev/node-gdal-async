@@ -187,6 +187,9 @@ class ISIS3Dataset final : public RawDataset
     static void SerializeAsPDL(VSILFILE *fp, const CPLJSONObject &oObj,
                                int nDepth = 0);
 
+  protected:
+    CPLErr Close() override;
+
   public:
     ISIS3Dataset();
     virtual ~ISIS3Dataset();
@@ -240,6 +243,7 @@ class ISISTiledBand final : public GDALPamRasterBand
     double m_dfOffset;
     double m_dfScale;
     double m_dfNoData;
+    bool m_bValid = false;
 
   public:
     ISISTiledBand(GDALDataset *poDS, VSILFILE *fpVSIL, int nBand,
@@ -248,6 +252,11 @@ class ISISTiledBand final : public GDALPamRasterBand
                   GIntBig nYTileOffset, int bNativeOrder);
     virtual ~ISISTiledBand()
     {
+    }
+
+    bool IsValid() const
+    {
+        return m_bValid;
     }
 
     virtual CPLErr IReadBlock(int, int, void *) override;
@@ -325,7 +334,8 @@ class ISIS3WrapperRasterBand final : public GDALProxyRasterBand
     double m_dfNoData;
 
   protected:
-    virtual GDALRasterBand *RefUnderlyingRasterBand() const override
+    virtual GDALRasterBand *
+    RefUnderlyingRasterBand(bool /* bForceOpen */) const override
     {
         return m_poBaseBand;
     }
@@ -439,6 +449,7 @@ ISISTiledBand::ISISTiledBand(GDALDataset *poDSIn, VSILFILE *fpVSILIn,
         }
         m_nFirstTileOffset += (nBand - 1) * m_nYTileOffset * l_nBlocksPerColumn;
     }
+    m_bValid = true;
 }
 
 /************************************************************************/
@@ -1307,20 +1318,44 @@ ISIS3Dataset::ISIS3Dataset()
 ISIS3Dataset::~ISIS3Dataset()
 
 {
-    if (!m_bIsLabelWritten)
-        WriteLabel();
-    if (m_poExternalDS && m_bGeoTIFFAsRegularExternal && !m_bGeoTIFFInitDone)
-    {
-        reinterpret_cast<ISIS3WrapperRasterBand *>(GetRasterBand(1))
-            ->InitFile();
-    }
-    ISIS3Dataset::FlushCache(true);
-    if (m_fpLabel != nullptr)
-        VSIFCloseL(m_fpLabel);
-    if (m_fpImage != nullptr && m_fpImage != m_fpLabel)
-        VSIFCloseL(m_fpImage);
+    ISIS3Dataset::Close();
+}
 
-    ISIS3Dataset::CloseDependentDatasets();
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr ISIS3Dataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
+    {
+        if (!m_bIsLabelWritten)
+            WriteLabel();
+        if (m_poExternalDS && m_bGeoTIFFAsRegularExternal &&
+            !m_bGeoTIFFInitDone)
+        {
+            reinterpret_cast<ISIS3WrapperRasterBand *>(GetRasterBand(1))
+                ->InitFile();
+        }
+        if (ISIS3Dataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
+        if (m_fpLabel)
+        {
+            if (VSIFCloseL(m_fpLabel) != 0)
+                eErr = CE_Failure;
+        }
+        if (m_fpImage && m_fpImage != m_fpLabel)
+        {
+            if (VSIFCloseL(m_fpImage) != 0)
+                eErr = CE_Failure;
+        }
+
+        ISIS3Dataset::CloseDependentDatasets();
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
+    }
+    return eErr;
 }
 
 /************************************************************************/
@@ -1613,13 +1648,12 @@ GDALDataset *ISIS3Dataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Open the file using the large file API.                         */
     /* -------------------------------------------------------------------- */
-    ISIS3Dataset *poDS = new ISIS3Dataset();
+    auto poDS = cpl::make_unique<ISIS3Dataset>();
 
     if (!poDS->m_oKeywords.Ingest(poOpenInfo->fpL, 0))
     {
         VSIFCloseL(poOpenInfo->fpL);
         poOpenInfo->fpL = nullptr;
-        delete poDS;
         return nullptr;
     }
     poDS->m_oJSonLabel = poDS->m_oKeywords.GetJsonObject();
@@ -1731,7 +1765,6 @@ GDALDataset *ISIS3Dataset::Open(GDALOpenInfo *poOpenInfo)
         {
             CPLError(CE_Failure, CPLE_OpenFailed,
                      "Wrong tile dimensions : %d x %d", tileSizeX, tileSizeY);
-            delete poDS;
             return nullptr;
         }
     }
@@ -1739,7 +1772,6 @@ GDALDataset *ISIS3Dataset::Open(GDALOpenInfo *poOpenInfo)
     {
         CPLError(CE_Failure, CPLE_OpenFailed, "%s format not supported.",
                  osFormat.c_str());
-        delete poDS;
         return nullptr;
     }
 
@@ -1778,7 +1810,6 @@ GDALDataset *ISIS3Dataset::Open(GDALOpenInfo *poOpenInfo)
     {
         CPLError(CE_Failure, CPLE_OpenFailed, "%s pixel type not supported.",
                  itype);
-        delete poDS;
         return nullptr;
     }
 
@@ -2081,7 +2112,6 @@ GDALDataset *ISIS3Dataset::Open(GDALOpenInfo *poOpenInfo)
     if (!GDALCheckDatasetDimensions(nCols, nRows) ||
         !GDALCheckBandCount(nBands, false))
     {
-        delete poDS;
         return nullptr;
     }
 
@@ -2105,14 +2135,12 @@ GDALDataset *ISIS3Dataset::Open(GDALOpenInfo *poOpenInfo)
         if (osQubeFile == poOpenInfo->pszFilename)
         {
             CPLError(CE_Failure, CPLE_AppDefined, "A ^Core file must be set");
-            delete poDS;
             return nullptr;
         }
-        poDS->m_poExternalDS = reinterpret_cast<GDALDataset *>(
-            GDALOpen(osQubeFile, poOpenInfo->eAccess));
+        poDS->m_poExternalDS =
+            GDALDataset::FromHandle(GDALOpen(osQubeFile, poOpenInfo->eAccess));
         if (poDS->m_poExternalDS == nullptr)
         {
-            delete poDS;
             return nullptr;
         }
         if (poDS->m_poExternalDS->GetRasterXSize() != poDS->nRasterXSize ||
@@ -2125,7 +2153,6 @@ GDALDataset *ISIS3Dataset::Open(GDALOpenInfo *poOpenInfo)
                      "%s has incompatible characteristics with the ones "
                      "declared in the label.",
                      osQubeFile.c_str());
-            delete poDS;
             return nullptr;
         }
     }
@@ -2140,7 +2167,6 @@ GDALDataset *ISIS3Dataset::Open(GDALOpenInfo *poOpenInfo)
         {
             CPLError(CE_Failure, CPLE_OpenFailed, "Failed to open %s: %s.",
                      osQubeFile.c_str(), VSIStrerror(errno));
-            delete poDS;
             return nullptr;
         }
 
@@ -2148,8 +2174,8 @@ GDALDataset *ISIS3Dataset::Open(GDALOpenInfo *poOpenInfo)
         // TIFF file
         if (EQUAL(CPLGetExtension(osQubeFile), "tif"))
         {
-            GDALDataset *poTIF_DS = reinterpret_cast<GDALDataset *>(
-                GDALOpen(osQubeFile, GA_ReadOnly));
+            GDALDataset *poTIF_DS =
+                GDALDataset::FromHandle(GDALOpen(osQubeFile, GA_ReadOnly));
             if (poTIF_DS)
             {
                 bool bWarned = false;
@@ -2251,7 +2277,6 @@ GDALDataset *ISIS3Dataset::Open(GDALOpenInfo *poOpenInfo)
         }
         catch (const CPLSafeIntOverflow &)
         {
-            delete poDS;
             return nullptr;
         }
         nBandOffset = static_cast<vsi_l_offset>(nLineOffset) * nRows;
@@ -2389,44 +2414,42 @@ GDALDataset *ISIS3Dataset::Open(GDALOpenInfo *poOpenInfo)
 
     for (int i = 0; i < nBands; i++)
     {
-        GDALRasterBand *poBand = nullptr;
+        GDALRasterBand *poBand;
 
         if (poDS->m_poExternalDS != nullptr)
         {
-            ISIS3WrapperRasterBand *poISISBand = new ISIS3WrapperRasterBand(
+            auto poISISBand = cpl::make_unique<ISIS3WrapperRasterBand>(
                 poDS->m_poExternalDS->GetRasterBand(i + 1));
-            poBand = poISISBand;
-            poDS->SetBand(i + 1, poBand);
-
-            poISISBand->SetMaskBand(new ISISMaskBand(poISISBand));
+            poISISBand->SetMaskBand(new ISISMaskBand(poISISBand.get()));
+            poDS->SetBand(i + 1, std::move(poISISBand));
+            poBand = poDS->GetRasterBand(i + 1);
         }
         else if (poDS->m_bIsTiled)
         {
-            CPLErrorReset();
-            ISISTiledBand *poISISBand = new ISISTiledBand(
-                poDS, poDS->m_fpImage, i + 1, eDataType, tileSizeX, tileSizeY,
-                nSkipBytes, 0, 0, bNativeOrder);
-            if (CPLGetLastErrorType() != CE_None)
+            auto poISISBand = cpl::make_unique<ISISTiledBand>(
+                poDS.get(), poDS->m_fpImage, i + 1, eDataType, tileSizeX,
+                tileSizeY, nSkipBytes, 0, 0, bNativeOrder);
+            if (!poISISBand->IsValid())
             {
-                delete poISISBand;
-                delete poDS;
                 return nullptr;
             }
-            poBand = poISISBand;
-            poDS->SetBand(i + 1, poBand);
-
-            poISISBand->SetMaskBand(new ISISMaskBand(poISISBand));
+            poISISBand->SetMaskBand(new ISISMaskBand(poISISBand.get()));
+            poDS->SetBand(i + 1, std::move(poISISBand));
+            poBand = poDS->GetRasterBand(i + 1);
         }
         else
         {
-            ISIS3RawRasterBand *poISISBand = new ISIS3RawRasterBand(
-                poDS, i + 1, poDS->m_fpImage, nSkipBytes + nBandOffset * i,
-                nPixelOffset, nLineOffset, eDataType, bNativeOrder);
-
-            poBand = poISISBand;
-            poDS->SetBand(i + 1, poBand);
-
-            poISISBand->SetMaskBand(new ISISMaskBand(poISISBand));
+            auto poISISBand = cpl::make_unique<ISIS3RawRasterBand>(
+                poDS.get(), i + 1, poDS->m_fpImage,
+                nSkipBytes + nBandOffset * i, nPixelOffset, nLineOffset,
+                eDataType, bNativeOrder);
+            if (!poISISBand->IsValid())
+            {
+                return nullptr;
+            }
+            poISISBand->SetMaskBand(new ISISMaskBand(poISISBand.get()));
+            poDS->SetBand(i + 1, std::move(poISISBand));
+            poBand = poDS->GetRasterBand(i + 1);
         }
 
         if (i < static_cast<int>(aosBandNames.size()))
@@ -2535,9 +2558,9 @@ GDALDataset *ISIS3Dataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Check for overviews.                                            */
     /* -------------------------------------------------------------------- */
-    poDS->oOvManager.Initialize(poDS, poOpenInfo->pszFilename);
+    poDS->oOvManager.Initialize(poDS.get(), poOpenInfo->pszFilename);
 
-    return poDS;
+    return poDS.release();
 }
 
 /************************************************************************/

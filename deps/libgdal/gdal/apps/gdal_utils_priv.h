@@ -124,23 +124,6 @@ struct GDALNearblackOptionsForBinary
     int bQuiet;
 };
 
-struct GDALGridOptionsForBinary
-{
-    char *pszSource;
-    char *pszDest;
-    int bQuiet;
-    char *pszFormat;
-};
-
-struct GDALRasterizeOptionsForBinary
-{
-    char *pszSource;
-    char *pszDest;
-    int bQuiet;
-    char *pszFormat;
-    int bCreateOutput;
-};
-
 struct GDALBuildVRTOptionsForBinary
 {
     int nSrcFiles;
@@ -177,6 +160,46 @@ struct GDALMultiDimTranslateOptionsForBinary
 
     /* Open options. */
     CPLStringList aosOpenOptions{};
+};
+
+struct GDALVectorInfoOptionsForBinary
+{
+    /* Filename to open. */
+    std::string osFilename{};
+
+    bool bVerbose = true;
+
+    bool bReadOnly = false;
+
+    bool bUpdate = false;
+
+    std::string osSQLStatement{};
+
+    /* Open options. */
+    CPLStringList aosOpenOptions{};
+
+    /* Allowed input drivers. */
+    CPLStringList aosAllowInputDrivers{};
+};
+
+struct GDALGridOptionsForBinary
+{
+    std::string osSource{};
+    bool bDestSpecified = false;
+    std::string osDest{};
+    bool bQuiet = false;
+    CPLStringList aosOpenOptions{};
+};
+
+struct GDALRasterizeOptionsForBinary
+{
+    std::string osSource{};
+    bool bDestSpecified = false;
+    std::string osDest{};
+    bool bQuiet = false;
+    CPLStringList aosOpenOptions{};
+    bool bCreateOutput = false;
+    std::string osFormat{};
 };
 
 #endif /* #ifndef DOXYGEN_SKIP */

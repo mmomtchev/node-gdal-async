@@ -36,6 +36,7 @@
 #include "ogr_spatialref.h"
 #include "ogr_srs_api.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <limits>
 
@@ -143,18 +144,37 @@ BYNDataset::BYNDataset()
 BYNDataset::~BYNDataset()
 
 {
-    FlushCache(true);
+    BYNDataset::Close();
+}
 
-    if (GetAccess() == GA_Update)
-        UpdateHeader();
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
 
-    if (fpImage != nullptr)
+CPLErr BYNDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
     {
-        if (VSIFCloseL(fpImage) != 0)
+        if (BYNDataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
+
+        if (GetAccess() == GA_Update)
+            UpdateHeader();
+
+        if (fpImage != nullptr)
         {
-            CPLError(CE_Failure, CPLE_FileIO, "I/O error");
+            if (VSIFCloseL(fpImage) != 0)
+            {
+                eErr = CE_Failure;
+                CPLError(CE_Failure, CPLE_FileIO, "I/O error");
+            }
         }
+
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
     }
+    return eErr;
 }
 
 /************************************************************************/
@@ -256,11 +276,10 @@ GDALDataset *BYNDataset::Open(GDALOpenInfo *poOpenInfo)
     /*      Create a corresponding GDALDataset.                             */
     /* -------------------------------------------------------------------- */
 
-    BYNDataset *poDS = new BYNDataset();
+    auto poDS = cpl::make_unique<BYNDataset>();
 
     poDS->eAccess = poOpenInfo->eAccess;
-    poDS->fpImage = poOpenInfo->fpL;
-    poOpenInfo->fpL = nullptr;
+    std::swap(poDS->fpImage, poOpenInfo->fpL);
 
     /* -------------------------------------------------------------------- */
     /*      Read the header.                                                */
@@ -314,7 +333,6 @@ GDALDataset *BYNDataset::Open(GDALOpenInfo *poOpenInfo)
 
     if (!GDALCheckDatasetDimensions(poDS->nRasterXSize, poDS->nRasterYSize))
     {
-        delete poDS;
         return nullptr;
     }
 
@@ -341,7 +359,6 @@ GDALDataset *BYNDataset::Open(GDALOpenInfo *poOpenInfo)
         eDT = GDT_Int32;
     else
     {
-        delete poDS;
         return nullptr;
     }
 
@@ -353,11 +370,12 @@ GDALDataset *BYNDataset::Open(GDALOpenInfo *poOpenInfo)
 
     int bIsLSB = poDS->hHeader.nByteOrder == 1 ? 1 : 0;
 
-    BYNRasterBand *poBand = new BYNRasterBand(
-        poDS, 1, poDS->fpImage, BYN_HDR_SZ, nDTSize,
+    auto poBand = cpl::make_unique<BYNRasterBand>(
+        poDS.get(), 1, poDS->fpImage, BYN_HDR_SZ, nDTSize,
         poDS->nRasterXSize * nDTSize, eDT, CPL_IS_LSB == bIsLSB);
-
-    poDS->SetBand(1, poBand);
+    if (!poBand->IsValid())
+        return nullptr;
+    poDS->SetBand(1, std::move(poBand));
 
     /* -------------------------------------------------------------------- */
     /*      Initialize any PAM information.                                 */
@@ -370,9 +388,9 @@ GDALDataset *BYNDataset::Open(GDALOpenInfo *poOpenInfo)
     /*      Check for overviews.                                            */
     /* -------------------------------------------------------------------- */
 
-    poDS->oOvManager.Initialize(poDS, poOpenInfo->pszFilename);
+    poDS->oOvManager.Initialize(poDS.get(), poOpenInfo->pszFilename);
 
-    return poDS;
+    return poDS.release();
 }
 
 /************************************************************************/
@@ -773,7 +791,7 @@ GDALDataset *BYNDataset::Create(const char *pszFilename, int nXSize, int nYSize,
     VSIFWriteL(abyBuf, BYN_HDR_SZ, 1, fp);
     VSIFCloseL(fp);
 
-    return reinterpret_cast<GDALDataset *>(GDALOpen(pszFilename, GA_Update));
+    return GDALDataset::FromHandle(GDALOpen(pszFilename, GA_Update));
 }
 
 /************************************************************************/

@@ -293,8 +293,9 @@ bool FileGDBTable::Sync(VSILFILE *fpTable, VSILFILE *fpTableX)
     if (m_bDirtyTableXTrailer && fpTableX)
     {
         m_nOffsetTableXTrailer =
-            TABLX_HEADER_SIZE + m_nTablxOffsetSize * TABLX_FEATURES_PER_PAGE *
-                                    (vsi_l_offset)m_n1024BlocksPresent;
+            TABLX_HEADER_SIZE +
+            m_nTablxOffsetSize * TABLX_FEATURES_PER_PAGE *
+                static_cast<vsi_l_offset>(m_n1024BlocksPresent);
         VSIFSeekL(fpTableX, m_nOffsetTableXTrailer, SEEK_SET);
         const uint32_t n1024BlocksTotal =
             DIV_ROUND_UP(m_nTotalRecordCount, TABLX_FEATURES_PER_PAGE);
@@ -525,6 +526,26 @@ bool FileGDBTable::EncodeGeometry(const FileGDBGeomField *poGeomField,
         return true;
     };
 
+    const auto ReserveXYZMArrays =
+        [this, bIs3D, bIsMeasured](const size_t nAdditionalSize)
+    {
+        size_t nNewMinSize = m_adfX.size() + nAdditionalSize;
+        if (nNewMinSize > m_adfX.capacity())
+        {
+            size_t nNewCapacity = nNewMinSize;
+            if (m_adfX.capacity() < std::numeric_limits<size_t>::max() / 2)
+            {
+                nNewCapacity = std::max(nNewCapacity, 2 * m_adfX.capacity());
+            }
+            m_adfX.reserve(nNewCapacity);
+            m_adfY.reserve(nNewCapacity);
+            if (bIs3D)
+                m_adfZ.reserve(nNewCapacity);
+            if (bIsMeasured)
+                m_adfM.reserve(nNewCapacity);
+        }
+    };
+
     const auto eFlatType = wkbFlatten(poGeom->getGeometryType());
     switch (eFlatType)
     {
@@ -716,12 +737,20 @@ bool FileGDBTable::EncodeGeometry(const FileGDBGeomField *poGeomField,
 
             int nCurveDescrCount = 0;
             const auto ProcessCurve =
-                [this, bIs3D, bIsMeasured,
-                 &nCurveDescrCount](const OGRCurve *poCurve)
+                [this, bIs3D, bIsMeasured, &nCurveDescrCount,
+                 &ReserveXYZMArrays](const OGRCurve *poCurve)
             {
                 if (auto poCC = dynamic_cast<const OGRCompoundCurve *>(poCurve))
                 {
                     const size_t nSizeBefore = m_adfX.size();
+
+                    std::size_t nTotalSize = 0;
+                    for (const auto *poSubCurve : *poCC)
+                    {
+                        nTotalSize += poSubCurve->getNumPoints();
+                    }
+                    ReserveXYZMArrays(nTotalSize);
+
                     bool bFirstSubCurve = true;
                     for (const auto *poSubCurve : *poCC)
                     {
@@ -786,6 +815,7 @@ bool FileGDBTable::EncodeGeometry(const FileGDBGeomField *poGeomField,
                 {
                     const int nNumPoints = poLS->getNumPoints();
                     m_anNumberPointsPerPart.push_back(nNumPoints);
+                    ReserveXYZMArrays(nNumPoints);
                     for (int i = 0; i < nNumPoints; ++i)
                     {
                         m_adfX.push_back(poLS->getX(i));
@@ -801,6 +831,7 @@ bool FileGDBTable::EncodeGeometry(const FileGDBGeomField *poGeomField,
                 {
                     const int nNumPoints = poCS->getNumPoints();
                     const size_t nSizeBefore = m_adfX.size();
+                    ReserveXYZMArrays(nNumPoints);
                     for (int i = 0; i < nNumPoints; i++)
                     {
                         m_adfX.push_back(poCS->getX(i));
@@ -894,13 +925,21 @@ bool FileGDBTable::EncodeGeometry(const FileGDBGeomField *poGeomField,
 
             int nCurveDescrCount = 0;
             const auto ProcessSurface =
-                [this, bIs3D, bIsMeasured,
-                 &nCurveDescrCount](const OGRSurface *poSurface)
+                [this, bIs3D, bIsMeasured, &nCurveDescrCount,
+                 &ReserveXYZMArrays](const OGRSurface *poSurface)
             {
                 if (const auto poPolygon =
                         dynamic_cast<const OGRPolygon *>(poSurface))
                 {
                     bool bFirstRing = true;
+
+                    std::size_t nTotalSize = 0;
+                    for (const auto *poLS : *poPolygon)
+                    {
+                        nTotalSize += poLS->getNumPoints();
+                    }
+                    ReserveXYZMArrays(nTotalSize);
+
                     for (const auto *poLS : *poPolygon)
                     {
                         const int nNumPoints = poLS->getNumPoints();

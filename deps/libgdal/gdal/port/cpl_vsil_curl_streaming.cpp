@@ -217,10 +217,6 @@ class VSICurlStreamingFSHandler : public VSIFilesystemHandler
   protected:
     CPLMutex *hMutex = nullptr;
 
-    virtual CPLString GetFSPrefix()
-    {
-        return "/vsicurl_streaming/";
-    }
     virtual VSICurlStreamingHandle *CreateFileHandle(const char *pszURL);
 
   public:
@@ -232,6 +228,11 @@ class VSICurlStreamingFSHandler : public VSIFilesystemHandler
                                    CSLConstList /* papszOptions */) override;
     virtual int Stat(const char *pszFilename, VSIStatBufL *pStatBuf,
                      int nFlags) override;
+
+    virtual CPLString GetFSPrefix()
+    {
+        return "/vsicurl_streaming/";
+    }
 
     const char *GetActualURL(const char *pszFilename) override;
 
@@ -367,7 +368,8 @@ class VSICurlStreamingHandle : public VSIVirtualHandle
 
 VSICurlStreamingHandle::VSICurlStreamingHandle(VSICurlStreamingFSHandler *poFS,
                                                const char *pszURL)
-    : m_poFS(poFS), m_papszHTTPOptions(CPLHTTPGetOptionsFromEnv()),
+    : m_poFS(poFS), m_papszHTTPOptions(CPLHTTPGetOptionsFromEnv(
+                        (poFS->GetFSPrefix() + pszURL).c_str())),
       m_pszURL(CPLStrdup(pszURL))
 {
     FileProp cachedFileProp;

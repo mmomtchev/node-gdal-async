@@ -814,7 +814,7 @@ char **GeoRasterDataset::GetFileList()
 //  ---------------------------------------------------------------------------
 
 GDALDataset *GeoRasterDataset::Create(const char *pszFilename, int nXSize,
-                                      int nYSize, int nBands,
+                                      int nYSize, int nBandsIn,
                                       GDALDataType eType, char **papszOptions)
 {
     //  -------------------------------------------------------------------
@@ -861,7 +861,7 @@ GDALDataset *GeoRasterDataset::Create(const char *pszFilename, int nXSize,
 
     poGRW->nRasterColumns = nXSize;
     poGRW->nRasterRows = nYSize;
-    poGRW->nRasterBands = nBands;
+    poGRW->nRasterBands = nBandsIn;
     poGRW->sCellDepth = pszCellDepth;
     poGRW->nRowBlockSize = DEFAULT_BLOCK_ROWS;
     poGRW->nColumnBlockSize = DEFAULT_BLOCK_COLUMNS;
@@ -988,9 +988,9 @@ GDALDataset *GeoRasterDataset::Create(const char *pszFilename, int nXSize,
     }
     else
     {
-        if (nBands == 3 || nBands == 4)
+        if (nBandsIn == 3 || nBandsIn == 4)
         {
-            poGRW->nBandBlockSize = nBands;
+            poGRW->nBandBlockSize = nBandsIn;
         }
     }
 
@@ -1756,15 +1756,6 @@ CPLErr GeoRasterDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
                                           nLineSpace, nBandSpace, psExtraArg);
         }
     }
-}
-
-//  ---------------------------------------------------------------------------
-//                                                  FlushCache(bool bAtClosing)
-//  ---------------------------------------------------------------------------
-
-void GeoRasterDataset::FlushCache(bool bAtClosing)
-{
-    GDALDataset::FlushCache(bAtClosing);
 }
 
 //  ---------------------------------------------------------------------------

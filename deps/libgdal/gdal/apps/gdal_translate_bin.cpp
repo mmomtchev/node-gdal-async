@@ -44,30 +44,31 @@ static void Usage(const char *pszErrorMsg = nullptr,
 static void Usage(const char *pszErrorMsg, int bShort)
 
 {
-    printf("Usage: gdal_translate [--help-general] [--long-usage]\n"
-           "       [-ot "
-           "{Byte/Int16/UInt16/UInt32/Int32/UInt64/Int64/Float32/Float64/\n"
-           "             CInt16/CInt32/CFloat32/CFloat64}] [-strict]\n"
-           "       [-if format]* [-of format]\n"
-           "       [-b band] [-mask band] [-expand {gray|rgb|rgba}]\n"
-           "       [-outsize xsize[%%]|0 ysize[%%]|0] [-tr xres yres]\n"
-           "       [-ovr level|AUTO|AUTO-n|NONE]\n"
-           "       [-r "
-           "{nearest,bilinear,cubic,cubicspline,lanczos,average,mode}]\n"
-           "       [-unscale] [-scale[_bn] [src_min src_max [dst_min "
-           "dst_max]]]* [-exponent[_bn] exp_val]*\n"
-           "       [-srcwin xoff yoff xsize ysize] [-epo] [-eco]\n"
-           "       [-projwin ulx uly lrx lry] [-projwin_srs srs_def]\n"
-           "       [-a_srs srs_def] [-a_coord_epoch epoch]\n"
-           "       [-a_ullr ulx uly lrx lry] [-a_nodata value]\n"
-           "       [-a_scale value] [-a_offset value]\n"
-           "       [-nogcp] [-gcp pixel line easting northing [elevation]]*\n"
-           "       |-colorinterp{_bn} {red|green|blue|alpha|gray|undefined}]\n"
-           "       |-colorinterp {red|green|blue|alpha|gray|undefined},...]\n"
-           "       [-mo \"META-TAG=VALUE\"]* [-q] [-sds]\n"
-           "       [-co \"NAME=VALUE\"]* [-stats] [-norat] [-noxmp]\n"
-           "       [-oo NAME=VALUE]*\n"
-           "       src_dataset dst_dataset\n");
+    printf(
+        "Usage: gdal_translate [--help-general] [--long-usage]\n"
+        "       [-ot "
+        "{Byte/Int8/Int16/UInt16/UInt32/Int32/UInt64/Int64/Float32/Float64/\n"
+        "             CInt16/CInt32/CFloat32/CFloat64}] [-strict]\n"
+        "       [-if format]* [-of format]\n"
+        "       [-b band] [-mask band] [-expand {gray|rgb|rgba}]\n"
+        "       [-outsize xsize[%%]|0 ysize[%%]|0] [-tr xres yres]\n"
+        "       [-ovr level|AUTO|AUTO-n|NONE]\n"
+        "       [-r "
+        "{nearest,bilinear,cubic,cubicspline,lanczos,average,mode}]\n"
+        "       [-unscale] [-scale[_bn] [src_min src_max [dst_min dst_max]]]* "
+        "[-exponent[_bn] exp_val]*\n"
+        "       [-srcwin xoff yoff xsize ysize] [-epo] [-eco]\n"
+        "       [-projwin ulx uly lrx lry] [-projwin_srs srs_def]\n"
+        "       [-a_srs srs_def] [-a_coord_epoch epoch]\n"
+        "       [-a_ullr ulx uly lrx lry] [-a_nodata value]\n"
+        "       [-a_scale value] [-a_offset value]\n"
+        "       [-nogcp] [-gcp pixel line easting northing [elevation]]*\n"
+        "       |-colorinterp{_bn} {red|green|blue|alpha|gray|undefined}]\n"
+        "       |-colorinterp {red|green|blue|alpha|gray|undefined},...]\n"
+        "       [-mo \"META-TAG=VALUE\"]* [-q] [-sds]\n"
+        "       [-co \"NAME=VALUE\"]* [-stats] [-norat] [-noxmp]\n"
+        "       [-oo NAME=VALUE]*\n"
+        "       src_dataset dst_dataset\n");
 
     if (!bShort)
     {
@@ -392,7 +393,15 @@ MAIN_START(argc, argv)
     int nRetCode = hOutDS ? 0 : 1;
 
     /* Close hOutDS before hDataset for the -f VRT case */
-    GDALClose(hOutDS);
+    if (GDALClose(hOutDS) != CE_None)
+    {
+        nRetCode = 1;
+        if (CPLGetLastErrorType() == CE_None)
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Unknown error occurred in GDALClose()");
+        }
+    }
     GDALClose(hDataset);
     GDALTranslateOptionsFree(psOptions);
     GDALTranslateOptionsForBinaryFree(psOptionsForBinary);

@@ -119,6 +119,8 @@ class CPL_DLL OGRFieldDefn
 
     std::string m_osDomainName{};  // field domain name. Might be empty
 
+    std::string m_osComment{};  // field comment. Might be empty
+
   public:
     OGRFieldDefn(const char *, OGRFieldType);
     explicit OGRFieldDefn(const OGRFieldDefn *);
@@ -220,6 +222,15 @@ class CPL_DLL OGRFieldDefn
         m_osDomainName = osDomainName;
     }
 
+    const std::string &GetComment() const
+    {
+        return m_osComment;
+    }
+    void SetComment(const std::string &osComment)
+    {
+        m_osComment = osComment;
+    }
+
     int IsSame(const OGRFieldDefn *) const;
 
     /** Convert a OGRFieldDefn* to a OGRFieldDefnH.
@@ -268,7 +279,7 @@ class CPL_DLL OGRGeomFieldDefn
     char *pszName = nullptr;
     OGRwkbGeometryType eGeomType =
         wkbUnknown; /* all values possible except wkbNone */
-    mutable OGRSpatialReference *poSRS = nullptr;
+    mutable const OGRSpatialReference *poSRS = nullptr;
 
     int bIgnore = false;
     mutable int bNullable = true;
@@ -293,8 +304,8 @@ class CPL_DLL OGRGeomFieldDefn
     }
     void SetType(OGRwkbGeometryType eTypeIn);
 
-    virtual OGRSpatialReference *GetSpatialRef() const;
-    void SetSpatialRef(OGRSpatialReference *poSRSIn);
+    virtual const OGRSpatialReference *GetSpatialRef() const;
+    void SetSpatialRef(const OGRSpatialReference *poSRSIn);
 
     int IsIgnored() const
     {
@@ -388,6 +399,87 @@ class CPL_DLL OGRFeatureDefn
     int GetFieldIndexCaseSensitive(const char *) const;
 
     //! @cond Doxygen_Suppress
+    /** Helper class to iterate over non-geometry fields.
+     *
+     * Note: fields should not be added or removed while iterating over them.
+     */
+    struct CPL_DLL Fields
+    {
+      private:
+        OGRFeatureDefn *m_poFDefn;
+
+      public:
+        inline explicit Fields(OGRFeatureDefn *poFDefn) : m_poFDefn(poFDefn)
+        {
+        }
+
+        struct CPL_DLL ConstIterator
+        {
+          private:
+            OGRFeatureDefn *m_poFDefn;
+            int m_nIdx;
+
+          public:
+            inline ConstIterator(OGRFeatureDefn *poFDefn, int nIdx)
+                : m_poFDefn(poFDefn), m_nIdx(nIdx)
+            {
+            }
+
+            inline const OGRFieldDefn *operator*() const
+            {
+                return m_poFDefn->GetFieldDefn(m_nIdx);
+            }
+            inline ConstIterator &operator++()
+            {
+                m_nIdx++;
+                return *this;
+            }
+            inline bool operator!=(const ConstIterator &it) const
+            {
+                return m_nIdx != it.m_nIdx;
+            }
+        };
+
+        inline ConstIterator begin()
+        {
+            return ConstIterator(m_poFDefn, 0);
+        }
+        inline ConstIterator end()
+        {
+            return ConstIterator(m_poFDefn, m_poFDefn->GetFieldCount());
+        }
+
+        inline size_t size() const
+        {
+            return static_cast<std::size_t>(m_poFDefn->GetFieldCount());
+        }
+        inline OGRFieldDefn *operator[](size_t i)
+        {
+            return m_poFDefn->GetFieldDefn(static_cast<int>(i));
+        }
+        inline const OGRFieldDefn *operator[](size_t i) const
+        {
+            return m_poFDefn->GetFieldDefn(static_cast<int>(i));
+        }
+    };
+    //! @endcond
+
+    /** Return an object that can be used to iterate over non-geometry fields.
+        \verbatim
+        for( const auto* poFieldDefn: poFeatureDefn->GetFields() )
+        {
+            // do something
+        }
+        \endverbatim
+
+        @since GDAL 3.7
+     */
+    inline Fields GetFields()
+    {
+        return Fields(this);
+    }
+
+    //! @cond Doxygen_Suppress
     // That method should only be called if there's a guarantee that
     // GetFieldCount() has been called before
     int GetFieldCountUnsafe() const
@@ -418,6 +510,87 @@ class CPL_DLL OGRFeatureDefn
     virtual OGRGeomFieldDefn *GetGeomFieldDefn(int i);
     virtual const OGRGeomFieldDefn *GetGeomFieldDefn(int i) const;
     virtual int GetGeomFieldIndex(const char *) const;
+
+    //! @cond Doxygen_Suppress
+    /** Helper class to iterate over geometry fields.
+     *
+     * Note: fields should not be added or removed while iterating over them.
+     */
+    struct CPL_DLL GeomFields
+    {
+      private:
+        OGRFeatureDefn *m_poFDefn;
+
+      public:
+        inline explicit GeomFields(OGRFeatureDefn *poFDefn) : m_poFDefn(poFDefn)
+        {
+        }
+
+        struct CPL_DLL ConstIterator
+        {
+          private:
+            OGRFeatureDefn *m_poFDefn;
+            int m_nIdx;
+
+          public:
+            inline ConstIterator(OGRFeatureDefn *poFDefn, int nIdx)
+                : m_poFDefn(poFDefn), m_nIdx(nIdx)
+            {
+            }
+
+            inline const OGRGeomFieldDefn *operator*() const
+            {
+                return m_poFDefn->GetGeomFieldDefn(m_nIdx);
+            }
+            inline ConstIterator &operator++()
+            {
+                m_nIdx++;
+                return *this;
+            }
+            inline bool operator!=(const ConstIterator &it) const
+            {
+                return m_nIdx != it.m_nIdx;
+            }
+        };
+
+        inline ConstIterator begin()
+        {
+            return ConstIterator(m_poFDefn, 0);
+        }
+        inline ConstIterator end()
+        {
+            return ConstIterator(m_poFDefn, m_poFDefn->GetGeomFieldCount());
+        }
+
+        inline size_t size() const
+        {
+            return static_cast<std::size_t>(m_poFDefn->GetGeomFieldCount());
+        }
+        inline OGRGeomFieldDefn *operator[](size_t i)
+        {
+            return m_poFDefn->GetGeomFieldDefn(static_cast<int>(i));
+        }
+        inline const OGRGeomFieldDefn *operator[](size_t i) const
+        {
+            return m_poFDefn->GetGeomFieldDefn(static_cast<int>(i));
+        }
+    };
+    //! @endcond
+
+    /** Return an object that can be used to iterate over geometry fields.
+        \verbatim
+        for( const auto* poGeomFieldDefn: poFeatureDefn->GetGeomFields() )
+        {
+            // do something
+        }
+        \endverbatim
+
+        @since GDAL 3.7
+     */
+    inline GeomFields GetGeomFields()
+    {
+        return GeomFields(this);
+    }
 
     virtual void AddGeomFieldDefn(const OGRGeomFieldDefn *);
     virtual void AddGeomFieldDefn(std::unique_ptr<OGRGeomFieldDefn> &&);
@@ -858,6 +1031,8 @@ class CPL_DLL OGRFeature
     GIntBig GetFieldAsInteger64(int i) const;
     double GetFieldAsDouble(int i) const;
     const char *GetFieldAsString(int i) const;
+    const char *GetFieldAsISO8601DateTime(int i,
+                                          CSLConstList papszOptions) const;
     const int *GetFieldAsIntegerList(int i, int *pnCount) const;
     const GIntBig *GetFieldAsInteger64List(int i, int *pnCount) const;
     const double *GetFieldAsDoubleList(int i, int *pnCount) const;
@@ -923,6 +1098,11 @@ class CPL_DLL OGRFeature
     const char *GetFieldAsString(const char *pszFName) const
     {
         return GetFieldAsString(GetFieldIndex(pszFName));
+    }
+    const char *GetFieldAsISO8601DateTime(const char *pszFName,
+                                          CSLConstList papszOptions) const
+    {
+        return GetFieldAsISO8601DateTime(GetFieldIndex(pszFName), papszOptions);
     }
     const int *GetFieldAsIntegerList(const char *pszFName, int *pnCount) const
     {
@@ -1028,7 +1208,8 @@ class CPL_DLL OGRFeature
     }
     virtual OGRErr SetFID(GIntBig nFIDIn);
 
-    void DumpReadable(FILE *, char **papszOptions = nullptr) const;
+    void DumpReadable(FILE *, CSLConstList papszOptions = nullptr) const;
+    std::string DumpReadableAsString(CSLConstList papszOptions = nullptr) const;
 
     OGRErr SetFrom(const OGRFeature *, int = TRUE);
     OGRErr SetFrom(const OGRFeature *, const int *, int = TRUE);

@@ -82,11 +82,13 @@ class ERSDataset final : public RawDataset
   protected:
     int CloseDependentDatasets() override;
 
+    CPLErr Close() override;
+
   public:
     ERSDataset();
     ~ERSDataset() override;
 
-    void FlushCache(bool bAtClosing) override;
+    CPLErr FlushCache(bool bAtClosing) override;
     CPLErr GetGeoTransform(double *padfTransform) override;
     CPLErr SetGeoTransform(double *padfTransform) override;
     const OGRSpatialReference *GetSpatialRef() const override;
@@ -137,23 +139,41 @@ ERSDataset::ERSDataset()
 ERSDataset::~ERSDataset()
 
 {
-    ERSDataset::FlushCache(true);
+    ERSDataset::Close();
+}
 
-    if (fpImage != nullptr)
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr ERSDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
     {
-        VSIFCloseL(fpImage);
+        if (ERSDataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
+
+        if (fpImage != nullptr)
+        {
+            VSIFCloseL(fpImage);
+        }
+
+        ERSDataset::CloseDependentDatasets();
+
+        if (nGCPCount > 0)
+        {
+            GDALDeinitGCPs(nGCPCount, pasGCPList);
+            CPLFree(pasGCPList);
+        }
+
+        if (poHeader != nullptr)
+            delete poHeader;
+
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
     }
-
-    ERSDataset::CloseDependentDatasets();
-
-    if (nGCPCount > 0)
-    {
-        GDALDeinitGCPs(nGCPCount, pasGCPList);
-        CPLFree(pasGCPList);
-    }
-
-    if (poHeader != nullptr)
-        delete poHeader;
+    return eErr;
 }
 
 /************************************************************************/
@@ -162,7 +182,7 @@ ERSDataset::~ERSDataset()
 
 int ERSDataset::CloseDependentDatasets()
 {
-    int bHasDroppedRef = RawDataset::CloseDependentDatasets();
+    int bHasDroppedRef = GDALPamDataset::CloseDependentDatasets();
 
     if (poDepFile != nullptr)
     {
@@ -186,27 +206,34 @@ int ERSDataset::CloseDependentDatasets()
 /*                             FlushCache()                             */
 /************************************************************************/
 
-void ERSDataset::FlushCache(bool bAtClosing)
+CPLErr ERSDataset::FlushCache(bool bAtClosing)
 
 {
+    CPLErr eErr = CE_None;
     if (bHDRDirty)
     {
         VSILFILE *fpERS = VSIFOpenL(GetDescription(), "w");
         if (fpERS == nullptr)
         {
+            eErr = CE_Failure;
             CPLError(CE_Failure, CPLE_OpenFailed,
                      "Unable to rewrite %s header.", GetDescription());
         }
         else
         {
-            VSIFPrintfL(fpERS, "DatasetHeader Begin\n");
+            if (VSIFPrintfL(fpERS, "DatasetHeader Begin\n") <= 0)
+                eErr = CE_Failure;
             poHeader->WriteSelf(fpERS, 1);
-            VSIFPrintfL(fpERS, "DatasetHeader End\n");
-            VSIFCloseL(fpERS);
+            if (VSIFPrintfL(fpERS, "DatasetHeader End\n") <= 0)
+                eErr = CE_Failure;
+            if (VSIFCloseL(fpERS) != 0)
+                eErr = CE_Failure;
         }
     }
 
-    RawDataset::FlushCache(bAtClosing);
+    if (RawDataset::FlushCache(bAtClosing) != CE_None)
+        eErr = CE_Failure;
+    return eErr;
 }
 
 /************************************************************************/
@@ -827,7 +854,7 @@ class ERSProxyRasterBand final : public GDALProxyRasterBand
     int GetOverviewCount() override;
 
   protected:
-    GDALRasterBand *RefUnderlyingRasterBand() const override
+    GDALRasterBand *RefUnderlyingRasterBand(bool /*bForceOpen*/) const override
     {
         return m_poUnderlyingBand;
     }
@@ -901,7 +928,7 @@ GDALDataset *ERSDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create a corresponding GDALDataset.                             */
     /* -------------------------------------------------------------------- */
-    ERSDataset *poDS = new ERSDataset();
+    auto poDS = cpl::make_unique<ERSDataset>();
     poDS->poHeader = poHeader;
     poDS->eAccess = poOpenInfo->eAccess;
 
@@ -915,7 +942,6 @@ GDALDataset *ERSDataset::Open(GDALOpenInfo *poOpenInfo)
     if (!GDALCheckDatasetDimensions(poDS->nRasterXSize, poDS->nRasterYSize) ||
         !GDALCheckBandCount(nBands, FALSE))
     {
-        delete poDS;
         return nullptr;
     }
 
@@ -923,9 +949,16 @@ GDALDataset *ERSDataset::Open(GDALOpenInfo *poOpenInfo)
     /*     Get the HeaderOffset if it exists in the header                  */
     /* -------------------------------------------------------------------- */
     GIntBig nHeaderOffset = 0;
-    if (poHeader->Find("HeaderOffset") != nullptr)
+    const char *pszHeaderOffset = poHeader->Find("HeaderOffset");
+    if (pszHeaderOffset != nullptr)
     {
-        nHeaderOffset = atoi(poHeader->Find("HeaderOffset"));
+        nHeaderOffset = CPLAtoGIntBig(pszHeaderOffset);
+        if (nHeaderOffset < 0)
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Illegal value for HeaderOffset: %s", pszHeaderOffset);
+            return nullptr;
+        }
     }
 
     /* -------------------------------------------------------------------- */
@@ -937,7 +970,7 @@ GDALDataset *ERSDataset::Open(GDALOpenInfo *poOpenInfo)
     if (EQUAL(osCellType, "Unsigned8BitInteger"))
         eType = GDT_Byte;
     else if (EQUAL(osCellType, "Signed8BitInteger"))
-        eType = GDT_Byte;
+        eType = GDT_Int8;
     else if (EQUAL(osCellType, "Unsigned16BitInteger"))
         eType = GDT_UInt16;
     else if (EQUAL(osCellType, "Signed16BitInteger"))
@@ -1034,7 +1067,6 @@ GDALDataset *ERSDataset::Open(GDALOpenInfo *poOpenInfo)
                 poDS->nRasterXSize > knIntMax / (nBands * iWordSize))
             {
                 CPLError(CE_Failure, CPLE_AppDefined, "int overflow");
-                delete poDS;
                 return nullptr;
             }
 
@@ -1044,23 +1076,20 @@ GDALDataset *ERSDataset::Open(GDALOpenInfo *poOpenInfo)
                     nHeaderOffset, iWordSize * poDS->nRasterXSize,
                     poDS->fpImage))
             {
-                delete poDS;
                 return nullptr;
             }
 
             for (int iBand = 0; iBand < nBands; iBand++)
             {
                 // Assume pixel interleaved.
-                poDS->SetBand(
-                    iBand + 1,
-                    new ERSRasterBand(
-                        poDS, iBand + 1, poDS->fpImage,
-                        nHeaderOffset + iWordSize * iBand * poDS->nRasterXSize,
-                        iWordSize, iWordSize * nBands * poDS->nRasterXSize,
-                        eType, bNative));
-                if (EQUAL(osCellType, "Signed8BitInteger"))
-                    poDS->GetRasterBand(iBand + 1)->SetMetadataItem(
-                        "PIXELTYPE", "SIGNEDBYTE", "IMAGE_STRUCTURE");
+                auto poBand = cpl::make_unique<ERSRasterBand>(
+                    poDS.get(), iBand + 1, poDS->fpImage,
+                    nHeaderOffset + iWordSize * iBand * poDS->nRasterXSize,
+                    iWordSize, iWordSize * nBands * poDS->nRasterXSize, eType,
+                    bNative);
+                if (!poBand->IsValid())
+                    return nullptr;
+                poDS->SetBand(iBand + 1, std::move(poBand));
             }
         }
     }
@@ -1070,7 +1099,6 @@ GDALDataset *ERSDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     if (poDS->nBands == 0)
     {
-        delete poDS;
         return nullptr;
     }
 
@@ -1271,8 +1299,8 @@ GDALDataset *ERSDataset::Open(GDALOpenInfo *poOpenInfo)
     if (poSRS == nullptr)
     {
         // try aux
-        GDALDataset *poAuxDS = GDALFindAssociatedAuxFile(
-            poOpenInfo->pszFilename, GA_ReadOnly, poDS);
+        auto poAuxDS = std::unique_ptr<GDALDataset>(GDALFindAssociatedAuxFile(
+            poOpenInfo->pszFilename, GA_ReadOnly, poDS.get()));
         if (poAuxDS)
         {
             poSRS = poAuxDS->GetSpatialRef();
@@ -1280,16 +1308,14 @@ GDALDataset *ERSDataset::Open(GDALOpenInfo *poOpenInfo)
             {
                 poDS->m_oSRS = *poSRS;
             }
-
-            GDALClose(poAuxDS);
         }
     }
     /* -------------------------------------------------------------------- */
     /*      Check for overviews.                                            */
     /* -------------------------------------------------------------------- */
-    poDS->oOvManager.Initialize(poDS, poOpenInfo->pszFilename);
+    poDS->oOvManager.Initialize(poDS.get(), poOpenInfo->pszFilename);
 
-    return poDS;
+    return poDS.release();
 }
 
 /************************************************************************/
@@ -1311,9 +1337,9 @@ GDALDataset *ERSDataset::Create(const char *pszFilename, int nXSize, int nYSize,
         return nullptr;
     }
 
-    if (eType != GDT_Byte && eType != GDT_Int16 && eType != GDT_UInt16 &&
-        eType != GDT_Int32 && eType != GDT_UInt32 && eType != GDT_Float32 &&
-        eType != GDT_Float64)
+    if (eType != GDT_Byte && eType != GDT_Int8 && eType != GDT_Int16 &&
+        eType != GDT_UInt16 && eType != GDT_Int32 && eType != GDT_UInt32 &&
+        eType != GDT_Float32 && eType != GDT_Float64)
     {
         CPLError(
             CE_Failure, CPLE_AppDefined,
@@ -1346,6 +1372,8 @@ GDALDataset *ERSDataset::Create(const char *pszFilename, int nXSize, int nYSize,
 
     if (eType == GDT_Byte)
         pszCellType = "Unsigned8BitInteger";
+    else if (eType == GDT_Int8)
+        pszCellType = "Signed8BitInteger";
     else if (eType == GDT_Int16)
         pszCellType = "Signed16BitInteger";
     else if (eType == GDT_UInt16)
@@ -1492,15 +1520,15 @@ void GDALRegister_ERS()
     poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "drivers/raster/ers.html");
     poDriver->SetMetadataItem(GDAL_DMD_EXTENSION, "ers");
     poDriver->SetMetadataItem(GDAL_DMD_CREATIONDATATYPES,
-                              "Byte Int16 UInt16 Int32 UInt32 "
+                              "Byte Int8 Int16 UInt16 Int32 UInt32 "
                               "Float32 Float64");
 
     poDriver->SetMetadataItem(
         GDAL_DMD_CREATIONOPTIONLIST,
         "<CreationOptionList>"
-        "   <Option name='PIXELTYPE' type='string' description='By setting "
-        "this to SIGNEDBYTE, a new Byte file can be forced to be written as "
-        "signed byte'/>"
+        "   <Option name='PIXELTYPE' type='string' description='(deprecated, "
+        "use Int8 datatype) By setting this to SIGNEDBYTE, a new Byte file can "
+        "be forced to be written as signed byte'/>"
         "   <Option name='PROJ' type='string' description='ERS Projection "
         "Name'/>"
         "   <Option name='DATUM' type='string' description='ERS Datum Name' />"

@@ -45,6 +45,7 @@
 #include "cpl_multiproc.h"
 #include "gmlutils.h"
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -104,6 +105,7 @@ typedef enum
     STATE_GEOMETRY,
     STATE_IGNORED_FEATURE,
     STATE_BOUNDED_BY,
+    STATE_BOUNDED_BY_IN_FEATURE,
     STATE_CITYGML_ATTRIBUTE
 } HandlerState;
 
@@ -136,6 +138,7 @@ class GMLHandler
     int m_nGeometryDepth;
     bool m_bAlreadyFoundGeometry;
     int m_nGeometryPropertyIndex;
+    std::map<std::string, CPLXMLNode *> m_oMapElementToSubstitute{};
 
     int m_nDepth;
     int m_nDepthFeature;
@@ -164,6 +167,8 @@ class GMLHandler
 
     OGRErr startElementBoundedBy(const char *pszName, int nLenName, void *attr);
     OGRErr endElementBoundedBy();
+
+    OGRErr endElementBoundedByInFeature();
 
     OGRErr startElementFeatureAttribute(const char *pszName, int nLenName,
                                         void *attr);

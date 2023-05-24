@@ -445,13 +445,15 @@ void RegisterOGRSQLite()
                               "RealList StringList");
     poDriver->SetMetadataItem(GDAL_DMD_CREATIONFIELDDATASUBTYPES,
                               "Boolean Int16 Float32");
+    poDriver->SetMetadataItem(GDAL_DMD_CREATION_FIELD_DEFN_FLAGS,
+                              "WidthPrecision Nullable Default Unique");
     poDriver->SetMetadataItem(
         GDAL_DMD_ALTER_FIELD_DEFN_FLAGS,
         "Name Type WidthPrecision Nullable Default Unique");
 
 #ifdef HAVE_RASTERLITE2
     poDriver->SetMetadataItem(GDAL_DMD_CREATIONDATATYPES,
-                              "Byte UInt16 Int16 UInt32 Int32 Float32 "
+                              "Byte Int8 UInt16 Int16 UInt32 Int32 Float32 "
                               "Float64");
 #endif
     poDriver->SetMetadataItem(GDAL_DCAP_NOTNULL_FIELDS, "YES");
@@ -461,6 +463,11 @@ void RegisterOGRSQLite()
     poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_MULTIPLE_VECTOR_LAYERS, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_RELATIONSHIPS, "YES");
+    poDriver->SetMetadataItem(GDAL_DCAP_CREATE_RELATIONSHIP, "YES");
+    poDriver->SetMetadataItem(GDAL_DMD_RELATIONSHIP_FLAGS,
+                              "OneToMany Association Composite");
+    poDriver->SetMetadataItem(GDAL_DMD_RELATIONSHIP_RELATED_TABLE_TYPES,
+                              "features");
 
 #ifdef ENABLE_SQL_SQLITE_FORMAT
     poDriver->SetMetadataItem("ENABLE_SQL_SQLITE_FORMAT", "YES");

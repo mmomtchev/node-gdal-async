@@ -1155,12 +1155,32 @@ VICARDataset::VICARDataset()
 VICARDataset::~VICARDataset()
 
 {
-    if (!m_bIsLabelWritten)
-        WriteLabel();
-    VICARDataset::FlushCache(true);
-    PatchLabel();
-    if (fpImage != nullptr)
-        VSIFCloseL(fpImage);
+    VICARDataset::Close();
+}
+
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr VICARDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
+    {
+        if (!m_bIsLabelWritten)
+            WriteLabel();
+
+        if (VICARDataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
+
+        PatchLabel();
+        if (fpImage)
+            VSIFCloseL(fpImage);
+
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
+    }
+    return eErr;
 }
 
 /************************************************************************/
@@ -2538,12 +2558,11 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
         return Open(&oOpenInfo);
     }
 
-    VICARDataset *poDS = new VICARDataset();
+    auto poDS = cpl::make_unique<VICARDataset>();
     poDS->fpImage = poOpenInfo->fpL;
     poOpenInfo->fpL = nullptr;
     if (!poDS->oKeywords.Ingest(poDS->fpImage, poOpenInfo->pabyHeader))
     {
-        delete poDS;
         return nullptr;
     }
 
@@ -2577,7 +2596,6 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
                  "File %s appears to be a VICAR file, but failed to find some "
                  "required keywords.",
                  poOpenInfo->pszFilename);
-        delete poDS;
         return nullptr;
     }
 
@@ -2587,7 +2605,6 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Could not find known VICAR label entries!\n");
-        delete poDS;
         return nullptr;
     }
     double dfNoData = 0.0;
@@ -2623,7 +2640,6 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
         {
             CPLError(CE_Failure, CPLE_NotSupported,
                      "INTFMT=%s layout not supported.", value);
-            delete poDS;
             return nullptr;
         }
     }
@@ -2646,7 +2662,6 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
         {
             CPLError(CE_Failure, CPLE_NotSupported,
                      "REALFMT=%s layout not supported.", value);
-            delete poDS;
             return nullptr;
         }
     }
@@ -2690,7 +2705,6 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
                                      (nNBB + nBandOffset * (nBands - 1)))
     {
         CPLDebug("VICAR", "Invalid spacings found");
-        delete poDS;
         return nullptr;
     }
 
@@ -2781,7 +2795,6 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
         {
             CPLError(CE_Failure, CPLE_NotSupported,
                      "Update of compressed VICAR file not supported");
-            delete poDS;
             return nullptr;
         }
         poDS->SetMetadataItem("COMPRESS", osCompress, "IMAGE_STRUCTURE");
@@ -2791,14 +2804,12 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
         {
             CPLError(CE_Failure, CPLE_NotSupported,
                      "Too many records for compressed dataset");
-            delete poDS;
             return nullptr;
         }
         if (!GDALDataTypeIsInteger(eDataType))
         {
             CPLError(CE_Failure, CPLE_NotSupported,
                      "Data type incompatible of compression");
-            delete poDS;
             return nullptr;
         }
         // To avoid potential issues in basic_decode()
@@ -2806,7 +2817,6 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
         if (nDTSize == 0 || poDS->nRasterXSize > INT_MAX / nDTSize)
         {
             CPLError(CE_Failure, CPLE_NotSupported, "Too large scanline");
-            delete poDS;
             return nullptr;
         }
         const int nRecords = poDS->nRasterYSize * nBands;
@@ -2818,7 +2828,6 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
         catch (const std::exception &e)
         {
             CPLError(CE_Failure, CPLE_OutOfMemory, "%s", e.what());
-            delete poDS;
             return nullptr;
         }
         if (poDS->m_eCompress == COMPRESS_BASIC)
@@ -2836,7 +2845,6 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
     {
         CPLError(CE_Failure, CPLE_NotSupported, "COMPRESS=%s not supported",
                  osCompress.c_str());
-        delete poDS;
         return nullptr;
     }
 
@@ -2845,24 +2853,29 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     for (int i = 0; i < nBands; i++)
     {
-        GDALRasterBand *poBand;
+        std::unique_ptr<GDALRasterBand> poBand;
 
         if (poDS->m_eCompress == COMPRESS_BASIC ||
             poDS->m_eCompress == COMPRESS_BASIC2)
         {
-            poBand = new VICARBASICRasterBand(poDS, i + 1, eDataType);
+            poBand = cpl::make_unique<VICARBASICRasterBand>(poDS.get(), i + 1,
+                                                            eDataType);
         }
         else
         {
-            poBand = new VICARRawRasterBand(
-                poDS, i + 1, poDS->fpImage,
+            auto poRawBand = cpl::make_unique<VICARRawRasterBand>(
+                poDS.get(), i + 1, poDS->fpImage,
                 static_cast<vsi_l_offset>(nImageOffsetWithoutNBB + nNBB +
                                           nBandOffset * i),
                 static_cast<int>(nPixelOffset), static_cast<int>(nLineOffset),
                 eDataType, eByteOrder);
+            if (!poRawBand->IsValid())
+            {
+                return nullptr;
+            }
+            poBand = std::move(poRawBand);
         }
 
-        poDS->SetBand(i + 1, poBand);
         // only set NoData if instrument is supported
         if (bInstKnown)
             poBand->SetNoDataValue(dfNoData);
@@ -2911,6 +2924,8 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
             pszStdDev != nullptr)
             poBand->SetStatistics(CPLAtofM(pszMin), CPLAtofM(pszMax),
                                   CPLAtofM(pszMean), CPLAtofM(pszStdDev));
+
+        poDS->SetBand(i + 1, std::move(poBand));
     }
 
     /* -------------------------------------------------------------------- */
@@ -3064,9 +3079,9 @@ GDALDataset *VICARDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Check for overviews.                                            */
     /* -------------------------------------------------------------------- */
-    poDS->oOvManager.Initialize(poDS, poOpenInfo->pszFilename);
+    poDS->oOvManager.Initialize(poDS.get(), poOpenInfo->pszFilename);
 
-    return poDS;
+    return poDS.release();
 }
 
 /************************************************************************/
@@ -3388,8 +3403,8 @@ GDALDataset *VICARDataset::CreateCopy(const char *pszFilename,
     const int nYSize = poSrcDS->GetRasterYSize();
     const int nBands = poSrcDS->GetRasterCount();
     GDALDataType eType = poSrcDS->GetRasterBand(1)->GetRasterDataType();
-    auto poDS = CreateInternal(pszFilename, nXSize, nYSize, nBands, eType,
-                               papszOptions);
+    auto poDS = std::unique_ptr<VICARDataset>(CreateInternal(
+        pszFilename, nXSize, nYSize, nBands, eType, papszOptions));
     if (poDS == nullptr)
         return nullptr;
 
@@ -3418,16 +3433,15 @@ GDALDataset *VICARDataset::CreateCopy(const char *pszFilename,
     }
 
     poDS->m_bInitToNodata = false;
-    CPLErr eErr = GDALDatasetCopyWholeRaster(poSrcDS, poDS, nullptr,
+    CPLErr eErr = GDALDatasetCopyWholeRaster(poSrcDS, poDS.get(), nullptr,
                                              pfnProgress, pProgressData);
     poDS->FlushCache(false);
     if (eErr != CE_None)
     {
-        delete poDS;
         return nullptr;
     }
 
-    return poDS;
+    return poDS.release();
 }
 
 /************************************************************************/

@@ -61,6 +61,7 @@ class RRASTERDataset final : public RawDataset
     CPLString m_osBandOrder{};
     CPLString m_osLegend{};
     bool m_bInitRaster = false;
+    bool m_bSignedByte = false;
 
     static bool ComputeSpacings(const CPLString &osBandOrder, int nCols,
                                 int nRows, int l_nBands, GDALDataType eDT,
@@ -69,6 +70,8 @@ class RRASTERDataset final : public RawDataset
     void RewriteHeader();
 
     CPL_DISALLOW_COPY_ASSIGN(RRASTERDataset)
+
+    CPLErr Close() override;
 
   public:
     RRASTERDataset();
@@ -102,6 +105,10 @@ class RRASTERDataset final : public RawDataset
         m_bHeaderDirty = true;
     }
     void InitImageIfNeeded();
+    inline bool IsSignedByte() const
+    {
+        return m_bSignedByte;
+    }
 };
 
 /************************************************************************/
@@ -330,22 +337,19 @@ static void GetMinMax(const T *buffer, int nBufXSize, int nBufYSize,
     }
 }
 
-static void GetMinMax(const void *pBuffer, GDALDataType eDT, bool bByteSigned,
-                      int nBufXSize, int nBufYSize, GSpacing nPixelSpace,
-                      GSpacing nLineSpace, double dfNoDataValue, double &dfMin,
-                      double &dfMax)
+static void GetMinMax(const void *pBuffer, GDALDataType eDT, int nBufXSize,
+                      int nBufYSize, GSpacing nPixelSpace, GSpacing nLineSpace,
+                      double dfNoDataValue, double &dfMin, double &dfMax)
 {
     switch (eDT)
     {
         case GDT_Byte:
-            if (bByteSigned)
-                GetMinMax(static_cast<const signed char *>(pBuffer), nBufXSize,
-                          nBufYSize, nPixelSpace, nLineSpace, dfNoDataValue,
-                          dfMin, dfMax);
-            else
-                GetMinMax(static_cast<const GByte *>(pBuffer), nBufXSize,
-                          nBufYSize, nPixelSpace, nLineSpace, dfNoDataValue,
-                          dfMin, dfMax);
+            GetMinMax(static_cast<const GByte *>(pBuffer), nBufXSize, nBufYSize,
+                      nPixelSpace, nLineSpace, dfNoDataValue, dfMin, dfMax);
+            break;
+        case GDT_Int8:
+            GetMinMax(static_cast<const GInt8 *>(pBuffer), nBufXSize, nBufYSize,
+                      nPixelSpace, nLineSpace, dfNoDataValue, dfMin, dfMax);
             break;
         case GDT_UInt16:
             GetMinMax(static_cast<const GUInt16 *>(pBuffer), nBufXSize,
@@ -392,15 +396,12 @@ CPLErr RRASTERRasterBand::IWriteBlock(int nBlockXOff, int nBlockYOff,
     RRASTERDataset *poGDS = static_cast<RRASTERDataset *>(poDS);
     poGDS->InitImageIfNeeded();
 
-    const char *pszPixelType = GetMetadataItem("PIXELTYPE", "IMAGE_STRUCTURE");
-    bool bByteSigned = (eDataType == GDT_Byte && pszPixelType &&
-                        EQUAL(pszPixelType, "SIGNEDBYTE"));
     int bGotNoDataValue = false;
     double dfNoDataValue = GetNoDataValue(&bGotNoDataValue);
     if (!bGotNoDataValue)
         dfNoDataValue = std::numeric_limits<double>::quiet_NaN();
-    GetMinMax(pImage, eDataType, bByteSigned, nBlockXSize, nBlockYSize, 1,
-              nBlockXSize, dfNoDataValue, m_dfMin, m_dfMax);
+    GetMinMax(pImage, poGDS->IsSignedByte() ? GDT_Int8 : eDataType, nBlockXSize,
+              nBlockYSize, 1, nBlockXSize, dfNoDataValue, m_dfMin, m_dfMax);
     return RawRasterBand::IWriteBlock(nBlockXOff, nBlockYOff, pImage);
 }
 
@@ -421,18 +422,14 @@ CPLErr RRASTERRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
         RRASTERDataset *poGDS = static_cast<RRASTERDataset *>(poDS);
         poGDS->InitImageIfNeeded();
 
-        const char *pszPixelType =
-            GetMetadataItem("PIXELTYPE", "IMAGE_STRUCTURE");
-        bool bByteSigned = (eDataType == GDT_Byte && pszPixelType &&
-                            EQUAL(pszPixelType, "SIGNEDBYTE"));
         const int nDTSize = std::max(1, GDALGetDataTypeSizeBytes(eDataType));
         int bGotNoDataValue = false;
         double dfNoDataValue = GetNoDataValue(&bGotNoDataValue);
         if (!bGotNoDataValue)
             dfNoDataValue = std::numeric_limits<double>::quiet_NaN();
-        GetMinMax(pData, eDataType, bByteSigned, nBufXSize, nBufYSize,
-                  nPixelSpace / nDTSize, nLineSpace / nDTSize, dfNoDataValue,
-                  m_dfMin, m_dfMax);
+        GetMinMax(pData, poGDS->IsSignedByte() ? GDT_Int8 : eDataType,
+                  nBufXSize, nBufYSize, nPixelSpace / nDTSize,
+                  nLineSpace / nDTSize, dfNoDataValue, m_dfMin, m_dfMax);
     }
     return RawRasterBand::IRasterIO(eRWFlag, nXOff, nYOff, nXSize, nYSize,
                                     pData, nBufXSize, nBufYSize, eBufType,
@@ -455,14 +452,33 @@ RRASTERDataset::RRASTERDataset()
 RRASTERDataset::~RRASTERDataset()
 
 {
-    if (m_fpImage != nullptr)
+    RRASTERDataset::Close();
+}
+
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr RRASTERDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
     {
-        InitImageIfNeeded();
-        FlushCache(true);
-        VSIFCloseL(m_fpImage);
+        if (m_fpImage)
+        {
+            InitImageIfNeeded();
+            if (RRASTERDataset::FlushCache(true) != CE_None)
+                eErr = CE_Failure;
+            if (VSIFCloseL(m_fpImage) != CE_None)
+                eErr = CE_Failure;
+        }
+        if (m_bHeaderDirty)
+            RewriteHeader();
+
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
     }
-    if (m_bHeaderDirty)
-        RewriteHeader();
+    return eErr;
 }
 
 /************************************************************************/
@@ -516,19 +532,15 @@ void RRASTERDataset::RewriteHeader()
 
     VSIFPrintfL(fp, "[data]\n");
     GDALDataType eDT = GetRasterBand(1)->GetRasterDataType();
-    const char *pszPixelType =
-        GetRasterBand(1)->GetMetadataItem("PIXELTYPE", "IMAGE_STRUCTURE");
     VSIFPrintfL(fp, "datatype=%s\n",
-                (eDT == GDT_Byte)
-                    ? ((pszPixelType && EQUAL(pszPixelType, "SIGNEDBYTE"))
-                           ? "INT1S"
-                           : "INT1U")
-                : (eDT == GDT_UInt16)  ? "INT2U"
-                : (eDT == GDT_UInt32)  ? "INT4U"
-                : (eDT == GDT_Int16)   ? "INT2S"
-                : (eDT == GDT_Int32)   ? "INT4S"
-                : (eDT == GDT_Float32) ? "FLT4S"
-                                       :
+                (eDT == GDT_Int8 || m_bSignedByte) ? "INT1S"
+                : (eDT == GDT_Byte)                ? "INT1U"
+                : (eDT == GDT_UInt16)              ? "INT2U"
+                : (eDT == GDT_UInt32)              ? "INT4U"
+                : (eDT == GDT_Int16)               ? "INT2S"
+                : (eDT == GDT_Int32)               ? "INT4S"
+                : (eDT == GDT_Float32)             ? "FLT4S"
+                                                   :
                                        /*(eDT == GDT_Float64) ?*/ "FLT8S");
 
     int bGotNoDataValue = false;
@@ -1125,7 +1137,7 @@ GDALDataset *RRASTERDataset::Open(GDALOpenInfo *poOpenInfo)
     if (EQUAL(osDataType, "LOG1S"))
         eDT = GDT_Byte;  // mapping TBC
     else if (EQUAL(osDataType, "INT1S"))
-        eDT = GDT_Byte;
+        eDT = GDT_Int8;
     else if (EQUAL(osDataType, "INT2S"))
         eDT = GDT_Int16;
     else if (EQUAL(osDataType, "INT4S"))
@@ -1217,7 +1229,7 @@ GDALDataset *RRASTERDataset::Open(GDALOpenInfo *poOpenInfo)
         return nullptr;
     }
 
-    RRASTERDataset *poDS = new RRASTERDataset;
+    auto poDS = cpl::make_unique<RRASTERDataset>();
     poDS->eAccess = poOpenInfo->eAccess;
     poDS->nRasterXSize = nCols;
     poDS->nRasterYSize = nRows;
@@ -1358,14 +1370,12 @@ GDALDataset *RRASTERDataset::Open(GDALOpenInfo *poOpenInfo)
     CPLStringList aosLayerNames(CSLTokenizeString2(osLayerName, ":", 0));
     for (int i = 1; i <= l_nBands; i++)
     {
-        RRASTERRasterBand *poBand =
-            new RRASTERRasterBand(poDS, i, fpImage, nBandOffset * (i - 1),
-                                  nPixelOffset, nLineOffset, eDT, bNativeOrder);
-        poDS->SetBand(i, poBand);
-        if (EQUAL(osDataType, "INT1S"))
+        auto poBand = cpl::make_unique<RRASTERRasterBand>(
+            poDS.get(), i, fpImage, nBandOffset * (i - 1), nPixelOffset,
+            nLineOffset, eDT, bNativeOrder);
+        if (!poBand->IsValid())
         {
-            poDS->GetRasterBand(i)->GDALRasterBand::SetMetadataItem(
-                "PIXELTYPE", "SIGNEDBYTE", "IMAGE_STRUCTURE");
+            return nullptr;
         }
         if (!osNoDataValue.empty() && !EQUAL(osNoDataValue, "NA"))
         {
@@ -1398,9 +1408,10 @@ GDALDataset *RRASTERDataset::Open(GDALOpenInfo *poOpenInfo)
         poBand->m_poCT = poDS->m_poCT;
         if (poBand->m_poCT)
             poBand->SetColorInterpretation(GCI_PaletteIndex);
+        poDS->SetBand(i, std::move(poBand));
     }
 
-    return poDS;
+    return poDS.release();
 }
 
 /************************************************************************/
@@ -1420,9 +1431,9 @@ GDALDataset *RRASTERDataset::Create(const char *pszFilename, int nXSize,
         return nullptr;
     }
 
-    if (eType != GDT_Byte && eType != GDT_UInt16 && eType != GDT_Int16 &&
-        eType != GDT_Int32 && eType != GDT_UInt32 && eType != GDT_Float32 &&
-        eType != GDT_Float64)
+    if (eType != GDT_Byte && eType != GDT_Int8 && eType != GDT_UInt16 &&
+        eType != GDT_Int16 && eType != GDT_Int32 && eType != GDT_UInt32 &&
+        eType != GDT_Float32 && eType != GDT_Float64)
     {
         CPLError(CE_Failure, CPLE_NotSupported, "Unsupported data type (%s).",
                  GDALGetDataTypeName(eType));
@@ -1475,6 +1486,8 @@ GDALDataset *RRASTERDataset::Create(const char *pszFilename, int nXSize,
     const char *pszPixelType = CSLFetchNameValue(papszOptions, "PIXELTYPE");
     const bool bByteSigned = (eType == GDT_Byte && pszPixelType &&
                               EQUAL(pszPixelType, "SIGNEDBYTE"));
+    if (bByteSigned)
+        poDS->m_bSignedByte = true;
 
     for (int i = 1; i <= nBandsIn; i++)
     {
@@ -1482,11 +1495,6 @@ GDALDataset *RRASTERDataset::Create(const char *pszFilename, int nXSize,
             new RRASTERRasterBand(poDS, i, fpImage, nBandOffset * (i - 1),
                                   nPixelOffset, nLineOffset, eType, true);
         poDS->SetBand(i, poBand);
-        if (bByteSigned)
-        {
-            poBand->GDALRasterBand::SetMetadataItem("PIXELTYPE", "SIGNEDBYTE",
-                                                    "IMAGE_STRUCTURE");
-        }
     }
 
     return poDS;
@@ -1539,18 +1547,20 @@ void GDALRegister_RRASTER()
     poDriver->SetMetadataItem(GDAL_DMD_LONGNAME, "R Raster");
     poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC,
                               "drivers/raster/rraster.html");
-    poDriver->SetMetadataItem(GDAL_DMD_CREATIONDATATYPES,
-                              "Byte Int16 UInt16 Int32 UInt32 Float32 Float64");
+    poDriver->SetMetadataItem(
+        GDAL_DMD_CREATIONDATATYPES,
+        "Byte Int8 Int16 UInt16 Int32 UInt32 Float32 Float64");
 
     poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");
 
     poDriver->SetMetadataItem(
         GDAL_DMD_CREATIONOPTIONLIST,
         "<CreationOptionList>"
-        "   <Option name='PIXELTYPE' type='string' description='By setting "
-        "this to "
-        "SIGNEDBYTE, a new Byte file can be forced to be written as signed "
-        "byte'/>"
+        "   <Option name='PIXELTYPE' type='string' description='(deprecated, "
+        "use Int8) "
+        "By setting this to SIGNEDBYTE, a new Byte file can be forced to be "
+        "written "
+        "as signed byte'/>"
         "   <Option name='INTERLEAVE' type='string-select' default='BIL'>"
         "       <Value>BIP</Value>"
         "       <Value>BIL</Value>"

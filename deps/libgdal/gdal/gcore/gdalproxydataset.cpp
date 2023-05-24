@@ -147,14 +147,30 @@ D_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, IBuildOverviews,
                         (pszResampling, nOverviews, panOverviewList, nListBands,
                          panBandList, pfnProgress, pProgressData, papszOptions))
 
-void GDALProxyDataset::FlushCache(bool bAtClosing)
+D_PROXY_METHOD_WITH_RET(CPLStringList, CPLStringList(), GetCompressionFormats,
+                        (int nXOff, int nYOff, int nXSize, int nYSize,
+                         int nBandCount, const int *panBandList),
+                        (nXOff, nYOff, nXSize, nYSize, nBandCount, panBandList))
+
+D_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, ReadCompressedData,
+                        (const char *pszFormat, int nXOff, int nYOff,
+                         int nXSize, int nYSize, int nBandCount,
+                         const int *panBandList, void **ppBuffer,
+                         size_t *pnBufferSize, char **ppszDetailedFormat),
+                        (pszFormat, nXOff, nYOff, nXSize, nYSize, nBandCount,
+                         panBandList, ppBuffer, pnBufferSize,
+                         ppszDetailedFormat))
+
+CPLErr GDALProxyDataset::FlushCache(bool bAtClosing)
 {
+    CPLErr eErr = CE_None;
     GDALDataset *poUnderlyingDataset = RefUnderlyingDataset();
     if (poUnderlyingDataset)
     {
-        poUnderlyingDataset->FlushCache(bAtClosing);
+        eErr = poUnderlyingDataset->FlushCache(bAtClosing);
         UnrefUnderlyingDataset(poUnderlyingDataset);
     }
+    return eErr;
 }
 
 D_PROXY_METHOD_WITH_RET(char **, nullptr, GetMetadataDomainList, (), ())
@@ -331,9 +347,23 @@ RB_PROXY_METHOD_WITH_RET(char **, nullptr, GetMetadata, (const char *pszDomain),
 RB_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, SetMetadata,
                          (char **papszMetadata, const char *pszDomain),
                          (papszMetadata, pszDomain))
-RB_PROXY_METHOD_WITH_RET(const char *, nullptr, GetMetadataItem,
-                         (const char *pszName, const char *pszDomain),
-                         (pszName, pszDomain))
+
+const char *GDALProxyRasterBand::GetMetadataItem(const char *pszKey,
+                                                 const char *pszDomain)
+{
+    const char *pszRet = nullptr;
+    GDALRasterBand *poSrcBand = RefUnderlyingRasterBand();
+    if (poSrcBand)
+    {
+        if (!m_bEnablePixelTypeSignedByteWarning)
+            poSrcBand->EnablePixelTypeSignedByteWarning(false);
+        pszRet = poSrcBand->GetMetadataItem(pszKey, pszDomain);
+        poSrcBand->EnablePixelTypeSignedByteWarning(true);
+        UnrefUnderlyingRasterBand(poSrcBand);
+    }
+    return pszRet;
+}
+
 RB_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, SetMetadataItem,
                          (const char *pszName, const char *pszValue,
                           const char *pszDomain),

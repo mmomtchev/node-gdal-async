@@ -1662,10 +1662,10 @@ OGRErr OGRSQLiteTableLayer::CreateGeomField(OGRGeomFieldDefn *poGeomFieldIn,
             poGeomField->SetName(CPLSPrintf(
                 "GEOMETRY%d", m_poFeatureDefn->GetGeomFieldCount() + 1));
     }
-    auto l_poSRS = poGeomFieldIn->GetSpatialRef();
-    if (l_poSRS)
+    auto poSRSIn = poGeomFieldIn->GetSpatialRef();
+    if (poSRSIn)
     {
-        l_poSRS = l_poSRS->Clone();
+        auto l_poSRS = poSRSIn->Clone();
         l_poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         poGeomField->SetSpatialRef(l_poSRS);
         l_poSRS->Release();
@@ -1683,7 +1683,7 @@ OGRErr OGRSQLiteTableLayer::CreateGeomField(OGRGeomFieldDefn *poGeomFieldIn,
         CPLFree(pszSafeName);
     }
 
-    OGRSpatialReference *poSRS = poGeomField->GetSpatialRef();
+    const OGRSpatialReference *poSRS = poGeomField->GetSpatialRef();
     int nSRSId = -1;
     if (poSRS != nullptr)
         nSRSId = m_poDS->FetchSRSId(poSRS);
@@ -1940,7 +1940,8 @@ void OGRSQLiteTableLayer::AddColumnDef(char *pszNewFieldList, size_t nBufLen,
 
 OGRErr OGRSQLiteTableLayer::RecreateTable(const char *pszFieldListForSelect,
                                           const char *pszNewFieldList,
-                                          const char *pszGenericErrorMessage)
+                                          const char *pszGenericErrorMessage,
+                                          const char *pszAdditionalDef)
 {
     /* -------------------------------------------------------------------- */
     /*      Do this all in a transaction.                                   */
@@ -1969,11 +1970,14 @@ OGRErr OGRSQLiteTableLayer::RecreateTable(const char *pszFieldListForSelect,
     /* -------------------------------------------------------------------- */
 
     if (rc == SQLITE_OK)
-        rc = sqlite3_exec(hDB,
-                          CPLSPrintf("CREATE TABLE t1_back(%s)%s",
-                                     pszNewFieldList,
-                                     m_bStrict ? " STRICT" : ""),
-                          nullptr, nullptr, &pszErrMsg);
+        rc = sqlite3_exec(
+            hDB,
+            CPLSPrintf("CREATE TABLE t1_back(%s %s)%s", pszNewFieldList,
+                       pszAdditionalDef
+                           ? (std::string(", ") + pszAdditionalDef).c_str()
+                           : "",
+                       m_bStrict ? " STRICT" : ""),
+            nullptr, nullptr, &pszErrMsg);
 
     if (rc == SQLITE_OK)
         rc = sqlite3_exec(hDB,
@@ -2402,6 +2406,69 @@ OGRErr OGRSQLiteTableLayer::AlterFieldDefn(int iFieldToAlter,
         poFieldDefn->SetNullable(poNewFieldDefn->IsNullable());
     if (nActualFlags & ALTER_DEFAULT_FLAG)
         poFieldDefn->SetDefault(poNewFieldDefn->GetDefault());
+
+    return OGRERR_NONE;
+}
+
+/************************************************************************/
+/*                     AddForeignKeysToTable()                           */
+/************************************************************************/
+
+OGRErr OGRSQLiteTableLayer::AddForeignKeysToTable(const char *pszKeys)
+{
+    if (HasLayerDefnError())
+        return OGRERR_FAILURE;
+
+    if (!m_poDS->GetUpdate())
+    {
+        CPLError(CE_Failure, CPLE_NotSupported, UNSUPPORTED_OP_READ_ONLY,
+                 "AddForeignKeysToTable");
+        return OGRERR_FAILURE;
+    }
+
+    ClearInsertStmt();
+    ResetReading();
+
+    /* -------------------------------------------------------------------- */
+    /*      Build list of old fields, and the list of new fields.           */
+    /* -------------------------------------------------------------------- */
+    char *pszNewFieldList = nullptr;
+    char *pszFieldListForSelect = nullptr;
+    size_t nBufLen = 0;
+
+    InitFieldListForRecrerate(pszNewFieldList, pszFieldListForSelect, nBufLen,
+                              0);
+
+    for (int iField = 0; iField < m_poFeatureDefn->GetFieldCount(); iField++)
+    {
+        OGRFieldDefn *poFldDefn = m_poFeatureDefn->GetFieldDefn(iField);
+
+        snprintf(pszFieldListForSelect + strlen(pszFieldListForSelect),
+                 nBufLen - strlen(pszFieldListForSelect), ", \"%s\"",
+                 SQLEscapeName(poFldDefn->GetNameRef()).c_str());
+
+        AddColumnDef(pszNewFieldList, nBufLen, poFldDefn);
+    }
+
+    /* -------------------------------------------------------------------- */
+    /*      Recreate table.                                                 */
+    /* -------------------------------------------------------------------- */
+    CPLString osErrorMsg;
+    osErrorMsg.Printf("Failed to add foreign keys to table %s",
+                      m_poFeatureDefn->GetName());
+
+    OGRErr eErr = RecreateTable(pszFieldListForSelect, pszNewFieldList,
+                                osErrorMsg.c_str(), pszKeys);
+
+    CPLFree(pszFieldListForSelect);
+    CPLFree(pszNewFieldList);
+
+    if (eErr != OGRERR_NONE)
+        return eErr;
+
+    /* -------------------------------------------------------------------- */
+    /*      Finish                                                          */
+    /* -------------------------------------------------------------------- */
 
     return OGRERR_NONE;
 }

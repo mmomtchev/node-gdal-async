@@ -40,7 +40,8 @@ OGRWarpedLayer::OGRWarpedLayer(OGRLayer *poDecoratedLayer, int iGeomField,
                                OGRCoordinateTransformation *poReversedCT)
     : OGRLayerDecorator(poDecoratedLayer, bTakeOwnership),
       m_poFeatureDefn(nullptr), m_iGeomField(iGeomField), m_poCT(poCT),
-      m_poReversedCT(poReversedCT), m_poSRS(m_poCT->GetTargetCS())
+      m_poReversedCT(poReversedCT),
+      m_poSRS(const_cast<OGRSpatialReference *>(m_poCT->GetTargetCS()))
 {
     CPLAssert(poCT != nullptr);
     SetDescription(poDecoratedLayer->GetDescription());
@@ -293,6 +294,32 @@ OGRErr OGRWarpedLayer::IUpsertFeature(OGRFeature *poFeature)
         return OGRERR_FAILURE;
 
     eErr = m_poDecoratedLayer->UpsertFeature(poFeatureNew);
+
+    delete poFeatureNew;
+
+    return eErr;
+}
+
+/************************************************************************/
+/*                            IUpdateFeature()                          */
+/************************************************************************/
+
+OGRErr OGRWarpedLayer::IUpdateFeature(OGRFeature *poFeature,
+                                      int nUpdatedFieldsCount,
+                                      const int *panUpdatedFieldsIdx,
+                                      int nUpdatedGeomFieldsCount,
+                                      const int *panUpdatedGeomFieldsIdx,
+                                      bool bUpdateStyleString)
+{
+    OGRErr eErr;
+
+    OGRFeature *poFeatureNew = WarpedFeatureToSrcFeature(poFeature);
+    if (poFeatureNew == nullptr)
+        return OGRERR_FAILURE;
+
+    eErr = m_poDecoratedLayer->UpdateFeature(
+        poFeatureNew, nUpdatedFieldsCount, panUpdatedFieldsIdx,
+        nUpdatedGeomFieldsCount, panUpdatedGeomFieldsIdx, bUpdateStyleString);
 
     delete poFeatureNew;
 

@@ -563,8 +563,18 @@ bool VSIDIRADLS::IssueListDir()
         poHandleHelper->AddQueryParameter("resource", "account");
     }
 
-    struct curl_slist *headers =
-        VSICurlSetOptions(hCurlHandle, poHandleHelper->GetURL(), nullptr);
+    std::string osFilename("/vsiadls/");
+    if (!m_osFilesystem.empty())
+    {
+        osFilename += m_osFilesystem;
+        if (!m_osObjectKey.empty())
+            osFilename += m_osObjectKey;
+    }
+    const CPLStringList aosHTTPOptions(
+        CPLHTTPGetOptionsFromEnv(osFilename.c_str()));
+
+    struct curl_slist *headers = VSICurlSetOptions(
+        hCurlHandle, poHandleHelper->GetURL(), aosHTTPOptions.List());
     headers = VSICurlMergeHeaders(
         headers, poHandleHelper->GetCurlHeaders("GET", headers));
     unchecked_curl_easy_setopt(hCurlHandle, CURLOPT_HTTPHEADER, headers);
@@ -729,6 +739,8 @@ int VSIADLSFSHandler::Stat(const char *pszFilename, VSIStatBufL *pStatBuf,
         return -1;
     }
 
+    const CPLStringList aosHTTPOptions(CPLHTTPGetOptionsFromEnv(pszFilename));
+
     // Stat("/vsiadls/filesystem") ?
     if (osFilenameWithoutSlash.size() > GetFSPrefix().size() &&
         osFilenameWithoutSlash.substr(GetFSPrefix().size()).find('/') ==
@@ -753,8 +765,8 @@ int VSIADLSFSHandler::Stat(const char *pszFilename, VSIStatBufL *pStatBuf,
 
         poHandleHelper->AddQueryParameter("resource", "filesystem");
 
-        struct curl_slist *headers =
-            VSICurlSetOptions(hCurlHandle, poHandleHelper->GetURL(), nullptr);
+        struct curl_slist *headers = VSICurlSetOptions(
+            hCurlHandle, poHandleHelper->GetURL(), aosHTTPOptions.List());
 
         headers = VSICurlMergeHeaders(
             headers, poHandleHelper->GetCurlHeaders("HEAD", headers));
@@ -838,12 +850,16 @@ char **VSIADLSFSHandler::GetFileMetadata(const char *pszFilename,
 
     bool bRetry;
     // coverity[tainted_data]
-    double dfRetryDelay = CPLAtof(CPLGetConfigOption(
-        "GDAL_HTTP_RETRY_DELAY", CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
-    const int nMaxRetry = atoi(CPLGetConfigOption(
-        "GDAL_HTTP_MAX_RETRY", CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
+    double dfRetryDelay = CPLAtof(
+        VSIGetPathSpecificOption(pszFilename, "GDAL_HTTP_RETRY_DELAY",
+                                 CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    const int nMaxRetry =
+        atoi(VSIGetPathSpecificOption(pszFilename, "GDAL_HTTP_MAX_RETRY",
+                                      CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
     int nRetryCount = 0;
     bool bError = true;
+
+    const CPLStringList aosHTTPOptions(CPLHTTPGetOptionsFromEnv(pszFilename));
 
     CPLStringList aosMetadata;
     do
@@ -854,8 +870,8 @@ char **VSIADLSFSHandler::GetFileMetadata(const char *pszFilename,
                                                         ? "getStatus"
                                                         : "getAccessControl");
 
-        struct curl_slist *headers =
-            VSICurlSetOptions(hCurlHandle, poHandleHelper->GetURL(), nullptr);
+        struct curl_slist *headers = VSICurlSetOptions(
+            hCurlHandle, poHandleHelper->GetURL(), aosHTTPOptions.List());
 
         headers = VSICurlMergeHeaders(
             headers, poHandleHelper->GetCurlHeaders("HEAD", headers));
@@ -966,13 +982,17 @@ bool VSIADLSFSHandler::SetFileMetadata(const char *pszFilename,
 
     bool bRetry;
     // coverity[tainted_data]
-    double dfRetryDelay = CPLAtof(CPLGetConfigOption(
-        "GDAL_HTTP_RETRY_DELAY", CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
-    const int nMaxRetry = atoi(CPLGetConfigOption(
-        "GDAL_HTTP_MAX_RETRY", CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
+    double dfRetryDelay = CPLAtof(
+        VSIGetPathSpecificOption(pszFilename, "GDAL_HTTP_RETRY_DELAY",
+                                 CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    const int nMaxRetry =
+        atoi(VSIGetPathSpecificOption(pszFilename, "GDAL_HTTP_MAX_RETRY",
+                                      CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
     int nRetryCount = 0;
 
     bool bRet = false;
+
+    const CPLStringList aosHTTPOptions(CPLHTTPGetOptionsFromEnv(pszFilename));
 
     do
     {
@@ -989,9 +1009,9 @@ bool VSIADLSFSHandler::SetFileMetadata(const char *pszFilename,
         }
         unchecked_curl_easy_setopt(hCurlHandle, CURLOPT_CUSTOMREQUEST, "PATCH");
 
-        struct curl_slist *headers =
-            static_cast<struct curl_slist *>(CPLHTTPSetOptions(
-                hCurlHandle, poHandleHelper->GetURL().c_str(), nullptr));
+        struct curl_slist *headers = static_cast<struct curl_slist *>(
+            CPLHTTPSetOptions(hCurlHandle, poHandleHelper->GetURL().c_str(),
+                              aosHTTPOptions.List()));
 
         CPLStringList aosList;
         for (CSLConstList papszIter = papszMetadata; papszIter && *papszIter;
@@ -1187,11 +1207,12 @@ bool VSIADLSWriteHandle::SendInternal(VSIADLSFSHandler::Event event,
                                       CSLConstList papszOptions)
 {
     // coverity[tainted_data]
-    const int nMaxRetry = atoi(CPLGetConfigOption(
-        "GDAL_HTTP_MAX_RETRY", CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
-    // coverity[tainted_data]
-    double dfRetryDelay = CPLAtof(CPLGetConfigOption(
-        "GDAL_HTTP_RETRY_DELAY", CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    double dfRetryDelay = CPLAtof(
+        VSIGetPathSpecificOption(m_osFilename.c_str(), "GDAL_HTTP_RETRY_DELAY",
+                                 CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    const int nMaxRetry = atoi(
+        VSIGetPathSpecificOption(m_osFilename.c_str(), "GDAL_HTTP_MAX_RETRY",
+                                 CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
 
     return cpl::down_cast<VSIADLSFSHandler *>(m_poFS)->UploadFile(
         m_osFilename, event,
@@ -1263,12 +1284,12 @@ VSIVirtualHandle *VSIADLSFSHandler::Open(const char *pszFilename,
 /*                        SupportsRandomWrite()                         */
 /************************************************************************/
 
-bool VSIADLSFSHandler::SupportsRandomWrite(const char * /* pszPath */,
+bool VSIADLSFSHandler::SupportsRandomWrite(const char *pszPath,
                                            bool bAllowLocalTempFile)
 {
     return bAllowLocalTempFile &&
-           CPLTestBool(CPLGetConfigOption(
-               "CPL_VSIL_USE_TEMP_FILE_FOR_RANDOM_WRITE", "NO"));
+           CPLTestBool(VSIGetPathSpecificOption(
+               pszPath, "CPL_VSIL_USE_TEMP_FILE_FOR_RANDOM_WRITE", "NO"));
 }
 
 /************************************************************************/
@@ -1336,16 +1357,19 @@ int VSIADLSFSHandler::Rename(const char *oldpath, const char *newpath)
     int nRet = 0;
     bool bRetry;
 
-    const int nMaxRetry = atoi(CPLGetConfigOption(
-        "GDAL_HTTP_MAX_RETRY", CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
     // coverity[tainted_data]
-    double dfRetryDelay = CPLAtof(CPLGetConfigOption(
-        "GDAL_HTTP_RETRY_DELAY", CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    double dfRetryDelay = CPLAtof(
+        VSIGetPathSpecificOption(oldpath, "GDAL_HTTP_RETRY_DELAY",
+                                 CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    const int nMaxRetry = atoi(VSIGetPathSpecificOption(
+        oldpath, "GDAL_HTTP_MAX_RETRY", CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
     int nRetryCount = 0;
 
     InvalidateCachedData(GetURLFromFilename(oldpath));
     InvalidateCachedData(GetURLFromFilename(newpath));
     InvalidateDirContent(CPLGetDirname(oldpath));
+
+    const CPLStringList aosHTTPOptions(CPLHTTPGetOptionsFromEnv(oldpath));
 
     do
     {
@@ -1358,9 +1382,9 @@ int VSIADLSFSHandler::Rename(const char *oldpath, const char *newpath)
         if (!osContinuation.empty())
             poHandleHelper->AddQueryParameter("continuation", osContinuation);
 
-        struct curl_slist *headers =
-            static_cast<struct curl_slist *>(CPLHTTPSetOptions(
-                hCurlHandle, poHandleHelper->GetURL().c_str(), nullptr));
+        struct curl_slist *headers = static_cast<struct curl_slist *>(
+            CPLHTTPSetOptions(hCurlHandle, poHandleHelper->GetURL().c_str(),
+                              aosHTTPOptions.List()));
         headers = curl_slist_append(headers, "Content-Length: 0");
         CPLString osRenameSource("x-ms-rename-source: /");
         osRenameSource +=
@@ -1475,12 +1499,16 @@ int VSIADLSFSHandler::MkdirInternal(const char *pszDirname, long nMode,
 
     bool bRetry;
 
-    const int nMaxRetry = atoi(CPLGetConfigOption(
-        "GDAL_HTTP_MAX_RETRY", CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
     // coverity[tainted_data]
-    double dfRetryDelay = CPLAtof(CPLGetConfigOption(
-        "GDAL_HTTP_RETRY_DELAY", CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    double dfRetryDelay = CPLAtof(
+        VSIGetPathSpecificOption(pszDirname, "GDAL_HTTP_RETRY_DELAY",
+                                 CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    const int nMaxRetry =
+        atoi(VSIGetPathSpecificOption(pszDirname, "GDAL_HTTP_MAX_RETRY",
+                                      CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
     int nRetryCount = 0;
+
+    const CPLStringList aosHTTPOptions(CPLHTTPGetOptionsFromEnv(pszDirname));
 
     do
     {
@@ -1495,9 +1523,9 @@ int VSIADLSFSHandler::MkdirInternal(const char *pszDirname, long nMode,
                             ? "filesystem"
                             : "directory");
 
-        struct curl_slist *headers =
-            static_cast<struct curl_slist *>(CPLHTTPSetOptions(
-                hCurlHandle, poHandleHelper->GetURL().c_str(), nullptr));
+        struct curl_slist *headers = static_cast<struct curl_slist *>(
+            CPLHTTPSetOptions(hCurlHandle, poHandleHelper->GetURL().c_str(),
+                              aosHTTPOptions.List()));
         headers = curl_slist_append(headers, "Content-Length: 0");
         CPLString osPermissions;  // keep in this scope
         if ((nMode & 0777) != 0)
@@ -1630,12 +1658,17 @@ int VSIADLSFSHandler::RmdirInternal(const char *pszDirname, bool bRecursive)
     int nRet = 0;
     bool bRetry;
 
-    const int nMaxRetry = atoi(CPLGetConfigOption(
-        "GDAL_HTTP_MAX_RETRY", CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
     // coverity[tainted_data]
-    double dfRetryDelay = CPLAtof(CPLGetConfigOption(
-        "GDAL_HTTP_RETRY_DELAY", CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    double dfRetryDelay = CPLAtof(
+        VSIGetPathSpecificOption(pszDirname, "GDAL_HTTP_RETRY_DELAY",
+                                 CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    const int nMaxRetry =
+        atoi(VSIGetPathSpecificOption(pszDirname, "GDAL_HTTP_MAX_RETRY",
+                                      CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
     int nRetryCount = 0;
+
+    const CPLStringList aosHTTPOptions(CPLHTTPGetOptionsFromEnv(pszDirname));
+
     do
     {
         bRetry = false;
@@ -1657,9 +1690,9 @@ int VSIADLSFSHandler::RmdirInternal(const char *pszDirname, bool bRecursive)
                                                   osContinuation);
         }
 
-        struct curl_slist *headers =
-            static_cast<struct curl_slist *>(CPLHTTPSetOptions(
-                hCurlHandle, poHandleHelper->GetURL().c_str(), nullptr));
+        struct curl_slist *headers = static_cast<struct curl_slist *>(
+            CPLHTTPSetOptions(hCurlHandle, poHandleHelper->GetURL().c_str(),
+                              aosHTTPOptions.List()));
         headers = VSICurlMergeHeaders(
             headers, poHandleHelper->GetCurlHeaders("DELETE", headers));
 
@@ -1800,12 +1833,15 @@ int VSIADLSFSHandler::CopyObject(const char *oldpath, const char *newpath,
 
     bool bRetry;
 
-    const int nMaxRetry = atoi(CPLGetConfigOption(
-        "GDAL_HTTP_MAX_RETRY", CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
     // coverity[tainted_data]
-    double dfRetryDelay = CPLAtof(CPLGetConfigOption(
-        "GDAL_HTTP_RETRY_DELAY", CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    double dfRetryDelay = CPLAtof(
+        VSIGetPathSpecificOption(oldpath, "GDAL_HTTP_RETRY_DELAY",
+                                 CPLSPrintf("%f", CPL_HTTP_RETRY_DELAY)));
+    const int nMaxRetry = atoi(VSIGetPathSpecificOption(
+        oldpath, "GDAL_HTTP_MAX_RETRY", CPLSPrintf("%d", CPL_HTTP_MAX_RETRY)));
     int nRetryCount = 0;
+
+    const CPLStringList aosHTTPOptions(CPLHTTPGetOptionsFromEnv(oldpath));
 
     do
     {
@@ -1813,9 +1849,9 @@ int VSIADLSFSHandler::CopyObject(const char *oldpath, const char *newpath,
         CURL *hCurlHandle = curl_easy_init();
         unchecked_curl_easy_setopt(hCurlHandle, CURLOPT_CUSTOMREQUEST, "PUT");
 
-        struct curl_slist *headers =
-            static_cast<struct curl_slist *>(CPLHTTPSetOptions(
-                hCurlHandle, poAzHandleHelper->GetURL().c_str(), nullptr));
+        struct curl_slist *headers = static_cast<struct curl_slist *>(
+            CPLHTTPSetOptions(hCurlHandle, poAzHandleHelper->GetURL().c_str(),
+                              aosHTTPOptions.List()));
         headers = curl_slist_append(headers, osSourceHeader.c_str());
         headers = curl_slist_append(headers, "Content-Length: 0");
         headers = VSICurlSetContentTypeFromExt(headers, newpath);
@@ -1899,6 +1935,9 @@ bool VSIADLSFSHandler::UploadFile(const CPLString &osFilename, Event event,
         InvalidateDirContent(CPLGetDirname(osFilename));
     }
 
+    const CPLStringList aosHTTPOptions(
+        CPLHTTPGetOptionsFromEnv(osFilename.c_str()));
+
     bool bSuccess = true;
     int nRetryCount = 0;
     bool bRetry;
@@ -1938,9 +1977,9 @@ bool VSIADLSFSHandler::UploadFile(const CPLString &osFilename, Event event,
         putData.nTotalSize = nBufferSize;
         unchecked_curl_easy_setopt(hCurlHandle, CURLOPT_READDATA, &putData);
 
-        struct curl_slist *headers =
-            static_cast<struct curl_slist *>(CPLHTTPSetOptions(
-                hCurlHandle, poHandleHelper->GetURL().c_str(), nullptr));
+        struct curl_slist *headers = static_cast<struct curl_slist *>(
+            CPLHTTPSetOptions(hCurlHandle, poHandleHelper->GetURL().c_str(),
+                              aosHTTPOptions.List()));
         headers = VSICurlSetCreationHeadersFromOptions(headers, papszOptions,
                                                        osFilename.c_str());
 

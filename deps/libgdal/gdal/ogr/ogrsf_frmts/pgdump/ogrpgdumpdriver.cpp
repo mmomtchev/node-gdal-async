@@ -42,7 +42,7 @@ OGRPGDumpDriverCreate(const char *pszName, CPL_UNUSED int nXSize,
         pszName = "/vsistdout/";
 
     OGRPGDumpDataSource *poDS = new OGRPGDumpDataSource(pszName, papszOptions);
-    if (!poDS->Log("SET standard_conforming_strings = OFF"))
+    if (!poDS->Log("SET standard_conforming_strings = ON"))
     {
         delete poDS;
         return nullptr;
@@ -118,6 +118,13 @@ void RegisterOGRPGDump()
         "    <Value>SPGIST</Value>"
         "    <Value>BRIN</Value>"
         "  </Option>"
+        "  <Option name='GEOM_COLUMN_POSITION' type='string-select' "
+        "description='Whether geometry/geography columns should be created "
+        "as soon they are created (IMMEDIATE) or after non-spatial columns' "
+        "default='IMMEDIATE'>"
+        "    <Value>IMMEDIATE</Value>"
+        "    <Value>END</Value>"
+        "  </Option>"
         "  <Option name='TEMPORARY' type='boolean' description='Whether to a "
         "temporary table instead of a permanent one' default='NO'/>"
         "  <Option name='UNLOGGED' type='boolean' description='Whether to "
@@ -142,7 +149,7 @@ void RegisterOGRPGDump()
         "to force non-spatial layers to be created as spatial tables' "
         "default='NO'/>"
         "  <Option name='FID' type='string' description='Name of the FID "
-        "column to create' default='ogc_fid'/>"
+        "column to create. Set to empty to not create it.' default='ogc_fid'/>"
         "  <Option name='FID64' type='boolean' description='Whether to create "
         "the FID column with BIGSERIAL type to handle 64bit wide ids' "
         "default='NO'/>"
@@ -164,6 +171,9 @@ void RegisterOGRPGDump()
                               "StringList Binary");
     poDriver->SetMetadataItem(GDAL_DMD_CREATIONFIELDDATASUBTYPES,
                               "Boolean Int16 Float32");
+    poDriver->SetMetadataItem(GDAL_DMD_CREATION_FIELD_DEFN_FLAGS,
+                              "WidthPrecision Nullable Unique Default Comment");
+
     poDriver->SetMetadataItem(GDAL_DCAP_NOTNULL_FIELDS, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_DEFAULT_FIELDS, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_UNIQUE_FIELDS, "YES");

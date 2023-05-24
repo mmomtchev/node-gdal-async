@@ -879,13 +879,8 @@ bool GDALGroup::CopyFrom(const std::shared_ptr<GDALGroup> &poDstRootGroup,
                             const char *pszDataType =
                                 pszOption + strlen("AUTOSCALE_DATA_TYPE=");
                             eAutoScaleType = GDALGetDataTypeByName(pszDataType);
-                            if (eAutoScaleType != GDT_Byte &&
-                                eAutoScaleType != GDT_UInt16 &&
-                                eAutoScaleType != GDT_Int16 &&
-                                eAutoScaleType != GDT_UInt32 &&
-                                eAutoScaleType != GDT_Int32 &&
-                                eAutoScaleType != GDT_UInt64 &&
-                                eAutoScaleType != GDT_Int64)
+                            if (GDALDataTypeIsComplex(eAutoScaleType) ||
+                                GDALDataTypeIsFloating(eAutoScaleType))
                             {
                                 CPLError(CE_Failure, CPLE_NotSupported,
                                          "Unsupported value for "
@@ -944,6 +939,9 @@ bool GDALGroup::CopyFrom(const std::shared_ptr<GDALGroup> &poDstRootGroup,
                     case GDT_Byte:
                         setDTMinMax(GByte);
                         break;
+                    case GDT_Int8:
+                        setDTMinMax(GInt8);
+                        break;
                     case GDT_UInt16:
                         setDTMinMax(GUInt16);
                         break;
@@ -962,7 +960,14 @@ bool GDALGroup::CopyFrom(const std::shared_ptr<GDALGroup> &poDstRootGroup,
                     case GDT_Int64:
                         setDTMinMax(std::int64_t);
                         break;
-                    default:
+                    case GDT_Float32:
+                    case GDT_Float64:
+                    case GDT_Unknown:
+                    case GDT_CInt16:
+                    case GDT_CInt32:
+                    case GDT_CFloat32:
+                    case GDT_CFloat64:
+                    case GDT_TypeCount:
                         CPLAssert(false);
                 }
 
@@ -1410,6 +1415,9 @@ bool GDALExtendedDataType::CopyValue(const void *pSrc,
                 break;
             case GDT_Byte:
                 str = CPLSPrintf("%d", *static_cast<const GByte *>(pSrc));
+                break;
+            case GDT_Int8:
+                str = CPLSPrintf("%d", *static_cast<const GInt8 *>(pSrc));
                 break;
             case GDT_UInt16:
                 str = CPLSPrintf("%d", *static_cast<const GUInt16 *>(pSrc));
@@ -2233,7 +2241,7 @@ const std::string &GDALMDArray::GetUnit() const
 /*                          SetSpatialRef()                             */
 /************************************************************************/
 
-/** Assign a spatial reference system object to the the array.
+/** Assign a spatial reference system object to the array.
  *
  * This is the same as the C function GDALMDArraySetSpatialRef().
  */
@@ -2483,6 +2491,34 @@ bool GDALMDArray::SetNoDataValue(uint64_t nNoData)
     }
     CPLFree(pRawNoData);
     return bRet;
+}
+
+/************************************************************************/
+/*                            Resize()                                  */
+/************************************************************************/
+
+/** Resize an array to new dimensions.
+ *
+ * Not all drivers may allow this operation, and with restrictions (e.g.
+ * for netCDF, this is limited to growing of "unlimited" dimensions)
+ *
+ * Resizing a dimension used in other arrays will cause those other arrays
+ * to be resized.
+ *
+ * This is the same as the C function GDALMDArrayResize().
+ *
+ * @param anNewDimSizes Array of GetDimensionCount() values containing the
+ *                      new size of each indexing dimension.
+ * @param papszOptions Options. (Driver specific)
+ * @return true in case of success.
+ * @since GDAL 3.7
+ */
+bool GDALMDArray::Resize(CPL_UNUSED const std::vector<GUInt64> &anNewDimSizes,
+                         CPL_UNUSED CSLConstList papszOptions)
+{
+    CPLError(CE_Failure, CPLE_NotSupported,
+             "Resize() is not supported for this array");
+    return false;
 }
 
 /************************************************************************/
@@ -6213,6 +6249,14 @@ bool GDALMDArrayMask::IRead(const GUInt64 *arrayStartIdx, const size_t *count,
                 dfValidMin, bHasValidMax, dfValidMax);
             break;
 
+        case GDT_Int8:
+            ReadInternal<GInt8>(
+                count, bufferStride, bufferDataType, pDstBuffer, pTempBuffer,
+                oTmpBufferDT, tmpBufferStrideVector, bHasMissingValue,
+                dfMissingValue, bHasFillValue, dfFillValue, bHasValidMin,
+                dfValidMin, bHasValidMax, dfValidMax);
+            break;
+
         case GDT_UInt16:
             ReadInternal<GUInt16>(
                 count, bufferStride, bufferDataType, pDstBuffer, pTempBuffer,
@@ -6269,13 +6313,20 @@ bool GDALMDArrayMask::IRead(const GUInt64 *arrayStartIdx, const size_t *count,
                 dfValidMin, bHasValidMax, dfValidMax);
             break;
 
-        default:
-            CPLAssert(oTmpBufferDT.GetNumericDataType() == GDT_Float64);
+        case GDT_Float64:
             ReadInternal<double>(
                 count, bufferStride, bufferDataType, pDstBuffer, pTempBuffer,
                 oTmpBufferDT, tmpBufferStrideVector, bHasMissingValue,
                 dfMissingValue, bHasFillValue, dfFillValue, bHasValidMin,
                 dfValidMin, bHasValidMax, dfValidMax);
+            break;
+        case GDT_Unknown:
+        case GDT_CInt16:
+        case GDT_CInt32:
+        case GDT_CFloat32:
+        case GDT_CFloat64:
+        case GDT_TypeCount:
+            CPLAssert(false);
             break;
     }
 
@@ -7183,12 +7234,12 @@ std::shared_ptr<GDALMDArrayResampled> GDALMDArrayResampled::Create(
                     osStandardName = pszStandardName;
             }
             if (osName == "lon" || osName == "longitude" ||
-                osStandardName == "longitude")
+                osName == "Longitude" || osStandardName == "longitude")
             {
                 poLongVar = poCoordVar;
             }
             else if (osName == "lat" || osName == "latitude" ||
-                     osStandardName == "latitude")
+                     osName == "Latitude" || osStandardName == "latitude")
             {
                 poLatVar = poCoordVar;
             }
@@ -10225,6 +10276,40 @@ int GDALMDArraySetNoDataValueAsUInt64(GDALMDArrayH hArray,
 }
 
 /************************************************************************/
+/*                        GDALMDArrayResize()                           */
+/************************************************************************/
+
+/** Resize an array to new dimensions.
+ *
+ * Not all drivers may allow this operation, and with restrictions (e.g.
+ * for netCDF, this is limited to growing of "unlimited" dimensions)
+ *
+ * Resizing a dimension used in other arrays will cause those other arrays
+ * to be resized.
+ *
+ * This is the same as the C++ method GDALMDArray::Resize().
+ *
+ * @param hArray Array.
+ * @param panNewDimSizes Array of GetDimensionCount() values containing the
+ *                       new size of each indexing dimension.
+ * @param papszOptions Options. (Driver specific)
+ * @return true in case of success.
+ * @since GDAL 3.7
+ */
+bool GDALMDArrayResize(GDALMDArrayH hArray, const GUInt64 *panNewDimSizes,
+                       CSLConstList papszOptions)
+{
+    VALIDATE_POINTER1(hArray, __func__, false);
+    VALIDATE_POINTER1(panNewDimSizes, __func__, false);
+    std::vector<GUInt64> anNewDimSizes(hArray->m_poImpl->GetDimensionCount());
+    for (size_t i = 0; i < anNewDimSizes.size(); ++i)
+    {
+        anNewDimSizes[i] = panNewDimSizes[i];
+    }
+    return hArray->m_poImpl->Resize(anNewDimSizes, papszOptions);
+}
+
+/************************************************************************/
 /*                          GDALMDArraySetScale()                       */
 /************************************************************************/
 
@@ -10673,7 +10758,7 @@ const char *GDALMDArrayGetUnit(GDALMDArrayH hArray)
 /*                      GDALMDArrayGetSpatialRef()                      */
 /************************************************************************/
 
-/** Assign a spatial reference system object to the the array.
+/** Assign a spatial reference system object to the array.
  *
  * This is the same as the C++ method GDALMDArray::SetSpatialRef().
  * @return TRUE in case of success.
@@ -10784,6 +10869,34 @@ GDALMDArrayH *GDALMDArrayGetCoordinateVariables(GDALMDArrayH hArray,
     }
     *pnCount = coordinates.size();
     return ret;
+}
+
+/************************************************************************/
+/*                     GDALMDArrayGetGridded()                          */
+/************************************************************************/
+
+/** Return a gridded array from scattered point data, that is from an array
+ * whose last dimension is the indexing variable of X and Y arrays.
+ *
+ * The returned object should be released with GDALMDArrayRelease().
+ *
+ * This is the same as the C++ method GDALMDArray::GetGridded().
+ *
+ * @since GDAL 3.7
+ */
+GDALMDArrayH GDALMDArrayGetGridded(GDALMDArrayH hArray,
+                                   const char *pszGridOptions,
+                                   GDALMDArrayH hXArray, GDALMDArrayH hYArray,
+                                   CSLConstList papszOptions)
+{
+    VALIDATE_POINTER1(hArray, __func__, nullptr);
+    VALIDATE_POINTER1(pszGridOptions, __func__, nullptr);
+    auto gridded = hArray->m_poImpl->GetGridded(
+        pszGridOptions, hXArray ? hXArray->m_poImpl : nullptr,
+        hYArray ? hYArray->m_poImpl : nullptr, papszOptions);
+    if (!gridded)
+        return nullptr;
+    return new GDALMDArrayHS(gridded);
 }
 
 /************************************************************************/
@@ -11667,6 +11780,11 @@ bool GDALDimensionWeakIndexingVar::SetIndexingVariable(
 {
     m_poIndexingVariable = poIndexingVariable;
     return true;
+}
+
+void GDALDimensionWeakIndexingVar::SetSize(GUInt64 nNewSize)
+{
+    m_nSize = nNewSize;
 }
 
 /************************************************************************/

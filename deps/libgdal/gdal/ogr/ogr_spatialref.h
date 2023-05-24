@@ -176,6 +176,10 @@ class CPL_DLL OGRSpatialReference
 
     static CPLString lookupInDict(const char *pszDictFile, const char *pszCode);
 
+    OGRErr GetWKT2ProjectionMethod(const char **ppszMethodName,
+                                   const char **ppszMethodAuthName = nullptr,
+                                   const char **ppszMethodCode = nullptr) const;
+
   public:
     explicit OGRSpatialReference(const char * = nullptr);
     OGRSpatialReference(const OGRSpatialReference &);
@@ -209,6 +213,7 @@ class CPL_DLL OGRSpatialReference
     OGRErr exportToUSGS(long *, long *, double **, long *) const;
     OGRErr exportToXML(char **, const char * = nullptr) const;
     OGRErr exportToPanorama(long *, long *, long *, long *, double *) const;
+    OGRErr exportVertCSToPanorama(int *) const;
     OGRErr exportToERM(char *pszProj, char *pszDatum, char *pszUnits);
     OGRErr exportToMICoordSys(char **) const;
 
@@ -239,7 +244,7 @@ class CPL_DLL OGRSpatialReference
     OGRErr importFromUSGS(long iProjSys, long iZone, double *padfPrjParams,
                           long iDatum,
                           int nUSGSAngleFormat = USGS_ANGLE_PACKEDDMS);
-    OGRErr importFromPanorama(long, long, long, double *);
+    OGRErr importFromPanorama(long, long, long, double *, bool bNorth = true);
     OGRErr importVertCSFromPanorama(int);
     OGRErr importFromOzi(const char *const *papszLines);
     OGRErr importFromWMSAUTO(const char *pszAutoDef);
@@ -730,6 +735,17 @@ class CPL_DLL OGRSpatialReference
     }
 };
 
+/*! @cond Doxygen_Suppress */
+struct CPL_DLL OGRSpatialReferenceReleaser
+{
+    void operator()(OGRSpatialReference *poSRS) const
+    {
+        if (poSRS)
+            poSRS->Release();
+    }
+};
+/*! @endcond */
+
 /************************************************************************/
 /*                     OGRCoordinateTransformation                      */
 /*                                                                      */
@@ -758,10 +774,10 @@ class CPL_DLL OGRCoordinateTransformation
     // From CT_CoordinateTransformation
 
     /** Fetch internal source coordinate system. */
-    virtual OGRSpatialReference *GetSourceCS() = 0;
+    virtual const OGRSpatialReference *GetSourceCS() const = 0;
 
     /** Fetch internal target coordinate system. */
-    virtual OGRSpatialReference *GetTargetCS() = 0;
+    virtual const OGRSpatialReference *GetTargetCS() const = 0;
 
     /** Whether the transformer will emit CPLError */
     virtual bool GetEmitErrors() const

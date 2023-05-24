@@ -217,6 +217,7 @@ OGRGeometryH CPL_DLL OGR_G_Intersection(OGRGeometryH,
 OGRGeometryH CPL_DLL OGR_G_Union(OGRGeometryH,
                                  OGRGeometryH) CPL_WARN_UNUSED_RESULT;
 OGRGeometryH CPL_DLL OGR_G_UnionCascaded(OGRGeometryH) CPL_WARN_UNUSED_RESULT;
+OGRGeometryH CPL_DLL OGR_G_UnaryUnion(OGRGeometryH) CPL_WARN_UNUSED_RESULT;
 OGRGeometryH CPL_DLL OGR_G_PointOnSurface(OGRGeometryH) CPL_WARN_UNUSED_RESULT;
 /*OGRGeometryH CPL_DLL OGR_G_Polygonize( OGRGeometryH *, int);*/
 /*OGRGeometryH CPL_DLL OGR_G_Polygonizer_getCutEdges( OGRGeometryH *, int);*/
@@ -401,6 +402,8 @@ void CPL_DLL OGR_Fld_SetDefault(OGRFieldDefnH hDefn, const char *);
 int CPL_DLL OGR_Fld_IsDefaultDriverSpecific(OGRFieldDefnH hDefn);
 const char CPL_DLL *OGR_Fld_GetDomainName(OGRFieldDefnH hDefn);
 void CPL_DLL OGR_Fld_SetDomainName(OGRFieldDefnH hDefn, const char *);
+const char CPL_DLL *OGR_Fld_GetComment(OGRFieldDefnH hDefn);
+void CPL_DLL OGR_Fld_SetComment(OGRFieldDefnH hDefn, const char *);
 
 const char CPL_DLL *OGR_GetFieldTypeName(OGRFieldType);
 const char CPL_DLL *OGR_GetFieldSubTypeName(OGRFieldSubType);
@@ -500,6 +503,8 @@ int CPL_DLL OGR_F_GetFieldAsInteger(OGRFeatureH, int);
 GIntBig CPL_DLL OGR_F_GetFieldAsInteger64(OGRFeatureH, int);
 double CPL_DLL OGR_F_GetFieldAsDouble(OGRFeatureH, int);
 const char CPL_DLL *OGR_F_GetFieldAsString(OGRFeatureH, int);
+const char CPL_DLL *OGR_F_GetFieldAsISO8601DateTime(OGRFeatureH, int,
+                                                    CSLConstList);
 const int CPL_DLL *OGR_F_GetFieldAsIntegerList(OGRFeatureH, int, int *);
 const GIntBig CPL_DLL *OGR_F_GetFieldAsInteger64List(OGRFeatureH, int, int *);
 const double CPL_DLL *OGR_F_GetFieldAsDoubleList(OGRFeatureH, int, int *);
@@ -718,8 +723,17 @@ OGRErr CPL_DLL OGR_L_CreateFeature(OGRLayerH,
 OGRErr CPL_DLL OGR_L_DeleteFeature(OGRLayerH, GIntBig) CPL_WARN_UNUSED_RESULT;
 OGRErr CPL_DLL OGR_L_UpsertFeature(OGRLayerH,
                                    OGRFeatureH) CPL_WARN_UNUSED_RESULT;
+OGRErr CPL_DLL
+OGR_L_UpdateFeature(OGRLayerH, OGRFeatureH, int nUpdatedFieldsCount,
+                    const int *panUpdatedFieldsIdx, int nUpdatedGeomFieldsCount,
+                    const int *panUpdatedGeomFieldsIdx,
+                    bool bUpdateStyleString) CPL_WARN_UNUSED_RESULT;
 OGRFeatureDefnH CPL_DLL OGR_L_GetLayerDefn(OGRLayerH);
 OGRSpatialReferenceH CPL_DLL OGR_L_GetSpatialRef(OGRLayerH);
+OGRSpatialReferenceH CPL_DLL *
+OGR_L_GetSupportedSRSList(OGRLayerH hLayer, int iGeomField, int *pnCount);
+OGRErr CPL_DLL OGR_L_SetActiveSRS(OGRLayerH hLayer, int iGeomField,
+                                  OGRSpatialReferenceH hSRS);
 int CPL_DLL OGR_L_FindFieldIndex(OGRLayerH, const char *, int bExactMatch);
 GIntBig CPL_DLL OGR_L_GetFeatureCount(OGRLayerH, int);
 OGRErr CPL_DLL OGR_L_GetExtent(OGRLayerH, OGREnvelope *, int);

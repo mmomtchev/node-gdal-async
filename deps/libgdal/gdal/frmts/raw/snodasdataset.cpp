@@ -56,6 +56,8 @@ class SNODASDataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(SNODASDataset)
 
+    CPLErr Close() override;
+
   public:
     SNODASDataset();
     ~SNODASDataset() override;
@@ -183,7 +185,25 @@ SNODASDataset::SNODASDataset()
 SNODASDataset::~SNODASDataset()
 
 {
-    FlushCache(true);
+    SNODASDataset::Close();
+}
+
+/************************************************************************/
+/*                              Close()                                 */
+/************************************************************************/
+
+CPLErr SNODASDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
+    {
+        if (SNODASDataset::FlushCache(true) != CE_None)
+            eErr = CE_Failure;
+
+        if (GDALPamDataset::Close() != CE_None)
+            eErr = CE_Failure;
+    }
+    return eErr;
 }
 
 /************************************************************************/
@@ -436,7 +456,7 @@ GDALDataset *SNODASDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create a corresponding GDALDataset.                             */
     /* -------------------------------------------------------------------- */
-    SNODASDataset *poDS = new SNODASDataset();
+    auto poDS = cpl::make_unique<SNODASDataset>();
 
     poDS->nRasterXSize = nCols;
     poDS->nRasterYSize = nRows;
@@ -478,7 +498,10 @@ GDALDataset *SNODASDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create band information objects.                                */
     /* -------------------------------------------------------------------- */
-    poDS->SetBand(1, new SNODASRasterBand(fpRaw, nCols, nRows));
+    auto poBand = cpl::make_unique<SNODASRasterBand>(fpRaw, nCols, nRows);
+    if (!poBand->IsValid())
+        return nullptr;
+    poDS->SetBand(1, std::move(poBand));
 
     /* -------------------------------------------------------------------- */
     /*      Initialize any PAM information.                                 */
@@ -489,9 +512,9 @@ GDALDataset *SNODASDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Check for overviews.                                            */
     /* -------------------------------------------------------------------- */
-    poDS->oOvManager.Initialize(poDS, poOpenInfo->pszFilename);
+    poDS->oOvManager.Initialize(poDS.get(), poOpenInfo->pszFilename);
 
-    return poDS;
+    return poDS.release();
 }
 
 /************************************************************************/

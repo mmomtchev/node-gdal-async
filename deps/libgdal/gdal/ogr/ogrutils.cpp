@@ -286,39 +286,41 @@ static bool isInteger(const std::string &s)
 std::string OGRMakeWktCoordinate(double x, double y, double z, int nDimension,
                                  OGRWktOptions opts)
 {
-    std::string xval;
-    std::string yval;
+    std::string wkt;
 
     // Why do we do this?  Seems especially strange since we're ADDING
     // ".0" onto values in the case below.  The "&&" here also seems strange.
     if (opts.format == OGRWktFormat::Default && CPLIsDoubleAnInt(x) &&
         CPLIsDoubleAnInt(y))
     {
-        xval = std::to_string(static_cast<int>(x));
-        yval = std::to_string(static_cast<int>(y));
+        wkt = std::to_string(static_cast<int>(x));
+        wkt += ' ';
+        wkt += std::to_string(static_cast<int>(y));
     }
     else
     {
-        xval = OGRFormatDouble(x, opts);
+        wkt = OGRFormatDouble(x, opts);
         // ABELL - Why do we do special formatting?
-        if (isInteger(xval))
-            xval += ".0";
+        if (isInteger(wkt))
+            wkt += ".0";
+        wkt += ' ';
 
-        yval = OGRFormatDouble(y, opts);
+        std::string yval = OGRFormatDouble(y, opts);
         if (isInteger(yval))
             yval += ".0";
+        wkt += yval;
     }
-    std::string wkt = xval + " " + yval;
 
     // Why do we always format Z with type G.
     if (nDimension == 3)
     {
+        wkt += ' ';
         if (opts.format == OGRWktFormat::Default && CPLIsDoubleAnInt(z))
-            wkt += " " + std::to_string(static_cast<int>(z));
+            wkt += std::to_string(static_cast<int>(z));
         else
         {
             opts.format = OGRWktFormat::G;
-            wkt += " " + OGRFormatDouble(z, opts);
+            wkt += OGRFormatDouble(z, opts);
         }
     }
     return wkt;
@@ -348,24 +350,26 @@ std::string OGRMakeWktCoordinateM(double x, double y, double z, double m,
                                   OGRBoolean hasZ, OGRBoolean hasM,
                                   OGRWktOptions opts)
 {
-    std::string xval, yval;
+    std::string wkt;
     if (opts.format == OGRWktFormat::Default && CPLIsDoubleAnInt(x) &&
         CPLIsDoubleAnInt(y))
     {
-        xval = std::to_string(static_cast<int>(x));
-        yval = std::to_string(static_cast<int>(y));
+        wkt = std::to_string(static_cast<int>(x));
+        wkt += ' ';
+        wkt += std::to_string(static_cast<int>(y));
     }
     else
     {
-        xval = OGRFormatDouble(x, opts);
-        if (isInteger(xval))
-            xval += ".0";
+        wkt = OGRFormatDouble(x, opts);
+        if (isInteger(wkt))
+            wkt += ".0";
+        wkt += ' ';
 
-        yval = OGRFormatDouble(y, opts);
+        std::string yval = OGRFormatDouble(y, opts);
         if (isInteger(yval))
             yval += ".0";
+        wkt += yval;
     }
-    std::string wkt = xval + " " + yval;
 
     // For some reason we always format Z and M as G-type
     opts.format = OGRWktFormat::G;
@@ -374,7 +378,8 @@ std::string OGRMakeWktCoordinateM(double x, double y, double z, double m,
         /*if( opts.format == OGRWktFormat::Default && CPLIsDoubleAnInt(z) )
             wkt += " " + std::to_string(static_cast<int>(z));
         else*/
-        wkt += " " + OGRFormatDouble(z, opts);
+        wkt += ' ';
+        wkt += OGRFormatDouble(z, opts);
     }
 
     if (hasM)
@@ -382,7 +387,8 @@ std::string OGRMakeWktCoordinateM(double x, double y, double z, double m,
         /*if( opts.format == OGRWktFormat::Default && CPLIsDoubleAnInt(m) )
             wkt += " " + std::to_string(static_cast<int>(m));
         else*/
-        wkt += " " + OGRFormatDouble(m, opts);
+        wkt += ' ';
+        wkt += OGRFormatDouble(m, opts);
     }
     return wkt;
 }
@@ -652,8 +658,9 @@ const char *OGRWktReadPointsM(const char *pszInput, OGRRawPoint **ppaoPoints,
         pszInput = OGRWktReadToken(pszInput, szTokenY);
 
         if ((!isdigit(szTokenX[0]) && szTokenX[0] != '-' &&
-             szTokenX[0] != '.') ||
-            (!isdigit(szTokenY[0]) && szTokenY[0] != '-' && szTokenY[0] != '.'))
+             szTokenX[0] != '.' && !EQUAL(szTokenX, "nan")) ||
+            (!isdigit(szTokenY[0]) && szTokenY[0] != '-' &&
+             szTokenY[0] != '.' && !EQUAL(szTokenY, "nan")))
             return nullptr;
 
         /* --------------------------------------------------------------------
@@ -703,7 +710,8 @@ const char *OGRWktReadPointsM(const char *pszInput, OGRRawPoint **ppaoPoints,
 
         if (!(*flags & OGRGeometry::OGR_G_3D) &&
             !(*flags & OGRGeometry::OGR_G_MEASURED) &&
-            (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.'))
+            (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.' ||
+             EQUAL(szDelim, "nan")))
         {
             *flags |= OGRGeometry::OGR_G_3D;
         }
@@ -722,7 +730,8 @@ const char *OGRWktReadPointsM(const char *pszInput, OGRRawPoint **ppaoPoints,
                 *ppadfZ = static_cast<double *>(
                     CPLCalloc(sizeof(double), *pnMaxPoints));
             }
-            if (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.')
+            if (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.' ||
+                EQUAL(szDelim, "nan"))
             {
                 (*ppadfZ)[*pnPointsRead] = CPLAtof(szDelim);
                 pszInput = OGRWktReadToken(pszInput, szDelim);
@@ -746,7 +755,8 @@ const char *OGRWktReadPointsM(const char *pszInput, OGRRawPoint **ppaoPoints,
          */
 
         if (!(*flags & OGRGeometry::OGR_G_MEASURED) &&
-            (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.'))
+            (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.' ||
+             EQUAL(szDelim, "nan")))
         {
             if (bNoFlags)
             {
@@ -772,7 +782,8 @@ const char *OGRWktReadPointsM(const char *pszInput, OGRRawPoint **ppaoPoints,
                 *ppadfM = static_cast<double *>(
                     CPLCalloc(sizeof(double), *pnMaxPoints));
             }
-            if (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.')
+            if (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.' ||
+                EQUAL(szDelim, "nan"))
             {
                 (*ppadfM)[*pnPointsRead] = CPLAtof(szDelim);
                 pszInput = OGRWktReadToken(pszInput, szDelim);
@@ -796,7 +807,8 @@ const char *OGRWktReadPointsM(const char *pszInput, OGRRawPoint **ppaoPoints,
          */
 
         if (!(*flags & OGRGeometry::OGR_G_3D) &&
-            (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.'))
+            (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.' ||
+             EQUAL(szDelim, "nan")))
         {
             *flags |= OGRGeometry::OGR_G_3D;
             if (*ppadfZ == nullptr)
@@ -947,7 +959,7 @@ int OGRGeneralCmdLineProcessor(int nArgc, char ***ppapszArgv,
  *   or YYYY-MM-DDTHH:MM:SS[.sss]Z (ISO 8601 format)
  *   or YYYY-MM-DDZ
  *
- * The seconds may also have a decimal portion (which is ignored).  And
+ * The seconds may also have a decimal portion (parsed as milliseconds).  And
  * just dates (YYYY-MM-DD) or just times (HH:MM:SS[.sss]) are also supported.
  * The date may also be in YYYY/MM/DD format.  If the year is less than 100
  * and greater than 30 a "1900" century value will be set.  If it is less than
@@ -1455,11 +1467,24 @@ char *OGRGetRFC822DateTime(const OGRField *psField)
 /*                            OGRGetXMLDateTime()                       */
 /************************************************************************/
 
-#define OGR_SIZEOF_ISO8601_DATETIME_BUFFER 30
+char *OGRGetXMLDateTime(const OGRField *psField)
+{
+    char *pszRet =
+        static_cast<char *>(CPLMalloc(OGR_SIZEOF_ISO8601_DATETIME_BUFFER));
+    OGRGetISO8601DateTime(psField, false, pszRet);
+    return pszRet;
+}
 
-static int
-OGRGetISO8601DateTime(const OGRField *psField, bool bAlwaysMillisecond,
-                      char szBuffer[OGR_SIZEOF_ISO8601_DATETIME_BUFFER])
+char *OGRGetXMLDateTime(const OGRField *psField, bool bAlwaysMillisecond)
+{
+    char *pszRet =
+        static_cast<char *>(CPLMalloc(OGR_SIZEOF_ISO8601_DATETIME_BUFFER));
+    OGRGetISO8601DateTime(psField, bAlwaysMillisecond, pszRet);
+    return pszRet;
+}
+
+int OGRGetISO8601DateTime(const OGRField *psField, bool bAlwaysMillisecond,
+                          char szBuffer[OGR_SIZEOF_ISO8601_DATETIME_BUFFER])
 {
     const GInt16 year = psField->Date.Year;
     const GByte month = psField->Date.Month;
@@ -1563,22 +1588,6 @@ OGRGetISO8601DateTime(const OGRField *psField, bool bAlwaysMillisecond,
     szBuffer[nPos] = 0;
 
     return nPos;
-}
-
-char *OGRGetXMLDateTime(const OGRField *psField)
-{
-    char *pszRet =
-        static_cast<char *>(CPLMalloc(OGR_SIZEOF_ISO8601_DATETIME_BUFFER));
-    OGRGetISO8601DateTime(psField, false, pszRet);
-    return pszRet;
-}
-
-char *OGRGetXMLDateTime(const OGRField *psField, bool bAlwaysMillisecond)
-{
-    char *pszRet =
-        static_cast<char *>(CPLMalloc(OGR_SIZEOF_ISO8601_DATETIME_BUFFER));
-    OGRGetISO8601DateTime(psField, bAlwaysMillisecond, pszRet);
-    return pszRet;
 }
 
 /************************************************************************/

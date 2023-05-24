@@ -485,6 +485,9 @@ CPLString OGRCSVDataSource::GetRealExtension(CPLString osFilename)
         else if (osFilename.size() > 7 &&
                  EQUAL(osFilename + osFilename.size() - 7, ".tsv.gz"))
             return "tsv";
+        else if (osFilename.size() > 7 &&
+                 EQUAL(osFilename + osFilename.size() - 7, ".psv.gz"))
+            return "psv";
     }
     return osExt;
 }
@@ -577,7 +580,8 @@ int OGRCSVDataSource::Open(const char *pszFilename, int bUpdateIn,
 
     // Is this a single CSV file?
     if (VSI_ISREG(sStatBuf.st_mode) &&
-        (bIgnoreExtension || EQUAL(osExt, "csv") || EQUAL(osExt, "tsv")))
+        (bIgnoreExtension || EQUAL(osExt, "csv") || EQUAL(osExt, "tsv") ||
+         EQUAL(osExt, "psv")))
     {
         if (EQUAL(CPLGetFilename(osFilename), "NfdcFacilities.xls"))
         {
@@ -739,8 +743,7 @@ bool OGRCSVDataSource::OpenTable(const char *pszFilename,
 
     if (!bUpdate && strstr(pszFilename, "/vsigzip/") == nullptr &&
         strstr(pszFilename, "/vsizip/") == nullptr)
-        fp = reinterpret_cast<VSILFILE *>(VSICreateBufferedReaderHandle(
-            reinterpret_cast<VSIVirtualHandle *>(fp)));
+        fp = VSICreateBufferedReaderHandle(fp);
 
     CPLString osLayerName = CPLGetBasename(pszFilename);
     CPLString osExt = CPLGetExtension(pszFilename);
@@ -758,6 +761,12 @@ bool OGRCSVDataSource::OpenTable(const char *pszFilename,
             osLayerName = osLayerName.substr(0, osLayerName.size() - 4);
             osExt = "tsv";
         }
+        else if (strlen(pszFilename) > 7 &&
+                 EQUAL(pszFilename + strlen(pszFilename) - 7, ".psv.gz"))
+        {
+            osLayerName = osLayerName.substr(0, osLayerName.size() - 4);
+            osExt = "psv";
+        }
     }
 
     int nMaxLineSize = atoi(CPLGetConfigOption(
@@ -771,7 +780,7 @@ bool OGRCSVDataSource::OpenTable(const char *pszFilename,
         nMaxLineSizeAsSize_t = static_cast<size_t>(-1);
     }
 
-    // Read and parse a line.  Did we get multiple fields?
+    // Read and parse a line to detect separator.
 
     std::string osLine;
     {
@@ -855,27 +864,6 @@ bool OGRCSVDataSource::OpenTable(const char *pszFilename,
     if (pszGeonamesGeomFieldPrefix != nullptr &&
         osLine.find('|') != std::string::npos)
         chDelimiter = '|';
-
-    char szDelimiter[2];
-    szDelimiter[0] = chDelimiter;
-    szDelimiter[1] = 0;
-    char **papszFields =
-        CSVReadParseLine3L(fp, nMaxLineSizeAsSize_t, szDelimiter,
-                           true,   // bHonourStrings,
-                           false,  // bKeepLeadingAndClosingQuotes
-                           false,  // bMergeDelimiter
-                           true    // bSkipBOM
-        );
-
-    if (CSLCount(papszFields) < 2)
-    {
-        VSIFCloseL(fp);
-        CSLDestroy(papszFields);
-        return false;
-    }
-
-    VSIRewindL(fp);
-    CSLDestroy(papszFields);
 
     // Create a layer.
     nLayers++;

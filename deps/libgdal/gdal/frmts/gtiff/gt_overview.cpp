@@ -312,8 +312,7 @@ CPLErr GTIFFBuildOverviewsEx(const char *pszFilename, int nBands,
 
     CPLAssert((panOverviewList != nullptr) ^ (pasOverviewSize != nullptr));
 
-    if (!GTiffOneTimeInit())
-        return CE_Failure;
+    GTiffOneTimeInit();
 
     TIFF *hOTIFF = nullptr;
     int nBitsPerPixel = 0;
@@ -340,6 +339,11 @@ CPLErr GTIFFBuildOverviewsEx(const char *pszFilename, int nBands,
             case GDT_Byte:
                 nBandBits = 8;
                 nBandFormat = SAMPLEFORMAT_UINT;
+                break;
+
+            case GDT_Int8:
+                nBandBits = 8;
+                nBandFormat = SAMPLEFORMAT_INT;
                 break;
 
             case GDT_UInt16:
@@ -402,7 +406,8 @@ CPLErr GTIFFBuildOverviewsEx(const char *pszFilename, int nBands,
                 nBandFormat = SAMPLEFORMAT_COMPLEXIEEEFP;
                 break;
 
-            default:
+            case GDT_Unknown:
+            case GDT_TypeCount:
                 CPLAssert(false);
                 return CE_Failure;
         }
@@ -1026,7 +1031,7 @@ CPLErr GTIFFBuildOverviewsEx(const char *pszFilename, int nBands,
         std::sort(panOverviewListSorted, panOverviewListSorted + nOverviews);
     }
 
-    GTIFFSetInExternalOvr(true);
+    GTIFFSetThreadLocalInExternalOvr(true);
 
     CPLErr eErr = CE_None;
 
@@ -1222,7 +1227,7 @@ CPLErr GTIFFBuildOverviewsEx(const char *pszFilename, int nBands,
         hODS->FlushCache(true);
     delete hODS;
 
-    GTIFFSetInExternalOvr(false);
+    GTIFFSetThreadLocalInExternalOvr(false);
 
     CPLFree(panOverviewListSorted);
 

@@ -60,6 +60,10 @@
 
 #include "proj.h"
 
+#ifdef HAVE_CURL
+#include "cpl_curl_priv.h"
+#endif
+
 static int GetMinBitsForPair(const bool pabSigned[], const bool pabFloating[],
                              const int panBits[])
 {
@@ -89,6 +93,7 @@ static int GetDataTypeElementSizeBits(GDALDataType eDataType)
     switch (eDataType)
     {
         case GDT_Byte:
+        case GDT_Int8:
             return 8;
 
         case GDT_UInt16:
@@ -109,9 +114,11 @@ static int GetDataTypeElementSizeBits(GDALDataType eDataType)
         case GDT_Int64:
             return 64;
 
-        default:
-            return 0;
+        case GDT_Unknown:
+        case GDT_TypeCount:
+            break;
     }
+    return 0;
 }
 
 /************************************************************************/
@@ -188,6 +195,10 @@ static int GetMinBitsForValue(double dValue)
             dValue >= std::numeric_limits<GByte>::min())
             return 8;
 
+        if (dValue <= std::numeric_limits<GInt8>::max() &&
+            dValue >= std::numeric_limits<GInt8>::min())
+            return 8;
+
         if (dValue <= std::numeric_limits<GInt16>::max() &&
             dValue >= std::numeric_limits<GInt16>::min())
             return 16;
@@ -237,10 +248,6 @@ static int GetMinBitsForValue(double dValue)
 GDALDataType CPL_STDCALL GDALFindDataType(int nBits, int bSigned, int bFloating,
                                           int bComplex)
 {
-    if (bSigned)
-    {
-        nBits = std::max(nBits, 16);
-    }
     if (bComplex)
     {
         nBits = std::max(nBits, !bSigned ? 32 : 16);
@@ -253,7 +260,7 @@ GDALDataType CPL_STDCALL GDALFindDataType(int nBits, int bSigned, int bFloating,
 
     if (nBits <= 8)
     {
-        return GDT_Byte;
+        return bSigned ? GDT_Int8 : GDT_Byte;
     }
 
     if (nBits <= 16)
@@ -332,6 +339,7 @@ int CPL_STDCALL GDALGetDataTypeSizeBytes(GDALDataType eDataType)
     switch (eDataType)
     {
         case GDT_Byte:
+        case GDT_Int8:
             return 1;
 
         case GDT_UInt16:
@@ -354,9 +362,11 @@ int CPL_STDCALL GDALGetDataTypeSizeBytes(GDALDataType eDataType)
         case GDT_CFloat64:
             return 16;
 
-        default:
-            return 0;
+        case GDT_Unknown:
+        case GDT_TypeCount:
+            break;
     }
+    return 0;
 }
 
 /************************************************************************/
@@ -424,9 +434,23 @@ int CPL_STDCALL GDALDataTypeIsComplex(GDALDataType eDataType)
         case GDT_CFloat64:
             return TRUE;
 
-        default:
+        case GDT_Byte:
+        case GDT_Int8:
+        case GDT_Int16:
+        case GDT_UInt16:
+        case GDT_Int32:
+        case GDT_UInt32:
+        case GDT_Int64:
+        case GDT_UInt64:
+        case GDT_Float32:
+        case GDT_Float64:
             return FALSE;
+
+        case GDT_Unknown:
+        case GDT_TypeCount:
+            break;
     }
+    return FALSE;
 }
 
 /************************************************************************/
@@ -451,9 +475,23 @@ int CPL_STDCALL GDALDataTypeIsFloating(GDALDataType eDataType)
         case GDT_CFloat64:
             return TRUE;
 
-        default:
+        case GDT_Byte:
+        case GDT_Int8:
+        case GDT_Int16:
+        case GDT_UInt16:
+        case GDT_Int32:
+        case GDT_UInt32:
+        case GDT_Int64:
+        case GDT_UInt64:
+        case GDT_CInt16:
+        case GDT_CInt32:
             return FALSE;
+
+        case GDT_Unknown:
+        case GDT_TypeCount:
+            break;
     }
+    return FALSE;
 }
 
 /************************************************************************/
@@ -474,6 +512,7 @@ int CPL_STDCALL GDALDataTypeIsInteger(GDALDataType eDataType)
     switch (eDataType)
     {
         case GDT_Byte:
+        case GDT_Int8:
         case GDT_Int16:
         case GDT_UInt16:
         case GDT_Int32:
@@ -484,9 +523,17 @@ int CPL_STDCALL GDALDataTypeIsInteger(GDALDataType eDataType)
         case GDT_Int64:
             return TRUE;
 
-        default:
+        case GDT_Float32:
+        case GDT_Float64:
+        case GDT_CFloat32:
+        case GDT_CFloat64:
             return FALSE;
+
+        case GDT_Unknown:
+        case GDT_TypeCount:
+            break;
     }
+    return FALSE;
 }
 
 /************************************************************************/
@@ -510,9 +557,23 @@ int CPL_STDCALL GDALDataTypeIsSigned(GDALDataType eDataType)
         case GDT_UInt64:
             return FALSE;
 
-        default:
+        case GDT_Int8:
+        case GDT_Int16:
+        case GDT_Int32:
+        case GDT_Int64:
+        case GDT_Float32:
+        case GDT_Float64:
+        case GDT_CInt16:
+        case GDT_CInt32:
+        case GDT_CFloat32:
+        case GDT_CFloat64:
             return TRUE;
+
+        case GDT_Unknown:
+        case GDT_TypeCount:
+            break;
     }
+    return FALSE;
 }
 
 /************************************************************************/
@@ -609,6 +670,9 @@ const char *CPL_STDCALL GDALGetDataTypeName(GDALDataType eDataType)
         case GDT_Byte:
             return "Byte";
 
+        case GDT_Int8:
+            return "Int8";
+
         case GDT_UInt16:
             return "UInt16";
 
@@ -645,9 +709,10 @@ const char *CPL_STDCALL GDALGetDataTypeName(GDALDataType eDataType)
         case GDT_CFloat64:
             return "CFloat64";
 
-        default:
-            return nullptr;
+        case GDT_TypeCount:
+            break;
     }
+    return nullptr;
 }
 
 /************************************************************************/
@@ -737,6 +802,9 @@ double GDALAdjustValueToDataType(GDALDataType eDT, double dfValue,
         case GDT_Byte:
             ClampAndRound<GByte>(dfValue, bClamped, bRounded);
             break;
+        case GDT_Int8:
+            ClampAndRound<GInt8>(dfValue, bClamped, bRounded);
+            break;
         case GDT_Int16:
             ClampAndRound<GInt16>(dfValue, bClamped, bRounded);
             break;
@@ -783,7 +851,13 @@ double GDALAdjustValueToDataType(GDALDataType eDT, double dfValue,
             }
             break;
         }
-        default:
+        case GDT_Float64:
+        case GDT_CInt16:
+        case GDT_CInt32:
+        case GDT_CFloat32:
+        case GDT_CFloat64:
+        case GDT_Unknown:
+        case GDT_TypeCount:
             break;
     }
     if (pbClamped)
@@ -820,9 +894,24 @@ GDALDataType CPL_STDCALL GDALGetNonComplexDataType(GDALDataType eDataType)
             return GDT_Float32;
         case GDT_CFloat64:
             return GDT_Float64;
-        default:
-            return eDataType;
+
+        case GDT_Byte:
+        case GDT_UInt16:
+        case GDT_UInt32:
+        case GDT_UInt64:
+        case GDT_Int8:
+        case GDT_Int16:
+        case GDT_Int32:
+        case GDT_Int64:
+        case GDT_Float32:
+        case GDT_Float64:
+            break;
+
+        case GDT_Unknown:
+        case GDT_TypeCount:
+            break;
     }
+    return eDataType;
 }
 
 /************************************************************************/
@@ -864,7 +953,7 @@ GDALGetAsyncStatusTypeByName(const char *pszName)
  * Get name of AsyncStatus data type.
  *
  * Returns a symbolic name for the AsyncStatus data type.  This is essentially
- * the the enumerated item name with the GARIO_ prefix removed.  So
+ * the enumerated item name with the GARIO_ prefix removed.  So
  * GARIO_COMPLETE returns "COMPLETE".  The returned strings are static strings
  * and should not be modified or freed by the application.  These strings are
  * useful for reporting datatypes in debug statements, errors and other user
@@ -1159,6 +1248,10 @@ int CPL_STDCALL GDALGetRandomRasterSample(GDALRasterBandH hBand, int nSamples,
                         dfValue =
                             reinterpret_cast<const GByte *>(pDataRef)[iOffset];
                         break;
+                    case GDT_Int8:
+                        dfValue =
+                            reinterpret_cast<const GInt8 *>(pDataRef)[iOffset];
+                        break;
                     case GDT_UInt16:
                         dfValue = reinterpret_cast<const GUInt16 *>(
                             pDataRef)[iOffset];
@@ -1230,7 +1323,8 @@ int CPL_STDCALL GDALGetRandomRasterSample(GDALRasterBandH hBand, int nSamples,
                         dfValue = sqrt(dfReal * dfReal + dfImag * dfImag);
                         break;
                     }
-                    default:
+                    case GDT_Unknown:
+                    case GDT_TypeCount:
                         CPLAssert(false);
                 }
 
@@ -2241,16 +2335,18 @@ int CPL_STDCALL GDALWriteWorldFile(const char *pszBaseFilename,
  * Available pszRequest values:
  * <ul>
  * <li> "VERSION_NUM": Returns GDAL_VERSION_NUM formatted as a string.  i.e.
- * "1170" Note: starting with GDAL 1.10, this string will be longer than 4
- * characters. <li> "RELEASE_DATE": Returns GDAL_RELEASE_DATE formatted as a
- * string. i.e. "20020416". <li> "RELEASE_NAME": Returns the GDAL_RELEASE_NAME.
- * ie. "1.1.7" <li> "--version": Returns one line version message suitable for
- * use in response to --version requests.  i.e. "GDAL 1.1.7, released
- * 2002/04/16" <li> "LICENSE": Returns the content of the LICENSE.TXT file from
- * the GDAL_DATA directory. Before GDAL 1.7.0, the returned string was leaking
- * memory but this is now resolved. So the result should not been freed by the
- * caller. <li> "BUILD_INFO": List of NAME=VALUE pairs separated by newlines
- * with information on build time options.
+ * "30603000", e.g for GDAL 3.6.3.0</li>
+ * <li> "RELEASE_DATE": Returns GDAL_RELEASE_DATE formatted as a
+ * string. i.e. "20230312".</li>
+ * <li> "RELEASE_NAME": Returns the GDAL_RELEASE_NAME. ie. "3.6.3"</li>
+ * <li> "--version": Returns one line version message suitable for
+ * use in response to --version requests.  i.e. "GDAL 3.6.3, released
+ * 2023/03/12"</li>
+ * <li> "LICENSE": Returns the content of the LICENSE.TXT file from
+ * the GDAL_DATA directory.
+ * </li>
+ * <li> "BUILD_INFO": List of NAME=VALUE pairs separated by newlines
+ * with information on build time options.</li>
  * </ul>
  *
  * @param pszRequest the type of version info desired, as listed above.
@@ -2278,6 +2374,10 @@ const char *CPL_STDCALL GDALVersionInfo(const char *pszRequest)
         osBuildInfo += "PAM_ENABLED=YES\n";
 #endif
         osBuildInfo += "OGR_ENABLED=YES\n";  // Deprecated.  Always yes.
+#ifdef HAVE_CURL
+        osBuildInfo += "CURL_ENABLED=YES\n";
+        osBuildInfo += "CURL_VERSION=" LIBCURL_VERSION "\n";
+#endif
 #ifdef HAVE_GEOS
         osBuildInfo += "GEOS_ENABLED=YES\n";
 #ifdef GEOS_CAPI_VERSION
@@ -2293,7 +2393,7 @@ const char *CPL_STDCALL GDALVersionInfo(const char *pszRequest)
 
 #ifdef __VERSION__
 #ifdef __clang_version__
-        osBuildInfo += "COMPILER=" __clang_version__ "\n";
+        osBuildInfo += "COMPILER=clang " __clang_version__ "\n";
 #elif defined(__GNUC__)
         osBuildInfo += "COMPILER=GCC " __VERSION__ "\n";
 #elif defined(__INTEL_COMPILER)
@@ -3375,8 +3475,10 @@ int CPL_STDCALL GDALGeneralCmdLineProcessor(int nArgc, char ***ppapszArgv,
                     "constraint.\n");
             if (CPLFetchBool(papszMD, GDAL_DCAP_NONSPATIAL, false))
                 printf("  No support for geometries.\n"); /*ok*/
-            if (CPLFetchBool(papszMD, GDAL_DCAP_FEATURE_STYLES, false))
-                printf("  Supports: Feature styles.\n"); /*ok*/
+            if (CPLFetchBool(papszMD, GDAL_DCAP_FEATURE_STYLES_READ, false))
+                printf("  Supports: Reading feature styles.\n"); /*ok*/
+            if (CPLFetchBool(papszMD, GDAL_DCAP_FEATURE_STYLES_WRITE, false))
+                printf("  Supports: Writing feature styles.\n"); /*ok*/
             if (CPLFetchBool(papszMD, GDAL_DCAP_COORDINATE_EPOCH, false))
                 printf("  Supports: Coordinate epoch.\n"); /*ok*/
             if (CPLFetchBool(papszMD, GDAL_DCAP_MULTIPLE_VECTOR_LAYERS, false))
@@ -4465,3 +4567,205 @@ double GDALGetNoDataValueCastToDouble(uint64_t nVal)
     }
     return dfVal;
 }
+
+/************************************************************************/
+/*                GDALGetCompressionFormatForJPEG()                     */
+/************************************************************************/
+
+//! @cond Doxygen_Suppress
+std::string GDALGetCompressionFormatForJPEG(VSILFILE *fp)
+{
+    std::string osRet;
+    const auto nSavedPos = VSIFTellL(fp);
+    GByte abyMarkerHeader[4];
+    if (VSIFSeekL(fp, 0, SEEK_SET) == 0 &&
+        VSIFReadL(abyMarkerHeader, 2, 1, fp) == 1 &&
+        abyMarkerHeader[0] == 0xFF && abyMarkerHeader[1] == 0xD8)
+    {
+        osRet = "JPEG";
+        bool bHasAPP14Adobe = false;
+        GByte abyAPP14AdobeMarkerData[14 - 2] = {0};
+        int nNumComponents = 0;
+        while (true)
+        {
+            const auto nCurPos = VSIFTellL(fp);
+            if (VSIFReadL(abyMarkerHeader, 4, 1, fp) != 1)
+                break;
+            if (abyMarkerHeader[0] != 0xFF)
+                break;
+            const GByte markerType = abyMarkerHeader[1];
+            const size_t nMarkerSize =
+                abyMarkerHeader[2] * 256 + abyMarkerHeader[3];
+            if (nMarkerSize < 2)
+                break;
+            if (markerType >= 0xC0 && markerType <= 0xCF &&
+                markerType != 0xC4 && markerType != 0xC8 && markerType != 0xCC)
+            {
+                switch (markerType)
+                {
+                    case 0xC0:
+                        osRet += ";frame_type=SOF0_baseline";
+                        break;
+                    case 0xC1:
+                        osRet += ";frame_type=SOF1_extended_sequential";
+                        break;
+                    case 0xC2:
+                        osRet += ";frame_type=SOF2_progressive_huffman";
+                        break;
+                    case 0xC3:
+                        osRet += ";frame_type=SOF3_lossless_huffman;libjpeg_"
+                                 "supported=no";
+                        break;
+                    case 0xC5:
+                        osRet += ";frame_type="
+                                 "SOF5_differential_sequential_huffman;"
+                                 "libjpeg_supported=no";
+                        break;
+                    case 0xC6:
+                        osRet += ";frame_type=SOF6_differential_progressive_"
+                                 "huffman;libjpeg_supported=no";
+                        break;
+                    case 0xC7:
+                        osRet += ";frame_type="
+                                 "SOF7_differential_lossless_huffman;"
+                                 "libjpeg_supported=no";
+                        break;
+                    case 0xC9:
+                        osRet += ";frame_type="
+                                 "SOF9_extended_sequential_arithmetic";
+                        break;
+                    case 0xCA:
+                        osRet += ";frame_type=SOF10_progressive_arithmetic";
+                        break;
+                    case 0xCB:
+                        osRet += ";frame_type="
+                                 "SOF11_lossless_arithmetic;libjpeg_"
+                                 "supported=no";
+                        break;
+                    case 0xCD:
+                        osRet += ";frame_type=SOF13_differential_sequential_"
+                                 "arithmetic;libjpeg_supported=no";
+                        break;
+                    case 0xCE:
+                        osRet += ";frame_type=SOF14_differential_progressive_"
+                                 "arithmetic;libjpeg_supported=no";
+                        break;
+                    case 0xCF:
+                        osRet += ";frame_type=SOF15_differential_lossless_"
+                                 "arithmetic;libjpeg_supported=no";
+                        break;
+                    default:
+                        break;
+                }
+                GByte abySegmentBegin[6];
+                if (VSIFReadL(abySegmentBegin, sizeof(abySegmentBegin), 1,
+                              fp) != 1)
+                    break;
+                osRet += ";bit_depth=";
+                osRet += CPLSPrintf("%d", abySegmentBegin[0]);
+                nNumComponents = abySegmentBegin[5];
+                osRet += ";num_components=";
+                osRet += CPLSPrintf("%d", nNumComponents);
+                if (nNumComponents == 3)
+                {
+                    GByte abySegmentNext[3 * 3];
+                    if (VSIFReadL(abySegmentNext, sizeof(abySegmentNext), 1,
+                                  fp) != 1)
+                        break;
+                    if (abySegmentNext[0] == 1 && abySegmentNext[1] == 0x11 &&
+                        abySegmentNext[3] == 2 && abySegmentNext[4] == 0x11 &&
+                        abySegmentNext[6] == 3 && abySegmentNext[7] == 0x11)
+                    {
+                        // no subsampling
+                        osRet += ";subsampling=4:4:4";
+                    }
+                    else if (abySegmentNext[0] == 1 &&
+                             abySegmentNext[1] == 0x22 &&
+                             abySegmentNext[3] == 2 &&
+                             abySegmentNext[4] == 0x11 &&
+                             abySegmentNext[6] == 3 &&
+                             abySegmentNext[7] == 0x11)
+                    {
+                        // classic subsampling
+                        osRet += ";subsampling=4:2:0";
+                    }
+                    else if (abySegmentNext[0] == 1 &&
+                             abySegmentNext[1] == 0x21 &&
+                             abySegmentNext[3] == 2 &&
+                             abySegmentNext[4] == 0x11 &&
+                             abySegmentNext[6] == 3 &&
+                             abySegmentNext[7] == 0x11)
+                    {
+                        osRet += ";subsampling=4:2:2";
+                    }
+                }
+            }
+            else if (markerType == 0xEE && nMarkerSize == 14)
+            {
+                if (VSIFReadL(abyAPP14AdobeMarkerData,
+                              sizeof(abyAPP14AdobeMarkerData), 1, fp) == 1 &&
+                    memcmp(abyAPP14AdobeMarkerData, "Adobe", strlen("Adobe")) ==
+                        0)
+                {
+                    bHasAPP14Adobe = true;
+                }
+            }
+            else if (markerType == 0xDA)
+            {
+                // Start of scan
+                break;
+            }
+            VSIFSeekL(fp, nCurPos + nMarkerSize + 2, SEEK_SET);
+        }
+        std::string osColorspace;
+        if (bHasAPP14Adobe)
+        {
+            if (abyAPP14AdobeMarkerData[11] == 0)
+            {
+                if (nNumComponents == 3)
+                    osColorspace = "RGB";
+                else if (nNumComponents == 4)
+                    osColorspace = "CMYK";
+            }
+            else if (abyAPP14AdobeMarkerData[11] == 1)
+            {
+                osColorspace = "YCbCr";
+            }
+            else if (abyAPP14AdobeMarkerData[11] == 2)
+            {
+                osColorspace = "YCCK";
+            }
+        }
+        else
+        {
+            if (nNumComponents == 3)
+                osColorspace = "YCbCr";
+            else if (nNumComponents == 4)
+                osColorspace = "CMYK";
+        }
+        osRet += ";colorspace=";
+        if (!osColorspace.empty())
+            osRet += osColorspace;
+        else
+            osRet += "unknown";
+    }
+    if (VSIFSeekL(fp, nSavedPos, SEEK_SET) != 0)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "VSIFSeekL(fp, nSavedPos, SEEK_SET) failed");
+    }
+    return osRet;
+}
+
+std::string GDALGetCompressionFormatForJPEG(const void *pBuffer,
+                                            size_t nBufferSize)
+{
+    VSILFILE *fp = VSIFileFromMemBuffer(
+        nullptr, static_cast<GByte *>(const_cast<void *>(pBuffer)), nBufferSize,
+        false);
+    std::string osRet = GDALGetCompressionFormatForJPEG(fp);
+    VSIFCloseL(fp);
+    return osRet;
+}
+
+//! @endcond
