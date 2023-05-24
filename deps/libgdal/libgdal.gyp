@@ -187,7 +187,7 @@
         "./gdal/port/cpl_compressor.cpp",
 
 				'<!@(python ../glob-files.py "./gdal/gnm/*.cpp")',
-				'<!@(python ../glob-files.py "./gdal/frmts/jpeg/libjpeg/*.c")'
+				'<!@(python ../glob-files.py "./gdal/frmts/jpeg/libjpeg/*.c" "./gdal/frmts/jpeg/libjpeg/jstdhuff.c")'
 			],
 			"include_dirs": [
 				"./gdal/alg",
