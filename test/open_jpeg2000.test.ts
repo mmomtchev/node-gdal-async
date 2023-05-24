@@ -1,6 +1,7 @@
 import * as gdal from 'gdal-async'
 import * as path from 'path'
 import { assert } from 'chai'
+import * as semver from 'semver'
 
 describe('Open', () => {
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
@@ -33,8 +34,9 @@ describe('Open', () => {
       const expected_stats = {
         min: 0,
         max: 255,
-        mean: 21.367489711934,
-        std_dev: 52.006939358465
+        // Starting from GDAL 3.7.0 the mask (alpha) band is taken into account
+        mean: semver.gte(gdal.version, '3.7.0') ? 45.350522709303 : 21.367489711934,
+        std_dev: semver.gte(gdal.version, '3.7.0') ? 68.47931913828704 : 52.006939358465
       }
 
       const actual_stats = band.getStatistics(false, true) as typeof expected_stats
@@ -43,6 +45,11 @@ describe('Open', () => {
       assert.closeTo(expected_stats.max, actual_stats.max, delta)
       assert.closeTo(expected_stats.mean, actual_stats.mean, delta)
       assert.closeTo(expected_stats.std_dev, actual_stats.std_dev, delta)
+    })
+
+    it('the checksum should match', () => {
+      assert.strictEqual(gdal.checksumImage(ds.bands.get(1)), 17530)
+      assert.strictEqual(gdal.checksumImage(ds.bands.get(1).getMaskBand()), 8527)
     })
   })
 })
