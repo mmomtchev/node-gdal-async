@@ -215,6 +215,8 @@ GDAL_ASYNCABLE_DEFINE(Driver::create) {
     if (!type_name.empty()) { type = GDALGetDataTypeByName(type_name.c_str()); }
   }
 
+  if (x_size == 0 && y_size == 0 && type_name.empty()) { type = GDT_Unknown; }
+
   GDALDriver *raw = driver->getGDALDriver();
 
   // Very careful here
