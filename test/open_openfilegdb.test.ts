@@ -60,7 +60,9 @@ describe('Open', () => {
 
 describe('Create', () => {
   describe('OpenFileGDB', () => {
-    const ds = gdal.drivers.get('OpenFileGDB').create('/vsimem/openfilegdb_create_test.gdb', 0, 0, 0)
-    assert.instanceOf(ds, gdal.Dataset)
+    const ds1 = gdal.drivers.get('OpenFileGDB').create('/vsimem/openfilegdb_create1_test.gdb', 0, 0, 0)
+    assert.instanceOf(ds1, gdal.Dataset)
+    const ds2 = gdal.drivers.get('OpenFileGDB').create('/vsimem/openfilegdb_create1_test.gdb')
+    assert.instanceOf(ds2, gdal.Dataset)
   })
 })
