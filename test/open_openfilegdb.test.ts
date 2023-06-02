@@ -1,6 +1,7 @@
 import * as gdal from 'gdal-async'
 import * as path from 'path'
 import { assert } from 'chai'
+import * as semver from 'semver'
 
 describe('Open', () => {
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
@@ -59,10 +60,14 @@ describe('Open', () => {
 })
 
 describe('Create', () => {
-  describe('OpenFileGDB', () => {
-    const ds1 = gdal.drivers.get('OpenFileGDB').create('/vsimem/openfilegdb_create1_test.gdb', 0, 0, 0)
-    assert.instanceOf(ds1, gdal.Dataset)
-    const ds2 = gdal.drivers.get('OpenFileGDB').create('/vsimem/openfilegdb_create1_test.gdb')
-    assert.instanceOf(ds2, gdal.Dataset)
+  it('OpenFileGDB', function () {
+    if (semver.gte(gdal.version, '3.6.0')) {
+      const ds1 = gdal.drivers.get('OpenFileGDB').create('/vsimem/openfilegdb_create1_test.gdb', 0, 0, 0)
+      assert.instanceOf(ds1, gdal.Dataset)
+      const ds2 = gdal.drivers.get('OpenFileGDB').create('/vsimem/openfilegdb_create2_test.gdb')
+      assert.instanceOf(ds2, gdal.Dataset)
+    } else {
+      this.skip()
+    }
   })
 })
