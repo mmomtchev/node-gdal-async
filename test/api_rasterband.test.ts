@@ -787,6 +787,14 @@ describe('gdal.RasterBand', () => {
             band.pixels.read(1, 1, 20, 30, data)
             assert.equal(data[0], 30)
           })
+          it('should not fail when reading more than 4GB', () => {
+            const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
+            const band = ds.bands.get(1)
+            assert.deepEqual(ds.rasterSize, { x: 33000, y: 33000 })
+            const data = band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y)
+            assert.instanceOf(data, Uint8Array)
+            assert.equal(data.length, ds.rasterSize.x * ds.rasterSize.y)
+          })
         })
         describe('w/options', () => {
           describe('"buffer_width", "buffer_height"', () => {
@@ -1030,6 +1038,18 @@ describe('gdal.RasterBand', () => {
           for (i = 0; i < w * h; i++) {
             assert.equal(result[i], Math.floor(data[i]))
           }
+        })
+        it('should not fail when writing more than 4GB', () => {
+          const filename = `/vsimem/4G_write_test_${String(
+            Math.random()
+          ).substring(2)}.tiff`
+          const size = 33000
+          const gtiff = gdal.drivers.get('GTiff')
+          const ds = gtiff.create(filename, size, size, 1, gdal.GDT_UInt32)
+          const band = ds.bands.get(1)
+          const data = new Uint32Array(size * size)
+          band.pixels.write(0, 0, size, size, data)
+          gdal.vsimem.release(filename)
         })
         describe('w/options', () => {
           describe('"buffer_width", "buffer_height"', () => {

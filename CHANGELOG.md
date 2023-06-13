@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
  - Fix [#84](https://github.com/mmomtchev/node-gdal-async/issues/84), cannot create an `OpenFileGDB` with default options
+ - Fix [#90](https://github.com/mmomtchev/node-gdal-async/issues/84), remove the old 2GB/4GB limit and allocate `TypedArray`s up to the limit allowed by Node.js and fail gracefully on overflow instead of segfaulting
 
 # [3.7.0] 2023-05-26
 

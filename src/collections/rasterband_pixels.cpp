@@ -222,8 +222,8 @@ inline GDALRIOResampleAlg parseResamplingAlg(Local<Value> value) {
 }
 
 /* Find the lowest possible element index for the given width, height, pixel_space, line_space and offset */
-static inline int findLowest(int w, int h, int px, int ln, int offset) {
-  int x, y;
+static inline int64_t findLowest(int64_t w, int64_t h, int64_t px, int64_t ln, int64_t offset) {
+  int64_t x, y;
 
   if (px < 0)
     x = w - 1;
@@ -239,8 +239,8 @@ static inline int findLowest(int w, int h, int px, int ln, int offset) {
 }
 
 /* Find the highest possible element index for the given width, height, pixel_space, line_space and offset */
-static inline int findHighest(int w, int h, int px, int ln, int offset) {
-  int x, y;
+static inline int64_t findHighest(int64_t w, int64_t h, int64_t px, int64_t ln, int64_t offset) {
+  int64_t x, y;
 
   if (px < 0)
     x = 0;
@@ -328,7 +328,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
   int buffer_w, buffer_h;
   int bytes_per_pixel;
   int pixel_space, line_space;
-  int size, length, offset;
+  int64_t size, length, offset;
   void *data;
   Local<Value> array;
   Local<Object> obj;
@@ -487,7 +487,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::write) {
   int buffer_w, buffer_h;
   int bytes_per_pixel;
   int pixel_space, line_space;
-  int size, length, offset;
+  int64_t size, length, offset;
   void *data;
   Local<Object> passed_array;
   GDALDataType type;
@@ -600,6 +600,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::readBlock) {
   NODE_ARG_INT(1, "block_y_offset", y);
 
   band->get()->GetBlockSize(&w, &h);
+  int64_t size = w * h;
 
   GDALDataType type = band->get()->GetRasterDataType();
 
@@ -610,14 +611,14 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::readBlock) {
     NODE_ARG_OBJECT(2, "data", obj);
     array = obj;
   } else {
-    array = TypedArray::New(type, w * h);
+    array = TypedArray::New(type, size);
     if (array.IsEmpty() || !array->IsObject()) {
       return; // TypedArray::New threw an error
     }
     obj = array.As<Object>();
   }
 
-  void *data = TypedArray::Validate(obj, type, w * h);
+  void *data = TypedArray::Validate(obj, type, size);
   if (!data) {
     return; // TypedArray::Validate threw an error
   }
@@ -671,6 +672,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::writeBlock) {
   int x, y, w = 0, h = 0;
 
   band->get()->GetBlockSize(&w, &h);
+  int64_t size = w * h;
 
   NODE_ARG_INT(0, "block_x_offset", x);
   NODE_ARG_INT(1, "block_y_offset", y);
@@ -679,7 +681,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::writeBlock) {
   NODE_ARG_OBJECT(2, "data", obj);
 
   // validate array
-  void *data = TypedArray::Validate(obj, band->get()->GetRasterDataType(), w * h);
+  void *data = TypedArray::Validate(obj, band->get()->GetRasterDataType(), size);
   if (!data) {
     return; // TypedArray::Validate threw an error
   }

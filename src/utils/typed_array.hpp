@@ -45,11 +45,11 @@ namespace node_gdal {
 
 namespace TypedArray {
 
-Local<Value> New(GDALDataType type, unsigned int length);
-Local<Value> New(GDALDataType type, void *data, unsigned int length);
+Local<Value> New(GDALDataType type, int64_t length);
+Local<Value> New(GDALDataType type, void *data, int64_t length);
 GDALDataType Identify(Local<Object> array);
-void *Validate(Local<Object> obj, GDALDataType type, int min_length);
-bool ValidateLength(int length, int min_length);
+void *Validate(Local<Object> obj, GDALDataType type, int64_t min_length);
+bool ValidateLength(size_t length, int64_t min_length);
 } // namespace TypedArray
 
 } // namespace node_gdal

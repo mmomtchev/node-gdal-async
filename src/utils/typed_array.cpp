@@ -1,12 +1,15 @@
 #include "typed_array.hpp"
 
+#include <climits>
 #include <sstream>
+
+const double max_safe_integer = std::numeric_limits<double>::radix / std::numeric_limits<double>::epsilon();
 
 namespace node_gdal {
 
 // https://github.com/joyent/node/issues/4201#issuecomment-9837340
 
-Local<Value> TypedArray::New(GDALDataType type, unsigned int length) {
+Local<Value> TypedArray::New(GDALDataType type, int64_t length) {
   Nan::EscapableHandleScope scope;
 
   Local<Value> val;
@@ -34,13 +37,18 @@ Local<Value> TypedArray::New(GDALDataType type, unsigned int length) {
   }
 
   constructor = val.As<Function>();
-  Local<Value> size = Nan::New<Integer>(length * GDALGetDataTypeSize(type) / 8);
-  Local<Value> array_buffer = Nan::NewInstance(constructor, 1, &size).ToLocalChecked();
-
-  if (array_buffer.IsEmpty() || !array_buffer->IsObject()) {
+  double size = length * GDALGetDataTypeSize(type) / 8;
+  if (size > max_safe_integer) {
+    Nan::ThrowError("Buffer size exceeds maximum safe JS integer");
+    return scope.Escape(Nan::Undefined());
+  }
+  Local<Value> v8_size = Nan::New<v8::Number>(size);
+  MaybeLocal<Object> array_buffer_maybe = Nan::NewInstance(constructor, 1, &v8_size);
+  if (array_buffer_maybe.IsEmpty()) {
     Nan::ThrowError("Error allocating ArrayBuffer");
     return scope.Escape(Nan::Undefined());
   }
+  Local<Value> array_buffer = array_buffer_maybe.ToLocalChecked();
 
   // make TypedArray
   val = Nan::Get(global, Nan::New(name).ToLocalChecked()).ToLocalChecked();
@@ -51,12 +59,12 @@ Local<Value> TypedArray::New(GDALDataType type, unsigned int length) {
   }
 
   constructor = val.As<Function>();
-  Local<Object> array = Nan::NewInstance(constructor, 1, &array_buffer).ToLocalChecked();
-
-  if (array.IsEmpty() || !array->IsObject()) {
+  MaybeLocal<Object> array_maybe = Nan::NewInstance(constructor, 1, &array_buffer);
+  if (array_maybe.IsEmpty()) {
     Nan::ThrowError("Error creating TypedArray");
     return scope.Escape(Nan::Undefined());
   }
+  Local<Object> array = array_maybe.ToLocalChecked();
 
   Nan::Set(array, Nan::New("_gdal_type").ToLocalChecked(), Nan::New(type));
 
@@ -65,7 +73,7 @@ Local<Value> TypedArray::New(GDALDataType type, unsigned int length) {
 
 // Create a new TypedArray view over an existing memory buffer
 // This function throws because it is meant to be used inside a pixel function
-Local<Value> TypedArray::New(GDALDataType type, void *data, unsigned int length) {
+Local<Value> TypedArray::New(GDALDataType type, void *data, int64_t length) {
   Nan::EscapableHandleScope scope;
 
   Local<Object> global = Nan::GetCurrentContext()->Global();
@@ -119,7 +127,7 @@ GDALDataType TypedArray::Identify(Local<Object> obj) {
   return (GDALDataType)Nan::To<int32_t>(val).ToChecked();
 }
 
-void *TypedArray::Validate(Local<Object> obj, GDALDataType type, int min_length) {
+void *TypedArray::Validate(Local<Object> obj, GDALDataType type, int64_t min_length) {
   // validate array
   Nan::HandleScope scope;
 
@@ -175,8 +183,8 @@ void *TypedArray::Validate(Local<Object> obj, GDALDataType type, int min_length)
     default: Nan::ThrowError("Unsupported array type"); return NULL;
   }
 }
-bool TypedArray::ValidateLength(int length, int min_length) {
-  if (length < min_length) {
+bool TypedArray::ValidateLength(size_t length, int64_t min_length) {
+  if (static_cast<int64_t>(length) < min_length) {
     std::ostringstream ss;
     ss << "Array length must be greater than or equal to " << min_length;
 
