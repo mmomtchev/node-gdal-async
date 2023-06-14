@@ -266,10 +266,10 @@ static inline int64_t findHighest(int64_t w, int64_t h, int64_t px, int64_t ln, 
  * @property {number} [buffer_width]
  * @property {number} [buffer_height]
  * @property {string} [type]
+ * @property {string} [data_type]
  * @property {number} [pixel_space]
  * @property {number} [line_space]
  * @property {string} [resampling]
- * @property {string} [data_type]
  * @property {ProgressCb} [progress_cb]
  * @property {number} [offset]
  */
