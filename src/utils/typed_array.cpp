@@ -30,39 +30,39 @@ Local<Value> TypedArray::New(GDALDataType type, int64_t length) {
 
   // make ArrayBuffer
   val = Nan::Get(global, Nan::New("ArrayBuffer").ToLocalChecked()).ToLocalChecked();
-
-  if (val.IsEmpty() || !val->IsFunction()) {
+  if (!val->IsFunction()) {
     Nan::ThrowError("Error getting ArrayBuffer constructor");
-    return scope.Escape(Nan::Undefined());
+    return Local<Value>();
   }
 
   constructor = val.As<Function>();
   double size = length * GDALGetDataTypeSize(type) / 8;
   if (size > max_safe_integer) {
     Nan::ThrowError("Buffer size exceeds maximum safe JS integer");
-    return scope.Escape(Nan::Undefined());
+    return Local<Value>();
   }
+  printf("Allocating array %lf\n", size);
   Local<Value> v8_size = Nan::New<v8::Number>(size);
   MaybeLocal<Object> array_buffer_maybe = Nan::NewInstance(constructor, 1, &v8_size);
-  if (array_buffer_maybe.IsEmpty()) {
-    Nan::ThrowError("Error allocating ArrayBuffer");
-    return scope.Escape(Nan::Undefined());
-  }
+  if (array_buffer_maybe.IsEmpty()) { return Local<Value>(); }
   Local<Value> array_buffer = array_buffer_maybe.ToLocalChecked();
+  if (!array_buffer->IsObject()) {
+    Nan::ThrowError("Error allocating ArrayBuffer");
+    return Local<Value>();
+  }
 
   // make TypedArray
   val = Nan::Get(global, Nan::New(name).ToLocalChecked()).ToLocalChecked();
-
-  if (val.IsEmpty() || !val->IsFunction()) {
+  if (val.IsEmpty()) { return Local<Value>(); }
+  if (!val->IsFunction()) {
     Nan::ThrowError("Error getting typed array constructor");
-    return scope.Escape(Nan::Undefined());
+    return Local<Value>();
   }
-
   constructor = val.As<Function>();
   MaybeLocal<Object> array_maybe = Nan::NewInstance(constructor, 1, &array_buffer);
   if (array_maybe.IsEmpty()) {
-    Nan::ThrowError("Error creating TypedArray");
-    return scope.Escape(Nan::Undefined());
+    printf("Failed converting array\n");
+    return Local<Value>();
   }
   Local<Object> array = array_maybe.ToLocalChecked();
 
