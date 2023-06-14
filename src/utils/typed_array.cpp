@@ -59,7 +59,10 @@ Local<Value> TypedArray::New(GDALDataType type, int64_t length) {
   }
   constructor = val.As<Function>();
   MaybeLocal<Object> array_maybe = Nan::NewInstance(constructor, 1, &array_buffer);
-  if (array_maybe.IsEmpty()) { return Local<Value>(); }
+  if (array_maybe.IsEmpty()) {
+    Nan::ThrowRangeError("Failed constructing a TypedArray");
+    return Local<Value>();
+  }
   Local<Object> array = array_maybe.ToLocalChecked();
 
   Nan::Set(array, Nan::New("_gdal_type").ToLocalChecked(), Nan::New(type));

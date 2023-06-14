@@ -650,7 +650,7 @@ describe('gdal.RasterBand', () => {
             assert.deepEqual(ds.rasterSize, { x: size * 2, y: size * 2 })
             assert.throws(() => {
               band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y)
-            })
+            }, /Failed constructing a TypedArray/)
           })
         })
         describe('w/data argument', () => {
