@@ -616,13 +616,34 @@ describe('gdal.RasterBand', () => {
           assert.equal(data.length, w * h)
           assert.equal(data[10 * 20 + 10], 10)
         })
-        it('should not fail when reading more than 4GB', () => {
-          const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
-          const band = ds.bands.get(1)
-          assert.deepEqual(ds.rasterSize, { x: 33000, y: 33000 })
-          const data = band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y)
-          assert.instanceOf(data, Uint8Array)
-          assert.equal(data.length, ds.rasterSize.x * ds.rasterSize.y)
+        describe('w/data over 4GB', () => {
+          // These tests can fail on machines without enough RAM
+          const size = 33000
+          it('when returning a new TypedArray', () => {
+            const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
+            const band = ds.bands.get(1)
+            assert.deepEqual(ds.rasterSize, { x: size, y: size })
+            const data = band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y)
+            assert.instanceOf(data, Int32Array)
+            assert.equal(data.length, ds.rasterSize.x * ds.rasterSize.y)
+          })
+          it('w/data argument', () => {
+            const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
+            const band = ds.bands.get(1)
+            assert.deepEqual(ds.rasterSize, { x: size, y: size })
+            const data = new Int32Array(size * size)
+            const r = band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y, data)
+            assert.strictEqual(r, data)
+          })
+          it('w/data argument is inadequate', () => {
+            const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
+            const band = ds.bands.get(1)
+            assert.deepEqual(ds.rasterSize, { x: size, y: size })
+            const data = new Int32Array(size * size - 1)
+            assert.throws(() => {
+              band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y, data)
+            }, /Array length must be greater than/)
+          })
         })
         describe('w/data argument', () => {
           it('should put the data in the existing array', () => {
