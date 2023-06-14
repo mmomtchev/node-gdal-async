@@ -635,7 +635,7 @@ describe('gdal.RasterBand', () => {
             const r = band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y, data)
             assert.strictEqual(r, data)
           })
-          it('w/data argument is inadequate', () => {
+          it('w/data argument error', () => {
             const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
             const band = ds.bands.get(1)
             assert.deepEqual(ds.rasterSize, { x: size, y: size })
@@ -643,6 +643,14 @@ describe('gdal.RasterBand', () => {
             assert.throws(() => {
               band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y, data)
             }, /Array length must be greater than/)
+          })
+          it('w/file over the 4G elements limit', () => {
+            const ds = gdal.open(`${__dirname}/data/too-huge-sparse.tiff`)
+            const band = ds.bands.get(1)
+            assert.deepEqual(ds.rasterSize, { x: size * 2, y: size * 2 })
+            assert.throws(() => {
+              band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y)
+            }, /Invalid typed array length/)
           })
         })
         describe('w/data argument', () => {
