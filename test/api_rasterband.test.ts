@@ -617,39 +617,43 @@ describe('gdal.RasterBand', () => {
           assert.equal(data[10 * 20 + 10], 10)
         })
         describe('w/data over 4GB', () => {
-          // These tests can fail on machines without enough RAM
-          const size = 33000
+          // These tests require at least 16GB of memory to be reliable
+          const size = 66000
           it('when returning a new TypedArray', () => {
             const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
             const band = ds.bands.get(1)
             assert.deepEqual(ds.rasterSize, { x: size, y: size })
-            const data = band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y)
+            const data = band.pixels.read(ds.rasterSize.x / 2, ds.rasterSize.y / 2,
+              ds.rasterSize.x / 2, ds.rasterSize.y / 2)
             assert.instanceOf(data, Int32Array)
-            assert.equal(data.length, ds.rasterSize.x * ds.rasterSize.y)
+            assert.equal(data.length, ds.rasterSize.x * ds.rasterSize.y / 4)
           })
           it('w/data argument', () => {
             const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
             const band = ds.bands.get(1)
             assert.deepEqual(ds.rasterSize, { x: size, y: size })
-            const data = new Int32Array(size * size)
-            const r = band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y, data)
+            const data = new Int32Array(size * size / 4)
+            const r = band.pixels.read(ds.rasterSize.x / 2, ds.rasterSize.y / 2,
+              ds.rasterSize.x / 2, ds.rasterSize.y / 2, data)
             assert.strictEqual(r, data)
           })
           it('w/data argument error', () => {
             const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
             const band = ds.bands.get(1)
             assert.deepEqual(ds.rasterSize, { x: size, y: size })
-            const data = new Int32Array(size * size - 1)
+            const data = new Int32Array(size * size / 4 - 1)
             assert.throws(() => {
-              band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y, data)
+              band.pixels.read(ds.rasterSize.x / 2, ds.rasterSize.y / 2,
+                ds.rasterSize.x / 2, ds.rasterSize.y / 2, data)
             }, /Array length must be greater than/)
           })
           it('w/file over the 4G elements limit', () => {
-            const ds = gdal.open(`${__dirname}/data/too-huge-sparse.tiff`)
+            const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
             const band = ds.bands.get(1)
-            assert.deepEqual(ds.rasterSize, { x: size * 2, y: size * 2 })
+            assert.deepEqual(ds.rasterSize, { x: size, y: size })
             assert.throws(() => {
-              band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y)
+              band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y, undefined,
+                { data_type: gdal.GDT_Byte })
             }, /Failed constructing a TypedArray/)
           })
         })
@@ -822,6 +826,22 @@ describe('gdal.RasterBand', () => {
             band.pixels.set(1, 1, 30)
             const data = new Float64Array(new ArrayBuffer(20 * 30 * 8))
             band.pixels.read(1, 1, 20, 30, data)
+            assert.equal(data[0], 30)
+          })
+          it('should automatically translate data to specified data type', () => {
+            const ds = gdal.open(
+              'temp',
+              'w',
+              'MEM',
+              256,
+              256,
+              1,
+              gdal.GDT_Byte
+            )
+            const band = ds.bands.get(1)
+            band.pixels.set(1, 1, 30)
+            const data = band.pixels.read(1, 1, 20, 30, undefined, { data_type: gdal.GDT_Float64 })
+            assert.instanceOf(data, Float64Array)
             assert.equal(data[0], 30)
           })
         })

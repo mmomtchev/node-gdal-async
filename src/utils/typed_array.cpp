@@ -60,7 +60,7 @@ Local<Value> TypedArray::New(GDALDataType type, int64_t length) {
   constructor = val.As<Function>();
   MaybeLocal<Object> array_maybe = Nan::NewInstance(constructor, 1, &array_buffer);
   if (array_maybe.IsEmpty()) {
-    Nan::ThrowRangeError("Failed constructing a TypedArray");
+    Nan::ThrowRangeError("Failed constructing a TypedArray, data is probably over the 4G elements limit");
     return Local<Value>();
   }
   Local<Object> array = array_maybe.ToLocalChecked();
