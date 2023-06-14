@@ -41,7 +41,6 @@ Local<Value> TypedArray::New(GDALDataType type, int64_t length) {
     Nan::ThrowError("Buffer size exceeds maximum safe JS integer");
     return Local<Value>();
   }
-  printf("Allocating array %lf\n", size);
   Local<Value> v8_size = Nan::New<v8::Number>(size);
   MaybeLocal<Object> array_buffer_maybe = Nan::NewInstance(constructor, 1, &v8_size);
   if (array_buffer_maybe.IsEmpty()) { return Local<Value>(); }
@@ -60,10 +59,7 @@ Local<Value> TypedArray::New(GDALDataType type, int64_t length) {
   }
   constructor = val.As<Function>();
   MaybeLocal<Object> array_maybe = Nan::NewInstance(constructor, 1, &array_buffer);
-  if (array_maybe.IsEmpty()) {
-    printf("Failed converting array\n");
-    return Local<Value>();
-  }
+  if (array_maybe.IsEmpty()) { return Local<Value>(); }
   Local<Object> array = array_maybe.ToLocalChecked();
 
   Nan::Set(array, Nan::New("_gdal_type").ToLocalChecked(), Nan::New(type));
