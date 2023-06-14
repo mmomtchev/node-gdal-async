@@ -15,5 +15,5 @@ coverage:
           - "lib"
     patch:
       default:
-        target: auto
+        target: 80%
         threshold: 2%
