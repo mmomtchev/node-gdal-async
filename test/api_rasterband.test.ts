@@ -616,6 +616,14 @@ describe('gdal.RasterBand', () => {
           assert.equal(data.length, w * h)
           assert.equal(data[10 * 20 + 10], 10)
         })
+        it('should not fail when reading more than 4GB', () => {
+          const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
+          const band = ds.bands.get(1)
+          assert.deepEqual(ds.rasterSize, { x: 33000, y: 33000 })
+          const data = band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y)
+          assert.instanceOf(data, Uint8Array)
+          assert.equal(data.length, ds.rasterSize.x * ds.rasterSize.y)
+        })
         describe('w/data argument', () => {
           it('should put the data in the existing array', () => {
             const ds = gdal.open(
@@ -786,14 +794,6 @@ describe('gdal.RasterBand', () => {
             const data = new Float64Array(new ArrayBuffer(20 * 30 * 8))
             band.pixels.read(1, 1, 20, 30, data)
             assert.equal(data[0], 30)
-          })
-          it('should not fail when reading more than 4GB', () => {
-            const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
-            const band = ds.bands.get(1)
-            assert.deepEqual(ds.rasterSize, { x: 33000, y: 33000 })
-            const data = band.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y)
-            assert.instanceOf(data, Uint8Array)
-            assert.equal(data.length, ds.rasterSize.x * ds.rasterSize.y)
           })
         })
         describe('w/options', () => {
@@ -1039,7 +1039,10 @@ describe('gdal.RasterBand', () => {
             assert.equal(result[i], Math.floor(data[i]))
           }
         })
-        it('should not fail when writing more than 4GB', () => {
+        it('should not fail when writing more than 4GB', function () {
+          if (semver.lt(gdal.version, '3.6.0')) {
+            this.skip()
+          }
           const filename = `/vsimem/4G_write_test_${String(
             Math.random()
           ).substring(2)}.tiff`
