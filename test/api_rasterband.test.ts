@@ -627,6 +627,9 @@ describe('gdal.RasterBand', () => {
               ds.rasterSize.x / 2, ds.rasterSize.y / 2)
             assert.instanceOf(data, Int32Array)
             assert.equal(data.length, ds.rasterSize.x * ds.rasterSize.y / 4)
+            for (let i = 0; i < data.length; i++) {
+              if (data[i] !== 42) throw new Error('data error')
+            }
           })
           it('w/data argument', () => {
             const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
@@ -636,8 +639,11 @@ describe('gdal.RasterBand', () => {
             const r = band.pixels.read(ds.rasterSize.x / 2, ds.rasterSize.y / 2,
               ds.rasterSize.x / 2, ds.rasterSize.y / 2, data)
             assert.strictEqual(r, data)
+            for (let i = 0; i < data.length; i++) {
+              if (data[i] !== 42) throw new Error('data error')
+            }
           })
-          it('w/data argument error', () => {
+          it('w/data argument w/error', () => {
             const ds = gdal.open(`${__dirname}/data/huge-sparse.tiff`)
             const band = ds.bands.get(1)
             assert.deepEqual(ds.rasterSize, { x: size, y: size })
