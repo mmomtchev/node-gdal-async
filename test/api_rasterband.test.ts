@@ -1097,7 +1097,8 @@ describe('gdal.RasterBand', () => {
           ).substring(2)}.tiff`
           const size = 33000
           const gtiff = gdal.drivers.get('GTiff')
-          const ds = gtiff.create(filename, size, size, 1, gdal.GDT_UInt32)
+          const ds = gtiff.create(filename, size, size, 1, gdal.GDT_UInt32,
+            { compress: 'packbits', blockxsize: 4096, blockysize: 4096 })
           const band = ds.bands.get(1)
           const data = new Uint32Array(size * size)
           band.pixels.write(0, 0, size, size, data)
