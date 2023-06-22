@@ -80,6 +80,22 @@ describe('Open', () => {
           assert.equal(integerLayer.features.get(0).fields.get(3), 1)
         })
       })
+
+      describe('null fields', () => {
+        let nullDs, nullFeature: gdal.Feature
+
+        before(() => {
+          nullDs = gdal.open(
+            path.join(__dirname, 'data/shp/sample_null.shp')
+          )
+          nullFeature = nullDs.layers.get(0).features.get(0)
+        })
+        it('should return null value', () => {
+          assert.equal(nullFeature.fields.get('id'), null)
+          assert.equal(nullFeature.fields.get('name'), null)
+          assert.equal(nullFeature.fields.get('value'), null)
+        })
+      })
     })
   })
 })
