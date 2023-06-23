@@ -48,7 +48,7 @@ describe('Open', () => {
               real: 4.56,
               guid: '{12345678-9ABC-DEF0-1234-567890ABCDEF}',
               xml: '<foo></foo>',
-              nullint: 0
+              nullint: null
             })
           assert.deepEqual(fields.adate, { year: 2013, month: 12, day: 26, hour: 12, minute: 34, second: 56 })
           assert.instanceOf(fields.binary, Buffer)
