@@ -36,6 +36,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 #include "commonutils.h"
@@ -262,8 +263,7 @@ static CPLErr ProcessLayer(OGRLayerH hSrcLayer, bool bSRSIsSet,
         if (iBurnField == -1)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
-                     "Failed to find field %s on layer %s, skipping.",
-                     pszBurnAttribute,
+                     "Failed to find field %s on layer %s.", pszBurnAttribute,
                      OGR_FD_GetName(OGR_L_GetLayerDefn(hSrcLayer)));
             if (hCT != nullptr)
                 OCTDestroyCoordinateTransformation(hCT);
@@ -446,20 +446,20 @@ static CPLErr ProcessLayer(OGRLayerH hSrcLayer, bool bSRSIsSet,
 
 static GDALDatasetH CreateOutputDataset(
     const std::vector<OGRLayerH> &ahLayers, OGRSpatialReferenceH hSRS,
-    bool bGotBounds, OGREnvelope sEnvelop, GDALDriverH hDriver,
-    const char *pszDest, int nXSize, int nYSize, double dfXRes, double dfYRes,
-    bool bTargetAlignedPixels, int nBandCount, GDALDataType eOutputType,
-    char **papszCreationOptions, const std::vector<double> &adfInitVals,
-    int bNoDataSet, double dfNoData)
+    OGREnvelope sEnvelop, GDALDriverH hDriver, const char *pszDest, int nXSize,
+    int nYSize, double dfXRes, double dfYRes, bool bTargetAlignedPixels,
+    int nBandCount, GDALDataType eOutputType, char **papszCreationOptions,
+    const std::vector<double> &adfInitVals, int bNoDataSet, double dfNoData)
 {
     bool bFirstLayer = true;
     char *pszWKT = nullptr;
+    const bool bBoundsSpecifiedByUser = sEnvelop.IsInit();
 
     for (unsigned int i = 0; i < ahLayers.size(); i++)
     {
         OGRLayerH hLayer = ahLayers[i];
 
-        if (!bGotBounds)
+        if (!bBoundsSpecifiedByUser)
         {
             OGREnvelope sLayerEnvelop;
 
@@ -480,36 +480,22 @@ static GDALDatasetH CreateOutputDataset(
                 sLayerEnvelop.MaxY += dfYRes / 2;
             }
 
-            if (bFirstLayer)
-            {
-                sEnvelop.MinX = sLayerEnvelop.MinX;
-                sEnvelop.MinY = sLayerEnvelop.MinY;
-                sEnvelop.MaxX = sLayerEnvelop.MaxX;
-                sEnvelop.MaxY = sLayerEnvelop.MaxY;
-
-                if (hSRS == nullptr)
-                    hSRS = OGR_L_GetSpatialRef(hLayer);
-
-                bFirstLayer = false;
-            }
-            else
-            {
-                sEnvelop.MinX = std::min(sEnvelop.MinX, sLayerEnvelop.MinX);
-                sEnvelop.MinY = std::min(sEnvelop.MinY, sLayerEnvelop.MinY);
-                sEnvelop.MaxX = std::max(sEnvelop.MaxX, sLayerEnvelop.MaxX);
-                sEnvelop.MaxY = std::max(sEnvelop.MaxY, sLayerEnvelop.MaxY);
-            }
+            sEnvelop.Merge(sLayerEnvelop);
         }
-        else
+
+        if (bFirstLayer)
         {
-            if (bFirstLayer)
-            {
-                if (hSRS == nullptr)
-                    hSRS = OGR_L_GetSpatialRef(hLayer);
+            if (hSRS == nullptr)
+                hSRS = OGR_L_GetSpatialRef(hLayer);
 
-                bFirstLayer = false;
-            }
+            bFirstLayer = false;
         }
+    }
+
+    if (!sEnvelop.IsInit())
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "Could not determine bounds");
+        return nullptr;
     }
 
     if (dfXRes == 0 && dfYRes == 0)
@@ -536,10 +522,20 @@ static GDALDatasetH CreateOutputDataset(
 
     if (nXSize == 0 && nYSize == 0)
     {
-        nXSize =
-            static_cast<int>(0.5 + (sEnvelop.MaxX - sEnvelop.MinX) / dfXRes);
-        nYSize =
-            static_cast<int>(0.5 + (sEnvelop.MaxY - sEnvelop.MinY) / dfYRes);
+        const double dfXSize = 0.5 + (sEnvelop.MaxX - sEnvelop.MinX) / dfXRes;
+        const double dfYSize = 0.5 + (sEnvelop.MaxY - sEnvelop.MinY) / dfYRes;
+        if (dfXSize > std::numeric_limits<int>::max() ||
+            dfXSize < std::numeric_limits<int>::min() ||
+            dfYSize > std::numeric_limits<int>::max() ||
+            dfYSize < std::numeric_limits<int>::min())
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Invalid computed output raster size: %f x %f", dfXSize,
+                     dfYSize);
+            return nullptr;
+        }
+        nXSize = static_cast<int>(dfXSize);
+        nYSize = static_cast<int>(dfYSize);
     }
 
     GDALDatasetH hDstDS =
@@ -623,7 +619,6 @@ struct GDALRasterizeOptions
     int bNoDataSet;
     double dfNoData;
     OGREnvelope sEnvelop;
-    bool bGotBounds;
     int nXSize, nYSize;
     OGRSpatialReferenceH hSRS;
     bool bTargetAlignedPixels;
@@ -798,9 +793,9 @@ GDALDatasetH GDALRasterize(const char *pszDest, GDALDatasetH hDstDS,
                 }
 
                 hDstDS = CreateOutputDataset(
-                    ahLayers, psOptions->hSRS, psOptions->bGotBounds,
-                    psOptions->sEnvelop, hDriver, pszDest, psOptions->nXSize,
-                    psOptions->nYSize, psOptions->dfXRes, psOptions->dfYRes,
+                    ahLayers, psOptions->hSRS, psOptions->sEnvelop, hDriver,
+                    pszDest, psOptions->nXSize, psOptions->nYSize,
+                    psOptions->dfXRes, psOptions->dfYRes,
                     psOptions->bTargetAlignedPixels,
                     static_cast<int>(psOptions->anBandList.size()), eOutputType,
                     psOptions->papszCreationOptions, psOptions->adfInitVals,
@@ -848,7 +843,11 @@ GDALDatasetH GDALRasterize(const char *pszDest, GDALDatasetH hDstDS,
                 hLayer = GDALDatasetGetLayer(hSrcDataset, 0);
             if (hLayer == nullptr)
             {
-                continue;
+                CPLError(
+                    CE_Failure, CPLE_AppDefined, "Unable to find layer \"%s\".",
+                    psOptions->papszLayers ? psOptions->papszLayers[i] : "0");
+                GDALRasterizeOptionsFree(psOptionsToFree);
+                return nullptr;
             }
             if (eOutputType == GDT_Unknown &&
                 psOptions->pszBurnAttribute != nullptr)
@@ -873,10 +872,9 @@ GDALDatasetH GDALRasterize(const char *pszDest, GDALDatasetH hDstDS,
         }
 
         hDstDS = CreateOutputDataset(
-            ahLayers, psOptions->hSRS, psOptions->bGotBounds,
-            psOptions->sEnvelop, hDriver, pszDest, psOptions->nXSize,
-            psOptions->nYSize, psOptions->dfXRes, psOptions->dfYRes,
-            psOptions->bTargetAlignedPixels,
+            ahLayers, psOptions->hSRS, psOptions->sEnvelop, hDriver, pszDest,
+            psOptions->nXSize, psOptions->nYSize, psOptions->dfXRes,
+            psOptions->dfYRes, psOptions->bTargetAlignedPixels,
             static_cast<int>(psOptions->anBandList.size()), eOutputType,
             psOptions->papszCreationOptions, psOptions->adfInitVals,
             psOptions->bNoDataSet, psOptions->dfNoData);
@@ -902,16 +900,20 @@ GDALDatasetH GDALRasterize(const char *pszDest, GDALDatasetH hDstDS,
         if (hLayer == nullptr)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
-                     "Unable to find layer \"%s\", skipping.",
+                     "Unable to find layer \"%s\".",
                      psOptions->papszLayers ? psOptions->papszLayers[i] : "0");
-            continue;
+            eErr = CE_Failure;
+            break;
         }
 
         if (psOptions->pszWHERE)
         {
             if (OGR_L_SetAttributeFilter(hLayer, psOptions->pszWHERE) !=
                 OGRERR_NONE)
+            {
+                eErr = CE_Failure;
                 break;
+            }
         }
 
         void *pScaledProgress = GDALCreateScaledProgress(
@@ -987,7 +989,6 @@ GDALRasterizeOptionsNew(char **papszArgv,
     psOptions->eOutputType = GDT_Unknown;
     psOptions->bNoDataSet = FALSE;
     psOptions->dfNoData = 0;
-    psOptions->bGotBounds = false;
     psOptions->nXSize = 0;
     psOptions->nYSize = 0;
     psOptions->hSRS = nullptr;
@@ -1197,7 +1198,6 @@ GDALRasterizeOptionsNew(char **papszArgv,
             psOptions->sEnvelop.MinY = CPLAtof(papszArgv[++i]);
             psOptions->sEnvelop.MaxX = CPLAtof(papszArgv[++i]);
             psOptions->sEnvelop.MaxY = CPLAtof(papszArgv[++i]);
-            psOptions->bGotBounds = true;
             psOptions->bCreateOutput = true;
         }
         else if (i < argc - 4 && EQUAL(papszArgv[i], "-a_ullr"))
@@ -1206,7 +1206,6 @@ GDALRasterizeOptionsNew(char **papszArgv,
             psOptions->sEnvelop.MaxY = CPLAtof(papszArgv[++i]);
             psOptions->sEnvelop.MaxX = CPLAtof(papszArgv[++i]);
             psOptions->sEnvelop.MinY = CPLAtof(papszArgv[++i]);
-            psOptions->bGotBounds = true;
             psOptions->bCreateOutput = true;
         }
         else if (i < argc - 1 && EQUAL(papszArgv[i], "-co"))

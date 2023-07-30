@@ -196,6 +196,7 @@ class OGRMVTLayer final : public OGRMVTLayerBase
     double m_dfTileMinY = 0;
     double m_dfTileMaxX = 0;
     double m_dfTileMaxY = 0;
+    bool m_bEnforceExternalIsClockwise = false;
 
     void Init(const CPLJSONObject &oFields);
     bool QuickScanFeature(const GByte *pabyData,
@@ -403,6 +404,14 @@ OGRMVTLayer::OGRMVTLayer(OGRMVTDataset *poDS, const char *pszLayerName,
     poLR->addPoint(m_dfTileMaxX, m_dfTileMinY);
     poLR->addPoint(m_dfTileMinX, m_dfTileMinY);
     m_oClipPoly.addRingDirectly(poLR);
+
+    // Config option only for tests for now. When set, it ensures that
+    // the first ring (exterior ring) of a polygon is clockwise oriented,
+    // as per the MVT spec.
+    // By default, we are more tolerant and only use reversal of winding order
+    // to detect inner rings.
+    m_bEnforceExternalIsClockwise = CPLTestBool(
+        CPLGetConfigOption("OGR_MVT_ENFORE_EXTERNAL_RING_IS_CLOCKWISE", "NO"));
 }
 
 /************************************************************************/
@@ -1068,6 +1077,14 @@ OGRGeometry *OGRMVTLayer::ParseGeometry(unsigned int nGeomType,
                     poPoly = new OGRPolygon();
                     poPoly->addRingDirectly(poRing);
                     externalIsClockwise = poRing->isClockwise();
+                    if (!externalIsClockwise && m_bEnforceExternalIsClockwise)
+                    {
+                        CPLError(CE_Failure, CPLE_AppDefined,
+                                 "Bad ring orientation detected");
+                        delete poPoly;
+                        delete poMultiPoly;
+                        return nullptr;
+                    }
                 }
                 else
                 {
@@ -3764,6 +3781,10 @@ bool OGRMVTWriterDataset::EncodePolygon(MVTTileLayerFeature *poGPBFeature,
                                         bool bCanRecurse, int &nLastX,
                                         int &nLastY, double &dfArea) const
 {
+#ifdef HAVE_MAKE_VALID
+    CPL_IGNORE_RET_VAL(bCanRecurse);
+#endif
+
     dfArea = 0;
     auto poOutOuterRing = cpl::make_unique<OGRLinearRing>();
     for (int i = 0; i < 1 + poPoly->getNumInteriorRings(); i++)
@@ -3779,8 +3800,15 @@ bool OGRMVTWriterDataset::EncodePolygon(MVTTileLayerFeature *poGPBFeature,
             continue;
         }
         const bool bWriteLastPoint = false;
-        const bool bReverseOrder = (i == 0 && !poRing->isClockwise()) ||
-                                   (i > 0 && poRing->isClockwise());
+        // If dealing with input geometry in CRS units, exterior rings must
+        // be clockwise oriented.
+        // But if re-encoding a geometry already in tile coordinates
+        // (dfTileDim == 0), this is the reverse.
+        const bool bReverseOrder = dfTileDim != 0
+                                       ? ((i == 0 && !poRing->isClockwise()) ||
+                                          (i > 0 && poRing->isClockwise()))
+                                       : ((i == 0 && poRing->isClockwise()) ||
+                                          (i > 0 && !poRing->isClockwise()));
         const GUInt32 nMinLineTo = 2;
         std::unique_ptr<OGRLinearRing> poOutInnerRing;
         if (i > 0)
@@ -3788,9 +3816,11 @@ bool OGRMVTWriterDataset::EncodePolygon(MVTTileLayerFeature *poGPBFeature,
         OGRLinearRing *poOutRing =
             poOutInnerRing.get() ? poOutInnerRing.get() : poOutOuterRing.get();
 
+#ifndef HAVE_MAKE_VALID
         const GUInt32 nInitialSize = poGPBFeature->getGeometryCount();
         const int nLastXOri = nLastX;
         const int nLastYOri = nLastY;
+#endif
         bool bSuccess = EncodeLineString(
             poGPBFeature, poRing, poOutRing, bWriteLastPoint, bReverseOrder,
             nMinLineTo, dfTopX, dfTopY, dfTileDim, nLastX, nLastY);
@@ -3808,6 +3838,14 @@ bool OGRMVTWriterDataset::EncodePolygon(MVTTileLayerFeature *poGPBFeature,
         }
 
         poOutRing->closeRings();
+
+#ifdef HAVE_MAKE_VALID
+        poOutPoly->addRing(poOutRing);
+        if (i > 0)
+            dfArea -= poOutRing->get_Area();
+        else
+            dfArea = poOutRing->get_Area();
+#else
         OGRPolygon oOutPoly;
         oOutPoly.addRing(poOutOuterRing.get());
         if (i > 0)
@@ -3869,7 +3907,6 @@ bool OGRMVTWriterDataset::EncodePolygon(MVTTileLayerFeature *poGPBFeature,
             poGPBFeature->resizeGeometryArray(nInitialSize);
             nLastX = nLastXOri;
             nLastY = nLastYOri;
-#if !defined(HAVE_MAKE_VALID)
             if (i == 0)
             {
 #ifdef nodef
@@ -3918,12 +3955,13 @@ bool OGRMVTWriterDataset::EncodePolygon(MVTTileLayerFeature *poGPBFeature,
                     return false;
                 }
             }
-#endif
             continue;
         }
+#endif
 
         poGPBFeature->addGeometry(GetCmdCountCombined(knCMD_CLOSEPATH, 1));
     }
+
     return true;
 }
 

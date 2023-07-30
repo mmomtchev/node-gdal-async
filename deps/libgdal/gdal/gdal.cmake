@@ -548,10 +548,13 @@ set(GDAL_VECTOR_FORMAT_SOURCE_DIR "${PROJECT_SOURCE_DIR}/ogr/ogrsf_frmts")
 
 # We need to forward declare a few OGR drivers because raster formats need them
 option(OGR_ENABLE_DRIVER_AVC "Set ON to build OGR AVC driver" ${OGR_BUILD_OPTIONAL_DRIVERS})
+option(OGR_ENABLE_DRIVER_GML "Set ON to build OGR GML driver" ${OGR_BUILD_OPTIONAL_DRIVERS})
 cmake_dependent_option(OGR_ENABLE_DRIVER_SQLITE "Set ON to build OGR SQLite driver" ${OGR_BUILD_OPTIONAL_DRIVERS}
                        "GDAL_USE_SQLITE3" OFF)
 cmake_dependent_option(OGR_ENABLE_DRIVER_GPKG "Set ON to build OGR GPKG driver" ${OGR_BUILD_OPTIONAL_DRIVERS}
                        "GDAL_USE_SQLITE3;OGR_ENABLE_DRIVER_SQLITE" OFF)
+cmake_dependent_option(OGR_ENABLE_DRIVER_MVT "Set ON to build OGR MVT driver" ${OGR_BUILD_OPTIONAL_DRIVERS}
+                       "GDAL_USE_SQLITE3" OFF)
 
 # Build frmts/iso8211 conditionally to drivers requiring it
 if ((GDAL_BUILD_OPTIONAL_DRIVERS AND NOT DEFINED GDAL_ENABLE_DRIVER_ADRG AND NOT DEFINED GDAL_ENABLE_DRIVER_SDTS) OR
@@ -659,7 +662,9 @@ set(GDAL_DATA_FILES
     data/gdalinfo_output.schema.json
     data/gdalmdiminfo_output.schema.json
     data/gdalvrt.xsd
+    data/gfs.xsd
     data/gml_registry.xml
+    data/gml_registry.xsd
     data/gmlasconf.xml
     data/gmlasconf.xsd
     data/grib2_table_versions.csv

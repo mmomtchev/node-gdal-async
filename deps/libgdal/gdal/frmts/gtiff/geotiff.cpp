@@ -2678,6 +2678,8 @@ struct GTiffDecompressContext
     std::mutex oMutex{};
     bool bSuccess = true;
 
+    std::vector<CPLErrorHandlerAccumulatorStruct> aoErrors{};
+
     VSIVirtualHandle *poHandle = nullptr;
     GTiffDataset *poDS = nullptr;
     GDALDataType eDT = GDT_Unknown;
@@ -2721,12 +2723,28 @@ struct GTiffDecompressContext
 struct GTiffDecompressJob
 {
     GTiffDecompressContext *psContext = nullptr;
-    int iBand = 0;  // or -1 to indicate all bands of panBandMap
+    int iSrcBandIdxSeparate =
+        0;  // in [0, GetRasterCount()-1] in PLANARCONFIG_SEPARATE, or -1 in PLANARCONFIG_CONTIG
+    int iDstBandIdxSeparate =
+        0;  // in [0, nBandCount-1] in PLANARCONFIG_SEPARATE, or -1 in PLANARCONFIG_CONTIG
     int nXBlock = 0;
     int nYBlock = 0;
     vsi_l_offset nOffset = 0;
     vsi_l_offset nSize = 0;
 };
+
+/************************************************************************/
+/*                  ThreadDecompressionFuncErrorHandler()               */
+/************************************************************************/
+
+static void CPL_STDCALL ThreadDecompressionFuncErrorHandler(
+    CPLErr eErr, CPLErrorNum eErrorNum, const char *pszMsg)
+{
+    GTiffDecompressContext *psContext =
+        static_cast<GTiffDecompressContext *>(CPLGetErrorHandlerUserData());
+    std::lock_guard<std::mutex> oLock(psContext->oMutex);
+    psContext->aoErrors.emplace_back(eErr, eErrorNum, pszMsg);
+}
 
 /************************************************************************/
 /*                     ThreadDecompressionFunc()                        */
@@ -2737,6 +2755,9 @@ static void ThreadDecompressionFunc(void *pData)
     const auto psJob = static_cast<const GTiffDecompressJob *>(pData);
     auto psContext = psJob->psContext;
     auto poDS = psContext->poDS;
+
+    CPLErrorHandlerPusher oErrorHandler(ThreadDecompressionFuncErrorHandler,
+                                        psContext);
 
     const int nBandsPerStrile =
         poDS->m_nPlanarConfig == PLANARCONFIG_CONTIG ? poDS->nBands : 1;
@@ -2811,8 +2832,9 @@ static void ThreadDecompressionFunc(void *pData)
             for (int i = 0; i < nBandsToWrite; ++i)
             {
                 const int iDstBandIdx =
-                    poDS->m_nPlanarConfig == PLANARCONFIG_CONTIG ? i
-                                                                 : psJob->iBand;
+                    poDS->m_nPlanarConfig == PLANARCONFIG_CONTIG
+                        ? i
+                        : psJob->iDstBandIdxSeparate;
                 GDALCopyWords64(
                     &dfNoDataValue, GDT_Float64, 0,
                     psContext->pabyData + iDstBandIdx * psContext->nBandSpace +
@@ -2858,7 +2880,7 @@ static void ThreadDecompressionFunc(void *pData)
             const int iBand = psContext->bCacheAllBands ? i + 1
                               : poDS->m_nPlanarConfig == PLANARCONFIG_CONTIG
                                   ? psContext->panBandMap[i]
-                                  : psJob->iBand + 1;
+                                  : psJob->iSrcBandIdxSeparate + 1;
             apoBlocks[i] = poDS->GetRasterBand(iBand)->TryGetLockedBlockRef(
                 psJob->nXBlock, psJob->nYBlock);
             if (apoBlocks[i] == nullptr)
@@ -3209,7 +3231,7 @@ static void ThreadDecompressionFunc(void *pData)
                     const int iDstBandIdx =
                         poDS->m_nPlanarConfig == PLANARCONFIG_CONTIG
                             ? i
-                            : psJob->iBand;
+                            : psJob->iDstBandIdxSeparate;
                     GDALCopyWords64(
                         pSrcPtr + iSrcBandIdx * nDTSize + y * nSrcLineInc,
                         psContext->eDT, nDTSize * nBandsPerStrile,
@@ -3232,8 +3254,9 @@ static void ThreadDecompressionFunc(void *pData)
             psContext->bCacheAllBands ? psContext->panBandMap[i] - 1
             : poDS->m_nPlanarConfig == PLANARCONFIG_CONTIG ? i
                                                            : 0;
-        const int iDstBandIdx =
-            poDS->m_nPlanarConfig == PLANARCONFIG_CONTIG ? i : psJob->iBand;
+        const int iDstBandIdx = poDS->m_nPlanarConfig == PLANARCONFIG_CONTIG
+                                    ? i
+                                    : psJob->iDstBandIdxSeparate;
         const GByte *pSrcPtr =
             static_cast<GByte *>(apoBlocks[iSrcBandIdx]->GetDataRef()) +
             (static_cast<size_t>(nYOffsetInBlock) * poDS->m_nBlockXSize +
@@ -3325,7 +3348,10 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
     sContext.panBandMap = panBandMap;
     sContext.nPixelSpace = nPixelSpace;
     sContext.nLineSpace = nLineSpace;
-    sContext.nBandSpace = nBandSpace;
+    // Setting nBandSpace to a dummy value when nBandCount == 1 helps detecting
+    // bad computations of target buffer address
+    // (https://github.com/rasterio/rasterio/issues/2847)
+    sContext.nBandSpace = nBandCount == 1 ? 0xDEADBEEF : nBandSpace;
     sContext.bIsTiled = CPL_TO_BOOL(TIFFIsTiled(m_hTIFF));
     sContext.bTIFFIsBigEndian = CPL_TO_BOOL(TIFFIsBigEndian(m_hTIFF));
     sContext.nPredictor = PREDICTOR_NONE;
@@ -3521,8 +3547,11 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
                                   &sContext.nYCrbCrSubSampling1);
         }
     }
-    TIFFGetField(m_hTIFF, TIFFTAG_EXTRASAMPLES, &sContext.nExtraSampleCount,
-                 &sContext.pExtraSamples);
+    if (m_nPlanarConfig == PLANARCONFIG_CONTIG)
+    {
+        TIFFGetField(m_hTIFF, TIFFTAG_EXTRASAMPLES, &sContext.nExtraSampleCount,
+                     &sContext.pExtraSamples);
+    }
 
     // Create one job per tile/strip
     vsi_l_offset nFileSize = 0;
@@ -3538,16 +3567,19 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
             for (int i = 0; i < nStrilePerBlock; ++i)
             {
                 asJobs[iJob].psContext = &sContext;
-                asJobs[iJob].iBand = m_nPlanarConfig == PLANARCONFIG_CONTIG
-                                         ? -1
-                                         : panBandMap[i] - 1;
+                asJobs[iJob].iSrcBandIdxSeparate =
+                    m_nPlanarConfig == PLANARCONFIG_CONTIG ? -1
+                                                           : panBandMap[i] - 1;
+                asJobs[iJob].iDstBandIdxSeparate =
+                    m_nPlanarConfig == PLANARCONFIG_CONTIG ? -1 : i;
                 asJobs[iJob].nXBlock = nBlockXStart + x;
                 asJobs[iJob].nYBlock = nBlockYStart + y;
 
                 int nBlockId = asJobs[iJob].nXBlock +
                                asJobs[iJob].nYBlock * sContext.nBlocksPerRow;
                 if (m_nPlanarConfig == PLANARCONFIG_SEPARATE)
-                    nBlockId += asJobs[iJob].iBand * m_nBlocksPerBand;
+                    nBlockId +=
+                        asJobs[iJob].iSrcBandIdxSeparate * m_nBlocksPerBand;
 
                 if (!sContext.bHasPRead)
                 {
@@ -3665,6 +3697,12 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
 
         // Undo effect of above TemporarilyDropReadWriteLock()
         ReacquireReadWriteLock();
+
+        // Re-emit errors caught in threads
+        for (const auto &oError : sContext.aoErrors)
+        {
+            CPLError(oError.type, oError.no, "%s", oError.msg.c_str());
+        }
     }
 
     return sContext.bSuccess ? CE_None : CE_Failure;
@@ -19994,7 +20032,8 @@ GDALDataset *GTiffDataset::Create(const char *pszFilename, int nXSize,
     poDS->m_nZSTDLevel = GTiffGetZSTDPreset(papszParamList);
     poDS->m_nWebPLevel = GTiffGetWebPLevel(papszParamList);
     poDS->m_bWebPLossless = GTiffGetWebPLossless(papszParamList);
-    if (poDS->m_nWebPLevel != 100 && poDS->m_bWebPLossless)
+    if (poDS->m_nWebPLevel != 100 && poDS->m_bWebPLossless &&
+        CSLFetchNameValue(papszParamList, "WEBP_LEVEL"))
     {
         CPLError(CE_Warning, CPLE_AppDefined,
                  "WEBP_LEVEL is specified, but WEBP_LOSSLESS=YES. "
@@ -21285,7 +21324,8 @@ GDALDataset *GTiffDataset::CreateCopy(const char *pszFilename,
     poDS->m_nZSTDLevel = GTiffGetZSTDPreset(papszOptions);
     poDS->m_nWebPLevel = GTiffGetWebPLevel(papszOptions);
     poDS->m_bWebPLossless = GTiffGetWebPLossless(papszOptions);
-    if (poDS->m_nWebPLevel != 100 && poDS->m_bWebPLossless)
+    if (poDS->m_nWebPLevel != 100 && poDS->m_bWebPLossless &&
+        CSLFetchNameValue(papszOptions, "WEBP_LEVEL"))
     {
         CPLError(CE_Warning, CPLE_AppDefined,
                  "WEBP_LEVEL is specified, but WEBP_LOSSLESS=YES. "

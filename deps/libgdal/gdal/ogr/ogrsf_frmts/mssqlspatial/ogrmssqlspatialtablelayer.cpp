@@ -131,7 +131,7 @@ const char *OGRMSSQLSpatialTableLayer::GetName()
 /************************************************************************/
 OGRFeatureDefn *OGRMSSQLSpatialTableLayer::GetLayerDefn()
 {
-    if (poFeatureDefn)
+    if (poFeatureDefn && !bLayerDefnNeedsRefresh)
         return poFeatureDefn;
 
     CPLODBCSession *poSession = poDS->GetSession();
@@ -1562,13 +1562,10 @@ OGRErr OGRMSSQLSpatialTableLayer::CreateFeatureBCP(OGRFeature *poFeature)
             poSession->CommitTransaction(); /* commit creating the table */
 
         /* Get the column definitions for this table. */
-        if (poFeatureDefn)
-        {
-            /* need to re-create layer defn */
-            poFeatureDefn->Release();
-            poFeatureDefn = nullptr;
-        }
+        bLayerDefnNeedsRefresh = true;
         GetLayerDefn();
+        bLayerDefnNeedsRefresh = false;
+
         if (!poFeatureDefn)
             return OGRERR_FAILURE;
 
@@ -2220,8 +2217,9 @@ OGRErr OGRMSSQLSpatialTableLayer::CreateFeatureBCP(OGRFeature *poFeature)
                         {
                         }
                     }
-                    if (Failed2(bcp_moretext(hDBCBCP, 0, nullptr)))
+                    else
                     {
+                        Failed2(bcp_moretext(hDBCBCP, 0, nullptr));
                     }
                 }
                 else
