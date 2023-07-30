@@ -1,12 +1,12 @@
 --- libgdal/gdal/port/cpl_zlib_header.h.orig	2022-12-08 22:02:06.849023849 +0100
 +++ libgdal/gdal/port/cpl_zlib_header.h	2022-12-08 22:31:02.463732175 +0100
 @@ -35,4 +35,11 @@
- 
+
  #include "zlib.h"
- 
+
 +#ifdef LINUX
 +#include "node_version.h"
-+#if NODE_MODULE_VERSION >= 111
++#if NODE_MODULE_VERSION >= 108
 +#define crc32_combine crc32_combine64
 +#endif
 +#endif
