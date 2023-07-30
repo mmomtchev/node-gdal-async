@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - Fix [#90](https://github.com/mmomtchev/node-gdal-async/issues/90), remove the old 2GB/4GB limit and allocate `TypedArray`s up to the limit allowed by Node.js and fail gracefully on overflow instead of segfaulting
  - Fix [#92](https://github.com/mmomtchev/node-gdal-async/issues/92), align `gdal.ReadOptions` with the documentation and all other structures by calling the type `data_type` while still accepting the old `type`
  - Merge [#94](https://github.com/mmomtchev/node-gdal-async/pull/94), handle `null` as a field value in OGR
+ - Fix [#96](https://github.com/mmomtchev/node-gdal-async/issues/96), support PNG compression in GRIB files
 
 # [3.7.0] 2023-05-26
 
