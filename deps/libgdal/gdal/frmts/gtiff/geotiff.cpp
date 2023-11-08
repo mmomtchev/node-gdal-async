@@ -1842,7 +1842,7 @@ int GTiffRasterBand::DirectIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
     {
         // We need a temporary buffer for over-sampling/sub-sampling
         // and/or data type conversion.
-        pTmpBuffer = VSI_MALLOC_VERBOSE(nReqXSize * nReqYSize * nSrcPixelSize);
+        pTmpBuffer = VSI_MALLOC3_VERBOSE(nReqXSize, nReqYSize, nSrcPixelSize);
         if (pTmpBuffer == nullptr)
             eErr = CE_Failure;
     }
@@ -1855,8 +1855,9 @@ int GTiffRasterBand::DirectIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
         if (pTmpBuffer == nullptr)
             ppData[iLine] = static_cast<GByte *>(pData) + iLine * nLineSpace;
         else
-            ppData[iLine] = static_cast<GByte *>(pTmpBuffer) +
-                            iLine * nReqXSize * nSrcPixelSize;
+            ppData[iLine] =
+                static_cast<GByte *>(pTmpBuffer) +
+                static_cast<size_t>(iLine) * nReqXSize * nSrcPixelSize;
         int nSrcLine = 0;
         if (nBufYSize < nYSize)  // Sub-sampling in y.
             nSrcLine = nYOff + static_cast<int>((iLine + 0.5) * dfSrcYInc);
@@ -2885,8 +2886,16 @@ static void ThreadDecompressionFunc(void *pData)
                 psJob->nXBlock, psJob->nYBlock);
             if (apoBlocks[i] == nullptr)
             {
+                // Temporary disabling of dirty block flushing, otherwise
+                // we can be in a deadlock situation, where the
+                // GTiffDataset::SubmitCompressionJob() method waits for jobs
+                // to be finished, that can't finish (actually be started)
+                // because this task and its siblings are taking all the
+                // available workers allowed by the global thread pool.
+                GDALRasterBlock::EnterDisableDirtyBlockFlush();
                 apoBlocks[i] = poDS->GetRasterBand(iBand)->GetLockedBlockRef(
                     psJob->nXBlock, psJob->nYBlock, TRUE);
+                GDALRasterBlock::LeaveDisableDirtyBlockFlush();
                 if (apoBlocks[i] == nullptr)
                     return false;
             }
@@ -5248,7 +5257,7 @@ int GTiffDataset::DirectIO(GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSize,
     {
         // We need a temporary buffer for over-sampling/sub-sampling
         // and/or data type conversion.
-        pTmpBuffer = VSI_MALLOC_VERBOSE(nReqXSize * nReqYSize * nSrcPixelSize);
+        pTmpBuffer = VSI_MALLOC3_VERBOSE(nReqXSize, nReqYSize, nSrcPixelSize);
         if (pTmpBuffer == nullptr)
             eErr = CE_Failure;
     }
@@ -5259,7 +5268,7 @@ int GTiffDataset::DirectIO(GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSize,
     for (int iLine = 0; eErr == CE_None && iLine < nReqYSize; ++iLine)
     {
         ppData[iLine] = static_cast<GByte *>(pTmpBuffer) +
-                        iLine * nReqXSize * nSrcPixelSize;
+                        static_cast<size_t>(iLine) * nReqXSize * nSrcPixelSize;
         int nSrcLine = 0;
         if (nBufYSize < nYSize)  // Sub-sampling in y.
             nSrcLine = nYOff + static_cast<int>((iLine + 0.5) * dfSrcYInc);
@@ -13692,15 +13701,25 @@ static GTIF *GTiffDatasetGTIFNew(TIFF *hTIFF)
 /*                    IsSRSCompatibleOfGeoTIFF()                        */
 /************************************************************************/
 
-static bool IsSRSCompatibleOfGeoTIFF(const OGRSpatialReference *poSRS)
+static bool IsSRSCompatibleOfGeoTIFF(const OGRSpatialReference *poSRS,
+                                     GTIFFKeysFlavorEnum eGeoTIFFKeysFlavor)
 {
     char *pszWKT = nullptr;
+    if ((poSRS->IsGeographic() || poSRS->IsProjected()) && !poSRS->IsCompound())
+    {
+        const char *pszAuthName = poSRS->GetAuthorityName(nullptr);
+        const char *pszAuthCode = poSRS->GetAuthorityCode(nullptr);
+        if (pszAuthName && pszAuthCode && EQUAL(pszAuthName, "EPSG"))
+            return true;
+    }
     OGRErr eErr;
     {
         CPLErrorStateBackuper oErrorStateBackuper;
         CPLErrorHandlerPusher oErrorHandler(CPLQuietErrorHandler);
         if (poSRS->IsDerivedGeographic())
+        {
             eErr = OGRERR_FAILURE;
+        }
         else
         {
             // Geographic3D CRS can't be exported to WKT1, but are
@@ -13708,6 +13727,14 @@ static bool IsSRSCompatibleOfGeoTIFF(const OGRSpatialReference *poSRS)
             const char *const apszOptions[] = {
                 poSRS->IsGeographic() ? nullptr : "FORMAT=WKT1", nullptr};
             eErr = poSRS->exportToWkt(&pszWKT, apszOptions);
+            if (eErr == OGRERR_FAILURE && poSRS->IsProjected() &&
+                eGeoTIFFKeysFlavor == GEOTIFF_KEYS_ESRI_PE)
+            {
+                CPLFree(pszWKT);
+                const char *const apszOptionsESRIWKT[] = {"FORMAT=WKT1_ESRI",
+                                                          nullptr};
+                eErr = poSRS->exportToWkt(&pszWKT, apszOptionsESRIWKT);
+            }
         }
     }
     const bool bCompatibleOfGeoTIFF =
@@ -13896,7 +13923,7 @@ void GTiffDataset::WriteGeoTIFFInfo()
         // Set according to coordinate system.
         if (bHasProjection)
         {
-            if (IsSRSCompatibleOfGeoTIFF(&m_oSRS))
+            if (IsSRSCompatibleOfGeoTIFF(&m_oSRS, m_eGeoTIFFKeysFlavor))
             {
                 GTIFSetFromOGISDefnEx(psGTIF,
                                       OGRSpatialReference::ToHandle(&m_oSRS),
@@ -21017,14 +21044,14 @@ GDALDataset *GTiffDataset::CreateCopy(const char *pszFilename,
 
         if (bHasProjection)
         {
-            if (IsSRSCompatibleOfGeoTIFF(l_poSRS))
+            const auto eGeoTIFFKeysFlavor = GetGTIFFKeysFlavor(papszOptions);
+            if (IsSRSCompatibleOfGeoTIFF(l_poSRS, eGeoTIFFKeysFlavor))
             {
                 GTIFSetFromOGISDefnEx(
                     psGTIF,
                     OGRSpatialReference::ToHandle(
                         const_cast<OGRSpatialReference *>(l_poSRS)),
-                    GetGTIFFKeysFlavor(papszOptions),
-                    GetGeoTIFFVersion(papszOptions));
+                    eGeoTIFFKeysFlavor, GetGeoTIFFVersion(papszOptions));
             }
             else
             {
