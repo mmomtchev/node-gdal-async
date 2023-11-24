@@ -27,6 +27,7 @@ class FieldDefn : public Nan::ObjectWrap {
 
   static NAN_GETTER(nameGetter);
   static NAN_GETTER(typeGetter);
+  static NAN_GETTER(subtypeGetter);
   static NAN_GETTER(justificationGetter);
   static NAN_GETTER(precisionGetter);
   static NAN_GETTER(widthGetter);
@@ -34,6 +35,7 @@ class FieldDefn : public Nan::ObjectWrap {
 
   static NAN_SETTER(nameSetter);
   static NAN_SETTER(typeSetter);
+  static NAN_SETTER(subtypeSetter);
   static NAN_SETTER(justificationSetter);
   static NAN_SETTER(precisionSetter);
   static NAN_SETTER(widthSetter);
