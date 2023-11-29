@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
  - GDAL 3.8.0 with new `JSONFG`, `PMTiles` and `S102` drivers
- - hdf5 1.14.3
+ - HDF5 1.4.13
 
 ## [3.7.3] 2023-11-28
 
