@@ -15,7 +15,7 @@ RUN \
     tee /etc/apt/sources.list.d/nodesource.list && \
   DEBIAN_FRONTEND=noninteractive apt-get update && \
   DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs && \
-  DEBIAN_FRONTEND=noninteractive apt-get install -y python git build-essential ccache && \
+  DEBIAN_FRONTEND=noninteractive apt-get install -y python3 git build-essential ccache && \
   mkdir -p /target && chmod 777 /target
 
 RUN if [ "${GDAL}" = "shared" ]; then DEBIAN_FRONTEND=noninteractive apt-get install -y libgdal-dev; fi
