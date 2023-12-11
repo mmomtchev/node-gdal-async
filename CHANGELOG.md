@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - GEOS 3.12.1
  - HDF5 1.14.3
  - NetCDF 4.9.2
+ - Node.js 21 support
+
+### Changed
+ - Upgrade the main test platform from Ubuntu 20.04 to Ubuntu 22.04
+
+### Removed
+ - Drop Node.js 14 support
 
 ## [3.7.3] 2023-11-28
 
