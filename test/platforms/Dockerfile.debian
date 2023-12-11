@@ -13,6 +13,7 @@ RUN \
     gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
   echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODEJS}.x nodistro main" |  \
     tee /etc/apt/sources.list.d/nodesource.list && \
+  DEBIAN_FRONTEND=noninteractive apt-get update && \
   DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs && \
   DEBIAN_FRONTEND=noninteractive apt-get install -y python git build-essential ccache && \
   mkdir -p /target && chmod 777 /target

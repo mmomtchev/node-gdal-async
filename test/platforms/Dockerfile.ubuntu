@@ -13,6 +13,7 @@ RUN \
     gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
   echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODEJS}.x nodistro main" |  \
     tee /etc/apt/sources.list.d/nodesource.list && \
+  DEBIAN_FRONTEND=noninteractive apt-get update && \
   DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs && \
   if [ `lsb_release -cs` = 'xenial' ]; then \
     DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common python-software-properties && \
