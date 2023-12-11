@@ -1,6 +1,6 @@
---- libhdf5/hdf5/src/H5trace.c.orig	2021-11-03 14:15:11.310888728 +0100
-+++ libhdf5/hdf5/src/H5trace.c	2021-11-03 14:16:10.918452952 +0100
-@@ -45,6 +45,10 @@
+--- libhdf5/hdf5/src/H5trace.c.orig	2023-10-28 21:26:51.000000000 +0200
++++ libhdf5/hdf5/src/H5trace.c	2023-12-11 13:46:28.461862891 +0100
+@@ -44,6 +44,10 @@
  #include "H5FDmpio.h"
  #endif /* H5_HAVE_PARALLEL */
  

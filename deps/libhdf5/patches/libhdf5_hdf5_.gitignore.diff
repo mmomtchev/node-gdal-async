@@ -1,0 +1,10 @@
+--- libhdf5/hdf5/.gitignore.orig	2023-12-11 20:44:08.607872973 +0100
++++ libhdf5/hdf5/.gitignore	2023-12-11 20:44:17.707798509 +0100
+@@ -38,7 +38,6 @@
+ src/H5Eterm.h
+ src/H5config.h.in
+ src/H5overflow.h
+-src/H5version.h
+ 
+ /.classpath
+ /CMakeUserPresets.json
