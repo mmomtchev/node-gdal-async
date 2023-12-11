@@ -5,7 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-# [3.8.0]
+## [3.8.1]
+
+### Changed
+ - Fix [mmomtchev/node-gdal-async#123](https://github.com/mmomtchev/node-gdal-async/issues/123), `H5version.h` is ignored by `.gitignore` and missing from the NPM tarball
+
+# [3.8.0] 2023-12-11
 
 ### Added
  - GDAL 3.8.0 with new `JSONFG`, `PMTiles` and `S102` drivers
