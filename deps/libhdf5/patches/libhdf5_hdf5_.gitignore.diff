@@ -1,9 +1,15 @@
 --- libhdf5/hdf5/.gitignore.orig	2023-12-11 20:44:08.607872973 +0100
-+++ libhdf5/hdf5/.gitignore	2023-12-11 20:44:17.707798509 +0100
-@@ -38,7 +38,6 @@
- src/H5Eterm.h
++++ libhdf5/hdf5/.gitignore	2023-12-12 10:16:18.876209397 +0100
+@@ -32,13 +32,7 @@
+ m4/ltsugar.m4
+ m4/ltversion.m4
+ m4/lt~obsolete.m4
+-src/H5Edefin.h
+-src/H5Einit.h
+-src/H5Epubgen.h
+-src/H5Eterm.h
  src/H5config.h.in
- src/H5overflow.h
+-src/H5overflow.h
 -src/H5version.h
  
  /.classpath
