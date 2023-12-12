@@ -177,6 +177,9 @@ struct GDALWarpAppOptions
         q1, q3, sum */
     GDALResampleAlg eResampleAlg = GRA_NearestNeighbour;
 
+    /*! whether -r was specified */
+    bool bResampleAlgSpecifiedByUser = false;
+
     /*! nodata masking values for input bands (different values can be supplied
         for each band). ("value1 value2 ..."). Masked values will not be used
         in interpolation. Use a value of "None" to ignore intrinsic nodata
@@ -1126,11 +1129,48 @@ static bool DealWithCOGOptions(CPLStringList &aosCreateOptions, int nSrcCount,
                                GDALDatasetH *pahSrcDS,
                                GDALWarpAppOptions *psOptions)
 {
+    const auto SetDstSRS = [psOptions](const std::string &osTargetSRS)
+    {
+        const char *pszExistingDstSRS =
+            psOptions->aosTransformerOptions.FetchNameValue("DST_SRS");
+        if (pszExistingDstSRS)
+        {
+            OGRSpatialReference oSRS1;
+            oSRS1.SetFromUserInput(pszExistingDstSRS);
+            OGRSpatialReference oSRS2;
+            oSRS2.SetFromUserInput(osTargetSRS.c_str());
+            if (!oSRS1.IsSame(&oSRS2))
+            {
+                CPLError(CE_Failure, CPLE_AppDefined,
+                         "Target SRS implied by COG creation options is not "
+                         "the same as the one specified by -t_srs");
+                return false;
+            }
+        }
+        psOptions->aosTransformerOptions.SetNameValue("DST_SRS",
+                                                      osTargetSRS.c_str());
+        return true;
+    };
+
     if (!(psOptions->dfMinX == 0 && psOptions->dfMinY == 0 &&
           psOptions->dfMaxX == 0 && psOptions->dfMaxY == 0 &&
           psOptions->dfXRes == 0 && psOptions->dfYRes == 0 &&
           psOptions->nForcePixels == 0 && psOptions->nForceLines == 0))
     {
+        CPLString osTargetSRS;
+        if (COGGetTargetSRS(aosCreateOptions.List(), osTargetSRS))
+        {
+            if (!SetDstSRS(osTargetSRS))
+                return false;
+        }
+        if (!psOptions->bResampleAlgSpecifiedByUser && nSrcCount > 0)
+        {
+            GetResampleAlg(
+                COGGetResampling(GDALDataset::FromHandle(pahSrcDS[0]),
+                                 aosCreateOptions.List())
+                    .c_str(),
+                psOptions->eResampleAlg);
+        }
         return true;
     }
 
@@ -1162,13 +1202,16 @@ static bool DealWithCOGOptions(CPLStringList &aosCreateOptions, int nSrcCount,
     double dfMinY = 0;
     double dfMaxX = 0;
     double dfMaxY = 0;
+    bool bRet = true;
     if (COGGetWarpingCharacteristics(GDALDataset::FromHandle(hTmpDS),
                                      aosCreateOptions.List(), osResampling,
                                      osTargetSRS, nXSize, nYSize, dfMinX,
                                      dfMinY, dfMaxX, dfMaxY))
     {
-        GetResampleAlg(osResampling, psOptions->eResampleAlg);
-        psOptions->aosTransformerOptions.SetNameValue("DST_SRS", osTargetSRS);
+        if (!psOptions->bResampleAlgSpecifiedByUser)
+            GetResampleAlg(osResampling, psOptions->eResampleAlg);
+        if (!SetDstSRS(osTargetSRS))
+            bRet = false;
         psOptions->dfMinX = dfMinX;
         psOptions->dfMinY = dfMinY;
         psOptions->dfMaxX = dfMaxX;
@@ -1179,7 +1222,7 @@ static bool DealWithCOGOptions(CPLStringList &aosCreateOptions, int nSrcCount,
     }
     GDALClose(hTmpDS);
     VSIUnlink(osTmpFilename);
-    return true;
+    return bRet;
 }
 
 /************************************************************************/
@@ -2434,6 +2477,18 @@ static GDALDatasetH GDALWarpDirect(const char *pszDest, GDALDatasetH hDstDS,
          !(psOptions->dfMinX == 0.0 && psOptions->dfMinY == 0.0 &&
            psOptions->dfMaxX == 0.0 && psOptions->dfMaxY == 0.0));
 
+    const char *pszMethod =
+        psOptions->aosTransformerOptions.FetchNameValue("METHOD");
+    if (pszMethod && EQUAL(pszMethod, "GCP_TPS") &&
+        psOptions->dfErrorThreshold > 0 &&
+        !psOptions->aosTransformerOptions.FetchNameValue(
+            "SRC_APPROX_ERROR_IN_PIXEL"))
+    {
+        psOptions->aosTransformerOptions.SetNameValue(
+            "SRC_APPROX_ERROR_IN_PIXEL",
+            CPLSPrintf("%g", psOptions->dfErrorThreshold));
+    }
+
     if (hDstDS == nullptr)
     {
         hDstDS = CreateOutput(pszDest, nSrcCount, pahSrcDS, psOptions,
@@ -2602,8 +2657,6 @@ static GDALDatasetH GDALWarpDirect(const char *pszDest, GDALDatasetH hDstDS,
         /* --------------------------------------------------------------------
          */
 
-        const char *pszMethod =
-            psOptions->aosTransformerOptions.FetchNameValue("METHOD");
         if (iSrc == 0 && (GDALGetMetadata(hSrcDS, "RPC") != nullptr &&
                           (pszMethod == nullptr || EQUAL(pszMethod, "RPC"))))
         {
@@ -3382,6 +3435,75 @@ static GDALDatasetH GDALWarpCreateOutput(
 
     if (EQUAL(pszFormat, "VRT"))
         bVRT = true;
+
+    // Special case for geographic to Mercator (typically EPSG:4326 to EPSG:3857)
+    // where latitudes close to 90 go to infinity
+    // We clamp latitudes between ~ -85 and ~ 85 degrees.
+    const char *pszDstSRS = CSLFetchNameValue(papszTO, "DST_SRS");
+    if (nSrcCount == 1 && pszDstSRS && psOptions->dfMinX == 0.0 &&
+        psOptions->dfMinY == 0.0 && psOptions->dfMaxX == 0.0 &&
+        psOptions->dfMaxY == 0.0)
+    {
+        auto hSrcDS = pahSrcDS[0];
+        const auto osSrcSRS = GetSrcDSProjection(pahSrcDS[0], papszTO);
+        OGRSpatialReference oSrcSRS;
+        oSrcSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        oSrcSRS.SetFromUserInput(osSrcSRS.c_str());
+        OGRSpatialReference oDstSRS;
+        oDstSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        oDstSRS.SetFromUserInput(pszDstSRS);
+        const char *pszProjection = oDstSRS.GetAttrValue("PROJECTION");
+        const char *pszMethod = CSLFetchNameValue(papszTO, "METHOD");
+        double adfSrcGT[6];
+        // This MAX_LAT values is equivalent to the semi_major_axis * PI
+        // easting/northing value only for EPSG:3857, but it is also quite
+        // reasonable for other Mercator projections
+        constexpr double MAX_LAT = 85.0511287798066;
+        constexpr double EPS = 1e-3;
+        const auto GetMinLon = [&adfSrcGT]() { return adfSrcGT[0]; };
+        const auto GetMaxLon = [&adfSrcGT, hSrcDS]()
+        { return adfSrcGT[0] + adfSrcGT[1] * GDALGetRasterXSize(hSrcDS); };
+        const auto GetMinLat = [&adfSrcGT, hSrcDS]()
+        { return adfSrcGT[3] + adfSrcGT[5] * GDALGetRasterYSize(hSrcDS); };
+        const auto GetMaxLat = [&adfSrcGT]() { return adfSrcGT[3]; };
+        if (oSrcSRS.IsGeographic() && !oSrcSRS.IsDerivedGeographic() &&
+            pszProjection && EQUAL(pszProjection, SRS_PT_MERCATOR_1SP) &&
+            oDstSRS.GetNormProjParm(SRS_PP_CENTRAL_MERIDIAN, 0.0) == 0 &&
+            (pszMethod == nullptr || EQUAL(pszMethod, "GEOTRANSFORM")) &&
+            CSLFetchNameValue(papszTO, "COORDINATE_OPERATION") == nullptr &&
+            CSLFetchNameValue(papszTO, "SRC_METHOD") == nullptr &&
+            CSLFetchNameValue(papszTO, "DST_METHOD") == nullptr &&
+            GDALGetGeoTransform(hSrcDS, adfSrcGT) == CE_None &&
+            adfSrcGT[2] == 0 && adfSrcGT[4] == 0 && adfSrcGT[5] < 0 &&
+            GetMinLon() >= -180 - EPS && GetMaxLon() <= 180 + EPS &&
+            ((GetMaxLat() > MAX_LAT && GetMinLat() < MAX_LAT) ||
+             (GetMaxLat() > -MAX_LAT && GetMinLat() < -MAX_LAT)) &&
+            GDALGetMetadata(hSrcDS, "GEOLOC_ARRAY") == nullptr &&
+            GDALGetMetadata(hSrcDS, "RPC") == nullptr)
+        {
+            auto poCT = std::unique_ptr<OGRCoordinateTransformation>(
+                OGRCreateCoordinateTransformation(&oSrcSRS, &oDstSRS));
+            if (poCT)
+            {
+                double xLL = std::max(GetMinLon(), -180.0);
+                double yLL = std::max(GetMinLat(), -MAX_LAT);
+                double xUR = std::min(GetMaxLon(), 180.0);
+                double yUR = std::min(GetMaxLat(), MAX_LAT);
+                if (poCT->Transform(1, &xLL, &yLL) &&
+                    poCT->Transform(1, &xUR, &yUR))
+                {
+                    psOptions->dfMinX = xLL;
+                    psOptions->dfMinY = yLL;
+                    psOptions->dfMaxX = xUR;
+                    psOptions->dfMaxY = yUR;
+                    CPLError(CE_Warning, CPLE_AppDefined,
+                             "Clamping output bounds to (%f,%f) -> (%f, %f)",
+                             psOptions->dfMinX, psOptions->dfMinY,
+                             psOptions->dfMaxX, psOptions->dfMaxY);
+                }
+            }
+        }
+    }
 
     /* If (-ts and -te) or (-tr and -te) are specified, we don't need to compute
      * the suggested output extent */
@@ -5486,6 +5608,7 @@ GDALWarpAppOptionsNew(char **papszArgv,
             {
                 return nullptr;
             }
+            psOptions->bResampleAlgSpecifiedByUser = true;
         }
 
         else if (EQUAL(papszArgv[i], "-cutline"))

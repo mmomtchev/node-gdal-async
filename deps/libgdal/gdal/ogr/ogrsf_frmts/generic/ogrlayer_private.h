@@ -1,11 +1,11 @@
 /******************************************************************************
  *
  * Project:  OpenGIS Simple Features Reference Implementation
- * Purpose:  Parts of OGRLayer dealing with Arrow C interface
- * Author:   Even Rouault, <even dot rouault at spatialys.com>
+ * Purpose:  OGRLayer::Private struct
+ * Author:   Even Rouault <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2023, Even Rouault <even dot rouault at spatialys.com>
+ * Copyright (c) 2024, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -26,24 +26,25 @@
  * DEALINGS IN THE SOFTWARE.
  ****************************************************************************/
 
-#ifndef OGRLAYERARROW_H_DEFINED
-#define OGRLAYERARROW_H_DEFINED
+#ifndef OGRLAYER_PRIVATE_H_INCLUDED
+#define OGRLAYER_PRIVATE_H_INCLUDED
 
-#include "cpl_port.h"
+#include "ogrsf_frmts.h"
 
-#include <map>
-#include <string>
+//! @cond Doxygen_Suppress
+struct OGRLayer::Private
+{
+    bool m_bInFeatureIterator = false;
 
-constexpr const char *ARROW_EXTENSION_NAME_KEY = "ARROW:extension:name";
-constexpr const char *ARROW_EXTENSION_METADATA_KEY = "ARROW:extension:metadata";
-constexpr const char *EXTENSION_NAME_OGC_WKB = "ogc.wkb";
-constexpr const char *EXTENSION_NAME_GEOARROW_WKB = "geoarrow.wkb";
+    // Used by CreateFieldFromArrowSchema() and WriteArrowBatch()
+    // to store the mapping between the input Arrow field name and the
+    // output OGR field name, that can be different sometimes (for example
+    // Shapefile truncating at 10 characters)
+    // This is admittedly not super clean to store that mapping at that level.
+    // We should probably have CreateFieldFromArrowSchema() and
+    // WriteArrowBatch() explicitly returning and accepting that mapping.
+    std::map<std::string, std::string> m_oMapArrowFieldNameToOGRFieldName{};
+};
+//! @endcond
 
-std::map<std::string, std::string>
-    CPL_DLL OGRParseArrowMetadata(const char *pabyMetadata);
-
-bool CPL_DLL OGRCloneArrowArray(const struct ArrowSchema *schema,
-                                const struct ArrowArray *array,
-                                struct ArrowArray *out_array);
-
-#endif  // OGRLAYERARROW_H_DEFINED
+#endif /* OGRLAYER_PRIVATE_H_INCLUDED */
