@@ -9,7 +9,7 @@ examples
 build
 node_modules
 yuidocs
-coverage
+/coverage
 .vscode
 Attic
 
