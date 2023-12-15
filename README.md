@@ -10,7 +10,7 @@
 [![codecov](https://codecov.io/gh/mmomtchev/node-gdal-async/branch/master/graph/badge.svg?token=FE9IJUZ07D)](https://codecov.io/gh/mmomtchev/node-gdal-async)
 [![downloads](https://img.shields.io/npm/dt/gdal-async)](https://www.npmjs.com/package/gdal-async)
 
-Read and write raster and vector geospatial datasets straight from [Node.js](http://nodejs.org) with this native asynchronous [GDAL](http://www.gdal.org/) binding. To get started, browse the [**API Documentation**](https://mmomtchev.github.io/node-gdal-async/classes/gdal.html) or [examples](examples/).
+Read and write raster and vector geospatial datasets straight from [Node.js](http://nodejs.org) with this native asynchronous [GDAL](http://www.gdal.org/) binding. To get started, browse the [**API Documentation**](https://mmomtchev.github.io/node-gdal-async/) or [examples](examples/).
 
 When in doubt on how to use a method, check also the [unit tests](https://github.com/mmomtchev/node-gdal-async/tree/master/test).
 
