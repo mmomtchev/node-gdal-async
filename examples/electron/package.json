@@ -2,7 +2,7 @@
   "name": "gdal-electron",
   "main": "main.js",
   "dependencies": {
-    "electron": "^25.0.0"
+    "electron": "^26.6.3"
   },
   "devDependencies": {
     "gdal-async": "^3.5.0"
