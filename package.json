@@ -107,7 +107,7 @@
     "@typescript-eslint/parser": "^5.22.0",
     "aws-sdk": "^2.1130.0",
     "benny": "^3.7.1",
-    "c8": "^7.11.2",
+    "c8": "^9.0.0",
     "chai": "^4.2.0",
     "chai-as-promised": "^7.1.1",
     "documentation-hipster": "^1.0.0",
