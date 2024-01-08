@@ -1360,27 +1360,39 @@ struct HDF4DriverSubdatasetInfo : public GDALSubdatasetInfo
             m_driverPrefixComponent.append(aosParts[1]);
 
             int subdatasetIndex{3};
-            const bool hasDriveLetter{
-                (strlen(aosParts[2]) == 2 && std::isalpha(aosParts[2][1])) ||
-                (strlen(aosParts[2]) == 1 && std::isalpha(aosParts[2][0]))};
 
             if (iPartsCount >= 4)
             {
+                const bool hasDriveLetter{
+                    (strlen(aosParts[3]) > 1 &&
+                     (aosParts[3][0] == '\\' || aosParts[3][0] == '/')) &&
+                    ((strlen(aosParts[2]) == 2 &&
+                      std::isalpha(aosParts[2][1])) ||
+                     (strlen(aosParts[2]) == 1 &&
+                      std::isalpha(aosParts[2][0])))};
                 m_pathComponent = aosParts[2];
-                if (hasDriveLetter)
+
+                const bool hasProtocol{m_pathComponent.find("/vsicurl/") !=
+                                       std::string::npos};
+
+                if (hasDriveLetter || hasProtocol)
                 {
                     m_pathComponent.append(":");
                     m_pathComponent.append(aosParts[3]);
                     subdatasetIndex++;
                 }
             }
-            m_subdatasetComponent = aosParts[subdatasetIndex];
 
-            // Append any remaining part
-            for (int i = subdatasetIndex + 1; i < iPartsCount; ++i)
+            if (iPartsCount > subdatasetIndex)
             {
-                m_subdatasetComponent.append(":");
-                m_subdatasetComponent.append(aosParts[i]);
+                m_subdatasetComponent = aosParts[subdatasetIndex];
+
+                // Append any remaining part
+                for (int i = subdatasetIndex + 1; i < iPartsCount; ++i)
+                {
+                    m_subdatasetComponent.append(":");
+                    m_subdatasetComponent.append(aosParts[i]);
+                }
             }
         }
     }

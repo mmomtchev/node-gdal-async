@@ -121,27 +121,43 @@ struct HDF5DriverSubdatasetInfo : public GDALSubdatasetInfo
 
             m_driverPrefixComponent = aosParts[0];
 
+            std::string part1{aosParts[1]};
+            if (!part1.empty() && part1[0] == '"')
+            {
+                part1 = part1.substr(1);
+            }
+
             int subdatasetIndex{2};
             const bool hasDriveLetter{
-                (strlen(aosParts[1]) == 2 && std::isalpha(aosParts[1][1])) ||
-                (strlen(aosParts[1]) == 1 && std::isalpha(aosParts[1][0]))};
+                part1.length() == 1 && std::isalpha(part1.at(0)) &&
+                (strlen(aosParts[2]) > 1 &&
+                 (aosParts[2][0] == '\\' ||
+                  (aosParts[2][0] == '/' && aosParts[2][1] != '/')))};
+
+            const bool hasProtocol{part1 == "/vsicurl/http" ||
+                                   part1 == "/vsicurl/https" ||
+                                   part1 == "/vsicurl_streaming/http" ||
+                                   part1 == "/vsicurl_streaming/https"};
 
             m_pathComponent = aosParts[1];
 
-            if (hasDriveLetter)
+            if (hasDriveLetter || hasProtocol)
             {
                 m_pathComponent.append(":");
                 m_pathComponent.append(aosParts[2]);
                 subdatasetIndex++;
             }
 
-            m_subdatasetComponent = aosParts[subdatasetIndex];
-
-            // Append any remaining part
-            for (int i = subdatasetIndex + 1; i < iPartsCount; ++i)
+            if (iPartsCount > subdatasetIndex)
             {
-                m_subdatasetComponent.append(":");
-                m_subdatasetComponent.append(aosParts[i]);
+                m_subdatasetComponent = aosParts[subdatasetIndex];
+
+                // Append any remaining part
+                for (int i = subdatasetIndex + 1; i < iPartsCount; ++i)
+                {
+                    m_subdatasetComponent.append(":");
+                    m_subdatasetComponent.append(aosParts[i]);
+                }
             }
         }
     }

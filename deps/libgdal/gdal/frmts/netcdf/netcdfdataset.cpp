@@ -11236,25 +11236,56 @@ struct NCDFDriverSubdatasetInfo : public GDALSubdatasetInfo
             m_driverPrefixComponent = aosParts[0];
 
             int subdatasetIndex{2};
+
+            std::string part1{aosParts[1]};
+            if (!part1.empty() && part1[0] == '"')
+            {
+                part1 = part1.substr(1);
+            }
+
             const bool hasDriveLetter{
-                (strlen(aosParts[1]) == 2 && std::isalpha(aosParts[1][1])) ||
-                (strlen(aosParts[1]) == 1 && std::isalpha(aosParts[1][0]))};
+                (strlen(aosParts[2]) > 1 &&
+                 (aosParts[2][0] == '\\' || aosParts[2][0] == '/')) &&
+                part1.length() == 1 && std::isalpha(part1.at(0))};
+
+            const bool hasProtocol{part1 == "/vsicurl/http" ||
+                                   part1 == "/vsicurl/https" ||
+                                   part1 == "/vsicurl_streaming/http" ||
+                                   part1 == "/vsicurl_streaming/https" ||
+                                   part1 == "http" || part1 == "https"};
 
             m_pathComponent = aosParts[1];
-            if (hasDriveLetter)
+            if (hasDriveLetter || hasProtocol)
             {
                 m_pathComponent.append(":");
                 m_pathComponent.append(aosParts[2]);
                 subdatasetIndex++;
             }
 
-            m_subdatasetComponent = aosParts[subdatasetIndex];
-
-            // Append any remaining part
-            for (int i = subdatasetIndex + 1; i < iPartsCount; ++i)
+            // Check for bogus paths
+            if (subdatasetIndex < iPartsCount)
             {
-                m_subdatasetComponent.append(":");
-                m_subdatasetComponent.append(aosParts[i]);
+                m_subdatasetComponent = aosParts[subdatasetIndex];
+
+                // Append any remaining part
+                for (int i = subdatasetIndex + 1; i < iPartsCount; ++i)
+                {
+                    m_subdatasetComponent.append(":");
+                    m_subdatasetComponent.append(aosParts[i]);
+                }
+            }
+
+            // Remove quotes from subdataset component
+            if (!m_subdatasetComponent.empty() &&
+                m_subdatasetComponent[0] == '"')
+            {
+                m_subdatasetComponent = m_subdatasetComponent.substr(1);
+            }
+            if (m_subdatasetComponent.rfind('"') ==
+                m_subdatasetComponent.length() - 1)
+            {
+                m_subdatasetComponent = m_subdatasetComponent.substr(
+                    0, m_subdatasetComponent.length() - 1);
             }
         }
     }
@@ -11266,8 +11297,8 @@ static GDALSubdatasetInfo *NCDFDriverGetSubdatasetInfo(const char *pszFileName)
     {
         std::unique_ptr<GDALSubdatasetInfo> info =
             cpl::make_unique<NCDFDriverSubdatasetInfo>(pszFileName);
-        if (!info->GetSubdatasetComponent().empty() &&
-            !info->GetPathComponent().empty())
+        // Subdataset component can be empty, path cannot.
+        if (!info->GetPathComponent().empty())
         {
             return info.release();
         }
