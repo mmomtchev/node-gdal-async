@@ -2978,7 +2978,7 @@ OGRErr OGRGeoPackageTableLayer::ISetFeature(OGRFeature *poFeature)
         return OGRERR_FAILURE;
 
     const sqlite3_int64 nTotalChangesBefore =
-#if SQLITE_VERSION_NUMBER >= 3036000L
+#if SQLITE_VERSION_NUMBER >= 3037000L
         sqlite3_total_changes64(m_poDS->GetDB());
 #else
         sqlite3_total_changes(m_poDS->GetDB());
@@ -3039,7 +3039,7 @@ OGRErr OGRGeoPackageTableLayer::ISetFeature(OGRFeature *poFeature)
     sqlite3_clear_bindings(m_poUpdateStatement);
 
     const sqlite3_int64 nTotalChangesAfter =
-#if SQLITE_VERSION_NUMBER >= 3036000L
+#if SQLITE_VERSION_NUMBER >= 3037000L
         sqlite3_total_changes64(m_poDS->GetDB());
 #else
         sqlite3_total_changes(m_poDS->GetDB());
@@ -3245,7 +3245,7 @@ OGRErr OGRGeoPackageTableLayer::IUpdateFeature(
     }
 
     const sqlite3_int64 nTotalChangesBefore =
-#if SQLITE_VERSION_NUMBER >= 3036000L
+#if SQLITE_VERSION_NUMBER >= 3037000L
         sqlite3_total_changes64(m_poDS->GetDB());
 #else
         sqlite3_total_changes(m_poDS->GetDB());
@@ -3266,7 +3266,7 @@ OGRErr OGRGeoPackageTableLayer::IUpdateFeature(
     sqlite3_clear_bindings(m_poUpdateStatement);
 
     const sqlite3_int64 nTotalChangesAfter =
-#if SQLITE_VERSION_NUMBER >= 3036000L
+#if SQLITE_VERSION_NUMBER >= 3037000L
         sqlite3_total_changes64(m_poDS->GetDB());
 #else
         sqlite3_total_changes(m_poDS->GetDB());
@@ -3599,7 +3599,7 @@ OGRErr OGRGeoPackageTableLayer::DeleteFeature(GIntBig nFID)
                  SQLEscapeName(m_pszFidColumn).c_str(), nFID);
 
     const sqlite3_int64 nTotalChangesBefore =
-#if SQLITE_VERSION_NUMBER >= 3036000L
+#if SQLITE_VERSION_NUMBER >= 3037000L
         sqlite3_total_changes64(m_poDS->GetDB());
 #else
         sqlite3_total_changes(m_poDS->GetDB());
@@ -3609,7 +3609,7 @@ OGRErr OGRGeoPackageTableLayer::DeleteFeature(GIntBig nFID)
     if (eErr == OGRERR_NONE)
     {
         const sqlite3_int64 nTotalChangesAfter =
-#if SQLITE_VERSION_NUMBER >= 3036000L
+#if SQLITE_VERSION_NUMBER >= 3037000L
             sqlite3_total_changes64(m_poDS->GetDB());
 #else
             sqlite3_total_changes(m_poDS->GetDB());
@@ -8375,9 +8375,10 @@ int OGRGeoPackageTableLayer::GetNextArrowArray(struct ArrowArrayStream *stream,
         {
             // Should not normally happen, unless the user messes with
             // GetNextFeature()
-            CPLError(
-                CE_Failure, CPLE_AppDefined,
-                "Worker thread task has not expected m_iStartShapeId value");
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Worker thread task has not expected m_iStartShapeId "
+                     "value. Got " CPL_FRMT_GIB ", expected " CPL_FRMT_GIB,
+                     task->m_iStartShapeId, m_iNextShapeId);
             if (task->m_psArrowArray->release)
                 task->m_psArrowArray->release(task->m_psArrowArray.get());
 
@@ -8438,7 +8439,7 @@ int OGRGeoPackageTableLayer::GetNextArrowArray(struct ArrowArrayStream *stream,
     const auto GetThreadsAvailable = []()
     {
         const char *pszMaxThreads =
-            CPLGetConfigOption("GDAL_NUM_THREADS", nullptr);
+            CPLGetConfigOption("OGR_GPKG_NUM_THREADS", nullptr);
         if (pszMaxThreads == nullptr)
             return std::min(4, CPLGetNumCPUs());
         else if (EQUAL(pszMaxThreads, "ALL_CPUS"))
@@ -8456,8 +8457,10 @@ int OGRGeoPackageTableLayer::GetNextArrowArray(struct ArrowArrayStream *stream,
         CPLGetUsablePhysicalRAM() > 1024 * 1024 * 1024)
     {
         const int nMaxTasks = static_cast<int>(std::min<GIntBig>(
-            DIV_ROUND_UP(m_nTotalFeatureCount - m_iNextShapeId, nMaxBatchSize),
+            DIV_ROUND_UP(m_nTotalFeatureCount - nMaxBatchSize - m_iNextShapeId,
+                         nMaxBatchSize),
             GetThreadsAvailable()));
+        CPLDebug("GPKG", "Using %d threads", nMaxTasks);
         GDALOpenInfo oOpenInfo(m_poDS->GetDescription(), GA_ReadOnly);
         oOpenInfo.papszOpenOptions = m_poDS->GetOpenOptions();
         oOpenInfo.nOpenFlags = GDAL_OF_VECTOR;
