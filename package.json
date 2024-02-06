@@ -103,7 +103,7 @@
     "@types/mocha": "^9.1.1",
     "@types/node": "^17.0.31",
     "@types/semver": "^7.3.9",
-    "@typescript-eslint/eslint-plugin": "^5.22.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^5.22.0",
     "aws-sdk": "^2.1130.0",
     "benny": "^3.7.1",
