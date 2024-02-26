@@ -97,7 +97,7 @@
   "devDependencies": {
     "@mmomtchev/documentation": "^14.0.1",
     "@mmomtchev/node-pre-gyp-github": "^2.0.0",
-    "@octokit/core": "^5.1.0",
+    "@octokit/core": "^6.0.1",
     "@types/chai": "^4.2.18",
     "@types/chai-as-promised": "^7.1.5",
     "@types/mocha": "^10.0.6",
