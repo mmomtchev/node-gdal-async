@@ -18,7 +18,8 @@
 				"../gdal/ogr/ogrsf_frmts/openfilegdb/ogropenfilegdbdatasource_write.cpp",
 				"../gdal/ogr/ogrsf_frmts/openfilegdb/filegdbtable.cpp",
 				"../gdal/ogr/ogrsf_frmts/openfilegdb/filegdbtable_freelist.cpp",
-				"../gdal/ogr/ogrsf_frmts/openfilegdb/ogropenfilegdblayer_write.cpp"
+				"../gdal/ogr/ogrsf_frmts/openfilegdb/ogropenfilegdblayer_write.cpp",
+				"../gdal/ogr/ogrsf_frmts/openfilegdb/ogropenfilegdb_generate_uuid.cpp"
 			],
 			"include_dirs": [
 				"../gdal/ogr/ogrsf_frmts/openfilegdb"
