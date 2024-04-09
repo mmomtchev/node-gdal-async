@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [3.9]
 
 ### Changed
- - All shared library symbols are now hidden on Linux, allowing the load the binary addon in a process that has loaded a different version of GDAL (on Windows this has always been possible and on maOS, while possible in theory, this particular linking mode is not supported by `node-gyp`)
+ - All shared library symbols are now hidden on Linux, allowing to load the binary addon in a process that has loaded a different version of GDAL (on Windows this has always been possible and on maOS, while possible in theory, this particular linking mode is not supported by `node-gyp`)
 
 
 ## [3.8.5] 2024-04-09
