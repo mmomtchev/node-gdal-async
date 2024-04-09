@@ -75,7 +75,10 @@
 				"defines": [ "DARWIN" ]
 			}],
 			["OS == 'linux'", {
-				"defines": [ "LINUX" ]
+  			"defines": [ "LINUX" ],
+        "ldflags": [
+          "-Wl,--exclude-libs,ALL"
+        ]
 			}]
 		],
 		"configurations": {
