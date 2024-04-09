@@ -32,6 +32,12 @@
 
 #include "header_generated.h"
 
+// For users not using CMake...
+#ifndef flatbuffers
+#error                                                                         \
+    "Make sure to build with -Dflatbuffers=gdal_flatbuffers (for example) to avoid potential conflict of flatbuffers"
+#endif
+
 using namespace flatbuffers;
 using namespace FlatGeobuf;
 
@@ -445,7 +451,7 @@ OGRLayer *OGRFlatGeobufDataset::ICreateLayer(
 
     auto poLayer =
         std::unique_ptr<OGRFlatGeobufLayer>(OGRFlatGeobufLayer::Create(
-            pszLayerName, osFilename, poSpatialRef, eGType,
+            this, pszLayerName, osFilename, poSpatialRef, eGType,
             bCreateSpatialIndexAtClose, papszOptions));
     if (poLayer == nullptr)
         return nullptr;
