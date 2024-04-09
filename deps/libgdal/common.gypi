@@ -47,7 +47,8 @@
 			"ZIP_SUPPORT=1",
       "HAVE_LIBZ=1",
 			"JPEG_SUPPORT=1",
-      "RENAME_INTERNAL_SHAPELIB_SYMBOLS=1"
+      "RENAME_INTERNAL_SHAPELIB_SYMBOLS=1",
+      "flatbuffers=gdal_flatbuffers"
 		],
 		"dependencies": [
 			"<(deps_dir)/libexpat/libexpat.gyp:libexpat",
