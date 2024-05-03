@@ -22,10 +22,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Use Node.js 16.x
+    - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
-        node-version: 16.x
+        node-version: 20.x
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
@@ -64,10 +64,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Use Node.js 16.x
+    - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
-        node-version: 16.x
+        node-version: 20.x
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
@@ -88,10 +88,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Use Node.js 16.x
+    - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
-        node-version: 16.x
+        node-version: 20.x
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
@@ -113,10 +113,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Use Node.js 16.x
+    - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
-        node-version: 16.x
+        node-version: 20.x
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
@@ -133,10 +133,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Use Node.js 16.x
+    - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
-        node-version: 16.x
+        node-version: 20.x
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
@@ -190,10 +190,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Use Node.js 16.x
+    - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
-        node-version: 16.x
+        node-version: 20.x
     - uses: actions/setup-python@v4
       with:
         python-version: "3.11"
@@ -247,10 +247,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Use Node.js 16.x
+    - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
-        node-version: 16.x
+        node-version: 20.x
     - run: npm install --ignore-scripts
     - run: npx @mapbox/node-pre-gyp configure --debug
     - name: Build from sources
