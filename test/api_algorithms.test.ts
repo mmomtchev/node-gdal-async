@@ -709,7 +709,3 @@ describe('gdal', () => {
     })
   })
 })
-function isTrue(arg0: boolean, arg1: string) {
-  throw new Error('Function not implemented.')
-}
-
