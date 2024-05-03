@@ -3,7 +3,7 @@ import * as chai from 'chai'
 import * as chaiAsPromised from 'chai-as-promised'
 import * as fs from 'fs'
 import * as path from 'path'
-const assert = chai.assert
+const assert: Chai.Assert = chai.assert
 chai.use(chaiAsPromised)
 import * as semver from 'semver'
 

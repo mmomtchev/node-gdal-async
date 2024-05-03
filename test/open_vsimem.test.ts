@@ -3,7 +3,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as chai from 'chai'
 import * as chaiAsPromised from 'chai-as-promised'
-const assert = chai.assert
+const assert: Chai.Assert = chai.assert
 chai.use(chaiAsPromised)
 
 describe('Open', () => {

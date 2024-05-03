@@ -2,7 +2,7 @@ import * as gdal from 'gdal-async'
 import * as chai from 'chai'
 import * as path from 'path'
 import * as semver from 'semver'
-const assert = chai.assert
+const assert: Chai.Assert = chai.assert
 import * as chaiAsPromised from 'chai-as-promised'
 chai.use(chaiAsPromised)
 
@@ -709,3 +709,7 @@ describe('gdal', () => {
     })
   })
 })
+function isTrue(arg0: boolean, arg1: string) {
+  throw new Error('Function not implemented.')
+}
+

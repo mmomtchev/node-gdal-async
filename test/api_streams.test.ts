@@ -4,7 +4,7 @@ import { promisify } from 'util'
 import * as chai from 'chai'
 import * as path from 'path'
 import * as semver from 'semver'
-const assert = chai.assert
+const assert: Chai.Assert = chai.assert
 const finished = promisify(_finished)
 
 type doneCb = (err?: unknown) => void
