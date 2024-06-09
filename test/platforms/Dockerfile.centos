@@ -8,7 +8,7 @@ ENV GDAL=${GDAL}
 RUN \
   dnf -y install dnf-plugins-core && \
   dnf install -y epel-release && \
-  dnf config-manager --set-enabled powertools && \
+  dnf config-manager --enable crb && \
   dnf install -y curl rsync && \
   curl -fsSL https://rpm.nodesource.com/setup_${NODEJS}.x | bash - && \
   dnf install -y nodejs && \
