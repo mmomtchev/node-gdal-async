@@ -19,7 +19,7 @@ jobs:
         - ubuntu:22.04
         - debian:buster
         - debian:bullseye
-        - centos:stream8
+        - centos:stream9
         - amazonlinux:2022
         node-version: [ 16, 18, 20, 21 ]
         include:
@@ -30,7 +30,7 @@ jobs:
           - linux-version: fedora:38
             node-version: 20
         exclude:
-          - linux-version: centos:stream8
+          - linux-version: centos:stream9
             node-version: 21
 
     steps:

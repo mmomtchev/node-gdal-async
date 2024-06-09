@@ -75,7 +75,7 @@
     "test:u20n16": "npm run container dev ubuntu:20.04 16 shared",
     "test:u20n18": "npm run container dev ubuntu:20.04 18 shared",
     "test:u20n20": "npm run container dev ubuntu:20.04 20 shared",
-    "test:c8": "npm run container dev centos:stream8 18 shared",
+    "test:c8": "npm run container dev centos:stream9 18 shared",
     "test:arch": "npm run container dev archlinux:latest 20 shared",
     "test:f36": "npm run container dev fedora:36 18 shared",
     "test:shared": "npm run test:u20 && npm run test:c8",

@@ -337,7 +337,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 Release binaries with pre-built bundled GDAL are tested against the full matrix of:
 
 * Node.js versions: 14.x, 16.x, 17.x, 18.x, 20.x
-* OS: Ubuntu 20.04, Ubuntu 22.04, CentOS 8 Stream, Fedora 36, Fedora 37, Debian 10 buster, Debian 11 bullseye, Arch Linux current, Amazon Linux, Windows Server 2019, macOS Catalina 10.15 (EOL), macOS Big Sur 11
+* OS: Ubuntu 20.04, Ubuntu 22.04, CentOS 9 Stream, Fedora 36, Fedora 37, Debian 10 buster, Debian 11 bullseye, Arch Linux current, Amazon Linux, Windows Server 2019, macOS Catalina 10.15 (EOL), macOS Big Sur 11
 
 On Ubuntu 16.04, Amazon Linux, Windows and macOS only the bundled GDAL version is officially supported. On all other platforms both the bundled and the system-installed versions are supported.
 
@@ -350,8 +350,8 @@ Development versions are unit tested for the following targets:
 ---
 | Node | OS | GDAL |
 | --- | --- | --- |
-| Node.js 16.x | CentOS 8 Stream | system-installed GDAL 3.0.4
-| Node.js 16.x | CentOS 8 Stream | bundled GDAL
+| Node.js 16.x | CentOS 9 Stream | system-installed GDAL 3.0.4
+| Node.js 16.x | CentOS 9 Stream | bundled GDAL
 | Node.js 16.x | Debian 10 buster | system-installed GDAL 2.1.2 (*earliest unit-tested GDAL*) (*earliest supported glibc*)
 | Node.js 16.x | Debian 11 bullseye | system-installed GDAL 3.2.2
 | Node.js 16.x | Debian 11 bullseye | bundled GDAL

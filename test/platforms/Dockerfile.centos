@@ -1,4 +1,4 @@
-ARG VERSION=stream8
+ARG VERSION=stream9
 FROM quay.io/centos/centos:${VERSION}
 
 ARG NODEJS=lts
@@ -13,7 +13,7 @@ RUN \
   curl -fsSL https://rpm.nodesource.com/setup_${NODEJS}.x | bash - && \
   dnf install -y nodejs && \
   dnf groupinstall -y 'Development Tools' && \
-  dnf install -y git python36 ccache && \
+  dnf install -y git python3 ccache && \
   alternatives --set python /usr/bin/python3 && \
   mkdir -p /target && chmod 777 /target
 
