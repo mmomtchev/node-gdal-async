@@ -14,7 +14,6 @@ RUN \
   dnf install -y nodejs && \
   dnf groupinstall -y 'Development Tools' && \
   dnf install -y git python3 ccache && \
-  alternatives --set python /usr/bin/python3 && \
   mkdir -p /target && chmod 777 /target
 
 RUN if [ "${GDAL}" = "shared" ]; then dnf install -y gdal-devel; fi
