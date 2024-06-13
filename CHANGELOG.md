@@ -9,13 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
  - GDAL 3.9.0
+ - Node.js 22 support
 
 ### Changed
  - All shared library symbols are now hidden on Linux, allowing to load the binary addon in a process that has loaded a different version of GDAL (on Windows this has always been possible and on maOS, while possible in theory, this particular linking mode is not supported by `node-gyp`)
 
 ### Removed
  - Drop macOS 11 support
-
+ - Drop Node.js 21 support
+ - Mark Node.js 16 as obsolete with a warning
 
 ## [3.8.5] 2024-04-09
 

@@ -17,11 +17,12 @@ jobs:
         linux-version:
         - ubuntu:20.04
         - ubuntu:22.04
+        - ubuntu:24.04
         - debian:buster
         - debian:bullseye
         - centos:stream9
         - amazonlinux:2022
-        node-version: [ 16, 18, 20, 21 ]
+        node-version: [ 16, 18, 20, 22 ]
         include:
           - linux-version: fedora:36
             node-version: 18
@@ -29,9 +30,6 @@ jobs:
             node-version: 18
           - linux-version: fedora:38
             node-version: 20
-        exclude:
-          - linux-version: centos:stream9
-            node-version: 21
 
     steps:
     - uses: actions/checkout@v4
@@ -51,7 +49,7 @@ jobs:
     strategy:
       matrix:
         platforms: [ windows-2019, macos-12 ]
-        node-version: [ 16.x, 18.x, 20.x, 21.x ]
+        node-version: [ 16.x, 18.x, 20.x, 22.x ]
 
     steps:
     - uses: actions/checkout@v4
