@@ -9,7 +9,7 @@ RUN \
   dnf -y install dnf-plugins-core && \
   dnf install -y epel-release && \
   dnf config-manager --enable crb && \
-  dnf install -y curl rsync && \
+  dnf install -y rsync && \
   curl -fsSL https://rpm.nodesource.com/setup_${NODEJS}.x | bash - && \
   dnf install -y nodejs && \
   dnf groupinstall -y 'Development Tools' && \
