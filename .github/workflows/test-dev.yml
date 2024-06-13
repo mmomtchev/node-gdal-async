@@ -73,7 +73,7 @@ jobs:
       with:
         max-size: 1000M
         key: distros-shared-${{ matrix.linux-version }}
-    - run: npm run container dev ${{ matrix.linux-version }} 16 shared
+    - run: npm run container dev ${{ matrix.linux-version }} 20 shared
       env:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
 
