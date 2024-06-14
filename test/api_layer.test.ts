@@ -1,6 +1,7 @@
 import * as gdal from 'gdal-async'
 import { assert } from 'chai'
 import * as fileUtils from './utils/file'
+import * as semver from 'semver'
 
 describe('gdal.Layer', () => {
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
@@ -279,12 +280,15 @@ describe('gdal.Layer', () => {
           assert.closeTo(actual_envelope.maxY, expected_envelope.maxY, 0.00001)
         })
       })
-      it("should throw error if force flag is false and layer doesn't have extent already computed", () => {
-        const dataset = gdal.open(`${__dirname}/data/park.geo.json`)
-        const layer = dataset.layers.get(0)
-        assert.throws(() => {
-          layer.getExtent(false)
-        }, "Can't get layer extent without computing it")
+      it("should throw error if force flag is false and layer doesn't have extent already computed", function() {
+        // No longer true in GDAL 3.9
+        if (semver.lt(gdal.version, '3.9.0')) {
+          const dataset = gdal.open(`${__dirname}/data/park.geo.json`)
+          const layer = dataset.layers.get(0)
+          assert.throws(() => {
+            layer.getExtent(false)
+          }, "Can't get layer extent without computing it")
+        }
       })
       it('should throw error if dataset is destroyed', () => {
         prepare_dataset_layer_test('r', (dataset, layer) => {

@@ -3,6 +3,7 @@ import * as chai from 'chai'
 const assert: Chai.Assert = chai.assert
 import * as gdal from 'gdal-async'
 import * as fileUtils from './utils/file'
+import * as semver from 'semver'
 
 chai.use(chaiAsPromised)
 
@@ -315,11 +316,14 @@ describe('gdal.LayerAsync', () => {
         })
       })
       it("should throw error if force flag is false and layer doesn't have extent already computed", () => {
-        const dataset = gdal.open(`${__dirname}/data/park.geo.json`)
-        const layer = dataset.layers.get(0)
-        assert.throws(() => {
-          layer.getExtent(false)
-        }, "Can't get layer extent without computing it")
+        // No longer true in GDAL 3.9
+        if (semver.lt(gdal.version, '3.9.0')) {
+          const dataset = gdal.open(`${__dirname}/data/park.geo.json`)
+          const layer = dataset.layers.get(0)
+          assert.throws(() => {
+            layer.getExtent(false)
+          }, "Can't get layer extent without computing it")
+        }
       })
       it('should throw error if dataset is destroyed', () =>
         prepare_dataset_layer_test('r', (dataset, layer) => {
