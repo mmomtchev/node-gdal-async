@@ -59,6 +59,9 @@
 			"<(deps_dir)/libnetcdf/libnetcdf.gyp:libnetcdf",
 			"<(deps_dir)/libopenjpeg/libopenjpeg.gyp:libopenjpeg"
 		],
+    'cflags_cc':[ '-std=c++17' ],
+    'xcode_settings': { 'OTHER_CPLUSPLUSFLAGS': [ '-std=c++17' ] },
+    'msvs_settings': { 'VCCLCompilerTool': { 'AdditionalOptions': [ '/std:c++17' ] } },
 		"conditions": [
 			["OS == 'win'", {
 				"include_dirs": ["./arch/win"],

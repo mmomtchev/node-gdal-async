@@ -212,9 +212,6 @@
 			"defines": [
 				'<@(gdal_format_defs)'
 			],
-      'cflags_cc':[ '-std=c++17' ],
-      'xcode_settings': { 'OTHER_CPLUSPLUSFLAGS': [ '-std=c++17' ] },
-      'msvs_settings': { 'VCCLCompilerTool': { 'AdditionalOptions': [ '/std:c++17' ] } },
 			"conditions": [
         ["runtime == 'electron'", {
           "include_dirs": [
