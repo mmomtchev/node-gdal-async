@@ -70,15 +70,13 @@ describe('gdal.wrapVRT()', () => {
     if (!semver.gte(gdal.version, '3.4.0')) {
       this.skip()
     }
+    const ds = gdal.open(multiband, 'r')
+    const metadata = ds.getMetadata()
     const expected = `<VRTDataset rasterXSize="512" rasterYSize="512">
   <SRS>EPSG:3857</SRS>
   <GeoTransform>-11584184.5107, 30.00058143924877, 0, 5635549.221409999, 0, -30.00058143924877</GeoTransform>
   <Metadata>
-    <MDI key="AREA_OR_POINT">Area</MDI>
-    <MDI key="TIFFTAG_DOCUMENTNAME">*</MDI>
-    <MDI key="TIFFTAG_RESOLUTIONUNIT">2 (pixels/inch)</MDI>
-    <MDI key="TIFFTAG_XRESOLUTION">72</MDI>
-    <MDI key="TIFFTAG_YRESOLUTION">72</MDI>
+${Object.keys(metadata).map((k) => `    <MDI key="${k}">${metadata[k]}</MDI>`).join('\n')}
   </Metadata>
   <VRTRasterBand dataType="Byte" band="1">
     <SimpleSource>
@@ -100,9 +98,11 @@ describe('gdal.wrapVRT()', () => {
   </VRTRasterBand>
 </VRTDataset>`
 
-    assert.equal(gdal.wrapVRT({
-      bands: gdal.open(multiband).bands.map((b) => ({ sources: [ b ] })) }),
-    expected)
+    const bands = ds.bands.map((b) => ({ sources: [ b ] }))
+
+    const actual = gdal.wrapVRT({bands})
+
+    assert.strictEqual(actual, expected)
   })
 
   it('should support combining files', function () {
