@@ -11,7 +11,7 @@ describe('Open', () => {
     const filename = path.join(__dirname, 'data/invalid')
     assert.throws(() => {
       gdal.open(filename)
-    }, semver.gte(gdal.version, '3.0.0') ? /not recognized as a supported file format/ : /Error/)
+    }, semver.gte(gdal.version, '3.0.0') ? /not recognized.*supported file format/ : /Error/)
   })
   it('should throw when non-existing file', () => {
     const filename = path.join(__dirname, 'data/inexisting')
