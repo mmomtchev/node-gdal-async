@@ -286,9 +286,9 @@ describe('gdal.SpatialReference', () => {
   })
   describe('exportToXML', () => {
     it('should export to XML', () => {
-      const epsg = 3857
+      const epsg = 4326
       const ref = gdal.SpatialReference.fromEPSG(epsg)
-      assert.include(ref.toXML(), 'WGS 84 / Pseudo-Mercator')
+      assert.include(ref.toXML(), 'WGS_1984')
     })
   })
   describe('getAngularUnits', () => {
