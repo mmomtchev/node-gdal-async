@@ -14,18 +14,16 @@ RUN \
   echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODEJS}.x nodistro main" |  \
     tee /etc/apt/sources.list.d/nodesource.list && \
   DEBIAN_FRONTEND=noninteractive apt-get update && \
-  DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs && \
-  if [ `lsb_release -cs` = 'xenial' ]; then \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common python-software-properties && \
-    DEBIAN_FRONTEND=noninteractive add-apt-repository -y ppa:jblgf0/python && \
-    DEBIAN_FRONTEND=noninteractive apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y python3.6 && \
-    update-alternatives --install /usr/bin/python python /usr/bin/python3.6 10; \
-  else \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y python3 && \
-    update-alternatives --install /usr/bin/python python /usr/bin/python3 10; \
-  fi && \
+  DEBIAN_FRONTEND=noninteractive apt-get install -y lsb-release nodejs && \
+  DEBIAN_FRONTEND=noninteractive apt-get install -y python3 && \
+  update-alternatives --install /usr/bin/python python /usr/bin/python3 10; \
   DEBIAN_FRONTEND=noninteractive apt-get install -y git build-essential ccache && \
+  if [ `lsb_release -cs` = 'focal' ]; then \
+    DEBIAN_FRONTEND=noninteractive apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y g++-10 && \
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 10 && \
+    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 10; \
+  fi && \
   mkdir -p /target && chmod 777 /target
 
 RUN if [ "${GDAL}" = "shared" ]; then DEBIAN_FRONTEND=noninteractive apt-get install -y libgdal-dev; fi
