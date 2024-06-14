@@ -87,7 +87,18 @@ class GeoTransformTransformer : public OGRCoordinateTransformation {
   }
 
 #if GDAL_VERSION_MAJOR >= 3
-  virtual int Transform(int nCount, double *x, double *y, double *z, double * /* t */, int *pabSuccess) override {
+  virtual int Transform(
+#if GDAL_VERSION_MINOR >= 9
+    size_t
+#else
+    int
+#endif
+      nCount,
+    double *x,
+    double *y,
+    double *z,
+    double * /* t */,
+    int *pabSuccess) override {
     return GDALGenImgProjTransform(hSrcImageTransformer, TRUE, nCount, x, y, z, pabSuccess);
   }
 #endif

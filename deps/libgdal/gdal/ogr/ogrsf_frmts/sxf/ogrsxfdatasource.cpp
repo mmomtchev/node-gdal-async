@@ -683,6 +683,7 @@ OGRErr OGRSXFDataSource::ReadSXFMapDescription(VSILFILE *fpSXFIn,
         }
 
         VSIFSeekL(fpSXFIn, 212, SEEK_SET);
+
         struct _buff
         {
             GUInt32 nRes;
@@ -690,6 +691,7 @@ OGRErr OGRSXFDataSource::ReadSXFMapDescription(VSILFILE *fpSXFIn,
             // cppcheck-suppress unusedStructMember
             GUInt32 nFrameCode;
         } buff;
+
         if (VSIFReadL(&buff, 20, 1, fpSXFIn) != 1)
             return OGRERR_FAILURE;
         CPL_LSBPTR32(&buff.nRes);
@@ -1100,7 +1102,7 @@ OGRSXFLayer *OGRSXFDataSource::GetLayerById(GByte nID)
 void OGRSXFDataSource::CreateLayers()
 {
     // default layers set
-    m_apoLayers.emplace_back(cpl::make_unique<OGRSXFLayer>(
+    m_apoLayers.emplace_back(std::make_unique<OGRSXFLayer>(
         fpSXF, &hIOMutex, static_cast<GByte>(0), CPLString("SYSTEM"),
         oSXFPassport.version, oSXFPassport.stMapDescription));
     auto pLayer = m_apoLayers.back().get();
@@ -1112,7 +1114,7 @@ void OGRSXFDataSource::CreateLayers()
     }
     pLayer->AddClassifyCode(91000000);
 
-    m_apoLayers.emplace_back(cpl::make_unique<OGRSXFLayer>(
+    m_apoLayers.emplace_back(std::make_unique<OGRSXFLayer>(
         fpSXF, &hIOMutex, static_cast<GByte>(255), CPLString("Not_Classified"),
         oSXFPassport.version, oSXFPassport.stMapDescription));
 }
@@ -1163,6 +1165,7 @@ void OGRSXFDataSource::CreateLayers(VSILFILE *fpRSC,
     CPL_LSBPTR32(&(stRSCFileHeader.nColorsInPalette));
 
     GByte szLayersID[4];
+
     struct _layer
     {
         GUInt32 nLength;
@@ -1201,7 +1204,7 @@ void OGRSXFDataSource::CreateLayers(VSILFILE *fpRSC,
             else
                 pszRecoded = CPLStrdup(LAYER.szName);
 
-            m_apoLayers.emplace_back(cpl::make_unique<OGRSXFLayer>(
+            m_apoLayers.emplace_back(std::make_unique<OGRSXFLayer>(
                 fpSXF, &hIOMutex, LAYER.nNo, CPLString(pszRecoded),
                 oSXFPassport.version, oSXFPassport.stMapDescription));
         }
@@ -1218,7 +1221,7 @@ void OGRSXFDataSource::CreateLayers(VSILFILE *fpRSC,
             else
                 pszRecoded = CPLStrdup(LAYER.szShortName);
 
-            m_apoLayers.emplace_back(cpl::make_unique<OGRSXFLayer>(
+            m_apoLayers.emplace_back(std::make_unique<OGRSXFLayer>(
                 fpSXF, &hIOMutex, LAYER.nNo, CPLString(pszRecoded),
                 oSXFPassport.version, oSXFPassport.stMapDescription));
         }
@@ -1228,11 +1231,12 @@ void OGRSXFDataSource::CreateLayers(VSILFILE *fpRSC,
         VSIFSeekL(fpRSC, nOffset, SEEK_SET);
     }
 
-    m_apoLayers.emplace_back(cpl::make_unique<OGRSXFLayer>(
+    m_apoLayers.emplace_back(std::make_unique<OGRSXFLayer>(
         fpSXF, &hIOMutex, static_cast<GByte>(255), CPLString("Not_Classified"),
         oSXFPassport.version, oSXFPassport.stMapDescription));
 
     char szObjectsID[4];
+
     struct _object
     {
         unsigned nLength;

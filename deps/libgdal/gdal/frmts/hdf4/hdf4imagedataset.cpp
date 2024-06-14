@@ -53,6 +53,8 @@
 
 #include "nasakeywordhandler.h"
 
+#include "hdf4drivercore.h"
+
 #include <algorithm>
 
 constexpr int HDF4_SDS_MAXNAMELEN = 65;
@@ -128,8 +130,7 @@ class HDF4ImageDataset final : public HDF4Dataset
     OGRSpatialReference m_oGCPSRS{};
     bool bHasGeoTransform;
     double adfGeoTransform[6];
-    GDAL_GCP *pasGCPList;
-    int nGCPCount;
+    std::vector<gdal::GCP> m_aoGCPs{};
 
     HDF4DatasetType iDatasetType;
 
@@ -192,6 +193,7 @@ class HDF4ImageRasterBand final : public GDALPamRasterBand
 
   public:
     HDF4ImageRasterBand(HDF4ImageDataset *, int, GDALDataType);
+
     virtual ~HDF4ImageRasterBand()
     {
     }
@@ -763,8 +765,8 @@ HDF4ImageDataset::HDF4ImageDataset()
       iPalDataType(0), nComps(0), nPalEntries(0), iXDim(0), iYDim(0),
       iBandDim(-1), i4Dim(0), nBandCount(0), pszSubdatasetName(nullptr),
       pszFieldName(nullptr), poColorTable(nullptr), bHasGeoTransform(false),
-      pasGCPList(nullptr), nGCPCount(0), iDatasetType(HDF4_UNKNOWN), iSDS(FAIL),
-      nBlockPreferredXSize(-1), nBlockPreferredYSize(-1), bReadTile(false)
+      iDatasetType(HDF4_UNKNOWN), iSDS(FAIL), nBlockPreferredXSize(-1),
+      nBlockPreferredYSize(-1), bReadTile(false)
 {
     m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     m_oGCPSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
@@ -808,16 +810,6 @@ HDF4ImageDataset::~HDF4ImageDataset()
     if (poColorTable != nullptr)
         delete poColorTable;
 
-    if (nGCPCount > 0)
-    {
-        for (int i = 0; i < nGCPCount; i++)
-        {
-            CPLFree(pasGCPList[i].pszId);
-            CPLFree(pasGCPList[i].pszInfo);
-        }
-
-        CPLFree(pasGCPList);
-    }
     if (hHDF4 > 0)
     {
         switch (iDatasetType)
@@ -903,7 +895,7 @@ CPLErr HDF4ImageDataset::SetSpatialRef(const OGRSpatialReference *poSRS)
 int HDF4ImageDataset::GetGCPCount()
 
 {
-    return nGCPCount;
+    return static_cast<int>(m_aoGCPs.size());
 }
 
 /************************************************************************/
@@ -913,7 +905,7 @@ int HDF4ImageDataset::GetGCPCount()
 const OGRSpatialReference *HDF4ImageDataset::GetGCPSpatialRef() const
 
 {
-    return m_oSRS.IsEmpty() || nGCPCount == 0 ? nullptr : &m_oGCPSRS;
+    return m_oSRS.IsEmpty() || m_aoGCPs.empty() ? nullptr : &m_oGCPSRS;
 }
 
 /************************************************************************/
@@ -922,7 +914,7 @@ const OGRSpatialReference *HDF4ImageDataset::GetGCPSpatialRef() const
 
 const GDAL_GCP *HDF4ImageDataset::GetGCPs()
 {
-    return pasGCPList;
+    return gdal::GCP::c_ptr(m_aoGCPs);
 }
 
 /************************************************************************/
@@ -1250,29 +1242,13 @@ void HDF4ImageDataset::CaptureL1GMTLInfo()
         "AUTHORITY[\"EPSG\",\"9108\"]],AXIS[\"Lat\",NORTH],AXIS[\"Long\",EAST]"
         ",AUTHORITY[\"EPSG\",\"4326\"]]");
 
-    nGCPCount = 4;
-    pasGCPList = (GDAL_GCP *)CPLCalloc(nGCPCount, sizeof(GDAL_GCP));
-    GDALInitGCPs(nGCPCount, pasGCPList);
-
-    pasGCPList[0].dfGCPX = dfULX;
-    pasGCPList[0].dfGCPY = dfULY;
-    pasGCPList[0].dfGCPPixel = 0.0;
-    pasGCPList[0].dfGCPLine = 0.0;
-
-    pasGCPList[1].dfGCPX = dfURX;
-    pasGCPList[1].dfGCPY = dfURY;
-    pasGCPList[1].dfGCPPixel = GetRasterXSize();
-    pasGCPList[1].dfGCPLine = 0.0;
-
-    pasGCPList[2].dfGCPX = dfLLX;
-    pasGCPList[2].dfGCPY = dfLLY;
-    pasGCPList[2].dfGCPPixel = 0.0;
-    pasGCPList[2].dfGCPLine = GetRasterYSize();
-
-    pasGCPList[3].dfGCPX = dfLRX;
-    pasGCPList[3].dfGCPY = dfLRY;
-    pasGCPList[3].dfGCPPixel = GetRasterXSize();
-    pasGCPList[3].dfGCPLine = GetRasterYSize();
+    m_aoGCPs.emplace_back(nullptr, nullptr, 0.0, 0.0, dfULX, dfULY);
+    m_aoGCPs.emplace_back(nullptr, nullptr, GetRasterXSize(), 0.0, dfURX,
+                          dfURY);
+    m_aoGCPs.emplace_back(nullptr, nullptr, 0.0, GetRasterYSize(), dfLLX,
+                          dfLLY);
+    m_aoGCPs.emplace_back(nullptr, nullptr, GetRasterXSize(), GetRasterYSize(),
+                          dfLRX, dfLRY);
 }
 
 /************************************************************************/
@@ -2518,25 +2494,17 @@ int HDF4ImageDataset::ProcessSwathGeolocation(int32 hSW, char **papszDimList)
          */
         if (iGCPStepX > 0)
         {
-            nGCPCount = (((nXPoints - 1) / iGCPStepX) + 1) *
-                        (((nYPoints - 1) / iGCPStepY) + 1);
-
-            pasGCPList = reinterpret_cast<GDAL_GCP *>(
-                CPLCalloc(nGCPCount, sizeof(GDAL_GCP)));
-            GDALInitGCPs(nGCPCount, pasGCPList);
-
-            int iGCP = 0;
             for (int i = 0; i < nYPoints; i += iGCPStepY)
             {
                 for (int j = 0; j < nXPoints; j += iGCPStepX)
                 {
                     const int iGeoOff = i * nXPoints + j;
 
-                    pasGCPList[iGCP].dfGCPX = AnyTypeToDouble(
+                    double dfGCPX = AnyTypeToDouble(
                         iWrkNumType, reinterpret_cast<void *>(
                                          reinterpret_cast<char *>(pLong) +
                                          iGeoOff * iDataSize));
-                    pasGCPList[iGCP].dfGCPY = AnyTypeToDouble(
+                    double dfGCPY = AnyTypeToDouble(
                         iWrkNumType, reinterpret_cast<void *>(
                                          reinterpret_cast<char *>(pLat) +
                                          iGeoOff * iDataSize));
@@ -2550,27 +2518,24 @@ int HDF4ImageDataset::ProcessSwathGeolocation(int32 hSW, char **papszDimList)
                     if (eProduct == PROD_ASTER_L1A ||
                         eProduct == PROD_ASTER_L1B)
                     {
-                        pasGCPList[iGCP].dfGCPY =
-                            atan(tan(pasGCPList[iGCP].dfGCPY * PI / 180) /
-                                 0.99330562) *
-                            180 / PI;
+                        dfGCPY = atan(tan(dfGCPY * PI / 180) / 0.99330562) *
+                                 180 / PI;
                     }
 
-                    ToGeoref(&pasGCPList[iGCP].dfGCPX,
-                             &pasGCPList[iGCP].dfGCPY);
+                    ToGeoref(&dfGCPX, &dfGCPY);
 
-                    pasGCPList[iGCP].dfGCPZ = 0.0;
-
+                    double dfGCPPixel = 0.0;
+                    double dfGCPLine = 0.0;
                     if (pLatticeX && pLatticeY)
                     {
-                        pasGCPList[iGCP].dfGCPPixel =
+                        dfGCPPixel =
                             AnyTypeToDouble(
                                 iLatticeType,
                                 reinterpret_cast<void *>(
                                     reinterpret_cast<char *>(pLatticeX) +
                                     iGeoOff * iLatticeDataSize)) +
                             0.5;
-                        pasGCPList[iGCP].dfGCPLine =
+                        dfGCPLine =
                             AnyTypeToDouble(
                                 iLatticeType,
                                 reinterpret_cast<void *>(
@@ -2580,15 +2545,14 @@ int HDF4ImageDataset::ProcessSwathGeolocation(int32 hSW, char **papszDimList)
                     }
                     else if (paiOffset && paiIncrement)
                     {
-                        pasGCPList[iGCP].dfGCPPixel =
-                            paiOffset[iPixelDim] + j * paiIncrement[iPixelDim] +
-                            0.5;
-                        pasGCPList[iGCP].dfGCPLine =
-                            paiOffset[iLineDim] + i * paiIncrement[iLineDim] +
-                            0.5;
+                        dfGCPPixel = paiOffset[iPixelDim] +
+                                     j * paiIncrement[iPixelDim] + 0.5;
+                        dfGCPLine = paiOffset[iLineDim] +
+                                    i * paiIncrement[iLineDim] + 0.5;
                     }
 
-                    iGCP++;
+                    m_aoGCPs.emplace_back("", "", dfGCPPixel, dfGCPLine, dfGCPX,
+                                          dfGCPY);
                 }
             }
         }
@@ -2666,10 +2630,7 @@ int HDF4ImageDataset::ProcessSwathGeolocation(int32 hSW, char **papszDimList)
 
 GDALDataset *HDF4ImageDataset::Open(GDALOpenInfo *poOpenInfo)
 {
-    if (!STARTS_WITH_CI(poOpenInfo->pszFilename, "HDF4_SDS:") &&
-        !STARTS_WITH_CI(poOpenInfo->pszFilename, "HDF4_GR:") &&
-        !STARTS_WITH_CI(poOpenInfo->pszFilename, "HDF4_GD:") &&
-        !STARTS_WITH_CI(poOpenInfo->pszFilename, "HDF4_EOS:"))
+    if (!HDF4ImageDatasetIdentify(poOpenInfo))
         return nullptr;
 
     /* -------------------------------------------------------------------- */
@@ -3988,24 +3949,11 @@ GDALDataset *HDF4ImageDataset::Create(const char *pszFilename, int nXSize,
 void GDALRegister_HDF4Image()
 
 {
-    if (GDALGetDriverByName("HDF4Image") != nullptr)
+    if (GDALGetDriverByName(HDF4_IMAGE_DRIVER_NAME) != nullptr)
         return;
 
     GDALDriver *poDriver = new GDALDriver();
-
-    poDriver->SetDescription("HDF4Image");
-    poDriver->SetMetadataItem(GDAL_DCAP_RASTER, "YES");
-    poDriver->SetMetadataItem(GDAL_DMD_LONGNAME, "HDF4 Dataset");
-    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "drivers/raster/hdf4.html");
-    poDriver->SetMetadataItem(GDAL_DMD_CREATIONDATATYPES,
-                              "Byte Int8 Int16 UInt16 Int32 UInt32 "
-                              // "Int64 UInt64 "
-                              "Float32 Float64");
-    poDriver->SetMetadataItem(
-        GDAL_DMD_CREATIONOPTIONLIST,
-        "<CreationOptionList>"
-        "   <Option name='RANK' type='int' description='Rank of output SDS'/>"
-        "</CreationOptionList>");
+    HDF4ImageDriverSetCommonMetadata(poDriver);
 
 #ifdef HDF4_HAS_MAXOPENFILES
     poDriver->SetMetadataItem("HDF4_HAS_MAXOPENFILES", "YES");

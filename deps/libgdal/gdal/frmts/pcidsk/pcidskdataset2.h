@@ -72,7 +72,6 @@ class PCIDSK2Dataset final : public GDALPamDataset
     PCIDSK2Dataset();
     virtual ~PCIDSK2Dataset();
 
-    static int Identify(GDALOpenInfo *);
     static GDALDataset *Open(GDALOpenInfo *);
     static GDALDataset *LLOpen(const char *pszFilename, PCIDSK::PCIDSKFile *,
                                GDALAccess eAccess,
@@ -104,12 +103,14 @@ class PCIDSK2Dataset final : public GDALPamDataset
     {
         return (int)apoLayers.size();
     }
+
     virtual OGRLayer *GetLayer(int) override;
 
     virtual int TestCapability(const char *) override;
 
-    virtual OGRLayer *ICreateLayer(const char *, const OGRSpatialReference *,
-                                   OGRwkbGeometryType, char **) override;
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
 };
 
 /************************************************************************/
@@ -172,6 +173,7 @@ class PCIDSK2Band final : public GDALPamRasterBand
 class OGRPCIDSKLayer final : public OGRLayer,
                              public OGRGetNextFeatureThroughRaw<OGRPCIDSKLayer>
 {
+    GDALDataset *m_poDS = nullptr;
     PCIDSK::PCIDSKVectorSegment *poVecSeg;
     PCIDSK::PCIDSKSegment *poSeg;
 
@@ -190,8 +192,8 @@ class OGRPCIDSKLayer final : public OGRLayer,
     bool m_bEOF = false;
 
   public:
-    OGRPCIDSKLayer(PCIDSK::PCIDSKSegment *, PCIDSK::PCIDSKVectorSegment *,
-                   bool bUpdate);
+    OGRPCIDSKLayer(GDALDataset *poDS, PCIDSK::PCIDSKSegment *,
+                   PCIDSK::PCIDSKVectorSegment *, bool bUpdate);
     virtual ~OGRPCIDSKLayer();
 
     void ResetReading() override;
@@ -209,15 +211,21 @@ class OGRPCIDSKLayer final : public OGRLayer,
 
     OGRErr DeleteFeature(GIntBig nFID) override;
     virtual OGRErr ICreateFeature(OGRFeature *poFeature) override;
-    virtual OGRErr CreateField(OGRFieldDefn *poField,
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
 
     GIntBig GetFeatureCount(int) override;
     OGRErr GetExtent(OGREnvelope *psExtent, int bForce) override;
+
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce) override
     {
         return OGRLayer::GetExtent(iGeomField, psExtent, bForce);
+    }
+
+    GDALDataset *GetDataset() override
+    {
+        return m_poDS;
     }
 };
 

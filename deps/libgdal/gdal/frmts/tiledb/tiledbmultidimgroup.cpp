@@ -28,8 +28,6 @@
 
 #include "tiledbmultidim.h"
 
-#ifdef HAS_TILEDB_MULTIDIM
-
 #include "memmultidim.h"
 
 /************************************************************************/
@@ -247,7 +245,7 @@ TileDBGroup::OpenGroup(const std::string &osName,
         }
     }
     if (osSubPath.empty())
-        osSubPath = osSubPathCandidate;
+        osSubPath = std::move(osSubPathCandidate);
     if (osSubPath.empty())
         return nullptr;
 
@@ -471,18 +469,22 @@ TileDBGroup::OpenMDArray(const std::string &osName,
             }
             else if (MatchNameSuffix(CPLGetFilename(obj.uri().c_str())))
             {
-                osSubPathCandidate = osSubPath;
+                osSubPathCandidate = obj.uri();
             }
         }
     }
     if (osSubPath.empty())
-        osSubPath = osSubPathCandidate;
+        osSubPath = std::move(osSubPathCandidate);
     if (osSubPath.empty())
         return nullptr;
 
-    auto poArray =
-        TileDBArray::OpenFromDisk(m_poSharedResource, m_osFullName, osName,
-                                  osNameSuffix, osSubPath, papszOptions);
+    if (m_oSetArrayInOpening.find(osName) != m_oSetArrayInOpening.end())
+        return nullptr;
+    m_oSetArrayInOpening.insert(osName);
+    auto poArray = TileDBArray::OpenFromDisk(m_poSharedResource, m_pSelf.lock(),
+                                             m_osFullName, osName, osNameSuffix,
+                                             osSubPath, papszOptions);
+    m_oSetArrayInOpening.erase(osName);
     if (!poArray)
         return nullptr;
 
@@ -574,5 +576,3 @@ bool TileDBGroup::DeleteAttribute(const std::string &osName,
 {
     return DeleteAttributeImpl(osName, papszOptions);
 }
-
-#endif  // HAS_TILEDB_MULTIDIM

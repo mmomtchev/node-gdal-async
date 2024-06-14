@@ -118,8 +118,8 @@ OGRErr OGRWAsPDataSource::Load(bool bSilent)
     CPLReadLineL(hFile);
     CPLReadLineL(hFile);
 
-    oLayer.reset(new OGRWAsPLayer(CPLGetBasename(sFilename.c_str()), hFile,
-                                  poSpatialRef));
+    oLayer.reset(new OGRWAsPLayer(this, CPLGetBasename(sFilename.c_str()),
+                                  hFile, poSpatialRef));
     if (poSpatialRef)
         poSpatialRef->Release();
 
@@ -187,10 +187,13 @@ OGRLayer *OGRWAsPDataSource::GetLayer(int iLayer)
 
 OGRLayer *
 OGRWAsPDataSource::ICreateLayer(const char *pszName,
-                                const OGRSpatialReference *poSpatialRef,
-                                OGRwkbGeometryType eGType, char **papszOptions)
+                                const OGRGeomFieldDefn *poGeomFieldDefn,
+                                CSLConstList papszOptions)
 
 {
+    const auto eGType = poGeomFieldDefn ? poGeomFieldDefn->GetType() : wkbNone;
+    const auto poSpatialRef =
+        poGeomFieldDefn ? poGeomFieldDefn->GetSpatialRef() : nullptr;
 
     if (eGType != wkbLineString && eGType != wkbLineString25D &&
         eGType != wkbMultiLineString && eGType != wkbMultiLineString25D &&
@@ -312,8 +315,8 @@ OGRWAsPDataSource::ICreateLayer(const char *pszName,
         poSRSClone->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     }
     oLayer.reset(new OGRWAsPLayer(
-        CPLGetBasename(pszName), hFile, poSRSClone, sFirstField, sSecondField,
-        sGeomField, bMerge, pdfTolerance.release(),
+        this, CPLGetBasename(pszName), hFile, poSRSClone, sFirstField,
+        sSecondField, sGeomField, bMerge, pdfTolerance.release(),
         pdfAdjacentPointTolerance.release(), pdfPointToCircleRadius.release()));
     if (poSRSClone)
         poSRSClone->Release();

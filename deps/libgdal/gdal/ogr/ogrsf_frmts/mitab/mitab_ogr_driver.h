@@ -77,13 +77,14 @@ class OGRTABDataSource : public OGRDataSource
     {
         return m_pszName;
     }
+
     int GetLayerCount() override;
     OGRLayer *GetLayer(int) override;
     int TestCapability(const char *) override;
 
-    OGRLayer *ICreateLayer(const char *, const OGRSpatialReference * = nullptr,
-                           OGRwkbGeometryType = wkbUnknown,
-                           char ** = nullptr) override;
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
 
     char **GetFileList() override;
 

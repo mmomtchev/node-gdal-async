@@ -292,6 +292,22 @@ void CPL_DLL VSIFree(void *);
 void CPL_DLL *VSIRealloc(void *, size_t) CPL_WARN_UNUSED_RESULT;
 char CPL_DLL *VSIStrdup(const char *) CPL_WARN_UNUSED_RESULT;
 
+#if defined(__cplusplus) && defined(GDAL_COMPILATION)
+extern "C++"
+{
+    /*! @cond Doxygen_Suppress */
+    struct CPL_DLL VSIFreeReleaser
+    {
+        void operator()(void *p) const
+        {
+            VSIFree(p);
+        }
+    };
+
+    /*! @endcond */
+}
+#endif
+
 void CPL_DLL *VSIMallocAligned(size_t nAlignment,
                                size_t nSize) CPL_WARN_UNUSED_RESULT;
 void CPL_DLL *VSIMallocAlignedAuto(size_t nSize) CPL_WARN_UNUSED_RESULT;
@@ -380,6 +396,8 @@ char CPL_DLL **VSIReadDirRecursive(const char *pszPath);
 char CPL_DLL **VSIReadDirEx(const char *pszPath, int nMaxFiles);
 char CPL_DLL **VSISiblingFiles(const char *pszPath);
 
+const char CPL_DLL *VSIGetDirectorySeparator(const char *pszPath);
+
 /** Opaque type for a directory iterator */
 typedef struct VSIDIR VSIDIR;
 
@@ -388,6 +406,7 @@ VSIDIR CPL_DLL *VSIOpenDir(const char *pszPath, int nRecurseDepth,
 
 /*! @cond Doxygen_Suppress */
 typedef struct VSIDIREntry VSIDIREntry;
+
 /*! @endcond */
 
 /** Directory entry. */
@@ -718,6 +737,17 @@ void CPL_DLL VSIFreeFilesystemPluginCallbacksStruct(
  */
 int CPL_DLL VSIInstallPluginHandler(
     const char *pszPrefix, const VSIFilesystemPluginCallbacksStruct *poCb);
+
+/**
+ * Unregister a handler previously installed with VSIInstallPluginHandler() on
+ * the given prefix.
+ * Note: it is generally unsafe to remove a handler while there are still file
+ * handles opened that are managed by that handler. It is the responsibility of
+ * the caller to ensure that it calls this function in a situation where it is
+ * safe to do so.
+ * @since GDAL 3.9
+ */
+int CPL_DLL VSIRemovePluginHandler(const char *pszPrefix);
 
 /* ==================================================================== */
 /*      Time querying.                                                  */

@@ -16,7 +16,17 @@ add_gdal_driver(
           ogropenfilegdblayer.cpp
           ogropenfilegdblayer_write.cpp
           gdalopenfilegdbrasterband.cpp
-  PLUGIN_CAPABLE NO_DEPS STRONG_CXX_WFLAGS)
+  CORE_SOURCES
+          ogropenfilegdbdrivercore.cpp
+  PLUGIN_CAPABLE NO_DEPS
+  STRONG_CXX_WFLAGS)
+
+if(NOT TARGET ogr_OpenFileGDB)
+    return()
+endif()
+
+# because of use of GDAL_RELEASE_NAME
+set_property(SOURCE filegdbtable_write.cpp PROPERTY SKIP_UNITY_BUILD_INCLUSION ON)
 
 if (CMAKE_CXX_FLAGS MATCHES "-fno-sanitize-recover=unsigned-integer-overflow")
     # Remove '-fno-sanitize-recover=unsigned-integer-overflow' from global flags

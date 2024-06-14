@@ -203,6 +203,7 @@ static const char *const apszBandDesc[] = {
 /************************************************************************/
 
 #define L1B_TIMECODE_LENGTH 100
+
 class TimeCode
 {
     long lYear;
@@ -220,26 +221,32 @@ class TimeCode
     {
         lYear = year;
     }
+
     void SetDay(long day)
     {
         lDay = day;
     }
+
     void SetMillisecond(long millisecond)
     {
         lMillisecond = millisecond;
     }
+
     long GetYear() const
     {
         return lYear;
     }
+
     long GetDay() const
     {
         return lDay;
     }
+
     long GetMillisecond() const
     {
         return lMillisecond;
     }
+
     char *PrintTime()
     {
         snprintf(szString, L1B_TIMECODE_LENGTH,
@@ -248,6 +255,7 @@ class TimeCode
         return szString;
     }
 };
+
 #undef L1B_TIMECODE_LENGTH
 
 /************************************************************************/
@@ -523,8 +531,8 @@ CPLErr L1BRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
             CPL_IGNORE_RET_VAL(
                 VSIFReadL(iRawScan, 1, poGDS->nRecordSize, poGDS->fp));
 
-            iScan = (GUInt16 *)CPLMalloc(poGDS->GetRasterXSize() *
-                                         poGDS->nBands * sizeof(GUInt16));
+            iScan = (GUInt16 *)CPLMalloc(
+                sizeof(GUInt16) * poGDS->GetRasterXSize() * poGDS->nBands);
             for (i = 0; i < poGDS->GetRasterXSize() * poGDS->nBands; i++)
             {
                 iScan[i] =
@@ -542,8 +550,8 @@ CPLErr L1BRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
             CPL_IGNORE_RET_VAL(
                 VSIFReadL(byRawScan, 1, poGDS->nRecordSize, poGDS->fp));
 
-            iScan = (GUInt16 *)CPLMalloc(poGDS->GetRasterXSize() *
-                                         poGDS->nBands * sizeof(GUInt16));
+            iScan = (GUInt16 *)CPLMalloc(
+                sizeof(GUInt16) * poGDS->GetRasterXSize() * poGDS->nBands);
             for (i = 0; i < poGDS->GetRasterXSize() * poGDS->nBands; i++)
                 iScan[i] = byRawScan[poGDS->nRecordDataStart /
                                          (int)sizeof(byRawScan[0]) +
@@ -758,6 +766,7 @@ void L1BDataset::FetchNOAA15TimeCode(TimeCode *psTime,
                                                                : DESCEND;
     }
 }
+
 /************************************************************************/
 /*                          FetchTimeCode()                             */
 /************************************************************************/

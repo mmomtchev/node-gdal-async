@@ -370,7 +370,8 @@ OGRErr OGRJMLWriterLayer::ICreateFeature(OGRFeature *poFeature)
 /*                            CreateField()                             */
 /************************************************************************/
 
-OGRErr OGRJMLWriterLayer::CreateField(OGRFieldDefn *poFieldDefn, int bApproxOK)
+OGRErr OGRJMLWriterLayer::CreateField(const OGRFieldDefn *poFieldDefn,
+                                      int bApproxOK)
 {
     if (bFeaturesWritten)
         return OGRERR_FAILURE;
@@ -438,4 +439,13 @@ int OGRJMLWriterLayer::TestCapability(const char *pszCap)
         return !bFeaturesWritten;
 
     return FALSE;
+}
+
+/************************************************************************/
+/*                             GetDataset()                             */
+/************************************************************************/
+
+GDALDataset *OGRJMLWriterLayer::GetDataset()
+{
+    return poDS;
 }

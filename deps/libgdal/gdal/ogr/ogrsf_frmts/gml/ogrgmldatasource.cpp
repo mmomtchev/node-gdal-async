@@ -136,23 +136,59 @@ OGRGMLDataSource::~OGRGMLDataSource()
                         : CPLStrdup("");
                 char szLowerCorner[75] = {};
                 char szUpperCorner[75] = {};
+
+                OGRWktOptions coordOpts;
+
+                if (OGRGMLDataSource::GetLayerCount() == 1)
+                {
+                    OGRLayer *poLayer = OGRGMLDataSource::GetLayer(0);
+                    if (poLayer->GetLayerDefn()->GetGeomFieldCount() == 1)
+                    {
+                        const auto &oCoordPrec = poLayer->GetLayerDefn()
+                                                     ->GetGeomFieldDefn(0)
+                                                     ->GetCoordinatePrecision();
+                        if (oCoordPrec.dfXYResolution !=
+                            OGRGeomCoordinatePrecision::UNKNOWN)
+                        {
+                            coordOpts.format = OGRWktFormat::F;
+                            coordOpts.xyPrecision = OGRGeomCoordinatePrecision::
+                                ResolutionToPrecision(
+                                    oCoordPrec.dfXYResolution);
+                        }
+                        if (oCoordPrec.dfZResolution !=
+                            OGRGeomCoordinatePrecision::UNKNOWN)
+                        {
+                            coordOpts.format = OGRWktFormat::F;
+                            coordOpts.zPrecision = OGRGeomCoordinatePrecision::
+                                ResolutionToPrecision(oCoordPrec.dfZResolution);
+                        }
+                    }
+                }
+
+                std::string wkt;
                 if (bCoordSwap)
                 {
-                    OGRMakeWktCoordinate(szLowerCorner, sBoundingRect.MinY,
-                                         sBoundingRect.MinX, sBoundingRect.MinZ,
-                                         bBBOX3D ? 3 : 2);
-                    OGRMakeWktCoordinate(szUpperCorner, sBoundingRect.MaxY,
-                                         sBoundingRect.MaxX, sBoundingRect.MaxZ,
-                                         bBBOX3D ? 3 : 2);
+                    wkt = OGRMakeWktCoordinate(
+                        sBoundingRect.MinY, sBoundingRect.MinX,
+                        sBoundingRect.MinZ, bBBOX3D ? 3 : 2, coordOpts);
+                    memcpy(szLowerCorner, wkt.data(), wkt.size() + 1);
+
+                    wkt = OGRMakeWktCoordinate(
+                        sBoundingRect.MaxY, sBoundingRect.MaxX,
+                        sBoundingRect.MaxZ, bBBOX3D ? 3 : 2, coordOpts);
+                    memcpy(szUpperCorner, wkt.data(), wkt.size() + 1);
                 }
                 else
                 {
-                    OGRMakeWktCoordinate(szLowerCorner, sBoundingRect.MinX,
-                                         sBoundingRect.MinY, sBoundingRect.MinZ,
-                                         bBBOX3D ? 3 : 2);
-                    OGRMakeWktCoordinate(szUpperCorner, sBoundingRect.MaxX,
-                                         sBoundingRect.MaxY, sBoundingRect.MaxZ,
-                                         (bBBOX3D) ? 3 : 2);
+                    wkt = OGRMakeWktCoordinate(
+                        sBoundingRect.MinX, sBoundingRect.MinY,
+                        sBoundingRect.MinZ, bBBOX3D ? 3 : 2, coordOpts);
+                    memcpy(szLowerCorner, wkt.data(), wkt.size() + 1);
+
+                    wkt = OGRMakeWktCoordinate(
+                        sBoundingRect.MaxX, sBoundingRect.MaxY,
+                        sBoundingRect.MaxZ, (bBBOX3D) ? 3 : 2, coordOpts);
+                    memcpy(szUpperCorner, wkt.data(), wkt.size() + 1);
                 }
                 if (bWriteSpaceIndentation)
                     VSIFPrintfL(fpOutput, "  ");
@@ -1502,10 +1538,8 @@ void OGRGMLDataSource::BuildJointClassFromScannedSchema()
         size_t iPos = osPrefixClass.find('.');
         if (iPos != std::string::npos)
             osPrefixClass.resize(iPos);
-        // Need to leave a space between > > for -Werror=c++0x-compat.
-        aapoGeomProps.push_back(
-            std::pair<CPLString, std::vector<GMLGeometryPropertyDefn *>>(
-                osPrefixClass, std::vector<GMLGeometryPropertyDefn *>()));
+        aapoGeomProps.emplace_back(
+            std::pair(osPrefixClass, std::vector<GMLGeometryPropertyDefn *>()));
         for (int iField = 0;
              iField < static_cast<int>(aapoProps[iSubClass].size()); iField++)
         {
@@ -1529,9 +1563,8 @@ void OGRGMLDataSource::BuildJointClassFromScannedSchema()
                 break;
         }
         if (iSubClass == static_cast<int>(aapoGeomProps.size()))
-            aapoGeomProps.push_back(
-                std::pair<CPLString, std::vector<GMLGeometryPropertyDefn *>>(
-                    osPrefix, std::vector<GMLGeometryPropertyDefn *>()));
+            aapoGeomProps.emplace_back(
+                std::pair(osPrefix, std::vector<GMLGeometryPropertyDefn *>()));
         aapoGeomProps[iSubClass].second.push_back(poProp);
     }
     poClass->StealGeometryProperties();
@@ -1666,8 +1699,7 @@ OGRGMLLayer *OGRGMLDataSource::TranslateGMLSchema(GMLFeatureClass *poClass)
             poProperty->SetType(wkbPolyhedralSurfaceZ);
         }
 
-        OGRGeomFieldDefn oField(poProperty->GetName(),
-                                (OGRwkbGeometryType)poProperty->GetType());
+        OGRGeomFieldDefn oField(poProperty->GetName(), poProperty->GetType());
         if (poClass->GetGeometryPropertyCount() == 1 &&
             poClass->GetFeatureCount() == 0)
         {
@@ -1695,6 +1727,7 @@ OGRGMLLayer *OGRGMLDataSource::TranslateGMLSchema(GMLFeatureClass *poClass)
             oField.SetSpatialRef(poSRS);
         }
         oField.SetNullable(poProperty->IsNullable());
+        oField.SetCoordinatePrecision(poProperty->GetCoordinatePrecision());
         poLayer->GetLayerDefn()->AddGeomFieldDefn(&oField);
     }
 
@@ -1971,10 +2004,10 @@ void OGRGMLDataSource::WriteTopElements()
 /*                           ICreateLayer()                             */
 /************************************************************************/
 
-OGRLayer *OGRGMLDataSource::ICreateLayer(const char *pszLayerName,
-                                         const OGRSpatialReference *poSRS,
-                                         OGRwkbGeometryType eType,
-                                         CPL_UNUSED char **papszOptions)
+OGRLayer *
+OGRGMLDataSource::ICreateLayer(const char *pszLayerName,
+                               const OGRGeomFieldDefn *poSrcGeomFieldDefn,
+                               CSLConstList /*papszOptions*/)
 {
     // Verify we are in update mode.
     if (fpOutput == nullptr)
@@ -1986,6 +2019,11 @@ OGRLayer *OGRGMLDataSource::ICreateLayer(const char *pszLayerName,
 
         return nullptr;
     }
+
+    const auto eType =
+        poSrcGeomFieldDefn ? poSrcGeomFieldDefn->GetType() : wkbNone;
+    const auto poSRS =
+        poSrcGeomFieldDefn ? poSrcGeomFieldDefn->GetSpatialRef() : nullptr;
 
     // Ensure name is safe as an element name.
     char *pszCleanLayerName = CPLStrdup(pszLayerName);
@@ -2036,16 +2074,21 @@ OGRLayer *OGRGMLDataSource::ICreateLayer(const char *pszLayerName,
     poLayer->GetLayerDefn()->SetGeomType(eType);
     if (eType != wkbNone)
     {
-        poLayer->GetLayerDefn()->GetGeomFieldDefn(0)->SetName(
-            "geometryProperty");
+        auto poGeomFieldDefn = poLayer->GetLayerDefn()->GetGeomFieldDefn(0);
+        const char *pszGeomFieldName = poSrcGeomFieldDefn->GetNameRef();
+        if (!pszGeomFieldName || pszGeomFieldName[0] == 0)
+            pszGeomFieldName = "geometryProperty";
+        poGeomFieldDefn->SetName(pszGeomFieldName);
+        poGeomFieldDefn->SetNullable(poSrcGeomFieldDefn->IsNullable());
         if (poSRS != nullptr)
         {
             auto poSRSClone = poSRS->Clone();
             poSRSClone->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-            poLayer->GetLayerDefn()->GetGeomFieldDefn(0)->SetSpatialRef(
-                poSRSClone);
+            poGeomFieldDefn->SetSpatialRef(poSRSClone);
             poSRSClone->Dereference();
         }
+        poGeomFieldDefn->SetCoordinatePrecision(
+            poSrcGeomFieldDefn->GetCoordinatePrecision());
     }
 
     CPLFree(pszCleanLayerName);
@@ -2595,12 +2638,51 @@ void OGRGMLDataSource::InsertHeader()
             }
 
             int nMinOccurs = poFieldDefn->IsNullable() ? 0 : 1;
-            PrintLine(
-                fpSchema,
-                "        <xs:element name=\"%s\" type=\"gml:%s\" "
-                "nillable=\"true\" minOccurs=\"%d\" maxOccurs=\"1\"/>%s%s",
-                poFieldDefn->GetNameRef(), pszGeometryTypeName, nMinOccurs,
-                pszGeomTypeComment, osSRSNameComment.c_str());
+            const auto &oCoordPrec = poFieldDefn->GetCoordinatePrecision();
+            if (oCoordPrec.dfXYResolution ==
+                    OGRGeomCoordinatePrecision::UNKNOWN &&
+                oCoordPrec.dfZResolution == OGRGeomCoordinatePrecision::UNKNOWN)
+            {
+                PrintLine(
+                    fpSchema,
+                    "        <xs:element name=\"%s\" type=\"gml:%s\" "
+                    "nillable=\"true\" minOccurs=\"%d\" maxOccurs=\"1\"/>%s%s",
+                    poFieldDefn->GetNameRef(), pszGeometryTypeName, nMinOccurs,
+                    pszGeomTypeComment, osSRSNameComment.c_str());
+            }
+            else
+            {
+                PrintLine(fpSchema,
+                          "        <xs:element name=\"%s\" type=\"gml:%s\" "
+                          "nillable=\"true\" minOccurs=\"%d\" maxOccurs=\"1\">",
+                          poFieldDefn->GetNameRef(), pszGeometryTypeName,
+                          nMinOccurs);
+                PrintLine(fpSchema, "          <xs:annotation>");
+                PrintLine(fpSchema, "            <xs:appinfo "
+                                    "source=\"http://ogr.maptools.org/\">");
+                if (oCoordPrec.dfXYResolution !=
+                    OGRGeomCoordinatePrecision::UNKNOWN)
+                {
+                    PrintLine(fpSchema,
+                              "              "
+                              "<ogr:xy_coordinate_resolution>%g</"
+                              "ogr:xy_coordinate_resolution>",
+                              oCoordPrec.dfXYResolution);
+                }
+                if (oCoordPrec.dfZResolution !=
+                    OGRGeomCoordinatePrecision::UNKNOWN)
+                {
+                    PrintLine(fpSchema,
+                              "              "
+                              "<ogr:z_coordinate_resolution>%g</"
+                              "ogr:z_coordinate_resolution>",
+                              oCoordPrec.dfZResolution);
+                }
+                PrintLine(fpSchema, "            </xs:appinfo>");
+                PrintLine(fpSchema, "          </xs:annotation>");
+                PrintLine(fpSchema, "        </xs:element>%s%s",
+                          pszGeomTypeComment, osSRSNameComment.c_str());
+            }
         }
 
         // Emit each of the attributes.
@@ -2865,7 +2947,7 @@ void OGRGMLDataSource::PrintLine(VSILFILE *fp, const char *fmt, ...)
     osWork.vPrintf(fmt, args);
     va_end(args);
 
-#ifdef WIN32
+#ifdef _WIN32
     const char *pszEOL = "\r\n";
 #else
     const char *pszEOL = "\n";
@@ -2887,6 +2969,7 @@ class OGRGMLSingleFeatureLayer final : public OGRLayer
 
   public:
     explicit OGRGMLSingleFeatureLayer(int nVal);
+
     virtual ~OGRGMLSingleFeatureLayer()
     {
         poFeatureDefn->Release();
@@ -2896,11 +2979,14 @@ class OGRGMLSingleFeatureLayer final : public OGRLayer
     {
         iNextShapeId = 0;
     }
+
     virtual OGRFeature *GetNextFeature() override;
+
     virtual OGRFeatureDefn *GetLayerDefn() override
     {
         return poFeatureDefn;
     }
+
     virtual int TestCapability(const char *) override
     {
         return FALSE;
@@ -2994,7 +3080,8 @@ void OGRGMLDataSource::FindAndParseTopElements(VSILFILE *fp)
             const char *pszEndTag = nullptr;
             for (const char *pszIter = pszStartTag; *pszIter != '\0'; pszIter++)
             {
-                if (isspace(*pszIter) || *pszIter == '>')
+                if (isspace(static_cast<unsigned char>(*pszIter)) ||
+                    *pszIter == '>')
                 {
                     pszEndTag = pszIter;
                     break;

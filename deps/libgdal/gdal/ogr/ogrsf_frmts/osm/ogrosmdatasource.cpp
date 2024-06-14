@@ -83,6 +83,7 @@ static int DBL_TO_INT(double x)
 {
     return static_cast<int>(floor(x * 1.0e7 + 0.5));
 }
+
 static double INT_TO_DBL(int x)
 {
     return x / 1.0e7;
@@ -130,6 +131,7 @@ template <typename T> static T ROUND_COMPRESS_SIZE(T nCompressSize)
 {
     return ((nCompressSize + 1) / 2) * 2;
 }
+
 static int COMPRESS_SIZE_FROM_BYTE(GByte byte_on_size)
 {
     return static_cast<int>(byte_on_size) * 2 + 8;
@@ -2214,7 +2216,7 @@ unsigned int OGROSMDataSource::LookupWays(
                 const void *blob = sqlite3_column_blob(hStmt, 1);
                 void *blob_dup = CPLMalloc(nBlobSize);
                 memcpy(blob_dup, blob, nBlobSize);
-                aoMapWays[id] = std::pair<int, void *>(nBlobSize, blob_dup);
+                aoMapWays[id] = std::pair(nBlobSize, blob_dup);
             }
             nFound++;
         }
@@ -2258,9 +2260,9 @@ OGRGeometry *OGROSMDataSource::BuildMultiPolygon(OSMRelation *psRelation,
 
     if (bMissing)
     {
-        std::map<GIntBig, std::pair<int, void *>>::iterator oIter;
-        for (oIter = aoMapWays.begin(); oIter != aoMapWays.end(); ++oIter)
-            CPLFree(oIter->second.second);
+        // cppcheck-suppress constVariableReference
+        for (auto &oIter : aoMapWays)
+            CPLFree(oIter.second.second);
 
         return nullptr;
     }
@@ -2278,8 +2280,7 @@ OGRGeometry *OGROSMDataSource::BuildMultiPolygon(OSMRelation *psRelation,
         if (psRelation->pasMembers[i].eType == MEMBER_WAY &&
             strcmp(psRelation->pasMembers[i].pszRole, "subarea") != 0)
         {
-            const std::pair<int, void *> &oGeom =
-                aoMapWays[psRelation->pasMembers[i].nID];
+            const auto &oGeom = aoMapWays[psRelation->pasMembers[i].nID];
 
             if (pnTags != nullptr && *pnTags == 0 &&
                 strcmp(psRelation->pasMembers[i].pszRole, "outer") == 0)
@@ -2404,9 +2405,9 @@ OGRGeometry *OGROSMDataSource::BuildMultiPolygon(OSMRelation *psRelation,
 
     CPLFree(papoPolygons);
 
-    std::map<GIntBig, std::pair<int, void *>>::iterator oIter;
-    for (oIter = aoMapWays.begin(); oIter != aoMapWays.end(); ++oIter)
-        CPLFree(oIter->second.second);
+    // cppcheck-suppress constVariableReference
+    for (auto &oIter : aoMapWays)
+        CPLFree(oIter.second.second);
 
     return poRet;
 }
@@ -2444,8 +2445,7 @@ OGRGeometry *OGROSMDataSource::BuildGeometryCollection(OSMRelation *psRelation,
                  aoMapWays.find(psRelation->pasMembers[i].nID) !=
                      aoMapWays.end())
         {
-            const std::pair<int, void *> &oGeom =
-                aoMapWays[psRelation->pasMembers[i].nID];
+            const auto &oGeom = aoMapWays[psRelation->pasMembers[i].nID];
 
             bool bIsArea = false;
             UncompressWay(oGeom.first, reinterpret_cast<GByte *>(oGeom.second),
@@ -2481,9 +2481,9 @@ OGRGeometry *OGROSMDataSource::BuildGeometryCollection(OSMRelation *psRelation,
         poColl = nullptr;
     }
 
-    std::map<GIntBig, std::pair<int, void *>>::iterator oIter;
-    for (oIter = aoMapWays.begin(); oIter != aoMapWays.end(); ++oIter)
-        CPLFree(oIter->second.second);
+    // cppcheck-suppress constVariableReference
+    for (auto &oIter : aoMapWays)
+        CPLFree(oIter.second.second);
 
     return poColl;
 }
@@ -4071,18 +4071,18 @@ bool OGROSMDataSource::TransferToDiskIfNecesserary()
             VSIFCloseL(m_fpNodes);
             m_fpNodes = nullptr;
 
-            CPLString osNewTmpDBName;
-            osNewTmpDBName = CPLGenerateTempFilename("osm_tmp_nodes");
+            const std::string osNewTmpDBName(
+                CPLGenerateTempFilename("osm_tmp_nodes"));
 
             CPLDebug("OSM",
                      "%s too big for RAM. Transferring it onto disk in %s",
                      m_osNodesFilename.c_str(), osNewTmpDBName.c_str());
 
-            if (CPLCopyFile(osNewTmpDBName, m_osNodesFilename) != 0)
+            if (CPLCopyFile(osNewTmpDBName.c_str(), m_osNodesFilename) != 0)
             {
                 CPLError(CE_Failure, CPLE_AppDefined, "Cannot copy %s to %s",
                          m_osNodesFilename.c_str(), osNewTmpDBName.c_str());
-                VSIUnlink(osNewTmpDBName);
+                VSIUnlink(osNewTmpDBName.c_str());
                 m_bStopParsing = true;
                 return false;
             }
@@ -4152,19 +4152,18 @@ bool OGROSMDataSource::TransferToDiskIfNecesserary()
 
             CloseDB();
 
-            CPLString osNewTmpDBName;
-
-            osNewTmpDBName = CPLGenerateTempFilename("osm_tmp");
+            const std::string osNewTmpDBName(
+                CPLGenerateTempFilename("osm_tmp"));
 
             CPLDebug("OSM",
                      "%s too big for RAM. Transferring it onto disk in %s",
                      m_osTmpDBName.c_str(), osNewTmpDBName.c_str());
 
-            if (CPLCopyFile(osNewTmpDBName, m_osTmpDBName) != 0)
+            if (CPLCopyFile(osNewTmpDBName.c_str(), m_osTmpDBName) != 0)
             {
                 CPLError(CE_Failure, CPLE_AppDefined, "Cannot copy %s to %s",
                          m_osTmpDBName.c_str(), osNewTmpDBName.c_str());
-                VSIUnlink(osNewTmpDBName);
+                VSIUnlink(osNewTmpDBName.c_str());
                 m_bStopParsing = true;
                 return false;
             }
@@ -4273,11 +4272,14 @@ class OGROSMSingleFeatureLayer final : public OGRLayer
     {
         iNextShapeId = 0;
     }
+
     virtual OGRFeature *GetNextFeature() override;
+
     virtual OGRFeatureDefn *GetLayerDefn() override
     {
         return poFeatureDefn;
     }
+
     virtual int TestCapability(const char *) override
     {
         return FALSE;

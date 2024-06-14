@@ -39,6 +39,7 @@
 #include "ogr_spatialref.h"
 
 #include "georaster_priv.h"
+#include "georasterdrivercore.h"
 
 #include <memory>
 
@@ -90,27 +91,6 @@ GeoRasterDataset::~GeoRasterDataset()
 }
 
 //  ---------------------------------------------------------------------------
-//                                                                   Identify()
-//  ---------------------------------------------------------------------------
-
-int GeoRasterDataset::Identify(GDALOpenInfo *poOpenInfo)
-{
-    //  -------------------------------------------------------------------
-    //  Verify georaster prefix
-    //  -------------------------------------------------------------------
-
-    char *pszFilename = poOpenInfo->pszFilename;
-
-    if (STARTS_WITH_CI(pszFilename, "georaster:") == false &&
-        STARTS_WITH_CI(pszFilename, "geor:") == false)
-    {
-        return false;
-    }
-
-    return true;
-}
-
-//  ---------------------------------------------------------------------------
 //                                                                       Open()
 //  ---------------------------------------------------------------------------
 
@@ -129,7 +109,7 @@ GDALDataset *GeoRasterDataset::Open(GDALOpenInfo *poOpenInfo)
     //  Check identification string and usage
     //  -------------------------------------------------------------------
 
-    if (!Identify(poOpenInfo))
+    if (!GEORDriverIdentify(poOpenInfo))
     {
         return nullptr;
     }
@@ -809,6 +789,21 @@ char **GeoRasterDataset::GetFileList()
     return papszFileList;
 }
 
+static bool ParseCommaSeparatedString(const char *str, double pfValues[],
+                                      int nMaxValues)
+{
+    int nValues = 0;
+    char **papszTokens = CSLTokenizeString2(str, ",", 0);
+
+    for (int i = 0; papszTokens && papszTokens[i] && nValues < nMaxValues; i++)
+    {
+        pfValues[nValues++] = CPLAtof(papszTokens[i]);
+    }
+
+    CSLDestroy(papszTokens);
+    return nValues == nMaxValues;
+}
+
 //  ---------------------------------------------------------------------------
 //                                                                     Create()
 //  ---------------------------------------------------------------------------
@@ -1270,6 +1265,103 @@ GDALDataset *GeoRasterDataset::Create(const char *pszFilename, int nXSize,
     {
         poGRD->poGeoRaster->bGenPyramid = true;
         poGRD->poGeoRaster->nPyramidLevels = atoi(pszFetched);
+    }
+
+    pszFetched = CSLFetchNameValue(papszOptions, "GENSTATS");
+
+    if (pszFetched != nullptr)
+    {
+        poGRD->poGeoRaster->bGenStats = EQUAL(pszFetched, "TRUE");
+    }
+
+    bool bGenStatsOptionsUsed = false;
+
+    pszFetched = CSLFetchNameValue(papszOptions, "GENSTATS_SAMPLINGFACTOR");
+
+    if (pszFetched != nullptr)
+    {
+        bGenStatsOptionsUsed = true;
+        poGRD->poGeoRaster->nGenStatsSamplingFactor = atoi(pszFetched);
+    }
+
+    pszFetched = CSLFetchNameValue(papszOptions, "GENSTATS_SAMPLINGWINDOW");
+
+    if (pszFetched != nullptr)
+    {
+        bGenStatsOptionsUsed = true;
+
+        // Sampling window contains 4 double values
+        const int nSize = 4;
+        if (!ParseCommaSeparatedString(
+                pszFetched, poGRD->poGeoRaster->dfGenStatsSamplingWindow,
+                nSize))
+        {
+            CPLError(CE_Failure, CPLE_IllegalArg,
+                     "Wrong comma separated string for sampling window (%s)",
+                     pszFetched);
+            delete poGRD;
+            return nullptr;
+        }
+
+        poGRD->poGeoRaster->bGenStatsUseSamplingWindow = true;
+    }
+
+    pszFetched = CSLFetchNameValue(papszOptions, "GENSTATS_HISTOGRAM");
+
+    if (pszFetched != nullptr)
+    {
+        bGenStatsOptionsUsed = true;
+        poGRD->poGeoRaster->bGenStatsHistogram = EQUAL(pszFetched, "TRUE");
+    }
+
+    pszFetched = CSLFetchNameValue(papszOptions, "GENSTATS_LAYERNUMBERS");
+
+    if (pszFetched != nullptr)
+    {
+        bGenStatsOptionsUsed = true;
+        poGRD->poGeoRaster->sGenStatsLayerNumbers = pszFetched;
+    }
+
+    pszFetched = CSLFetchNameValue(papszOptions, "GENSTATS_USEBIN");
+
+    if (pszFetched != nullptr)
+    {
+        bGenStatsOptionsUsed = true;
+        poGRD->poGeoRaster->bGenStatsUseBin = EQUAL(pszFetched, "TRUE");
+    }
+
+    pszFetched = CSLFetchNameValue(papszOptions, "GENSTATS_BINFUNCTION");
+
+    if (pszFetched != nullptr)
+    {
+        bGenStatsOptionsUsed = true;
+        const int nSize = 5;
+        if (!ParseCommaSeparatedString(
+                pszFetched, poGRD->poGeoRaster->dfGenStatsBinFunction, nSize))
+        {
+            CPLError(CE_Failure, CPLE_IllegalArg,
+                     "Wrong comma separated string for bin function (%s)",
+                     pszFetched);
+            delete poGRD;
+            return nullptr;
+        }
+    }
+
+    pszFetched = CSLFetchNameValue(papszOptions, "GENSTATS_NODATA");
+
+    if (pszFetched != nullptr)
+    {
+        bGenStatsOptionsUsed = true;
+        poGRD->poGeoRaster->bGenStatsNodata = EQUAL(pszFetched, "TRUE");
+    }
+
+    if (bGenStatsOptionsUsed && !poGRD->poGeoRaster->bGenStats)
+    {
+        CPLError(
+            CE_Warning, CPLE_AppDefined,
+            "Some GENSTATS* options were used but GENSTATS is not set. "
+            "Statistics won't be computed, please set GENSTATS option to true "
+            "if you want to generate statistics");
     }
 
     //  -------------------------------------------------------------------
@@ -2441,7 +2533,7 @@ void GeoRasterDataset::SetSubdatasets(GeoRasterWrapper *poGRW)
 
                 papszSubdatasets = CSLSetNameValue(
                     papszSubdatasets, CPLSPrintf("SUBDATASET_%d_DESC", nCount),
-                    CPLSPrintf("%s.Table=%s", szOwner, szTable));
+                    CPLSPrintf("Table=%s.%s", szOwner, szTable));
 
                 nCount++;
             } while (poStmt->Fetch());
@@ -2865,111 +2957,15 @@ void CPL_DLL GDALRegister_GEOR()
     if (!GDAL_CHECK_VERSION("GeoRaster driver"))
         return;
 
-    if (GDALGetDriverByName("GeoRaster") != nullptr)
+    if (GDALGetDriverByName(DRIVER_NAME) != nullptr)
         return;
 
     GDALDriver *poDriver = new GDALDriver();
 
-    poDriver->SetDescription("GeoRaster");
-    poDriver->SetMetadataItem(GDAL_DCAP_RASTER, "YES");
-    poDriver->SetMetadataItem(GDAL_DMD_LONGNAME, "Oracle Spatial GeoRaster");
-    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC,
-                              "drivers/raster/georaster.html");
-    poDriver->SetMetadataItem(GDAL_DMD_SUBDATASETS, "YES");
-    poDriver->SetMetadataItem(GDAL_DMD_CREATIONDATATYPES,
-                              "Byte UInt16 Int16 UInt32 Int32 Float32 "
-                              "Float64 CFloat32 CFloat64");
-    poDriver->SetMetadataItem(
-        GDAL_DMD_CREATIONOPTIONLIST,
-        "<CreationOptionList>"
-        "  <Option name='DESCRIPTION' type='string' description='Table "
-        "Description'/>"
-        "  <Option name='INSERT'      type='string' description='Column "
-        "Values'/>"
-        "  <Option name='BLOCKXSIZE'  type='int'    description='Column Block "
-        "Size' "
-        "default='512'/>"
-        "  <Option name='BLOCKYSIZE'  type='int'    description='Row Block "
-        "Size' "
-        "default='512'/>"
-        "  <Option name='BLOCKBSIZE'  type='int'    description='Band Block "
-        "Size'/>"
-        "  <Option name='BLOCKING'    type='string-select' default='YES'>"
-        "       <Value>YES</Value>"
-        "       <Value>NO</Value>"
-        "       <Value>OPTIMALPADDING</Value>"
-        "  </Option>"
-        "  <Option name='SRID'        type='int'    description='Overwrite "
-        "EPSG code'/>"
-        "  <Option name='GENPYRAMID'  type='string-select' "
-        " description='Generate Pyramid, inform resampling method'>"
-        "       <Value>NN</Value>"
-        "       <Value>BILINEAR</Value>"
-        "       <Value>BIQUADRATIC</Value>"
-        "       <Value>CUBIC</Value>"
-        "       <Value>AVERAGE4</Value>"
-        "       <Value>AVERAGE16</Value>"
-        "  </Option>"
-        "  <Option name='GENPYRLEVELS'  type='int'  description='Number of "
-        "pyramid level to generate'/>"
-        "  <Option name='OBJECTTABLE' type='boolean' "
-        "description='Create RDT as object table'/>"
-        "  <Option name='SPATIALEXTENT' type='boolean' "
-        "description='Generate Spatial Extent' "
-        "default='TRUE'/>"
-        "  <Option name='EXTENTSRID'  type='int'    description='Spatial "
-        "ExtentSRID code'/>"
-        "  <Option name='COORDLOCATION'    type='string-select' "
-        "default='CENTER'>"
-        "       <Value>CENTER</Value>"
-        "       <Value>UPPERLEFT</Value>"
-        "  </Option>"
-        "  <Option name='VATNAME'     type='string' description='Value "
-        "Attribute Table Name'/>"
-        "  <Option name='NBITS'       type='int'    description='BITS for "
-        "sub-byte "
-        "data types (1,2,4) bits'/>"
-        "  <Option name='INTERLEAVE'  type='string-select'>"
-        "       <Value>BSQ</Value>"
-        "       <Value>BIP</Value>"
-        "       <Value>BIL</Value>"
-        "   </Option>"
-        "  <Option name='COMPRESS'    type='string-select'>"
-        "       <Value>NONE</Value>"
-        "       <Value>JPEG-F</Value>"
-        "       <Value>JP2-F</Value>"
-        "       <Value>DEFLATE</Value>"
-        "  </Option>"
-        "  <Option name='QUALITY'     type='int'    description='JPEG quality "
-        "0..100' "
-        "default='75'/>"
-        "  <Option name='JP2_QUALITY'     type='string' description='For JP2-F "
-        "compression, single quality value or comma separated list "
-        "of increasing quality values for several layers, each in the 0-100 "
-        "range' default='25'/>"
-        "  <Option name='JP2_BLOCKXSIZE'  type='int' description='For JP2 "
-        "compression, tile Width' default='1024'/>"
-        "  <Option name='JP2_BLOCKYSIZE'  type='int' description='For JP2 "
-        "compression, tile Height' default='1024'/>"
-        "  <Option name='JP2_REVERSIBLE'  type='boolean' description='For "
-        "JP2-F compression, True if the compression is reversible' "
-        "default='false'/>"
-        "  <Option name='JP2_RESOLUTIONS' type='int' description='For JP2-F "
-        "compression, Number of resolutions.' min='1' max='30'/>"
-        "  <Option name='JP2_PROGRESSION' type='string-select' "
-        "description='For JP2-F compression, progression order' default='LRCP'>"
-        "    <Value>LRCP</Value>"
-        "    <Value>RLCP</Value>"
-        "    <Value>RPCL</Value>"
-        "    <Value>PCRL</Value>"
-        "    <Value>CPRL</Value>"
-        "  </Option>"
-        "</CreationOptionList>");
-
+    GEORDriverSetCommonMetadata(poDriver);
     poDriver->pfnOpen = GeoRasterDataset::Open;
     poDriver->pfnCreate = GeoRasterDataset::Create;
     poDriver->pfnCreateCopy = GeoRasterDataset::CreateCopy;
-    poDriver->pfnIdentify = GeoRasterDataset::Identify;
     poDriver->pfnDelete = GeoRasterDataset::Delete;
 
     GetGDALDriverManager()->RegisterDriver(poDriver);

@@ -39,17 +39,6 @@
  *
  */
 
-/* ==================================================================== */
-/*      We will use WIN32 as a standard windows define.                 */
-/* ==================================================================== */
-#if defined(_WIN32) && !defined(WIN32)
-#define WIN32
-#endif
-
-#if defined(_WINDOWS) && !defined(WIN32)
-#define WIN32
-#endif
-
 /* -------------------------------------------------------------------- */
 /*      The following apparently allow you to use strcpy() and other    */
 /*      functions judged "unsafe" by microsoft in VS 8 (2005).          */
@@ -147,7 +136,7 @@
 #include <direct.h>
 #endif
 
-#if !defined(WIN32)
+#if !defined(_WIN32)
 #include <strings.h>
 #endif
 
@@ -277,7 +266,7 @@ typedef uintptr_t GUIntptr_t;
 #endif
 
 #if (defined(__MSVCRT__) && !(defined(__MINGW64__) && __GNUC__ >= 10)) ||      \
-    (defined(WIN32) && defined(_MSC_VER))
+    (defined(_WIN32) && defined(_MSC_VER))
 #define CPL_FRMT_GB_WITHOUT_PREFIX "I64"
 #else
 /** Printf formatting suffix for GIntBig */
@@ -547,7 +536,7 @@ static inline char *CPL_afl_friendly_strstr(const char *haystack,
 
 #endif /* defined(AFL_FRIENDLY) && defined(__GNUC__) */
 
-#if defined(WIN32)
+#if defined(_WIN32)
 #define STRCASECMP(a, b) (_stricmp(a, b))
 #define STRNCASECMP(a, b, n) (_strnicmp(a, b, n))
 #else
@@ -610,22 +599,27 @@ extern "C++"
     {
         return std::isnan(f);
     }
+
     static inline int CPLIsNan(double f)
     {
         return std::isnan(f);
     }
+
     static inline int CPLIsInf(float f)
     {
         return std::isinf(f);
     }
+
     static inline int CPLIsInf(double f)
     {
         return std::isinf(f);
     }
+
     static inline int CPLIsFinite(float f)
     {
         return std::isfinite(f);
     }
+
     static inline int CPLIsFinite(double f)
     {
         return std::isfinite(f);
@@ -643,22 +637,27 @@ extern "C++"
     {
         return __isnanf(f);
     }
+
     static inline int CPLIsNan(double f)
     {
         return __isnan(f);
     }
+
     static inline int CPLIsInf(float f)
     {
         return __isinff(f);
     }
+
     static inline int CPLIsInf(double f)
     {
         return __isinf(f);
     }
+
     static inline int CPLIsFinite(float f)
     {
         return !__isnanf(f) && !__isinff(f);
     }
+
     static inline int CPLIsFinite(double f)
     {
         return !__isnan(f) && !__isinf(f);
@@ -714,6 +713,7 @@ extern "C++"
     template <bool b> struct CPLStaticAssert
     {
     };
+
     template <> struct CPLStaticAssert<true>
     {
         static void my_function()
@@ -1093,6 +1093,7 @@ extern "C++"
     template <class T> static void CPL_IGNORE_RET_VAL(const T &)
     {
     }
+
     inline static bool CPL_TO_BOOL(int x)
     {
         return x != 0;
@@ -1110,20 +1111,6 @@ extern "C++"
 #if ((__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 2)) &&               \
      !defined(_MSC_VER))
 #define HAVE_GCC_SYSTEM_HEADER
-#endif
-
-#if defined(__has_cpp_attribute)
-#if __has_cpp_attribute(fallthrough)
-/** Macro for fallthrough in a switch case construct */
-#define CPL_FALLTHROUGH [[fallthrough]];
-#endif
-#elif defined(__clang__) || __GNUC__ >= 7
-/** Macro for fallthrough in a switch case construct */
-#define CPL_FALLTHROUGH [[clang::fallthrough]];
-#endif
-#ifndef CPL_FALLTHROUGH
-/** Macro for fallthrough in a switch case construct */
-#define CPL_FALLTHROUGH
 #endif
 
 /*! @cond Doxygen_Suppress */
@@ -1160,6 +1147,24 @@ extern "C++"
 #else
 #define CPL_NULLPTR NULL
 #endif
+
+#if defined(__cplusplus) && defined(GDAL_COMPILATION)
+extern "C++"
+{
+    namespace cpl
+    {
+    /** Function to indicate that the result of an arithmetic operation
+         * does fit on the specified type. Typically used to avoid warnings
+         * about potentially overflowing multiplications by static analyzers.
+         */
+    template <typename T> inline T fits_on(T t)
+    {
+        return t;
+    }
+    }  // namespace cpl
+}
+#endif
+
 /*! @endcond */
 
 /* This typedef is for C functions that take char** as argument, but */

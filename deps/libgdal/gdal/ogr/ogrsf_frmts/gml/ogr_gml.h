@@ -78,11 +78,14 @@ class OGRGMLLayer final : public OGRLayer
 
     virtual ~OGRGMLLayer();
 
+    GDALDataset *GetDataset() override;
+
     void ResetReading() override;
     OGRFeature *GetNextFeature() override;
 
     GIntBig GetFeatureCount(int bForce = TRUE) override;
     OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
+
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce) override
     {
@@ -96,9 +99,9 @@ class OGRGMLLayer final : public OGRLayer
         return poFeatureDefn;
     }
 
-    virtual OGRErr CreateField(OGRFieldDefn *poField,
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
-    virtual OGRErr CreateGeomField(OGRGeomFieldDefn *poField,
+    virtual OGRErr CreateGeomField(const OGRGeomFieldDefn *poField,
                                    int bApproxOK = TRUE) override;
 
     int TestCapability(const char *) override;
@@ -187,23 +190,23 @@ class OGRGMLDataSource final : public OGRDataSource
     {
         return pszName;
     }
+
     int GetLayerCount() override
     {
         return nLayers;
     }
+
     OGRLayer *GetLayer(int) override;
-
-    virtual OGRLayer *ICreateLayer(const char *,
-                                   const OGRSpatialReference * = nullptr,
-                                   OGRwkbGeometryType = wkbUnknown,
-                                   char ** = nullptr) override;
-
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
     int TestCapability(const char *) override;
 
     VSILFILE *GetOutputFP() const
     {
         return fpOutput;
     }
+
     IGMLReader *GetReader() const
     {
         return poReader;
@@ -223,36 +226,44 @@ class OGRGMLDataSource final : public OGRDataSource
     {
         return bIsOutputGML3;
     }
+
     bool IsGML3DeegreeOutput() const
     {
         return bIsOutputGML3Deegree;
     }
+
     bool IsGML32Output() const
     {
         return bIsOutputGML32;
     }
+
     OGRGMLSRSNameFormat GetSRSNameFormat() const
     {
         return eSRSNameFormat;
     }
+
     bool WriteSpaceIndentation() const
     {
         return bWriteSpaceIndentation;
     }
+
     const char *GetGlobalSRSName();
 
     bool GetInvertAxisOrderIfLatLong() const
     {
         return m_bInvertAxisOrderIfLatLong;
     }
+
     bool GetConsiderEPSGAsURN() const
     {
         return m_bConsiderEPSGAsURN;
     }
+
     GMLSwapCoordinatesEnum GetSwapCoordinates() const
     {
         return m_eSwapCoordinates;
     }
+
     bool GetSecondaryGeometryOption() const
     {
         return m_bGetSecondaryGeometryOption;
@@ -262,10 +273,12 @@ class OGRGMLDataSource final : public OGRDataSource
     {
         return eReadMode;
     }
+
     void SetStoredGMLFeature(GMLFeature *poStoredGMLFeatureIn)
     {
         poStoredGMLFeature = poStoredGMLFeatureIn;
     }
+
     GMLFeature *PeekStoredGMLFeature() const
     {
         return poStoredGMLFeature;
@@ -275,6 +288,7 @@ class OGRGMLDataSource final : public OGRDataSource
     {
         return poLastReadLayer;
     }
+
     void SetLastReadLayer(OGRGMLLayer *poLayer)
     {
         poLastReadLayer = poLayer;

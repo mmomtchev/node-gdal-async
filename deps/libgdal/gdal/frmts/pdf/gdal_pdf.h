@@ -54,6 +54,8 @@
 
 #include "pdfsdk_headers.h"
 
+#include "pdfdrivercore.h"
+
 #include "cpl_vsi_virtual.h"
 
 #include "gdal_pam.h"
@@ -66,10 +68,6 @@
 #define PDFLIB_PODOFO 1
 #define PDFLIB_PDFIUM 2
 #define PDFLIB_COUNT 3
-
-#if defined(HAVE_POPPLER) || defined(HAVE_PODOFO) || defined(HAVE_PDFIUM)
-#define HAVE_PDF_READ_SUPPORT
-#endif
 
 /************************************************************************/
 /*                             OGRPDFLayer                              */
@@ -92,6 +90,8 @@ class OGRPDFLayer final : public OGRMemLayer
     void Fill(GDALPDFArray *poArray);
 
     virtual int TestCapability(const char *) override;
+
+    GDALDataset *GetDataset() override;
 };
 
 #endif
@@ -113,6 +113,8 @@ class OGRPDFWritableLayer final : public OGRMemLayer
 
     virtual int TestCapability(const char *) override;
     virtual OGRErr ICreateFeature(OGRFeature *poFeature) override;
+
+    GDALDataset *GetDataset() override;
 };
 
 /************************************************************************/
@@ -265,28 +267,36 @@ class PDFDataset final : public GDALPamDataset
     void ParseInfo(GDALPDFObject *poObj);
 
 #ifdef HAVE_POPPLER
-    ObjectAutoFree *m_poCatalogObjectPoppler = nullptr;
+    std::unique_ptr<Object> m_poCatalogObjectPoppler{};
 #endif
     GDALPDFObject *m_poCatalogObject = nullptr;
     GDALPDFObject *GetCatalog();
+    GDALPDFArray *GetPagesKids();
 
 #if defined(HAVE_POPPLER) || defined(HAVE_PDFIUM)
-    void AddLayer(const char *pszLayerName);
+    void AddLayer(const std::string &osName, int iPage);
+    void CreateLayerList();
+    std::string
+    BuildPostfixedLayerNameAndAddLayer(const std::string &osName,
+                                       const std::pair<int, int> &oOCGRef,
+                                       int iPageOfInterest, int nPageCount);
 #endif
 
 #if defined(HAVE_POPPLER)
-    void ExploreLayersPoppler(GDALPDFArray *poArray, CPLString osTopLayer,
+    void ExploreLayersPoppler(GDALPDFArray *poArray, int iPageOfInterest,
+                              int nPageCount, CPLString osTopLayer,
                               int nRecLevel, int &nVisited, bool &bStop);
-    void FindLayersPoppler();
+    void FindLayersPoppler(int iPageOfInterest);
     void TurnLayersOnOffPoppler();
     std::vector<std::pair<CPLString, OptionalContentGroup *>>
         m_oLayerOCGListPoppler{};
 #endif
 
 #ifdef HAVE_PDFIUM
-    void ExploreLayersPdfium(GDALPDFArray *poArray, int nRecLevel,
+    void ExploreLayersPdfium(GDALPDFArray *poArray, int iPageOfInterest,
+                             int nPageCount, int nRecLevel,
                              CPLString osTopLayer = "");
-    void FindLayersPdfium();
+    void FindLayersPdfium(int iPageOfInterest);
     void PDFiumRenderPageBitmap(FPDF_BITMAP bitmap, FPDF_PAGE page, int start_x,
                                 int start_y, int size_x, int size_y,
                                 const char *pszRenderingOptions);
@@ -308,7 +318,19 @@ class PDFDataset final : public GDALPamDataset
         m_oMapOCGNumGenToVisibilityStatePdfium{};
 #endif
 
-    CPLStringList m_osLayerList{};
+    // Map OCGs identified by their (number, generation) to the list of pages
+    // where they are referenced from.
+    std::map<std::pair<int, int>, std::vector<int>> m_oMapOCGNumGenToPages{};
+
+    struct LayerStruct
+    {
+        std::string osName{};
+        int nInsertIdx = 0;
+        int iPage = 0;
+    };
+
+    std::vector<LayerStruct> m_oLayerNameSet{};
+    CPLStringList m_aosLayerNames{};
 
     struct LayerWithRef
     {
@@ -322,11 +344,14 @@ class PDFDataset final : public GDALPamDataset
         {
         }
     };
+
     std::vector<LayerWithRef> m_aoLayerWithRef{};
 
     CPLString FindLayerOCG(GDALPDFDictionary *poPageDict,
                            const char *pszLayerName);
     void FindLayersGeneric(GDALPDFDictionary *poPageDict);
+
+    void MapOCGsToPages();
 
     bool m_bUseOCG = false;
 
@@ -425,21 +450,23 @@ class PDFDataset final : public GDALPamDataset
     {
         return m_poPageObj;
     }
+
     double GetPageWidth() const
     {
         return m_dfPageWidth;
     }
+
     double GetPageHeight() const
     {
         return m_dfPageHeight;
     }
 
     static PDFDataset *Open(GDALOpenInfo *);
+
     static GDALDataset *OpenWrapper(GDALOpenInfo *poOpenInfo)
     {
         return Open(poOpenInfo);
     }
-    static int Identify(GDALOpenInfo *);
 
     virtual CPLErr IBuildOverviews(const char *, int, const int *, int,
                                    const int *, GDALProgressFunc, void *,
@@ -502,10 +529,9 @@ class PDFWritableVectorDataset final : public GDALDataset
     PDFWritableVectorDataset();
     virtual ~PDFWritableVectorDataset();
 
-    virtual OGRLayer *ICreateLayer(const char *pszLayerName,
-                                   const OGRSpatialReference *poSRS,
-                                   OGRwkbGeometryType eType,
-                                   char **papszOptions) override;
+    virtual OGRLayer *ICreateLayer(const char *pszName,
+                                   const OGRGeomFieldDefn *poGeomFieldDefn,
+                                   CSLConstList papszOptions) override;
 
     virtual OGRErr SyncToDisk();
 

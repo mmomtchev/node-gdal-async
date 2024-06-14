@@ -55,6 +55,7 @@ class HKVRasterBand final : public RawRasterBand
     HKVRasterBand(HKVDataset *poDS, int nBand, VSILFILE *fpRaw,
                   unsigned int nImgOffset, int nPixelOffset, int nLineOffset,
                   GDALDataType eDataType, int bNativeOrder);
+
     ~HKVRasterBand() override
     {
     }
@@ -70,6 +71,7 @@ class HKVSpheroidList : public SpheroidList
 {
   public:
     HKVSpheroidList();
+
     ~HKVSpheroidList()
     {
     }
@@ -222,6 +224,7 @@ class HKVDataset final : public RawDataset
 
     void ProcessGeoref(const char *);
     void ProcessGeorefGCP(char **, const char *, double, double);
+
     void SetVersion(float version_number)
     {
         // Update stored info.
@@ -264,16 +267,19 @@ class HKVDataset final : public RawDataset
     {
         return nGCPCount;
     }
+
     const OGRSpatialReference *GetGCPSpatialRef() const override
     {
         return m_oGCPSRS.IsEmpty() ? nullptr : &m_oGCPSRS;
     }
+
     const GDAL_GCP *GetGCPs() override;
 
     const OGRSpatialReference *GetSpatialRef() const override
     {
         return m_oSRS.IsEmpty() ? nullptr : &m_oSRS;
     }
+
     CPLErr GetGeoTransform(double *) override;
 
     CPLErr SetGeoTransform(double *) override;
@@ -1183,7 +1189,7 @@ void HKVDataset::ProcessGeoref(const char *pszFilename)
             }
             else
             {
-                m_oSRS = oUTM;
+                m_oSRS = std::move(oUTM);
             }
         }
 
@@ -1244,7 +1250,7 @@ void HKVDataset::ProcessGeoref(const char *pszFilename)
             m_oSRS = oLL;
         }
 
-        m_oGCPSRS = oLL;
+        m_oGCPSRS = std::move(oLL);
     }
 
     delete hkvEllipsoids;
@@ -1302,7 +1308,7 @@ GDALDataset *HKVDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create a corresponding GDALDataset.                             */
     /* -------------------------------------------------------------------- */
-    auto poDS = cpl::make_unique<HKVDataset>();
+    auto poDS = std::make_unique<HKVDataset>();
 
     poDS->pszPath = CPLStrdup(poOpenInfo->pszFilename);
     poDS->papszAttrib = papszAttrib;
@@ -1469,7 +1475,7 @@ GDALDataset *HKVDataset::Open(GDALOpenInfo *poOpenInfo)
 
     for (int iRawBand = 0; iRawBand < nRawBands; iRawBand++)
     {
-        auto poBand = cpl::make_unique<HKVRasterBand>(
+        auto poBand = std::make_unique<HKVRasterBand>(
             poDS.get(), poDS->GetRasterCount() + 1, poDS->fpBlob, nOffset,
             nPixelOffset, nLineOffset, eType, bNative);
         if (!poBand->IsValid())

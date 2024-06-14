@@ -52,6 +52,7 @@ class NGWWrapperRasterBand : public GDALProxyRasterBand
         eDataType = poBaseBand->GetRasterDataType();
         poBaseBand->GetBlockSize(&nBlockXSize, &nBlockYSize);
     }
+
     virtual ~NGWWrapperRasterBand()
     {
     }
@@ -598,9 +599,8 @@ void OGRNGWDataset::AddRaster(const CPLJSONObject &oRasterJsonObj,
  * ICreateLayer
  */
 OGRLayer *OGRNGWDataset::ICreateLayer(const char *pszNameIn,
-                                      const OGRSpatialReference *poSpatialRef,
-                                      OGRwkbGeometryType eGType,
-                                      char **papszOptions)
+                                      const OGRGeomFieldDefn *poGeomFieldDefn,
+                                      CSLConstList papszOptions)
 {
     if (!IsUpdateMode())
     {
@@ -608,6 +608,10 @@ OGRLayer *OGRNGWDataset::ICreateLayer(const char *pszNameIn,
                  "Operation not available in read-only mode");
         return nullptr;
     }
+
+    const auto eGType = poGeomFieldDefn ? poGeomFieldDefn->GetType() : wkbNone;
+    const auto poSpatialRef =
+        poGeomFieldDefn ? poGeomFieldDefn->GetSpatialRef() : nullptr;
 
     // Check permissions as we create new layer in memory and will create in
     // during SyncToDisk.
@@ -1128,7 +1132,7 @@ OGRLayer *OGRNGWDataset::ExecuteSQL(const char *pszStatement,
 
             std::set<std::string> aosFields;
             bool bSkip = false;
-            for (int i = 0; i < oSelect.result_columns; ++i)
+            for (int i = 0; i < oSelect.result_columns(); ++i)
             {
                 swq_col_func col_func = oSelect.column_defs[i].col_func;
                 if (col_func != SWQCF_NONE)
@@ -1294,7 +1298,7 @@ CPLErr OGRNGWDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
 
                 // Fill buffer transparent color.
                 memset(pData, 0,
-                       nBufXSize * nBufYSize * nBandCount *
+                       static_cast<size_t>(nBufXSize) * nBufYSize * nBandCount *
                            GDALGetDataTypeSizeBytes(eBufType));
                 return CE_None;
             }

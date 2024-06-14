@@ -154,13 +154,37 @@ OGRFlatGeobufLayer::OGRFlatGeobufLayer(const Header *poHeader, GByte *headerBuf,
 
     m_eGType = getOGRwkbGeometryType();
 
+    if (const auto title = poHeader->title())
+        SetMetadataItem("TITLE", title->c_str());
+
+    if (const auto description = poHeader->description())
+        SetMetadataItem("DESCRIPTION", description->c_str());
+
+    if (const auto metadata = poHeader->metadata())
+    {
+        CPLJSONDocument oDoc;
+        CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
+        if (oDoc.LoadMemory(metadata->c_str()) &&
+            oDoc.GetRoot().GetType() == CPLJSONObject::Type::Object)
+        {
+            for (const auto &oItem : oDoc.GetRoot().GetChildren())
+            {
+                if (oItem.GetType() == CPLJSONObject::Type::String)
+                {
+                    SetMetadataItem(oItem.GetName().c_str(),
+                                    oItem.ToString().c_str());
+                }
+            }
+        }
+    }
+
     const char *pszName =
         m_poHeader->name() ? m_poHeader->name()->c_str() : "unknown";
     m_poFeatureDefn = new OGRFeatureDefn(pszName);
     SetDescription(m_poFeatureDefn->GetName());
     m_poFeatureDefn->SetGeomType(wkbNone);
     auto poGeomFieldDefn =
-        cpl::make_unique<OGRGeomFieldDefn>(nullptr, m_eGType);
+        std::make_unique<OGRGeomFieldDefn>(nullptr, m_eGType);
     if (m_poSRS != nullptr)
         poGeomFieldDefn->SetSpatialRef(m_poSRS);
     m_poFeatureDefn->AddGeomFieldDefn(std::move(poGeomFieldDefn));
@@ -172,13 +196,12 @@ OGRFlatGeobufLayer::OGRFlatGeobufLayer(
     GDALDataset *poDS, const char *pszLayerName, const char *pszFilename,
     const OGRSpatialReference *poSpatialRef, OGRwkbGeometryType eGType,
     bool bCreateSpatialIndexAtClose, VSILFILE *poFpWrite,
-    std::string &osTempFile)
-    : m_eGType(eGType), m_poDS(poDS),
+    std::string &osTempFile, CSLConstList papszOptions)
+    : m_eGType(eGType), m_poDS(poDS), m_create(true),
       m_bCreateSpatialIndexAtClose(bCreateSpatialIndexAtClose),
-      m_poFpWrite(poFpWrite), m_osTempFile(osTempFile)
+      m_poFpWrite(poFpWrite), m_aosCreationOption(papszOptions),
+      m_osTempFile(osTempFile)
 {
-    m_create = true;
-
     if (pszLayerName)
         m_osLayerName = pszLayerName;
     if (pszFilename)
@@ -455,9 +478,61 @@ void OGRFlatGeobufLayer::writeHeader(VSILFILE *poFp, uint64_t featuresCount,
         CPLFree(pszWKT);
     }
 
+    std::string osTitle(m_aosCreationOption.FetchNameValueDef("TITLE", ""));
+    std::string osDescription(
+        m_aosCreationOption.FetchNameValueDef("DESCRIPTION", ""));
+    std::string osMetadata;
+    CPLJSONObject oMetadataJSONObj;
+    bool bEmptyMetadata = true;
+    for (GDALMajorObject *poContainer :
+         {static_cast<GDALMajorObject *>(this),
+          static_cast<GDALMajorObject *>(
+              m_poDS && m_poDS->GetLayerCount() == 1 ? m_poDS : nullptr)})
+    {
+        if (poContainer)
+        {
+            if (char **papszMD = poContainer->GetMetadata())
+            {
+                for (CSLConstList papszIter = papszMD; *papszIter; ++papszIter)
+                {
+                    char *pszKey = nullptr;
+                    const char *pszValue =
+                        CPLParseNameValue(*papszIter, &pszKey);
+                    if (pszKey && pszValue && !EQUAL(pszKey, OLMD_FID64))
+                    {
+                        if (EQUAL(pszKey, "TITLE"))
+                        {
+                            if (osTitle.empty())
+                                osTitle = pszValue;
+                        }
+                        else if (EQUAL(pszKey, "DESCRIPTION"))
+                        {
+                            if (osDescription.empty())
+                                osDescription = pszValue;
+                        }
+                        else
+                        {
+                            bEmptyMetadata = false;
+                            oMetadataJSONObj.Add(pszKey, pszValue);
+                        }
+                    }
+                    CPLFree(pszKey);
+                }
+            }
+        }
+    }
+    if (!bEmptyMetadata)
+    {
+        osMetadata =
+            oMetadataJSONObj.Format(CPLJSONObject::PrettyFormat::Plain);
+    }
+
     const auto header = CreateHeaderDirect(
         fbb, m_osLayerName.c_str(), extentVector, m_geometryType, m_hasZ,
-        m_hasM, m_hasT, m_hasTM, &columns, featuresCount, m_indexNodeSize, crs);
+        m_hasM, m_hasT, m_hasTM, &columns, featuresCount, m_indexNodeSize, crs,
+        osTitle.empty() ? nullptr : osTitle.c_str(),
+        osDescription.empty() ? nullptr : osDescription.c_str(),
+        osMetadata.empty() ? nullptr : osMetadata.c_str());
     fbb.FinishSizePrefixed(header);
     c = VSIFWriteL(fbb.GetBufferPointer(), 1, fbb.GetSize(), poFp);
     CPLDebugOnly("FlatGeobuf", "Wrote header (%lu bytes)",
@@ -593,11 +668,13 @@ bool OGRFlatGeobufLayer::CreateFinalFile()
         if (ensureFeatureBuf(nMaxBufferSize) != OGRERR_NONE)
             return false;
         uint32_t offsetInBuffer = 0;
+
         struct BatchItem
         {
             size_t featureIdx;  // index of m_featureItems[]
             uint32_t offsetInBuffer;
         };
+
         std::vector<BatchItem> batch;
 
         const auto flushBatch = [this, &batch, &offsetInBuffer]()
@@ -938,7 +1015,7 @@ OGRFeature *OGRFlatGeobufLayer::GetNextFeature()
             return nullptr;
         }
 
-        auto poFeature = cpl::make_unique<OGRFeature>(m_poFeatureDefn);
+        auto poFeature = std::make_unique<OGRFeature>(m_poFeatureDefn);
         if (parseFeature(poFeature.get()) != OGRERR_NONE)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
@@ -1954,7 +2031,7 @@ error:
     return errorErrno;
 }
 
-OGRErr OGRFlatGeobufLayer::CreateField(OGRFieldDefn *poField,
+OGRErr OGRFlatGeobufLayer::CreateField(const OGRFieldDefn *poField,
                                        int /* bApproxOK */)
 {
     // CPLDebugOnly("FlatGeobuf", "CreateField %s %s", poField->GetNameRef(),
@@ -2098,6 +2175,15 @@ OGRErr OGRFlatGeobufLayer::ICreateFeature(OGRFeature *poNewFeature)
                              "ICreateFeature: String too long");
                     return OGRERR_FAILURE;
                 }
+                if (!CPLIsUTF8(field->String, static_cast<int>(len)))
+                {
+                    CPLError(CE_Failure, CPLE_AppDefined,
+                             "ICreateFeature: String '%s' is not a valid UTF-8 "
+                             "string",
+                             field->String);
+                    return OGRERR_FAILURE;
+                }
+
                 // Valid cast since feature_max_buffer_size is 2 GB
                 uint32_t l_le = static_cast<uint32_t>(len);
                 CPL_LSBPTR32(&l_le);
@@ -2410,7 +2496,7 @@ VSILFILE *OGRFlatGeobufLayer::CreateOutputFile(const CPLString &osFilename,
 OGRFlatGeobufLayer *OGRFlatGeobufLayer::Create(
     GDALDataset *poDS, const char *pszLayerName, const char *pszFilename,
     const OGRSpatialReference *poSpatialRef, OGRwkbGeometryType eGType,
-    bool bCreateSpatialIndexAtClose, char **papszOptions)
+    bool bCreateSpatialIndexAtClose, CSLConstList papszOptions)
 {
     std::string osTempFile = GetTempFilePath(pszFilename, papszOptions);
     VSILFILE *poFpWrite =
@@ -2419,7 +2505,7 @@ OGRFlatGeobufLayer *OGRFlatGeobufLayer::Create(
         return nullptr;
     OGRFlatGeobufLayer *layer = new OGRFlatGeobufLayer(
         poDS, pszLayerName, pszFilename, poSpatialRef, eGType,
-        bCreateSpatialIndexAtClose, poFpWrite, osTempFile);
+        bCreateSpatialIndexAtClose, poFpWrite, osTempFile, papszOptions);
     return layer;
 }
 
@@ -2458,7 +2544,7 @@ OGRFlatGeobufLayer *OGRFlatGeobufLayer::Open(const char *pszFilename,
                  "Header size too large (> 10 MB)");
         return nullptr;
     }
-    std::unique_ptr<GByte, CPLFreeReleaser> buf(
+    std::unique_ptr<GByte, VSIFreeReleaser> buf(
         static_cast<GByte *>(VSIMalloc(headerSize)));
     if (buf == nullptr)
     {

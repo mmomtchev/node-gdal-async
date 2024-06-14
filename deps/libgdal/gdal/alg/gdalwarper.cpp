@@ -53,8 +53,6 @@
 #include <emmintrin.h>
 #endif
 
-CPL_CVSID("$Id$")
-
 /************************************************************************/
 /*                         GDALReprojectImage()                         */
 /************************************************************************/
@@ -1251,6 +1249,34 @@ CPLErr GDALWarpDstAlphaMasker(void *pMaskFuncArg, int nBandCount,
  * an explicit source and target SRS.</li>
  * <li>MULT_FACTOR_VERTICAL_SHIFT: Multiplication factor for the vertical
  * shift. Default 1.0</li>
+ *
+ * <li>EXCLUDED_VALUES: (GDAL >= 3.9) Comma-separated tuple of values
+ * (thus typically "R,G,B"), that are ignored as contributing source
+ * pixels during resampling. The number of values in the tuple must be the same
+ * as the number of bands, excluding the alpha band.
+ * Several tuples of excluded values may be specified using the
+ * "(R1,G1,B2),(R2,G2,B2)" syntax.
+ * Only taken into account by Average currently.
+ * This concept is a bit similar to nodata/alpha, but the main difference is
+ * that pixels matching one of the excluded value tuples are still considered
+ * as valid, when determining the target pixel validity/density.
+ * </li>
+ *
+ * <li>EXCLUDED_VALUES_PCT_THRESHOLD=[0-100]: (GDAL >= 3.9) Minimum percentage
+ * of source pixels that must be set at one of the EXCLUDED_VALUES to cause
+ * the excluded value, that is in majority among source pixels, to be used as the
+ * target pixel value. Default value is 50 (%).
+ * Only taken into account by Average currently.</li>
+ *
+ * <li>NODATA_VALUES_PCT_THRESHOLD=[0-100]: (GDAL >= 3.9) Minimum percentage
+ * of source pixels that must be at nodata (or alpha=0 or any other way to express
+ * transparent pixel) to cause the target pixel value to not be set. Default
+ * value is 100 (%), which means that a target pixel is not set only if all
+ * contributing source pixels are not set.
+ * Note that NODATA_VALUES_PCT_THRESHOLD is taken into account before
+ * EXCLUDED_VALUES_PCT_THRESHOLD.
+ * Only taken into account by Average currently.</li>
+ *
  * </ul>
  */
 
@@ -1298,8 +1324,7 @@ void CPL_STDCALL GDALDestroyWarpOptions(GDALWarpOptions *psOptions)
     CPLFree(psOptions->papSrcPerBandValidityMaskFuncArg);
 
     if (psOptions->hCutline != nullptr)
-        delete OGRGeometry::FromHandle(
-            static_cast<OGRGeometryH>(psOptions->hCutline));
+        delete static_cast<OGRGeometry *>(psOptions->hCutline);
 
     CPLFree(psOptions);
 }

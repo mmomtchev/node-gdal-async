@@ -15,7 +15,8 @@
 				"../gdal/frmts/netcdf/netcdfmultidim.cpp",
 				"../gdal/frmts/netcdf/netcdfwriterconfig.cpp",
 				"../gdal/frmts/netcdf/netcdf_sentinel3_sral_mwr.cpp",
-				"../gdal/frmts/netcdf/netcdfvirtual.cpp"
+				"../gdal/frmts/netcdf/netcdfvirtual.cpp",
+        "../gdal/frmts/netcdf/netcdfdrivercore.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/netcdf"

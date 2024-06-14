@@ -57,10 +57,12 @@ class NDFDataset final : public RawDataset
     ~NDFDataset() override;
 
     CPLErr GetGeoTransform(double *padfTransform) override;
+
     const OGRSpatialReference *GetSpatialRef() const override
     {
         return m_oSRS.IsEmpty() ? nullptr : &m_oSRS;
     }
+
     char **GetFileList(void) override;
 
     static GDALDataset *Open(GDALOpenInfo *);
@@ -264,7 +266,7 @@ GDALDataset *NDFDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create a corresponding GDALDataset.                             */
     /* -------------------------------------------------------------------- */
-    auto poDS = cpl::make_unique<NDFDataset>();
+    auto poDS = std::make_unique<NDFDataset>();
     poDS->papszHeader = papszHeader;
 
     poDS->nRasterXSize = atoi(poDS->Get("PIXELS_PER_LINE", ""));
@@ -383,7 +385,7 @@ GDALDataset *NDFDataset::Open(GDALOpenInfo *poOpenInfo)
 
     if (oSRS.GetRoot() != nullptr)
     {
-        poDS->m_oSRS = oSRS;
+        poDS->m_oSRS = std::move(oSRS);
     }
 
     /* -------------------------------------------------------------------- */

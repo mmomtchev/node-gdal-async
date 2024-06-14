@@ -137,7 +137,6 @@ class PNGDataset final : public GDALPamDataset
     virtual ~PNGDataset();
 
     static GDALDataset *Open(GDALOpenInfo *);
-    static int Identify(GDALOpenInfo *);
     static GDALDataset *CreateCopy(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
                                    char **papszOptions,
@@ -209,6 +208,7 @@ class PNGRasterBand final : public GDALPamRasterBand
 
   public:
     PNGRasterBand(PNGDataset *, int);
+
     virtual ~PNGRasterBand()
     {
     }
@@ -239,6 +239,7 @@ class PNGRasterBand final : public GDALPamRasterBand
 
   protected:
     int m_bBandProvided[5];
+
     void reset_band_provision_flags()
     {
         PNGDataset &ds = *reinterpret_cast<PNGDataset *>(poDS);

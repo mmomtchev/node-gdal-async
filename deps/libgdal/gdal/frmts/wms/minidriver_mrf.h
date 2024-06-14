@@ -27,6 +27,9 @@
  * DEALINGS IN THE SOFTWARE.
  ****************************************************************************/
 
+#ifndef MINIDRIVER_MRF_H_INCLUDED
+#define MINIDRIVER_MRF_H_INCLUDED
+
 #include <vector>
 
 namespace WMSMiniDriver_MRF_ns
@@ -58,6 +61,7 @@ class SectorCache
 
   private:
     SectorCache();
+
     struct Sector
     {
         std::vector<char> range;
@@ -81,10 +85,12 @@ struct ILSize
     ILSize() : x(0), y(0), z(0), c(0), l(0)
     {
     }
+
     ILSize(GInt32 _x, GInt32 _y, GInt32 _z = 1, GInt32 _c = 1, GInt32 _l = -1)
         : x(_x), y(_y), z(_z), c(_c), l(_l)
     {
     }
+
     GInt32 x, y, z, c;
     GIntBig l;  // Dual use, sometimes it holds the number of pages
 };
@@ -130,3 +136,5 @@ class WMSMiniDriver_MRF : public WMSMiniDriver
     // Matching pagecounts
     std::vector<WMSMiniDriver_MRF_ns::ILSize> pages;
 };
+
+#endif /* MINIDRIVER_MRF_H_INCLUDED */

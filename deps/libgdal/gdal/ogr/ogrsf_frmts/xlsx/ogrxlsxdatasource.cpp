@@ -110,7 +110,7 @@ OGRFeature *OGRXLSXLayer::GetNextFeature()
     return poFeature;
 }
 
-OGRErr OGRXLSXLayer::CreateField(OGRFieldDefn *poField, int bApproxOK)
+OGRErr OGRXLSXLayer::CreateField(const OGRFieldDefn *poField, int bApproxOK)
 {
     Init();
     if (GetLayerDefn()->GetFieldCount() >= 2000)
@@ -187,6 +187,15 @@ OGRErr OGRXLSXLayer::DeleteFeature(GIntBig nFID)
     SetUpdated();
     return OGRMemLayer::DeleteFeature(nFID -
                                       (1 + static_cast<int>(bHasHeaderLine)));
+}
+
+/************************************************************************/
+/*                             GetDataset()                             */
+/************************************************************************/
+
+GDALDataset *OGRXLSXLayer::GetDataset()
+{
+    return poDS;
 }
 
 /************************************************************************/
@@ -1057,6 +1066,8 @@ void OGRXLSXDataSource::endElementRow(CPL_UNUSED const char *pszNameIn)
                         {
                             poCurLayer->oSetFieldsOfUnknownType.erase(oIter);
 
+                            auto oTemporaryUnsealer(
+                                poFieldDefn->GetTemporaryUnsealer());
                             poFieldDefn->SetType(eValType);
                             poFieldDefn->SetSubType(eValSubType);
                         }
@@ -1799,10 +1810,10 @@ void OGRXLSXDataSource::AnalyseStyles(VSILFILE *fpStyles)
 /*                           ICreateLayer()                             */
 /************************************************************************/
 
-OGRLayer *OGRXLSXDataSource::ICreateLayer(const char *pszLayerName,
-                                          const OGRSpatialReference * /*poSRS*/,
-                                          OGRwkbGeometryType /*eType*/,
-                                          char **papszOptions)
+OGRLayer *
+OGRXLSXDataSource::ICreateLayer(const char *pszLayerName,
+                                const OGRGeomFieldDefn * /*poGeomFieldDefn*/,
+                                CSLConstList papszOptions)
 
 {
     /* -------------------------------------------------------------------- */
@@ -2330,10 +2341,8 @@ static bool WriteLayer(const char *pszName, OGRXLSXLayer *poLayer, int iLayer,
 /*                        WriteSharedStrings()                          */
 /************************************************************************/
 
-static bool
-WriteSharedStrings(const char *pszName,
-                   CPL_UNUSED std::map<std::string, int> &oStringMap,
-                   std::vector<std::string> &oStringList)
+static bool WriteSharedStrings(const char *pszName,
+                               std::vector<std::string> &oStringList)
 {
     CPLString osTmpFilename(
         CPLSPrintf("/vsizip/%s/xl/sharedStrings.xml", pszName));
@@ -2541,7 +2550,7 @@ CPLErr OGRXLSXDataSource::FlushCache(bool /* bAtClosing */)
         bOK &= WriteLayer(pszName, papoLayers[i], i, oStringMap, oStringList);
     }
 
-    bOK &= WriteSharedStrings(pszName, oStringMap, oStringList);
+    bOK &= WriteSharedStrings(pszName, oStringList);
     bOK &= WriteStyles(pszName);
 
     // VSIMkdir(CPLSPrintf("/vsizip/%s/xl/_rels", pszName),0755);

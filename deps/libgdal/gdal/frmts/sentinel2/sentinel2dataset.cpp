@@ -126,8 +126,10 @@ static const char *L2A_BandDescription_SNW =
     "for high confidence snow/ice";
 
 static const SENTINEL2_L2A_BandDescription asL2ABandDesc[] = {
+    {"AOT", L2A_BandDescription_AOT, 10, TL_IMG_DATA_Rxxm},
     {"AOT", L2A_BandDescription_AOT, 20, TL_IMG_DATA_Rxxm},
     {"AOT", L2A_BandDescription_AOT, 60, TL_IMG_DATA_Rxxm},
+    {"WVP", L2A_BandDescription_WVP, 10, TL_IMG_DATA_Rxxm},
     {"WVP", L2A_BandDescription_WVP, 20, TL_IMG_DATA_Rxxm},
     {"WVP", L2A_BandDescription_WVP, 60, TL_IMG_DATA_Rxxm},
     {"SCL", L2A_BandDescription_SCL, 20, TL_IMG_DATA_Rxxm},
@@ -452,6 +454,7 @@ class SENTINEL2_CPLXMLNodeHolder
     explicit SENTINEL2_CPLXMLNodeHolder(CPLXMLNode *psNode) : m_psNode(psNode)
     {
     }
+
     ~SENTINEL2_CPLXMLNodeHolder()
     {
         if (m_psNode)
@@ -3603,7 +3606,14 @@ SENTINEL2Dataset *SENTINEL2Dataset::CreateL1CL2ADataset(
         static_cast<int>((dfMaxY - dfMinY) / nSubDSPrecision + 0.5);
     SENTINEL2Dataset *poDS = new SENTINEL2Dataset(nRasterXSize, nRasterYSize);
 
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnull-dereference"
+#endif
     poDS->aosNonJP2Files = aosNonJP2Files;
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
     OGRSpatialReference oSRS;
     char *pszProjection = nullptr;

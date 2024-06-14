@@ -60,8 +60,9 @@
  *
  * Constructor.
  **********************************************************************/
-MIFFile::MIFFile()
-    : m_pszFname(nullptr), m_eAccessMode(TABRead), m_nVersion(300),
+MIFFile::MIFFile(GDALDataset *poDS)
+    : IMapInfoFile(poDS), m_pszFname(nullptr), m_eAccessMode(TABRead),
+      m_nVersion(300),
       // Tab is default delimiter in MIF spec if not explicitly specified.  Use
       // that by default for read mode. In write mode, we will use "," as
       // delimiter since it is more common than tab (we do this in Open())
@@ -316,6 +317,7 @@ int MIFFile::Open(const char *pszFname, TABAccess eAccess,
         CPLFree(pszFeatureClassName);
         // Ref count defaults to 0... set it to 1
         m_poDefn->Reference();
+        m_poDefn->Seal(/* bSealFields = */ true);
     }
 
     return 0;
@@ -341,6 +343,7 @@ int MIFFile::ParseMIFHeader(int *pbIsEmpty)
     CPLFree(pszFeatureClassName);
     // Ref count defaults to 0... set it to 1
     m_poDefn->Reference();
+    m_poDefn->Seal(/* bSealFields = */ true);
 
     if (m_eAccessMode != TABRead)
     {
@@ -1662,6 +1665,7 @@ int MIFFile::AddFieldNative(const char *pszName, TABFieldType eMapInfoType,
         CPLFree(pszFeatureClassName);
         // Ref count defaults to 0... set it to 1
         m_poDefn->Reference();
+        m_poDefn->Seal(/* bSealFields = */ true);
     }
 
     CPLString osName(NormalizeFieldName(pszName));
@@ -1772,7 +1776,7 @@ int MIFFile::AddFieldNative(const char *pszName, TABFieldType eMapInfoType,
     /*-----------------------------------------------------
      * Add the FieldDefn to the FeatureDefn
      *----------------------------------------------------*/
-    m_poDefn->AddFieldDefn(poFieldDefn);
+    whileUnsealing(m_poDefn)->AddFieldDefn(poFieldDefn);
     m_oSetFields.insert(CPLString(poFieldDefn->GetNameRef()).toupper());
     delete poFieldDefn;
 

@@ -344,7 +344,7 @@ CPLVirtualMem *VRTRawRasterBand::GetVirtualMemAuto(GDALRWFlag eRWFlag,
 /************************************************************************/
 
 CPLErr
-VRTRawRasterBand::XMLInit(CPLXMLNode *psTree, const char *pszVRTPath,
+VRTRawRasterBand::XMLInit(const CPLXMLNode *psTree, const char *pszVRTPath,
                           std::map<CPLString, GDALDataset *> &oMapSharedSources)
 
 {
@@ -429,7 +429,9 @@ VRTRawRasterBand::XMLInit(CPLXMLNode *psTree, const char *pszVRTPath,
 /*                           SerializeToXML()                           */
 /************************************************************************/
 
-CPLXMLNode *VRTRawRasterBand::SerializeToXML(const char *pszVRTPath)
+CPLXMLNode *VRTRawRasterBand::SerializeToXML(const char *pszVRTPath,
+                                             bool &bHasWarnedAboutRAMUsage,
+                                             size_t &nAccRAMUsage)
 
 {
 
@@ -444,7 +446,8 @@ CPLXMLNode *VRTRawRasterBand::SerializeToXML(const char *pszVRTPath)
         return nullptr;
     }
 
-    CPLXMLNode *psTree = VRTRasterBand::SerializeToXML(pszVRTPath);
+    CPLXMLNode *psTree = VRTRasterBand::SerializeToXML(
+        pszVRTPath, bHasWarnedAboutRAMUsage, nAccRAMUsage);
 
     /* -------------------------------------------------------------------- */
     /*      Set subclass.                                                   */

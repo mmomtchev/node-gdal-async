@@ -72,6 +72,7 @@ class ROIPACDataset final : public RawDataset
     {
         return m_oSRS.IsEmpty() ? nullptr : &m_oSRS;
     }
+
     CPLErr SetSpatialRef(const OGRSpatialReference *poSRS) override;
 
     char **GetFileList() override;
@@ -253,7 +254,7 @@ GDALDataset *ROIPACDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create a corresponding GDALDataset.                             */
     /* -------------------------------------------------------------------- */
-    auto poDS = cpl::make_unique<ROIPACDataset>();
+    auto poDS = std::make_unique<ROIPACDataset>();
     poDS->nRasterXSize = nWidth;
     poDS->nRasterYSize = nFileLength;
     poDS->eAccess = poOpenInfo->eAccess;
@@ -266,12 +267,14 @@ GDALDataset *ROIPACDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     GDALDataType eDataType = GDT_Unknown;
     int nBands = 0;
+
     enum Interleave
     {
         UNKNOWN,
         LINE,
         PIXEL
     } eInterleave = UNKNOWN;
+
     const char *pszExtension = CPLGetExtension(poOpenInfo->pszFilename);
     if (strcmp(pszExtension, "raw") == 0)
     {
@@ -363,7 +366,7 @@ GDALDataset *ROIPACDataset::Open(GDALOpenInfo *poOpenInfo)
                 // equal to the theoretical nLineOffset multiplied by nBands.
                 VSIFSeekL(poDS->fpImage, 0, SEEK_END);
                 const GUIntBig nWrongFileSize =
-                    nDTSize * nWidth *
+                    static_cast<GUIntBig>(nDTSize) * nWidth *
                     (static_cast<GUIntBig>(nFileLength - 1) * nBands * nBands +
                      nBands);
                 if (VSIFTellL(poDS->fpImage) == nWrongFileSize)
@@ -447,7 +450,7 @@ GDALDataset *ROIPACDataset::Open(GDALOpenInfo *poOpenInfo)
                 oSRS.SetWellKnownGeogCS("NAD27");
             }
         }
-        poDS->m_oSRS = oSRS;
+        poDS->m_oSRS = std::move(oSRS);
         poDS->m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     }
     if (aosRSC.FetchNameValue("Z_OFFSET") != nullptr)

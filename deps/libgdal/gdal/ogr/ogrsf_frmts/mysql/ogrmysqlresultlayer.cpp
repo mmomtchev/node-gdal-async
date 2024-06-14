@@ -38,9 +38,8 @@
 OGRMySQLResultLayer::OGRMySQLResultLayer(OGRMySQLDataSource *poDSIn,
                                          const char *pszRawQueryIn,
                                          MYSQL_RES *hResultSetIn)
-    : pszRawStatement(CPLStrdup(pszRawQueryIn))
+    : OGRMySQLLayer(poDSIn), pszRawStatement(CPLStrdup(pszRawQueryIn))
 {
-    poDS = poDSIn;
     iNextShapeId = 0;
     hResultSet = hResultSetIn;
     BuildFullQueryStatement();
@@ -225,7 +224,7 @@ OGRFeatureDefn *OGRMySQLResultLayer::ReadResultDefinition()
         char **papszRow;
 
         auto poGeomFieldDefn =
-            cpl::make_unique<OGRMySQLGeomFieldDefn>(poDS, pszGeomColumn);
+            std::make_unique<OGRMySQLGeomFieldDefn>(poDS, pszGeomColumn);
 
         if (poDS->GetMajorVersion() < 8 || poDS->IsMariaDB())
         {

@@ -49,6 +49,7 @@ class OGRGTFSDataset final : public GDALDataset
     {
         return static_cast<int>(m_apoLayers.size());
     }
+
     OGRLayer *GetLayer(int nIdx) override;
 
     static int Identify(GDALOpenInfo *poOpenInfo);
@@ -96,6 +97,7 @@ class OGRGTFSLayer final : public OGRLayer
     int TestCapability(const char *) override;
     GIntBig GetFeatureCount(int bForce) override;
     OGRErr SetAttributeFilter(const char *) override;
+
     OGRFeatureDefn *GetLayerDefn() override
     {
         return m_poFeatureDefn;
@@ -282,7 +284,7 @@ OGRFeature *OGRGTFSLayer::GetNextFeature()
         if (poSrcFeature == nullptr)
             return nullptr;
 
-        auto poFeature = cpl::make_unique<OGRFeature>(m_poFeatureDefn);
+        auto poFeature = std::make_unique<OGRFeature>(m_poFeatureDefn);
         const int nFieldCount = poSrcFeature->GetFieldCount();
         poFeature->SetFID(poSrcFeature->GetFID());
         auto poSrcLayerDefn = m_poUnderlyingLayer->GetLayerDefn();
@@ -407,10 +409,12 @@ class OGRGTFSShapesGeomLayer final : public OGRLayer
     void ResetReading() override;
     OGRFeature *GetNextFeature() override;
     int TestCapability(const char *) override;
+
     OGRFeatureDefn *GetLayerDefn() override
     {
         return m_poFeatureDefn;
     }
+
     GIntBig GetFeatureCount(int bForce) override;
 };
 
@@ -482,7 +486,7 @@ void OGRGTFSShapesGeomLayer::Prepare()
         {
             const auto &osShapeId = kv.first;
             const auto &oMapPoints = kv.second;
-            auto poFeature = cpl::make_unique<OGRFeature>(m_poFeatureDefn);
+            auto poFeature = std::make_unique<OGRFeature>(m_poFeatureDefn);
             poFeature->SetField(0, osShapeId.c_str());
             OGRLineString *poLS = new OGRLineString();
             for (const auto &kv2 : oMapPoints)
@@ -629,7 +633,7 @@ GDALDataset *OGRGTFSDataset::Open(GDALOpenInfo *poOpenInfo)
 
     const std::string osCSVBaseDirPrefix(std::string("CSV:") + osBaseDir);
 
-    auto poDS = cpl::make_unique<OGRGTFSDataset>();
+    auto poDS = std::make_unique<OGRGTFSDataset>();
 
     char **papszFilenames = VSIReadDir(osBaseDir.c_str());
     size_t nCountFound = 0;
@@ -662,7 +666,7 @@ GDALDataset *OGRGTFSDataset::Open(GDALOpenInfo *poOpenInfo)
                 if (poSrcLayerDefn->GetFieldIndex("field_1") < 0)
                 {
                     poDS->m_apoLayers.emplace_back(
-                        cpl::make_unique<OGRGTFSLayer>(
+                        std::make_unique<OGRGTFSLayer>(
                             osCSVBaseDirPrefix, CPLGetBasename(*papszIter),
                             std::move(poCSVDataset)));
                 }
@@ -689,7 +693,7 @@ GDALDataset *OGRGTFSDataset::Open(GDALOpenInfo *poOpenInfo)
             if (poUnderlyingLayer)
             {
                 poDS->m_apoLayers.emplace_back(
-                    cpl::make_unique<OGRGTFSShapesGeomLayer>(
+                    std::make_unique<OGRGTFSShapesGeomLayer>(
                         std::move(poCSVDataset)));
             }
         }

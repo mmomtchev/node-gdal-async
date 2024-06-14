@@ -137,13 +137,15 @@ class OGRGeoRSSLayer final : public OGRLayer
     OGRFeature *GetNextFeature() override;
 
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
-    OGRErr CreateField(OGRFieldDefn *poField, int bApproxOK) override;
+    OGRErr CreateField(const OGRFieldDefn *poField, int bApproxOK) override;
 
     OGRFeatureDefn *GetLayerDefn() override;
 
     int TestCapability(const char *) override;
 
     GIntBig GetFeatureCount(int bForce) override;
+
+    GDALDataset *GetDataset() override;
 
     void LoadSchema();
 
@@ -208,27 +210,29 @@ class OGRGeoRSSDataSource final : public OGRDataSource
     {
         return nLayers;
     }
+
     OGRLayer *GetLayer(int) override;
 
-    OGRLayer *ICreateLayer(const char *pszLayerName,
-                           const OGRSpatialReference *poSRS,
-                           OGRwkbGeometryType eType,
-                           char **papszOptions) override;
-
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
     int TestCapability(const char *) override;
 
     VSILFILE *GetOutputFP()
     {
         return fpOutput;
     }
+
     OGRGeoRSSFormat GetFormat()
     {
         return eFormat;
     }
+
     OGRGeoRSSGeomDialect GetGeomDialect()
     {
         return eGeomDialect;
     }
+
     bool GetUseExtensions()
     {
         return bUseExtensions;

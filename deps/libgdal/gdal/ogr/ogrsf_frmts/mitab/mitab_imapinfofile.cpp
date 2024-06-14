@@ -58,9 +58,9 @@
  *
  * Constructor.
  **********************************************************************/
-IMapInfoFile::IMapInfoFile()
-    : m_nCurFeatureId(0), m_poCurFeature(nullptr), m_bBoundsSet(FALSE),
-      m_pszCharset(nullptr)
+IMapInfoFile::IMapInfoFile(GDALDataset *poDS)
+    : m_poDS(poDS), m_nCurFeatureId(0), m_poCurFeature(nullptr),
+      m_bBoundsSet(FALSE), m_pszCharset(nullptr)
 {
 }
 
@@ -116,7 +116,8 @@ int IMapInfoFile::Open(const char *pszFname, const char *pszAccess,
  *
  * Returns the new object ptr. , or NULL if the open failed.
  **********************************************************************/
-IMapInfoFile *IMapInfoFile::SmartOpen(const char *pszFname, GBool bUpdate,
+IMapInfoFile *IMapInfoFile::SmartOpen(GDALDataset *poDS, const char *pszFname,
+                                      GBool bUpdate,
                                       GBool bTestOpenNoError /*=FALSE*/)
 {
     IMapInfoFile *poFile = nullptr;
@@ -131,7 +132,7 @@ IMapInfoFile *IMapInfoFile::SmartOpen(const char *pszFname, GBool bUpdate,
         /*-------------------------------------------------------------
          * MIF/MID file
          *------------------------------------------------------------*/
-        poFile = new MIFFile;
+        poFile = new MIFFile(poDS);
     }
     else if (nLen > 4 && EQUAL(pszFname + nLen - 4, ".TAB"))
     {
@@ -160,11 +161,11 @@ IMapInfoFile *IMapInfoFile::SmartOpen(const char *pszFname, GBool bUpdate,
         }
 
         if (bFoundView)
-            poFile = new TABView;
+            poFile = new TABView(poDS);
         else if (bFoundFields && bFoundSeamless)
-            poFile = new TABSeamless;
+            poFile = new TABSeamless(poDS);
         else if (bFoundFields)
-            poFile = new TABFile;
+            poFile = new TABFile(poDS);
 
         if (fp)
             VSIFCloseL(fp);
@@ -434,8 +435,9 @@ OGRFeature *IMapInfoFile::GetFeature(GIntBig nFeatureId)
 /*      Create a native field based on a generic OGR definition.        */
 /************************************************************************/
 
-int IMapInfoFile::GetTABType(OGRFieldDefn *poField, TABFieldType *peTABType,
-                             int *pnWidth, int *pnPrecision)
+int IMapInfoFile::GetTABType(const OGRFieldDefn *poField,
+                             TABFieldType *peTABType, int *pnWidth,
+                             int *pnPrecision)
 {
     TABFieldType eTABType;
     int nWidth = poField->GetWidth();
@@ -530,7 +532,7 @@ int IMapInfoFile::GetTABType(OGRFieldDefn *poField, TABFieldType *peTABType,
 /*      Create a native field based on a generic OGR definition.        */
 /************************************************************************/
 
-OGRErr IMapInfoFile::CreateField(OGRFieldDefn *poField, int bApproxOK)
+OGRErr IMapInfoFile::CreateField(const OGRFieldDefn *poField, int bApproxOK)
 
 {
     TABFieldType eTABType;

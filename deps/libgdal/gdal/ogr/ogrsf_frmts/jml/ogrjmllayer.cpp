@@ -29,20 +29,20 @@
 #include "ogr_jml.h"
 #include "ogr_p.h"
 
-constexpr int PARSER_BUF_SIZE = 8192;
-
 #ifdef HAVE_EXPAT
+
+constexpr int PARSER_BUF_SIZE = 8192;
 
 /************************************************************************/
 /*                              OGRJMLLayer()                           */
 /************************************************************************/
 
-OGRJMLLayer::OGRJMLLayer(const char *pszLayerName, OGRJMLDataset * /* poDSIn */,
+OGRJMLLayer::OGRJMLLayer(const char *pszLayerName, OGRJMLDataset *poDSIn,
                          VSILFILE *fpIn)
-    : poFeatureDefn(new OGRFeatureDefn(pszLayerName)), nNextFID(0), fp(fpIn),
-      bHasReadSchema(false), oParser(nullptr), currentDepth(0),
-      bStopParsing(false), nWithoutEventCounter(0), nDataHandlerCounter(0),
-      bAccumulateElementValue(false),
+    : m_poDS(poDSIn), poFeatureDefn(new OGRFeatureDefn(pszLayerName)),
+      nNextFID(0), fp(fpIn), bHasReadSchema(false), oParser(nullptr),
+      currentDepth(0), bStopParsing(false), nWithoutEventCounter(0),
+      nDataHandlerCounter(0), bAccumulateElementValue(false),
       pszElementValue(static_cast<char *>(CPLCalloc(1024, 1))),
       nElementValueLen(0), nElementValueAlloc(1024), poFeature(nullptr),
       ppoFeatureTab(nullptr), nFeatureTabLength(0), nFeatureTabIndex(0),

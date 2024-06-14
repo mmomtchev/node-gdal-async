@@ -1680,6 +1680,7 @@ static bool RunDecompressionJobs(OSMContext *psCtxt)
 /*                          ProcessSingleBlob()                         */
 /************************************************************************/
 
+// cppcheck-suppress constParameterReference
 static bool ProcessSingleBlob(OSMContext *psCtxt, DecompressionJob &sJob,
                               BlobType eType)
 {
@@ -2546,6 +2547,7 @@ static void XMLCALL OSM_XML_endElementCbk(void *pUserData, const char *pszName)
         psCtxt->bInRelation = false;
     }
 }
+
 /************************************************************************/
 /*                           dataHandlerCbk()                           */
 /************************************************************************/
@@ -2816,6 +2818,7 @@ void OSM_Close(OSMContext *psCtxt)
     VSIFCloseL(psCtxt->fp);
     VSIFree(psCtxt);
 }
+
 /************************************************************************/
 /*                          OSM_ResetReading()                          */
 /************************************************************************/

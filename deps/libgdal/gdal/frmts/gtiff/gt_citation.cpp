@@ -389,7 +389,7 @@ void SetLinearUnitCitation(std::map<geokey_t, std::string> &oMapAsciiKeys,
         osCitation = "LUnits = ";
         osCitation += pszLinearUOMName;
     }
-    oMapAsciiKeys[PCSCitationGeoKey] = osCitation;
+    oMapAsciiKeys[PCSCitationGeoKey] = std::move(osCitation);
 }
 
 /************************************************************************/
@@ -416,11 +416,11 @@ void SetGeogCSCitation(GTIF *psGTIF,
     if (!STARTS_WITH_CI(osOriginalGeogCitation, "GCS Name = "))
     {
         osCitation = "GCS Name = ";
-        osCitation += osOriginalGeogCitation;
+        osCitation += std::move(osOriginalGeogCitation);
     }
     else
     {
-        osCitation = osOriginalGeogCitation;
+        osCitation = std::move(osOriginalGeogCitation);
     }
 
     if (nDatum == KvUserDefined)
@@ -472,7 +472,7 @@ void SetGeogCSCitation(GTIF *psGTIF,
 
     if (bRewriteGeogCitation)
     {
-        oMapAsciiKeys[GeogCitationGeoKey] = osCitation;
+        oMapAsciiKeys[GeogCitationGeoKey] = std::move(osCitation);
     }
 }
 
@@ -744,7 +744,11 @@ OGRBoolean CheckCitationKeyForStatePlaneUTM(GTIF *hGTIF, GTIFDefn *psDefn,
             (pStr = strstr(szCTString, "State Plane Zone ")) != nullptr)
         {
             pStr += strlen("State Plane Zone ");
-            int statePlaneZone = abs(atoi(pStr));
+            int statePlaneZone = atoi(pStr);
+            // Safe version of statePlaneZone = abs(statePlaneZone), but
+            // I (ERO)'ve no idea why negative zone number would make sense...
+            if (statePlaneZone < 0 && statePlaneZone > INT_MIN)
+                statePlaneZone = -statePlaneZone;
             char nad[32];
             strcpy(nad, "HARN");
             if (strstr(szCTString, "NAD83") || strstr(szCTString, "NAD = 83"))

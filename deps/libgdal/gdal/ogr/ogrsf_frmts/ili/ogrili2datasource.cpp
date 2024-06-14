@@ -161,7 +161,7 @@ int OGRILI2DataSource::Open(const char *pszNewName, char **papszOpenOptionsIn,
     }
 
     if (!osModelFilename.empty())
-        poReader->ReadModel(poImdReader, osModelFilename);
+        poReader->ReadModel(this, poImdReader, osModelFilename);
 
     poReader->SetSourceFile(pszName);
 
@@ -266,12 +266,15 @@ int OGRILI2DataSource::Create(const char *pszFilename,
 /*                           ICreateLayer()                             */
 /************************************************************************/
 
-OGRLayer *OGRILI2DataSource::ICreateLayer(
-    const char *pszLayerName, const OGRSpatialReference * /* poSRS */,
-    OGRwkbGeometryType eType, char ** /* papszOptions */)
+OGRLayer *
+OGRILI2DataSource::ICreateLayer(const char *pszLayerName,
+                                const OGRGeomFieldDefn *poGeomFieldDefn,
+                                CSLConstList /*papszOptions*/)
 {
     if (fpOutput == nullptr)
         return nullptr;
+
+    const auto eType = poGeomFieldDefn ? poGeomFieldDefn->GetType() : wkbNone;
 
     FeatureDefnInfo featureDefnInfo =
         poImdReader->GetFeatureDefnInfo(pszLayerName);

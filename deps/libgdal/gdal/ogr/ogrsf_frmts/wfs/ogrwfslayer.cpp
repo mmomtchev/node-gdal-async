@@ -343,6 +343,7 @@ OGRFeatureDefn *OGRWFSLayer::ParseSchema(const CPLXMLNode *psSchema)
 
     return nullptr;
 }
+
 /************************************************************************/
 /*                   BuildLayerDefnFromFeatureClass()                   */
 /************************************************************************/
@@ -919,8 +920,8 @@ GDALDataset *OGRWFSLayer::FetchGetFeature(int nRequestMaxFeatures)
     if (psResult->pszContentType)
         pszContentType = psResult->pszContentType;
 
-    CPLString osTmpDirName = CPLSPrintf("/vsimem/tempwfs_%p", this);
-    VSIMkdir(osTmpDirName, 0);
+    const std::string osTmpDirName = CPLSPrintf("/vsimem/tempwfs_%p", this);
+    VSIMkdir(osTmpDirName.c_str(), 0);
 
     GByte *pabyData = psResult->pabyData;
     int nDataLen = psResult->nDataLen;
@@ -931,8 +932,8 @@ GDALDataset *OGRWFSLayer::FetchGetFeature(int nRequestMaxFeatures)
         CPLHTTPParseMultipartMime(psResult))
     {
         bIsMultiPart = true;
-        OGRWFSRecursiveUnlink(osTmpDirName);
-        VSIMkdir(osTmpDirName, 0);
+        OGRWFSRecursiveUnlink(osTmpDirName.c_str());
+        VSIMkdir(osTmpDirName.c_str(), 0);
         for (int i = 0; i < psResult->nMimePartCount; i++)
         {
             CPLString osTmpFileName = osTmpDirName + "/";
@@ -1283,7 +1284,7 @@ void OGRWFSLayer::ResetReading()
 /*                         SetIgnoredFields()                           */
 /************************************************************************/
 
-OGRErr OGRWFSLayer::SetIgnoredFields(const char **papszFields)
+OGRErr OGRWFSLayer::SetIgnoredFields(CSLConstList papszFields)
 {
     bReloadNeeded = true;
     ResetReading();
@@ -1746,6 +1747,7 @@ GIntBig OGRWFSLayer::ExecuteGetFeatureResultTypeHits()
 
     return l_nFeatures;
 }
+
 /************************************************************************/
 /*              CanRunGetFeatureCountAndGetExtentTogether()             */
 /************************************************************************/
@@ -2412,6 +2414,7 @@ OGRErr OGRWFSLayer::ISetFeature(OGRFeature *poFeature)
 
     return OGRERR_NONE;
 }
+
 /************************************************************************/
 /*                               GetFeature()                           */
 /************************************************************************/
@@ -2443,7 +2446,7 @@ OGRFeature *OGRWFSLayer::GetFeature(GIntBig nFID)
 /*                         DeleteFromFilter()                           */
 /************************************************************************/
 
-OGRErr OGRWFSLayer::DeleteFromFilter(CPLString osOGCFilter)
+OGRErr OGRWFSLayer::DeleteFromFilter(const std::string &osOGCFilter)
 {
     if (!TestCapability(OLCDeleteFeature))
     {

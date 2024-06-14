@@ -57,11 +57,14 @@ class OGRKMLLayer final : public OGRLayer
     //
     OGRFeatureDefn *GetLayerDefn() override;
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
-    OGRErr CreateField(OGRFieldDefn *poField, int bApproxOK = TRUE) override;
+    OGRErr CreateField(const OGRFieldDefn *poField,
+                       int bApproxOK = TRUE) override;
     void ResetReading() override;
     OGRFeature *GetNextFeature() override;
     GIntBig GetFeatureCount(int bForce = TRUE) override;
     int TestCapability(const char *pszCap) override;
+
+    GDALDataset *GetDataset() override;
 
     //
     // OGRKMLLayer Interface
@@ -85,7 +88,6 @@ class OGRKMLLayer final : public OGRLayer
     OGRFeatureDefn *poFeatureDefn_;
 
     int iNextKMLId_;
-    int nTotalKMLCount_;
     bool bWriter_;
     int nLayerNumber_;
     int nWroteFeatureCount_;
@@ -111,41 +113,48 @@ class OGRKMLDataSource final : public OGRDataSource
     // OGRDataSource Interface
     //
     int Open(const char *pszName, int bTestOpen);
+
     const char *GetName() override
     {
         return pszName_;
     }
+
     int GetLayerCount() override
     {
         return nLayers_;
     }
+
     OGRLayer *GetLayer(int nLayer) override;
     OGRLayer *ICreateLayer(const char *pszName,
-                           const OGRSpatialReference *poSRS = nullptr,
-                           OGRwkbGeometryType eGType = wkbUnknown,
-                           char **papszOptions = nullptr) override;
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
     int TestCapability(const char *pszCap) override;
 
     //
     // OGRKMLDataSource Interface
     //
     int Create(const char *pszName, char **papszOptions);
+
     const char *GetNameField() const
     {
         return pszNameField_;
     }
+
     const char *GetDescriptionField() const
     {
         return pszDescriptionField_;
     }
+
     const char *GetAltitudeMode()
     {
         return pszAltitudeMode_;
     }
+
     VSILFILE *GetOutputFP()
     {
         return fpOutput_;
     }
+
     void GrowExtents(OGREnvelope *psGeomBounds);
 #ifdef HAVE_EXPAT
     KML *GetKMLFile()
@@ -158,6 +167,7 @@ class OGRKMLDataSource final : public OGRDataSource
     {
         return !bIssuedCTError_;
     }
+
     void IssuedFirstCTError()
     {
         bIssuedCTError_ = true;

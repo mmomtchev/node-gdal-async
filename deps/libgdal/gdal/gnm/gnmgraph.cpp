@@ -50,7 +50,7 @@ void GNMGraph::AddVertex(GNMGFID nFID)
 
     GNMStdVertex stVertex;
     stVertex.bIsBlocked = false;
-    m_mstVertices[nFID] = stVertex;
+    m_mstVertices[nFID] = std::move(stVertex);
 }
 
 void GNMGraph::DeleteVertex(GNMGFID nFID)
@@ -635,4 +635,5 @@ void GNMGraph::TraceTargets(std::queue<GNMGFID> &vertexQueue,
     if (!neighbours_queue.empty())
         TraceTargets(neighbours_queue, markedVertIds, connectedIds);
 }
+
 //! @endcond

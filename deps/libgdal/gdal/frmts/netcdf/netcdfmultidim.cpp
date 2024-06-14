@@ -30,12 +30,9 @@
 #include <map>
 
 #include "netcdfdataset.h"
+#include "netcdfdrivercore.h"
 
-#ifdef HAVE_NETCDF_MEM
 #include "netcdf_mem.h"
-#endif
-
-#ifdef NETCDF_HAS_NC4
 
 /************************************************************************/
 /*                         netCDFSharedResources                        */
@@ -71,16 +68,20 @@ class netCDFSharedResources
     {
         return m_cdfid;
     }
+
     inline bool IsReadOnly() const
     {
         return m_bReadOnly;
     }
+
     inline bool IsNC4() const
     {
         return m_bIsNC4;
     }
+
     bool SetDefineMode(bool bNewDefineMode);
     int GetBelongingGroupOfDim(int startgid, int dimid);
+
     inline bool GetImappIsInElements() const
     {
         return m_bImappIsInElements;
@@ -90,6 +91,7 @@ class netCDFSharedResources
     {
         m_bIsInIndexingVariable = b;
     }
+
     bool GetIsInIndexingVariable() const
     {
         return m_bIsInIndexingVariable;
@@ -213,6 +215,7 @@ class netCDFAttributeHolder CPL_NON_FINAL
     {
         m_oMapAttributes[poAttr->GetName()] = poAttr;
     }
+
     void UnRegisterAttribute(GDALAttribute *poAttr)
     {
         m_oMapAttributes.erase(poAttr->GetName());
@@ -245,6 +248,7 @@ class netCDFGroup final : public GDALGroup, public netCDFAttributeHolder
     {
         m_oSetGroups.insert(poSubGroup);
     }
+
     void UnRegisterSubGroup(GDALGroup *poSubGroup)
     {
         m_oSetGroups.erase(poSubGroup);
@@ -252,20 +256,24 @@ class netCDFGroup final : public GDALGroup, public netCDFAttributeHolder
 
   protected:
     friend class netCDFDimension;
+
     void RegisterDimension(GDALDimension *poDim)
     {
         m_oSetDimensions.insert(poDim);
     }
+
     void UnRegisterDimension(GDALDimension *poDim)
     {
         m_oSetDimensions.erase(poDim);
     }
 
     friend class netCDFVariable;
+
     void RegisterArray(GDALMDArray *poArray)
     {
         m_oSetArrays.insert(poArray);
     }
+
     void UnRegisterArray(GDALMDArray *poArray)
     {
         m_oSetArrays.erase(poArray);
@@ -678,6 +686,7 @@ class netCDFVariable final : public GDALPamMDArray, public netCDFAttributeHolder
     {
         return m_gid;
     }
+
     int GetVarId() const
     {
         return m_varid;
@@ -1268,10 +1277,10 @@ netCDFGroup::GetGroupNames(CSLConstList papszOptions) const
             for (const auto &osArrayName : GetMDArrayNames(nullptr))
             {
                 const auto poArray = OpenMDArray(osArrayName, nullptr);
-                const auto apoDims = poArray->GetDimensions();
+                const auto &apoDims = poArray->GetDimensions();
                 if (apoDims.size() == 1)
                 {
-                    const auto osDimName = apoDims[0]->GetName();
+                    const auto &osDimName = apoDims[0]->GetName();
                     if (oSetDimNames.find(osDimName) == oSetDimNames.end())
                     {
                         oSetDimNames.insert(osDimName);
@@ -1716,7 +1725,7 @@ netCDFVirtualGroupBySameDimension::GetMDArrayNames(CSLConstList) const
         auto poArray = m_poGroup->OpenMDArray(srcName, nullptr);
         if (poArray)
         {
-            const auto apoArrayDims = poArray->GetDimensions();
+            const auto &apoArrayDims = poArray->GetDimensions();
             if (apoArrayDims.size() == 1 &&
                 apoArrayDims[0]->GetName() == m_osDimName)
             {
@@ -1935,7 +1944,7 @@ std::shared_ptr<GDALMDArray> netCDFDimension::GetIndexingVariable() const
         if (!poArrayNC)
             continue;
 
-        const auto apoArrayDims = poArray->GetDimensions();
+        const auto &apoArrayDims = poArray->GetDimensions();
         if (apoArrayDims.size() == 1)
         {
             const auto &poArrayDim = apoArrayDims[0];
@@ -2601,7 +2610,7 @@ std::shared_ptr<OGRSpatialReference> netCDFVariable::GetSpatialRef() const
 /*                            SetSpatialRef()                           */
 /************************************************************************/
 
-static void WriteDimAttr(std::shared_ptr<GDALMDArray> poVar,
+static void WriteDimAttr(std::shared_ptr<GDALMDArray> &poVar,
                          const char *pszAttrName, const char *pszAttrValue)
 {
     auto poAttr = poVar->GetAttribute(pszAttrName);
@@ -2625,7 +2634,7 @@ static void WriteDimAttr(std::shared_ptr<GDALMDArray> poVar,
     }
 }
 
-static void WriteDimAttrs(std::shared_ptr<GDALDimension> dim,
+static void WriteDimAttrs(const std::shared_ptr<GDALDimension> &dim,
                           const char *pszStandardName, const char *pszLongName,
                           const char *pszUnits)
 {
@@ -2673,7 +2682,7 @@ bool netCDFVariable::SetSpatialRef(const OGRSpatialReference *poSRS)
     {
         bool bWriteX = false;
         bool bWriteY = false;
-        const char *pszUnits = NCDFGetProjectedCFUnit(poSRS);
+        const std::string osUnits = NCDFGetProjectedCFUnit(poSRS);
         for (const auto &poDim : apoDims)
         {
             const char *pszStandardName = nullptr;
@@ -2694,7 +2703,8 @@ bool netCDFVariable::SetSpatialRef(const OGRSpatialReference *poSRS)
             }
             if (pszStandardName && pszLongName)
             {
-                WriteDimAttrs(poDim, pszStandardName, pszLongName, pszUnits);
+                WriteDimAttrs(poDim, pszStandardName, pszLongName,
+                              osUnits.c_str());
             }
         }
         if (!bWriteX && !bWriteY && apoDims.size() >= 2 &&
@@ -2708,9 +2718,9 @@ bool netCDFVariable::SetSpatialRef(const OGRSpatialReference *poSRS)
                      "Assuming the last one is X, and the preceding one Y",
                      GetName().c_str());
             WriteDimAttrs(apoDims[apoDims.size() - 1], CF_PROJ_X_COORD,
-                          CF_PROJ_X_COORD_LONG_NAME, pszUnits);
+                          CF_PROJ_X_COORD_LONG_NAME, osUnits.c_str());
             WriteDimAttrs(apoDims[apoDims.size() - 2], CF_PROJ_Y_COORD,
-                          CF_PROJ_Y_COORD_LONG_NAME, pszUnits);
+                          CF_PROJ_Y_COORD_LONG_NAME, osUnits.c_str());
         }
     }
     else if (poSRS->IsGeographic())
@@ -2918,10 +2928,12 @@ namespace
 template <typename T> struct GetGByteType
 {
 };
+
 template <> struct GetGByteType<void *>
 {
     typedef GByte *type;
 };
+
 template <> struct GetGByteType<const void *>
 {
     typedef const GByte *type;
@@ -4113,7 +4125,7 @@ netCDFVariable::GetCoordinateVariables() const
                 auto poLat = poLocationGroup->OpenMDArray("lat");
                 if (poLon && poLat)
                 {
-                    return {poLon, poLat};
+                    return {std::move(poLon), std::move(poLat)};
                 }
             }
         }
@@ -4545,7 +4557,7 @@ bool netCDFAttribute::IRead(const GUInt64 *arrayStartIdx, const size_t *count,
         return true;
     }
 
-    const auto dt(GetDataType());
+    const auto &dt(GetDataType());
     if (dt.GetClass() == GEDTC_NUMERIC &&
         dt.GetNumericDataType() == GDT_Unknown)
     {
@@ -4742,7 +4754,7 @@ bool netCDFAttribute::IWrite(const GUInt64 *arrayStartIdx, const size_t *count,
         return true;
     }
 
-    const auto dt(GetDataType());
+    const auto &dt(GetDataType());
     if (dt.GetClass() == GEDTC_NUMERIC &&
         dt.GetNumericDataType() == GDT_Unknown)
     {
@@ -4885,7 +4897,8 @@ GDALDataset *netCDFDataset::OpenMultiDim(GDALOpenInfo *poOpenInfo)
     else
     {
         osFilename = poOpenInfo->pszFilename;
-        poDS->eFormat = IdentifyFormat(poOpenInfo, /* bCheckExt = */ true);
+        poDS->eFormat =
+            netCDFIdentifyFormat(poOpenInfo, /* bCheckExt = */ true);
     }
 
     poDS->SetDescription(poOpenInfo->pszFilename);
@@ -4930,7 +4943,7 @@ GDALDataset *netCDFDataset::OpenMultiDim(GDALOpenInfo *poOpenInfo)
     const int nMode =
         (poOpenInfo->nOpenFlags & GDAL_OF_UPDATE) != 0 ? NC_WRITE : NC_NOWRITE;
     CPLString osFilenameForNCOpen(osFilename);
-#ifdef WIN32
+#ifdef _WIN32
     if (CPLTestBool(CPLGetConfigOption("GDAL_FILENAME_IS_UTF8", "YES")))
     {
         char *pszTemp = CPLRecode(osFilenameForNCOpen, CPL_ENC_UTF8, "CP_ACP");
@@ -4945,7 +4958,6 @@ GDALDataset *netCDFDataset::OpenMultiDim(GDALOpenInfo *poOpenInfo)
     poSharedResources->m_bFileToDestroyAtClosing = bFileToDestroyAtClosing;
 #endif
 
-#ifdef HAVE_NETCDF_MEM
     if (STARTS_WITH(osFilenameForNCOpen, "/vsimem/") &&
         poOpenInfo->eAccess == GA_ReadOnly)
     {
@@ -4966,7 +4978,6 @@ GDALDataset *netCDFDataset::OpenMultiDim(GDALOpenInfo *poOpenInfo)
         }
     }
     else
-#endif
     {
 #ifdef ENABLE_UFFD
         bool bVsiFile = !strncmp(osFilenameForNCOpen, "/vsi", strlen("/vsi"));
@@ -5008,7 +5019,7 @@ GDALDataset *netCDFDataset::OpenMultiDim(GDALOpenInfo *poOpenInfo)
     CPLDebug("GDAL_netCDF", "got cdfid=%d", cdfid);
 #endif
 
-#if defined(ENABLE_NCDUMP) && !defined(WIN32)
+#if defined(ENABLE_NCDUMP) && !defined(_WIN32)
     // Try to destroy the temporary file right now on Unix
     if (poSharedResources->m_bFileToDestroyAtClosing)
     {
@@ -5085,7 +5096,7 @@ netCDFDataset::CreateMultiDimensional(const char *pszFilename,
 
     // Create the dataset.
     CPLString osFilenameForNCCreate(pszFilename);
-#ifdef WIN32
+#ifdef _WIN32
     if (CPLTestBool(CPLGetConfigOption("GDAL_FILENAME_IS_UTF8", "YES")))
     {
         char *pszTemp =
@@ -5129,5 +5140,3 @@ netCDFDataset::CreateMultiDimensional(const char *pszFilename,
 
     return poDS;
 }
-
-#endif  // NETCDF_HAS_NC4

@@ -246,206 +246,6 @@ std::vector<GDALColorEntry> ReadColorTable(const GDALColorTable &table,
 }  // unnamed  namespace
 
 /************************************************************************/
-/*                      GDALGetNoDataReplacementValue()                 */
-/************************************************************************/
-
-/**
- * \brief Returns a replacement value for a nodata value or 0 if dfNoDataValue
- *        is out of range for the specified data type (dt).
- *        For UInt64 and Int64 data type this function cannot reliably trusted
- *        because their nodata values might not always be representable exactly
- *        as a double, in particular the maximum absolute value for those types
- *        is 2^53.
- *
- * The replacement value is a value that can be used in a computation
- * whose result would match by accident the nodata value, whereas it is
- * meant to be valid. For example, for a dataset with a nodata value of 0,
- * when averaging -1 and 1, one would get normally a value of 0. The
- * replacement nodata value can then be substituted to that 0 value to still
- * get a valid value, as close as practical to the true value, while being
- * different from the nodata value.
- *
- * @param dt Data type
- * @param dfNoDataValue The no data value
-
- * @since GDAL 3.9
- */
-static double GDALGetNoDataReplacementValue(GDALDataType dt,
-                                            double dfNoDataValue)
-{
-
-    // The logic here is to check if the value is out of range for the
-    // specified data type and return a replacement value if it is, return
-    // 0 otherwise.
-    double dfReplacementVal = dfNoDataValue;
-    if (dt == GDT_Byte)
-    {
-        if (GDALClampDoubleValue(dfNoDataValue,
-                                 std::numeric_limits<uint8_t>::lowest(),
-                                 std::numeric_limits<uint8_t>::max()))
-        {
-            return 0;
-        }
-        if (dfNoDataValue == std::numeric_limits<unsigned char>::max())
-            dfReplacementVal = std::numeric_limits<unsigned char>::max() - 1;
-        else
-            dfReplacementVal = dfNoDataValue + 1;
-    }
-    else if (dt == GDT_Int8)
-    {
-        if (GDALClampDoubleValue(dfNoDataValue,
-                                 std::numeric_limits<int8_t>::lowest(),
-                                 std::numeric_limits<int8_t>::max()))
-        {
-            return 0;
-        }
-        if (dfNoDataValue == std::numeric_limits<GInt8>::max())
-            dfReplacementVal = std::numeric_limits<GInt8>::max() - 1;
-        else
-            dfReplacementVal = dfNoDataValue + 1;
-    }
-    else if (dt == GDT_UInt16)
-    {
-        if (GDALClampDoubleValue(dfNoDataValue,
-                                 std::numeric_limits<uint16_t>::lowest(),
-                                 std::numeric_limits<uint16_t>::max()))
-        {
-            return 0;
-        }
-        if (dfNoDataValue == std::numeric_limits<GUInt16>::max())
-            dfReplacementVal = std::numeric_limits<GUInt16>::max() - 1;
-        else
-            dfReplacementVal = dfNoDataValue + 1;
-    }
-    else if (dt == GDT_Int16)
-    {
-        if (GDALClampDoubleValue(dfNoDataValue,
-                                 std::numeric_limits<int16_t>::lowest(),
-                                 std::numeric_limits<int16_t>::max()))
-        {
-            return 0;
-        }
-        if (dfNoDataValue == std::numeric_limits<GInt16>::max())
-            dfReplacementVal = std::numeric_limits<GInt16>::max() - 1;
-        else
-            dfReplacementVal = dfNoDataValue + 1;
-    }
-    else if (dt == GDT_UInt32)
-    {
-        if (GDALClampDoubleValue(dfNoDataValue,
-                                 std::numeric_limits<uint32_t>::lowest(),
-                                 std::numeric_limits<uint32_t>::max()))
-        {
-            return 0;
-        }
-        if (dfNoDataValue == std::numeric_limits<GUInt32>::max())
-            dfReplacementVal = std::numeric_limits<GUInt32>::max() - 1;
-        else
-            dfReplacementVal = dfNoDataValue + 1;
-    }
-    else if (dt == GDT_Int32)
-    {
-        if (GDALClampDoubleValue(dfNoDataValue,
-                                 std::numeric_limits<int32_t>::lowest(),
-                                 std::numeric_limits<int32_t>::max()))
-        {
-            return 0;
-        }
-        if (dfNoDataValue == std::numeric_limits<int32_t>::max())
-            dfReplacementVal = std::numeric_limits<int32_t>::max() - 1;
-        else
-            dfReplacementVal = dfNoDataValue + 1;
-    }
-    else if (dt == GDT_UInt64)
-    {
-        // Implicit conversion from 'unsigned long' to 'double' changes value from 18446744073709551615 to 18446744073709551616
-        // so we take the next lower value representable as a double 18446744073709549567
-        static const double dfMaxUInt64Value{
-            std::nextafter(
-                static_cast<double>(std::numeric_limits<uint64_t>::max()), 0) -
-            1};
-
-        if (GDALClampDoubleValue(dfNoDataValue,
-                                 std::numeric_limits<uint64_t>::lowest(),
-                                 std::numeric_limits<uint64_t>::max()))
-        {
-            return 0;
-        }
-
-        if (dfNoDataValue >=
-            static_cast<double>(std::numeric_limits<uint64_t>::max()))
-            dfReplacementVal = dfMaxUInt64Value;
-        else
-            dfReplacementVal = dfNoDataValue + 1;
-    }
-    else if (dt == GDT_Int64)
-    {
-        // Implicit conversion from 'long' to 'double' changes value from 9223372036854775807 to 9223372036854775808
-        // so we take the next lower value representable as a double 9223372036854774784
-        static const double dfMaxInt64Value{
-            std::nextafter(
-                static_cast<double>(std::numeric_limits<int64_t>::max()), 0) -
-            1};
-
-        if (GDALClampDoubleValue(dfNoDataValue,
-                                 std::numeric_limits<int64_t>::lowest(),
-                                 std::numeric_limits<int64_t>::max()))
-        {
-            return 0;
-        }
-
-        if (dfNoDataValue >=
-            static_cast<double>(std::numeric_limits<int64_t>::max()))
-            dfReplacementVal = dfMaxInt64Value;
-        else
-            dfReplacementVal = dfNoDataValue + 1;
-    }
-    else if (dt == GDT_Float32)
-    {
-
-        if (GDALClampDoubleValue(dfNoDataValue,
-                                 std::numeric_limits<float>::lowest(),
-                                 std::numeric_limits<float>::max()))
-        {
-            return 0;
-        }
-
-        if (dfNoDataValue == std::numeric_limits<float>::max())
-        {
-            dfReplacementVal =
-                std::nextafter(static_cast<float>(dfNoDataValue), 0.0f);
-        }
-        else
-        {
-            dfReplacementVal =
-                std::nextafter(static_cast<float>(dfNoDataValue),
-                               std::numeric_limits<float>::max());
-        }
-    }
-    else if (dt == GDT_Float64)
-    {
-        if (GDALClampDoubleValue(dfNoDataValue,
-                                 std::numeric_limits<double>::lowest(),
-                                 std::numeric_limits<double>::max()))
-        {
-            return 0;
-        }
-
-        if (dfNoDataValue == std::numeric_limits<double>::max())
-        {
-            dfReplacementVal = std::nextafter(dfNoDataValue, 0.0f);
-        }
-        else
-        {
-            dfReplacementVal = std::nextafter(
-                dfNoDataValue, std::numeric_limits<double>::max());
-        }
-    }
-
-    return dfReplacementVal;
-}
-
-/************************************************************************/
 /*                             SQUARE()                                 */
 /************************************************************************/
 
@@ -1331,10 +1131,10 @@ static CPLErr GDALResampleChunk_AverageOrRMS_T(
         tNoDataValue = 0;
     else
         tNoDataValue = static_cast<T>(dfNoDataValue);
-    const T tReplacementVal = static_cast<T>(
-        bHasNoData ? GDALGetNoDataReplacementValue(
-                         poOverview->GetRasterDataType(), dfNoDataValue)
-                   : dfNoDataValue);
+    const T tReplacementVal =
+        bHasNoData ? static_cast<T>(GDALGetNoDataReplacementValue(
+                         poOverview->GetRasterDataType(), dfNoDataValue))
+                   : 0;
 
     int nChunkRightXOff = nChunkXOff + nChunkXSize;
     int nChunkBottomYOff = nChunkYOff + nChunkYSize;
@@ -1360,6 +1160,7 @@ static CPLErr GDALResampleChunk_AverageOrRMS_T(
         double dfRightWeight;
         double dfTotalWeightFullLine;
     };
+
     PrecomputedXValue *pasSrcX = static_cast<PrecomputedXValue *>(
         VSI_MALLOC_VERBOSE(nDstXWidth * sizeof(PrecomputedXValue)));
 
@@ -3611,7 +3412,7 @@ static CPLErr GDALResampleChunk_ConvolutionT(
             size_t j =
                 (nSrcLineStart - nChunkYOff) * static_cast<size_t>(nDstXSize);
 #ifdef USE_SSE2
-            if (eWrkDataType == GDT_Float32)
+            if constexpr (eWrkDataType == GDT_Float32)
             {
 #ifdef __AVX__
                 for (; iFilteredPixelOff + 15 < nDstXSize;
@@ -4319,10 +4120,12 @@ struct PointerHolder
     explicit PointerHolder(void *ptrIn) : ptr(ptrIn)
     {
     }
+
     ~PointerHolder()
     {
         CPLFree(ptr);
     }
+
     PointerHolder(const PointerHolder &) = delete;
     PointerHolder &operator=(const PointerHolder &) = delete;
 };
@@ -4670,6 +4473,7 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
         {
             oSrcMaskBufferHolder = oSrcMaskBufferHolderIn;
         }
+
         void SetSrcBufferHolder(
             const std::shared_ptr<PointerHolder> &oSrcBufferHolderIn)
         {
@@ -4705,7 +4509,7 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
         }
 
         poJob->oDstBufferHolder =
-            cpl::make_unique<PointerHolder>(poJob->pDstBuffer);
+            std::make_unique<PointerHolder>(poJob->pDstBuffer);
 
         {
             std::lock_guard<std::mutex> guard(poJob->mutex);
@@ -5746,7 +5550,9 @@ CPLErr GDALRegenerateOverviewsMultiBand(
 
 /** Undocumented
  * @param hSrcBand undocumented.
- * @param nSampleStep undocumented.
+ * @param nSampleStep Step between scanlines used to compute statistics.
+ *                    When nSampleStep is equal to 1, all scanlines will
+ *                    be processed.
  * @param pdfMean undocumented.
  * @param pdfStdDev undocumented.
  * @param pfnProgress undocumented.
@@ -5839,7 +5645,7 @@ CPLErr CPL_STDCALL GDALComputeBandStats(GDALRasterBandH hSrcBand,
             }
 
             dfSum += fValue;
-            dfSum2 += fValue * fValue;
+            dfSum2 += static_cast<double>(fValue) * fValue;
         }
 
         nSamples += nWidth;

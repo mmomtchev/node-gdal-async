@@ -38,10 +38,10 @@
 #include "commonutils.h"
 
 /************************************************************************/
-/*                            ArgIsNumeric()                            */
+/*                     ArgIsNumericContour()                            */
 /************************************************************************/
 
-static bool ArgIsNumeric(const char *pszArg)
+static bool ArgIsNumericContour(const char *pszArg)
 
 {
     return CPLGetValueType(pszArg) != CPL_VALUE_STRING;
@@ -202,7 +202,7 @@ MAIN_START(argc, argv)
             while (i < argc - 1 &&
                    nFixedLevelCount < static_cast<int>(sizeof(adfFixedLevels) /
                                                        sizeof(double)) &&
-                   ArgIsNumeric(argv[i + 1]))
+                   ArgIsNumericContour(argv[i + 1]))
                 // coverity[tainted_data]
                 adfFixedLevels[nFixedLevelCount++] = CPLAtof(argv[++i]);
         }
@@ -320,7 +320,7 @@ MAIN_START(argc, argv)
     CPLString osFormat;
     if (pszFormat == nullptr)
     {
-        std::vector<CPLString> aoDrivers =
+        const auto aoDrivers =
             GetOutputDriversFor(pszDstFilename, GDAL_OF_VECTOR);
         if (aoDrivers.empty())
         {
@@ -503,4 +503,5 @@ MAIN_START(argc, argv)
 
     return (eErr == CE_None) ? 0 : 1;
 }
+
 MAIN_END

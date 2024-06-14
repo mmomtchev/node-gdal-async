@@ -72,8 +72,12 @@ int cmpStr(const string &s1, const string &s2)
 
     while (p1 != s1.end() && p2 != s2.end())
     {
-        if (toupper(*p1) != toupper(*p2))
-            return (toupper(*p1) < toupper(*p2)) ? -1 : 1;
+        if (CPLToupper(static_cast<unsigned char>(*p1)) !=
+            CPLToupper(static_cast<unsigned char>(*p2)))
+            return (CPLToupper(static_cast<unsigned char>(*p1)) <
+                    CPLToupper(static_cast<unsigned char>(*p2)))
+                       ? -1
+                       : 1;
         ++p1;
         ++p2;
     }
@@ -483,15 +487,16 @@ OGRGeometry *ILI2Reader::getGeometry(DOMElement *elem, int type)
     return gm;
 }
 
-int ILI2Reader::ReadModel(ImdReader *poImdReader, const char *modelFilename)
+int ILI2Reader::ReadModel(OGRILI2DataSource *poDS, ImdReader *poImdReader,
+                          const char *modelFilename)
 {
     poImdReader->ReadModel(modelFilename);
     for (FeatureDefnInfos::const_iterator it =
              poImdReader->featureDefnInfos.begin();
          it != poImdReader->featureDefnInfos.end(); ++it)
     {
-        OGRLayer *layer = new OGRILI2Layer(it->GetTableDefnRef(),
-                                           it->poGeomFieldInfos, nullptr);
+        OGRLayer *layer =
+            new OGRILI2Layer(it->GetTableDefnRef(), it->poGeomFieldInfos, poDS);
         m_listLayer.push_back(layer);
     }
     return 0;
@@ -689,6 +694,8 @@ int ILI2Reader::SetupParser()
     m_poSAXReader->setLexicalHandler(m_poILI2Handler);
     m_poSAXReader->setEntityResolver(m_poILI2Handler);
     m_poSAXReader->setDTDHandler(m_poILI2Handler);
+    m_poSAXReader->setFeature(XMLUni::fgXercesDisableDefaultEntityResolution,
+                              true);
 
     /* No Validation
     #if (OGR_ILI2_VALIDATION)

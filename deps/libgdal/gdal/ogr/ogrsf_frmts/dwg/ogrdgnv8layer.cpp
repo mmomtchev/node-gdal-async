@@ -191,6 +191,7 @@ OGRDGNV8Layer::~OGRDGNV8Layer()
     CleanPendingFeatures();
     m_poFeatureDefn->Release();
 }
+
 /************************************************************************/
 /*                       CleanPendingFeatures()                         */
 /************************************************************************/
@@ -2403,4 +2404,13 @@ OGRDGNV8Layer::CreateGraphicsElement(OGRFeature *poFeature, OGRGeometry *poGeom)
         AttachCommonAttributes(poFeature, element);
 
     return element;
+}
+
+/************************************************************************/
+/*                             GetDataset()                             */
+/************************************************************************/
+
+GDALDataset *OGRDGNV8Layer::GetDataset()
+{
+    return m_poDS;
 }

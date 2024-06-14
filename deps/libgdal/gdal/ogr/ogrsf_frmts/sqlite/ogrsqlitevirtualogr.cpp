@@ -26,6 +26,8 @@
  * DEALINGS IN THE SOFTWARE.
  ****************************************************************************/
 
+#define DEFINE_OGRSQLiteSQLFunctionsSetCaseSensitiveLike
+
 #include "cpl_port.h"
 #include "ogrsqlitevirtualogr.h"
 
@@ -77,6 +79,10 @@ void OGR2SQLITE_Register()
 OGR2SQLITEModule *OGR2SQLITE_Setup(GDALDataset *, OGRSQLiteDataSource *)
 {
     return nullptr;
+}
+
+void OGR2SQLITE_SetCaseSensitiveLike(OGR2SQLITEModule *, bool)
+{
 }
 
 int OGR2SQLITE_AddExtraDS(OGR2SQLITEModule *, OGRDataSource *)
@@ -191,6 +197,11 @@ static SQLITE_EXTENSION_INIT1
     OGRLayer *GetLayerForVTable(const char *pszVTableName);
 
     void SetHandleSQLFunctions(void *hHandleSQLFunctionsIn);
+
+    void SetCaseSensitiveLike(bool b)
+    {
+        OGRSQLiteSQLFunctionsSetCaseSensitiveLike(hHandleSQLFunctions, b);
+    }
 };
 
 /************************************************************************/
@@ -1159,7 +1170,7 @@ static int OGR2SQLITE_Filter(sqlite3_vtab_cursor *pCursor,
             for (int j = 0; !bNeedsQuoting && (ch = pszFieldName[j]) != '\0';
                  j++)
             {
-                if (!(isalnum((int)ch) || ch == '_'))
+                if (!(isalnum(static_cast<unsigned char>(ch)) || ch == '_'))
                     bNeedsQuoting = true;
             }
 
@@ -1703,7 +1714,7 @@ static OGRFeature *OGR2SQLITE_FeatureFromArgs(OGR2SQLITE_vtab *pMyVTab,
         return nullptr;
     }
 
-    auto poFeature = cpl::make_unique<OGRFeature>(poLayerDefn);
+    auto poFeature = std::make_unique<OGRFeature>(poLayerDefn);
 
     if (pMyVTab->bHasFIDColumn)
     {
@@ -1903,19 +1914,13 @@ static const struct sqlite3_module sOGR2SQLITEModule = {
     nullptr,
     /* xFindFunction */  // OGR2SQLITE_FindFunction;
     OGR2SQLITE_Rename,
-#if SQLITE_VERSION_NUMBER >=                                                   \
-    3007007L /* should be the first version with the below symbols */
     nullptr,  // xSavepoint
     nullptr,  // xRelease
     nullptr,  // xRollbackTo
-#if SQLITE_VERSION_NUMBER >=                                                   \
-    3025003L /* should be the first version with the below symbols */
     nullptr,  // xShadowName
 #if SQLITE_VERSION_NUMBER >=                                                   \
     3044000L /* should be the first version with the below symbols */
     nullptr,  // xIntegrity
-#endif
-#endif
 #endif
 };
 
@@ -2730,6 +2735,15 @@ OGR2SQLITEModule *OGR2SQLITE_Setup(GDALDataset *poDS,
     OGR2SQLITEModule *poModule = new OGR2SQLITEModule();
     poModule->Setup(poDS, poSQLiteDS);
     return poModule;
+}
+
+/************************************************************************/
+/*                  OGR2SQLITE_SetCaseSensitiveLike()                   */
+/************************************************************************/
+
+void OGR2SQLITE_SetCaseSensitiveLike(OGR2SQLITEModule *poModule, bool b)
+{
+    poModule->SetCaseSensitiveLike(b);
 }
 
 /************************************************************************/

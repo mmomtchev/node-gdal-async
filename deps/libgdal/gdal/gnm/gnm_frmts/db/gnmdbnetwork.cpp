@@ -144,7 +144,7 @@ CPLErr GNMDatabaseNetwork::Create(const char *pszFilename, char **papszOptions)
             return CE_Failure;
         }
 
-        m_oSRS = spatialRef;
+        m_oSRS = std::move(spatialRef);
     }
 
     int nResult = CheckNetworkExist(pszFilename, papszOptions);
@@ -414,8 +414,8 @@ OGRErr GNMDatabaseNetwork::DeleteLayer(int nIndex)
 
 OGRLayer *
 GNMDatabaseNetwork::ICreateLayer(const char *pszName,
-                                 const OGRSpatialReference * /*poSpatialRef*/,
-                                 OGRwkbGeometryType eGType, char **papszOptions)
+                                 const OGRGeomFieldDefn *poGeomFieldDefn,
+                                 CSLConstList papszOptions)
 {
     // check if layer with such name exist
     for (int i = 0; i < GetLayerCount(); ++i)
@@ -433,6 +433,7 @@ GNMDatabaseNetwork::ICreateLayer(const char *pszName,
 
     OGRSpatialReference oSpaRef(m_oSRS);
 
+    const auto eGType = poGeomFieldDefn ? poGeomFieldDefn->GetType() : wkbNone;
     OGRLayer *poLayer =
         m_poDS->CreateLayer(pszName, &oSpaRef, eGType, papszOptions);
     if (poLayer == nullptr)

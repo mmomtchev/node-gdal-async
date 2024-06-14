@@ -187,6 +187,7 @@ class GRIB2Section3Writer
 
   public:
     GRIB2Section3Writer(VSILFILE *fpIn, GDALDataset *poSrcDSIn);
+
     inline int SplitAndSwap() const
     {
         return nSplitAndSwapColumn;
@@ -1412,7 +1413,8 @@ bool GRIB2Section567Writer::WriteIEEE(GDALProgressFunc pfnProgress,
     WriteByte(m_fp, GRIB2MISSING_u1);  // no bitmap
 
     // Section 7: Data Section
-    const size_t nBufferSize = m_nXSize * GDALGetDataTypeSizeBytes(eReqDT);
+    const size_t nBufferSize =
+        static_cast<size_t>(m_nXSize) * GDALGetDataTypeSizeBytes(eReqDT);
     // section size
     WriteUInt32(m_fp, static_cast<GUInt32>(5 + nBufferSize * m_nYSize));
     WriteByte(m_fp, 7);  // section number

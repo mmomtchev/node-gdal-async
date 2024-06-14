@@ -35,9 +35,8 @@
 /************************************************************************/
 
 OGRDWGDataSource::OGRDWGDataSource()
-    : fp(nullptr), iEntitiesSectionOffset(0), bInlineBlocks(FALSE),
-      bAttributes(FALSE), bAllAttributes(TRUE), poServices(nullptr),
-      poDb(static_cast<const OdRxObject *>(nullptr))
+    : bInlineBlocks(FALSE), bAttributes(FALSE), bAllAttributes(TRUE),
+      poServices(nullptr), poDb(static_cast<const OdRxObject *>(nullptr))
 
 {
 }
@@ -208,6 +207,7 @@ void OGRDWGDataSource::ReadAttDefinitions()
         }
     }
 }
+
 /************************************************************************/
 /*                        ReadLayerDefinitions()                        */
 /************************************************************************/

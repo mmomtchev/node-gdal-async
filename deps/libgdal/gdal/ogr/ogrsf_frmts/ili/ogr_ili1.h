@@ -80,14 +80,18 @@ class OGRILI1Layer final : public OGRLayer
     {
         return poFeatureDefn;
     }
+
     GeomFieldInfos GetGeomFieldInfos()
     {
         return oGeomFieldInfos;
     }
 
-    OGRErr CreateField(OGRFieldDefn *poField, int bApproxOK = TRUE) override;
+    OGRErr CreateField(const OGRFieldDefn *poField,
+                       int bApproxOK = TRUE) override;
 
     int TestCapability(const char *) override;
+
+    GDALDataset *GetDataset() override;
 
   private:
     void JoinGeomLayers();
@@ -127,10 +131,12 @@ class OGRILI1DataSource final : public OGRDataSource
     {
         return pszName;
     }
+
     int GetLayerCount() override
     {
         return poReader ? poReader->GetLayerCount() : 0;
     }
+
     OGRLayer *GetLayer(int) override;
     OGRILI1Layer *GetLayerByName(const char *) override;
 
@@ -139,10 +145,9 @@ class OGRILI1DataSource final : public OGRDataSource
         return fpTransfer;
     }
 
-    virtual OGRLayer *ICreateLayer(const char *,
-                                   const OGRSpatialReference * = nullptr,
-                                   OGRwkbGeometryType = wkbUnknown,
-                                   char ** = nullptr) override;
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
 
     int TestCapability(const char *) override;
 };

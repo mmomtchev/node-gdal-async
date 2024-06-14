@@ -51,8 +51,8 @@
 class OGRJSONFGMemLayer final : public OGRMemLayer
 {
   public:
-    OGRJSONFGMemLayer(const char *pszName, OGRSpatialReference *poSRS,
-                      OGRwkbGeometryType eGType);
+    OGRJSONFGMemLayer(GDALDataset *poDS, const char *pszName,
+                      OGRSpatialReference *poSRS, OGRwkbGeometryType eGType);
     ~OGRJSONFGMemLayer();
 
     const char *GetFIDColumn() override
@@ -69,7 +69,13 @@ class OGRJSONFGMemLayer final : public OGRMemLayer
 
     void AddFeature(std::unique_ptr<OGRFeature> poFeature);
 
+    GDALDataset *GetDataset() override
+    {
+        return m_poDS;
+    }
+
   private:
+    GDALDataset *m_poDS = nullptr;
     std::string osFIDColumn_{};
     bool bOriginalIdModified_ = false;
 
@@ -92,7 +98,8 @@ class OGRJSONFGStreamedLayer final
       public OGRGetNextFeatureThroughRaw<OGRJSONFGStreamedLayer>
 {
   public:
-    OGRJSONFGStreamedLayer(const char *pszName, OGRSpatialReference *poSRS,
+    OGRJSONFGStreamedLayer(GDALDataset *poDS, const char *pszName,
+                           OGRSpatialReference *poSRS,
                            OGRwkbGeometryType eGType);
     ~OGRJSONFGStreamedLayer();
 
@@ -143,7 +150,13 @@ class OGRJSONFGStreamedLayer final
 
     DEFINE_GET_NEXT_FEATURE_THROUGH_RAW(OGRJSONFGStreamedLayer)
 
+    GDALDataset *GetDataset() override
+    {
+        return m_poDS;
+    }
+
   private:
+    GDALDataset *m_poDS = nullptr;
     OGRFeatureDefn *poFeatureDefn_ = nullptr;
     std::string osFIDColumn_{};
 
@@ -192,6 +205,7 @@ class OGRJSONFGWriteLayer final : public OGRLayer
     {
         return poFeatureDefn_;
     }
+
     OGRSpatialReference *GetSpatialRef() override
     {
         return nullptr;
@@ -200,15 +214,19 @@ class OGRJSONFGWriteLayer final : public OGRLayer
     void ResetReading() override
     {
     }
+
     OGRFeature *GetNextFeature() override
     {
         return nullptr;
     }
+
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
-    OGRErr CreateField(OGRFieldDefn *poField, int bApproxOK) override;
+    OGRErr CreateField(const OGRFieldDefn *poField, int bApproxOK) override;
     int TestCapability(const char *pszCap) override;
 
     OGRErr SyncToDisk() override;
+
+    GDALDataset *GetDataset() override;
 
   private:
     OGRJSONFGDataset *poDS_{};
@@ -245,6 +263,7 @@ class OGRJSONFGDataset final : public GDALDataset
     {
         return static_cast<int>(apoLayers_.size());
     }
+
     OGRLayer *GetLayer(int i) override;
 
     //! Return the output file handle. Used by OGRJSONFGWriteLayer
@@ -270,9 +289,9 @@ class OGRJSONFGDataset final : public GDALDataset
     void BeforeCreateFeature();
 
     OGRLayer *ICreateLayer(const char *pszName,
-                           const OGRSpatialReference *poSRS = nullptr,
-                           OGRwkbGeometryType eGType = wkbUnknown,
-                           char **papszOptions = nullptr) override;
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
+
     int TestCapability(const char *pszCap) override;
 
     OGRErr SyncToDiskInternal();

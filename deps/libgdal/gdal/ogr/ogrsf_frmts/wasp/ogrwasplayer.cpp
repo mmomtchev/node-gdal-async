@@ -39,11 +39,12 @@
 /*                            OGRWAsPLayer()                             */
 /************************************************************************/
 
-OGRWAsPLayer::OGRWAsPLayer(const char *pszName, VSILFILE *hFileHandle,
+OGRWAsPLayer::OGRWAsPLayer(GDALDataset *poDS, const char *pszName,
+                           VSILFILE *hFileHandle,
                            OGRSpatialReference *poSpatialRef)
-    : bMerge(false), iFeatureCount(0), sName(pszName), hFile(hFileHandle),
-      iFirstFieldIdx(0), iSecondFieldIdx(1), iGeomFieldIdx(0),
-      poLayerDefn(new OGRFeatureDefn(pszName)),
+    : m_poDS(poDS), bMerge(false), iFeatureCount(0), sName(pszName),
+      hFile(hFileHandle), iFirstFieldIdx(0), iSecondFieldIdx(1),
+      iGeomFieldIdx(0), poLayerDefn(new OGRFeatureDefn(pszName)),
       poSpatialReference(poSpatialRef), iOffsetFeatureBegin(VSIFTellL(hFile)),
       eMode(READ_ONLY)
 {
@@ -55,17 +56,16 @@ OGRWAsPLayer::OGRWAsPLayer(const char *pszName, VSILFILE *hFileHandle,
         poSpatialReference->Reference();
 }
 
-OGRWAsPLayer::OGRWAsPLayer(const char *pszName, VSILFILE *hFileHandle,
-                           OGRSpatialReference *poSpatialRef,
-                           const CPLString &sFirstFieldParam,
-                           const CPLString &sSecondFieldParam,
-                           const CPLString &sGeomFieldParam, bool bMergeParam,
-                           double *pdfToleranceParam,
-                           double *pdfAdjacentPointToleranceParam,
-                           double *pdfPointToCircleRadiusParam)
-    : bMerge(bMergeParam), iFeatureCount(0), sName(pszName), hFile(hFileHandle),
-      sFirstField(sFirstFieldParam), sSecondField(sSecondFieldParam),
-      sGeomField(sGeomFieldParam), iFirstFieldIdx(-1), iSecondFieldIdx(-1),
+OGRWAsPLayer::OGRWAsPLayer(
+    GDALDataset *poDS, const char *pszName, VSILFILE *hFileHandle,
+    OGRSpatialReference *poSpatialRef, const CPLString &sFirstFieldParam,
+    const CPLString &sSecondFieldParam, const CPLString &sGeomFieldParam,
+    bool bMergeParam, double *pdfToleranceParam,
+    double *pdfAdjacentPointToleranceParam, double *pdfPointToCircleRadiusParam)
+    : m_poDS(poDS), bMerge(bMergeParam), iFeatureCount(0), sName(pszName),
+      hFile(hFileHandle), sFirstField(sFirstFieldParam),
+      sSecondField(sSecondFieldParam), sGeomField(sGeomFieldParam),
+      iFirstFieldIdx(-1), iSecondFieldIdx(-1),
       iGeomFieldIdx(sGeomFieldParam.empty() ? 0 : -1),
       poLayerDefn(new OGRFeatureDefn(pszName)),
       poSpatialReference(poSpatialRef),
@@ -282,7 +282,7 @@ OGRLineString *OGRWAsPLayer::Simplify(const OGRLineString &line) const
     if (pdfAdjacentPointTolerance.get() && *pdfAdjacentPointTolerance > 0)
     {
         /* remove consecutive points that are too close */
-        auto newLine = cpl::make_unique<OGRLineString>();
+        auto newLine = std::make_unique<OGRLineString>();
         const double dist = *pdfAdjacentPointTolerance;
         OGRPoint pt;
         poLine->StartPoint(&pt);
@@ -698,7 +698,7 @@ OGRErr OGRWAsPLayer::ICreateFeature(OGRFeature *poFeature)
 /*                            CreateField()                            */
 /************************************************************************/
 
-OGRErr OGRWAsPLayer::CreateField(OGRFieldDefn *poField,
+OGRErr OGRWAsPLayer::CreateField(const OGRFieldDefn *poField,
                                  CPL_UNUSED int bApproxOK)
 {
     poLayerDefn->AddFieldDefn(poField);
@@ -716,7 +716,7 @@ OGRErr OGRWAsPLayer::CreateField(OGRFieldDefn *poField,
 /*                           CreateGeomField()                          */
 /************************************************************************/
 
-OGRErr OGRWAsPLayer::CreateGeomField(OGRGeomFieldDefn *poGeomFieldIn,
+OGRErr OGRWAsPLayer::CreateGeomField(const OGRGeomFieldDefn *poGeomFieldIn,
                                      CPL_UNUSED int bApproxOK)
 {
     OGRGeomFieldDefn oFieldDefn(poGeomFieldIn);
@@ -789,7 +789,7 @@ OGRFeature *OGRWAsPLayer::GetNextRawFeature()
         return nullptr;
     }
 
-    auto poFeature = cpl::make_unique<OGRFeature>(poLayerDefn);
+    auto poFeature = std::make_unique<OGRFeature>(poLayerDefn);
     poFeature->SetFID(++iFeatureCount);
     for (int i = 0; i < iNumValues - 1; i++)
         poFeature->SetField(i, dfValues[i]);
@@ -812,7 +812,7 @@ OGRFeature *OGRWAsPLayer::GetNextRawFeature()
         CPLError(CE_Failure, CPLE_FileIO, "No enough values for linestring");
         return nullptr;
     }
-    auto poLine = cpl::make_unique<OGRLineString>();
+    auto poLine = std::make_unique<OGRLineString>();
     poLine->setCoordinateDimension(3);
     poLine->assignSpatialReference(poSpatialReference);
     for (int i = 0; i < iNumValuesToRead; i += 2)

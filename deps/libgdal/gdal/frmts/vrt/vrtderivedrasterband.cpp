@@ -50,10 +50,6 @@ using namespace GDALPy;
 #define GDAL_VRT_ENABLE_PYTHON_DEFAULT "TRUSTED_MODULES"
 #endif
 
-static std::map<CPLString,
-                std::pair<VRTDerivedRasterBand::PixelFunc, CPLString>>
-    osMapPixelFunction;
-
 /* Flags for getting buffers */
 #define PyBUF_WRITABLE 0x0001
 #define PyBUF_FORMAT 0x0004
@@ -232,6 +228,20 @@ void VRTDerivedRasterBand::Cleanup()
 }
 
 /************************************************************************/
+/*                      GetGlobalMapPixelFunction()                     */
+/************************************************************************/
+
+static std::map<std::string,
+                std::pair<VRTDerivedRasterBand::PixelFunc, std::string>> &
+GetGlobalMapPixelFunction()
+{
+    static std::map<std::string,
+                    std::pair<VRTDerivedRasterBand::PixelFunc, std::string>>
+        gosMapPixelFunction;
+    return gosMapPixelFunction;
+}
+
+/************************************************************************/
 /*                           AddPixelFunction()                         */
 /************************************************************************/
 
@@ -261,7 +271,7 @@ CPLErr CPL_STDCALL GDALAddDerivedBandPixelFunc(
         return CE_None;
     }
 
-    osMapPixelFunction[pszName] = {
+    GetGlobalMapPixelFunction()[pszName] = {
         [pfnNewFunction](void **papoSources, int nSources, void *pData,
                          int nBufXSize, int nBufYSize, GDALDataType eSrcType,
                          GDALDataType eBufType, int nPixelSpace, int nLineSpace,
@@ -299,13 +309,13 @@ CPLErr CPL_STDCALL GDALAddDerivedBandPixelFuncWithArgs(
     const char *pszName, GDALDerivedPixelFuncWithArgs pfnNewFunction,
     const char *pszMetadata)
 {
-    if (pszName == nullptr || pszName[0] == '\0' || pfnNewFunction == nullptr)
+    if (!pszName || pszName[0] == '\0' || !pfnNewFunction)
     {
         return CE_None;
     }
 
-    osMapPixelFunction[pszName] = {pfnNewFunction,
-                                   pszMetadata != nullptr ? pszMetadata : ""};
+    GetGlobalMapPixelFunction()[pszName] = {pfnNewFunction,
+                                            pszMetadata ? pszMetadata : ""};
 
     return CE_None;
 }
@@ -353,7 +363,7 @@ CPLErr VRTDerivedRasterBand::AddPixelFunction(
  * @return A derived band pixel function, or NULL if none have been
  * registered for pszFuncName.
  */
-std::pair<VRTDerivedRasterBand::PixelFunc, CPLString> *
+const std::pair<VRTDerivedRasterBand::PixelFunc, std::string> *
 VRTDerivedRasterBand::GetPixelFunction(const char *pszFuncNameIn)
 {
     if (pszFuncNameIn == nullptr || pszFuncNameIn[0] == '\0')
@@ -361,9 +371,10 @@ VRTDerivedRasterBand::GetPixelFunction(const char *pszFuncNameIn)
         return nullptr;
     }
 
-    auto oIter = osMapPixelFunction.find(pszFuncNameIn);
+    const auto &oMapPixelFunction = GetGlobalMapPixelFunction();
+    const auto oIter = oMapPixelFunction.find(pszFuncNameIn);
 
-    if (oIter == osMapPixelFunction.end())
+    if (oIter == oMapPixelFunction.end())
         return nullptr;
 
     return &(oIter->second);
@@ -945,7 +956,7 @@ CPLErr VRTDerivedRasterBand::IRasterIO(
     }
 
     /* ---- Get pixel function for band ---- */
-    std::pair<PixelFunc, CPLString> *poPixelFunc = nullptr;
+    const std::pair<PixelFunc, std::string> *poPixelFunc = nullptr;
     std::vector<std::pair<CPLString, CPLString>> oAdditionalArgs;
 
     if (EQUAL(m_poPrivate->m_osLanguage, "C"))
@@ -1135,6 +1146,7 @@ CPLErr VRTDerivedRasterBand::IRasterIO(
 
     // Load values for sources into packed buffers.
     CPLErr eErr = CE_None;
+    VRTSource::WorkingState oWorkingState;
     for (int iBuffer = 0; iBuffer < nBufferCount && eErr == CE_None; iBuffer++)
     {
         const int iSource = anMapBufferIdxToSourceIdx[iBuffer];
@@ -1147,7 +1159,7 @@ CPLErr VRTDerivedRasterBand::IRasterIO(
                                nSrcTypeSize,
                        nExtBufXSizeReq, nExtBufYSizeReq, eSrcType, nSrcTypeSize,
                        static_cast<GSpacing>(nSrcTypeSize) * nExtBufXSize,
-                       &sExtraArg);
+                       &sExtraArg, oWorkingState);
 
         // Extend first lines
         for (int iY = 0; iY < nYShiftInBuffer; iY++)
@@ -1405,7 +1417,7 @@ int VRTDerivedRasterBand::IGetDataCoverageStatus(
 /************************************************************************/
 
 CPLErr VRTDerivedRasterBand::XMLInit(
-    CPLXMLNode *psTree, const char *pszVRTPath,
+    const CPLXMLNode *psTree, const char *pszVRTPath,
     std::map<CPLString, GDALDataset *> &oMapSharedSources)
 
 {
@@ -1456,10 +1468,11 @@ CPLErr VRTDerivedRasterBand::XMLInit(
         return CE_Failure;
     }
 
-    CPLXMLNode *psArgs = CPLGetXMLNode(psTree, "PixelFunctionArguments");
+    const CPLXMLNode *const psArgs =
+        CPLGetXMLNode(psTree, "PixelFunctionArguments");
     if (psArgs != nullptr)
     {
-        for (CPLXMLNode *psIter = psArgs->psChild; psIter != nullptr;
+        for (const CPLXMLNode *psIter = psArgs->psChild; psIter;
              psIter = psIter->psNext)
         {
             if (psIter->eType == CXT_Attribute)
@@ -1496,9 +1509,12 @@ CPLErr VRTDerivedRasterBand::XMLInit(
 /*                           SerializeToXML()                           */
 /************************************************************************/
 
-CPLXMLNode *VRTDerivedRasterBand::SerializeToXML(const char *pszVRTPath)
+CPLXMLNode *VRTDerivedRasterBand::SerializeToXML(const char *pszVRTPath,
+                                                 bool &bHasWarnedAboutRAMUsage,
+                                                 size_t &nAccRAMUsage)
 {
-    CPLXMLNode *psTree = VRTSourcedRasterBand::SerializeToXML(pszVRTPath);
+    CPLXMLNode *psTree = VRTSourcedRasterBand::SerializeToXML(
+        pszVRTPath, bHasWarnedAboutRAMUsage, nAccRAMUsage);
 
     /* -------------------------------------------------------------------- */
     /*      Set subclass.                                                   */

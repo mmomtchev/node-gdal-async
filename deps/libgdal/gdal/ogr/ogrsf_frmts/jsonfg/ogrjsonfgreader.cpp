@@ -129,7 +129,7 @@ OGRJSONFGReadCoordRefSys(json_object *poCoordRefSys, bool bCanRecurse = true)
             osURL += "/0/";
             osURL.append(pszColon + 1,
                          (pszStr + strlen(pszStr) - 1) - (pszColon + 1));
-            auto poSRS = cpl::make_unique<OGRSpatialReference>();
+            auto poSRS = std::make_unique<OGRSpatialReference>();
             if (poSRS->importFromCRSURL(osURL.c_str()) != OGRERR_NONE)
             {
                 return nullptr;
@@ -139,7 +139,7 @@ OGRJSONFGReadCoordRefSys(json_object *poCoordRefSys, bool bCanRecurse = true)
         else if (STARTS_WITH(pszStr, "http://www.opengis.net/def/crs/"))
         {
             // OGC URI, e.g. "http://www.opengis.net/def/crs/EPSG/0/4326"
-            auto poSRS = cpl::make_unique<OGRSpatialReference>();
+            auto poSRS = std::make_unique<OGRSpatialReference>();
             if (poSRS->importFromCRSURL(pszStr) != OGRERR_NONE)
             {
                 return nullptr;
@@ -232,7 +232,7 @@ OGRJSONFGReadCoordRefSys(json_object *poCoordRefSys, bool bCanRecurse = true)
             /* bCanRecurse = */ false);
         if (!poSRS2)
             return nullptr;
-        auto poSRS = cpl::make_unique<OGRSpatialReference>();
+        auto poSRS = std::make_unique<OGRSpatialReference>();
 
         std::string osName;
         const char *pszName1 = poSRS1->GetName();
@@ -476,14 +476,14 @@ void OGRJSONFGReader::FinalizeBuildContext(LayerDefnBuildContext &oBuildContext,
     OGRLayer *poLayer;
     if (bStreamedLayer)
     {
-        poStreamedLayer = cpl::make_unique<OGRJSONFGStreamedLayer>(
-            pszLayerName, poSRSLayer, oBuildContext.eLayerGeomType);
+        poStreamedLayer = std::make_unique<OGRJSONFGStreamedLayer>(
+            poDS_, pszLayerName, poSRSLayer, oBuildContext.eLayerGeomType);
         poLayer = poStreamedLayer.get();
     }
     else
     {
-        poMemLayer = cpl::make_unique<OGRJSONFGMemLayer>(
-            pszLayerName, poSRSLayer, oBuildContext.eLayerGeomType);
+        poMemLayer = std::make_unique<OGRJSONFGMemLayer>(
+            poDS_, pszLayerName, poSRSLayer, oBuildContext.eLayerGeomType);
         poLayer = poMemLayer.get();
     }
 
@@ -492,9 +492,39 @@ void OGRJSONFGReader::FinalizeBuildContext(LayerDefnBuildContext &oBuildContext,
     // See https://github.com/OSGeo/gdal/pull/4552 for a number of potential
     // resolutions if that has to be solved in the future.
     OGRFeatureDefn *poLayerDefn = poLayer->GetLayerDefn();
+    auto oTemporaryUnsealer(poLayerDefn->GetTemporaryUnsealer());
+
+    if (poLayer->GetLayerDefn()->GetGeomType() != wkbNone)
+    {
+        OGRGeoJSONWriteOptions options;
+
+        json_object *poXYRes = CPL_json_object_object_get(
+            poObject_, "xy_coordinate_resolution_place");
+        if (poXYRes && (json_object_get_type(poXYRes) == json_type_double ||
+                        json_object_get_type(poXYRes) == json_type_int))
+        {
+            auto poGeomFieldDefn = poLayerDefn->GetGeomFieldDefn(0);
+            OGRGeomCoordinatePrecision oCoordPrec(
+                poGeomFieldDefn->GetCoordinatePrecision());
+            oCoordPrec.dfXYResolution = json_object_get_double(poXYRes);
+            poGeomFieldDefn->SetCoordinatePrecision(oCoordPrec);
+        }
+
+        json_object *poZRes = CPL_json_object_object_get(
+            poObject_, "z_coordinate_resolution_place");
+        if (poZRes && (json_object_get_type(poZRes) == json_type_double ||
+                       json_object_get_type(poZRes) == json_type_int))
+        {
+            auto poGeomFieldDefn = poLayerDefn->GetGeomFieldDefn(0);
+            OGRGeomCoordinatePrecision oCoordPrec(
+                poGeomFieldDefn->GetCoordinatePrecision());
+            oCoordPrec.dfZResolution = json_object_get_double(poZRes);
+            poGeomFieldDefn->SetCoordinatePrecision(oCoordPrec);
+        }
+    }
 
     std::set<std::string> oSetFieldNames;
-    for (auto &poFieldDefn : oBuildContext.apoFieldDefn)
+    for (const auto &poFieldDefn : oBuildContext.apoFieldDefn)
         oSetFieldNames.insert(poFieldDefn->GetNameRef());
 
     auto AddTimeField =
@@ -664,7 +694,7 @@ OGRJSONFGCreateNonGeoJSONGeometry(json_object *poObj, bool bWarn)
             return nullptr;
         }
         auto poJOuterShell = json_object_array_get_idx(poCoordinates, 0);
-        auto poGeom = cpl::make_unique<OGRPolyhedralSurface>();
+        auto poGeom = std::make_unique<OGRPolyhedralSurface>();
         const auto nPolys = json_object_array_length(poJOuterShell);
         for (auto i = decltype(nPolys){0}; i < nPolys; ++i)
         {
@@ -702,7 +732,7 @@ OGRJSONFGCreateNonGeoJSONGeometry(json_object *poObj, bool bWarn)
         if (poBaseGeom->getGeometryType() == wkbPoint)
         {
             const auto poPoint = poBaseGeom.get()->toPoint();
-            auto poGeom = cpl::make_unique<OGRLineString>();
+            auto poGeom = std::make_unique<OGRLineString>();
             poGeom->addPoint(poPoint->getX(), poPoint->getY(), dfLower);
             poGeom->addPoint(poPoint->getX(), poPoint->getY(), dfUpper);
             return poGeom;
@@ -710,7 +740,7 @@ OGRJSONFGCreateNonGeoJSONGeometry(json_object *poObj, bool bWarn)
         else if (poBaseGeom->getGeometryType() == wkbLineString)
         {
             const auto poLS = poBaseGeom.get()->toLineString();
-            auto poGeom = cpl::make_unique<OGRMultiPolygon>();
+            auto poGeom = std::make_unique<OGRMultiPolygon>();
             for (int i = 0; i < poLS->getNumPoints() - 1; ++i)
             {
                 auto poPoly = new OGRPolygon();
@@ -743,7 +773,7 @@ OGRJSONFGCreateNonGeoJSONGeometry(json_object *poObj, bool bWarn)
             {
                 return nullptr;
             }
-            auto poGeom = cpl::make_unique<OGRPolyhedralSurface>();
+            auto poGeom = std::make_unique<OGRPolyhedralSurface>();
             // Build lower face
             {
                 auto poPoly = new OGRPolygon();
@@ -846,7 +876,7 @@ bool OGRJSONFGReader::GenerateLayerDefnFromFeature(json_object *poObj)
             if (!poContext->bHasCoordRefSysAtFeatureLevel)
             {
                 poContext->bHasCoordRefSysAtFeatureLevel = true;
-                poContext->osCoordRefSysAtFeatureLevel = osVal;
+                poContext->osCoordRefSysAtFeatureLevel = std::move(osVal);
                 poContext->poCRSAtFeatureLevel =
                     OGRJSONFGReadCoordRefSys(poCoordRefSys);
                 if (poContext->poCRSAtFeatureLevel)
@@ -1029,7 +1059,7 @@ OGRJSONFGReader::ReadFeature(json_object *poObj, const char *pszRequestedLayer,
         *pOutStreamedLayer = oBuildContext.poStreamedLayer;
 
     OGRFeatureDefn *poFDefn = poLayer->GetLayerDefn();
-    auto poFeature = cpl::make_unique<OGRFeature>(poFDefn);
+    auto poFeature = std::make_unique<OGRFeature>(poFDefn);
 
     /* -------------------------------------------------------------------- */
     /*      Translate GeoJSON "properties" object to feature attributes.    */

@@ -76,6 +76,7 @@ class OGCAPIDataset final : public GDALDataset
     double m_adfGeoTransform[6];
 
     OGRSpatialReference m_oSRS{};
+    CPLString m_osTileData{};
 
     // Classic OGC API features /items access
     std::unique_ptr<GDALDataset> m_poOAPIFDS{};
@@ -92,12 +93,14 @@ class OGCAPIDataset final : public GDALDataset
 
     CPLString BuildURL(const std::string &href) const;
     void SetRootURLFromURL(const std::string &osURL);
+    int FigureBands(const std::string &osContentType,
+                    const CPLString &osImageURL);
 
     bool InitFromFile(GDALOpenInfo *poOpenInfo);
     bool InitFromURL(GDALOpenInfo *poOpenInfo);
-    void ProcessScale(CPLJSONObject &oScaleDenominator, const double dfXMin,
-                      const double dfYMin, const double dfXMax,
-                      const double dfYMax);
+    void ProcessScale(const CPLJSONObject &oScaleDenominator,
+                      const double dfXMin, const double dfYMin,
+                      const double dfXMax, const double dfYMax);
     bool InitFromCollection(GDALOpenInfo *poOpenInfo, CPLJSONDocument &oDoc);
     bool Download(const CPLString &osURL, const char *pszPostContent,
                   const char *pszAccept, CPLString &osResult,
@@ -109,6 +112,12 @@ class OGCAPIDataset final : public GDALDataset
                       const char *pszAccept = MEDIA_TYPE_GEOJSON
                       ", " MEDIA_TYPE_JSON,
                       CPLStringList *paosHeaders = nullptr);
+
+    std::unique_ptr<GDALDataset>
+    OpenTile(const CPLString &osURLPattern, int nMatrix, int nColumn, int nRow,
+             bool &bEmptyContent, unsigned int nOpenTileFlags = 0,
+             const CPLString &osPrefix = {},
+             const char *const *papszOpenOptions = nullptr);
 
     bool InitWithMapAPI(GDALOpenInfo *poOpenInfo,
                         const CPLJSONObject &oCollection, double dfXMin,
@@ -144,6 +153,7 @@ class OGCAPIDataset final : public GDALDataset
         return m_poOAPIFDS ? m_poOAPIFDS->GetLayerCount()
                            : static_cast<int>(m_apoLayers.size());
     }
+
     OGRLayer *GetLayer(int idx) override
     {
         return m_poOAPIFDS                         ? m_poOAPIFDS->GetLayer(idx)
@@ -218,7 +228,9 @@ class OGCAPITiledLayerFeatureDefn final : public OGRFeatureDefn
         : OGRFeatureDefn(pszName), m_poLayer(poLayer)
     {
     }
+
     int GetFieldCount() const override;
+
     void InvalidateLayer()
     {
         m_poLayer = nullptr;
@@ -235,7 +247,6 @@ class OGCAPITiledLayer final
         false;  // prevent recursion in EstablishFields()
     OGCAPITiledLayerFeatureDefn *m_poFeatureDefn = nullptr;
     OGREnvelope m_sEnvelope{};
-    CPLString m_osTileData{};
     std::unique_ptr<GDALDataset> m_poUnderlyingDS{};
     OGRLayer *m_poUnderlyingLayer = nullptr;
     int m_nCurY = 0;
@@ -282,33 +293,42 @@ class OGCAPITiledLayer final
     void SetMinMaxXY(int minCol, int minRow, int maxCol, int maxRow);
 
     void ResetReading() override;
+
     OGRFeatureDefn *GetLayerDefn() override
     {
         return m_poFeatureDefn;
     }
+
     const char *GetName() override
     {
         return m_poFeatureDefn->GetName();
     }
+
     OGRwkbGeometryType GetGeomType() override
     {
         return m_poFeatureDefn->GetGeomType();
     }
     DEFINE_GET_NEXT_FEATURE_THROUGH_RAW(OGCAPITiledLayer)
+
     GIntBig GetFeatureCount(int /* bForce */) override
     {
         return -1;
     }
+
     OGRErr GetExtent(OGREnvelope *psExtent, int bForce) override;
+
     OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent, int bForce) override
     {
         return OGRLayer::GetExtent(iGeomField, psExtent, bForce);
     }
+
     void SetSpatialFilter(OGRGeometry *) override;
+
     void SetSpatialFilter(int iGeomField, OGRGeometry *poGeom) override
     {
         OGRLayer::SetSpatialFilter(iGeomField, poGeom);
     }
+
     OGRFeature *GetFeature(GIntBig nFID) override;
     int TestCapability(const char *) override;
 };
@@ -588,6 +608,53 @@ bool OGCAPIDataset::DownloadJSon(const CPLString &osURL, CPLJSONDocument &oDoc,
 }
 
 /************************************************************************/
+/*                            OpenTile()                                */
+/************************************************************************/
+
+std::unique_ptr<GDALDataset>
+OGCAPIDataset::OpenTile(const CPLString &osURLPattern, int nMatrix, int nColumn,
+                        int nRow, bool &bEmptyContent,
+                        unsigned int nOpenTileFlags, const CPLString &osPrefix,
+                        const char *const *papszOpenTileOptions)
+{
+    CPLString osURL(osURLPattern);
+    osURL.replaceAll("{tileMatrix}", CPLSPrintf("%d", nMatrix));
+    osURL.replaceAll("{tileCol}", CPLSPrintf("%d", nColumn));
+    osURL.replaceAll("{tileRow}", CPLSPrintf("%d", nRow));
+
+    CPLString osContentType;
+    if (!this->Download(osURL, nullptr, nullptr, m_osTileData, osContentType,
+                        true, nullptr))
+    {
+        return nullptr;
+    }
+
+    bEmptyContent = m_osTileData.empty();
+    if (bEmptyContent)
+        return nullptr;
+
+    CPLString osTempFile;
+    osTempFile.Printf("/vsimem/ogcapi/%p", this);
+    VSIFCloseL(VSIFileFromMemBuffer(osTempFile.c_str(),
+                                    reinterpret_cast<GByte *>(&m_osTileData[0]),
+                                    m_osTileData.size(), false));
+
+    GDALDataset *result = nullptr;
+
+    if (osPrefix.empty())
+        result = GDALDataset::Open(osTempFile.c_str(), nOpenTileFlags, nullptr,
+                                   papszOpenTileOptions);
+    else
+        result =
+            GDALDataset::Open((osPrefix + ":" + osTempFile).c_str(),
+                              nOpenTileFlags, nullptr, papszOpenTileOptions);
+
+    VSIUnlink(osTempFile);
+
+    return std::unique_ptr<GDALDataset>(result);
+}
+
+/************************************************************************/
 /*                            Identify()                                */
 /************************************************************************/
 
@@ -629,6 +696,37 @@ void OGCAPIDataset::SetRootURLFromURL(const std::string &osURL)
 }
 
 /************************************************************************/
+/*                          FigureBands()                               */
+/************************************************************************/
+
+int OGCAPIDataset::FigureBands(const std::string &osContentType,
+                               const CPLString &osImageURL)
+{
+    int result = 0;
+
+    if (osContentType == "image/png")
+    {
+        result = 4;
+    }
+    else if (osContentType == "image/jpeg")
+    {
+        result = 3;
+    }
+    else
+    {
+        // Since we don't know the format download a tile and find out
+        bool bEmptyContent = false;
+        std::unique_ptr<GDALDataset> dataset =
+            OpenTile(osImageURL, 0, 0, 0, bEmptyContent, GDAL_OF_RASTER);
+
+        // Return the bands from the image, if we didn't get an image then assume 3.
+        result = dataset ? (int)dataset->GetBands().size() : 3;
+    }
+
+    return result;
+}
+
+/************************************************************************/
 /*                           InitFromFile()                             */
 /************************************************************************/
 
@@ -665,7 +763,7 @@ bool OGCAPIDataset::InitFromFile(GDALOpenInfo *poOpenInfo)
 /*                        ProcessScale()                          */
 /************************************************************************/
 
-void OGCAPIDataset::ProcessScale(CPLJSONObject &oScaleDenominator,
+void OGCAPIDataset::ProcessScale(const CPLJSONObject &oScaleDenominator,
                                  const double dfXMin, const double dfYMin,
                                  const double dfXMax, const double dfYMax)
 
@@ -1004,21 +1102,64 @@ bool OGCAPIDataset::InitFromURL(GDALOpenInfo *poOpenInfo)
 /*                          SelectImageURL()                            */
 /************************************************************************/
 
-static const CPLString SelectImageURL(const char *const *papszOptionOptions,
-                                      const CPLString &osPNG_URL,
-                                      const CPLString &osJPEG_URL)
+static const std::pair<std::string, std::string>
+SelectImageURL(const char *const *papszOptionOptions,
+               std::map<std::string, std::string> &oMapItemUrls)
 {
-    const char *pszFormat =
+    // Map IMAGE_FORMATS to their content types. Would be nice if this was
+    // globally defined someplace
+    const std::map<std::string, std::vector<std::string>>
+        oFormatContentTypeMap = {
+            {"AUTO",
+             {"image/png", "image/jpeg", "image/tiff; application=geotiff"}},
+            {"PNG_PREFERRED",
+             {"image/png", "image/jpeg", "image/tiff; application=geotiff"}},
+            {"JPEG_PREFERRED",
+             {"image/jpeg", "image/png", "image/tiff; application=geotiff"}},
+            {"PNG", {"image/png"}},
+            {"JPEG", {"image/jpeg"}},
+            {"GEOTIFF", {"image/tiff; application=geotiff"}}};
+
+    // Get the IMAGE_FORMAT
+    const std::string osFormat =
         CSLFetchNameValueDef(papszOptionOptions, "IMAGE_FORMAT", "AUTO");
-    if (EQUAL(pszFormat, "AUTO") || EQUAL(pszFormat, "PNG_PREFERRED"))
-        return !osPNG_URL.empty() ? osPNG_URL : osJPEG_URL;
-    else if (EQUAL(pszFormat, "PNG"))
-        return osPNG_URL;
-    else if (EQUAL(pszFormat, "JPEG"))
-        return osJPEG_URL;
-    else if (EQUAL(pszFormat, "JPEG_PREFERRED"))
-        return !osJPEG_URL.empty() ? osJPEG_URL : osPNG_URL;
-    return CPLString();
+
+    // Get a list of content types we will search for in priority order based on IMAGE_FORMAT
+    auto iterFormat = oFormatContentTypeMap.find(osFormat);
+    if (iterFormat == oFormatContentTypeMap.end())
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "Unknown IMAGE_FORMAT specified: %s", osFormat.c_str());
+        return std::pair<std::string, CPLString>();
+    }
+    std::vector<std::string> oContentTypes = iterFormat->second;
+
+    // For "special" IMAGE_FORMATS we will also accept additional content types
+    // specified by the server. Note that this will likely result in having
+    // some content types duplicated in the vector but that is fine.
+    if (osFormat == "AUTO" || osFormat == "PNG_PREFERRED" ||
+        osFormat == "JPEG_PREFERRED")
+    {
+        std::transform(oMapItemUrls.begin(), oMapItemUrls.end(),
+                       std::back_inserter(oContentTypes),
+                       [](const auto &pair) -> const std::string &
+                       { return pair.first; });
+    }
+
+    // Loop over each content type - return the first one we find
+    for (auto &oContentType : oContentTypes)
+    {
+        auto iterContentType = oMapItemUrls.find(oContentType);
+        if (iterContentType != oMapItemUrls.end())
+        {
+            return *iterContentType;
+        }
+    }
+
+    CPLError(CE_Failure, CPLE_AppDefined,
+             "Server does not support specified IMAGE_FORMAT: %s",
+             osFormat.c_str());
+    return std::pair<std::string, CPLString>();
 }
 
 /************************************************************************/
@@ -1052,35 +1193,40 @@ bool OGCAPIDataset::InitWithMapAPI(GDALOpenInfo *poOpenInfo,
                                    double dfYMin, double dfXMax, double dfYMax)
 {
     auto oLinks = oRoot["links"].ToArray();
-    CPLString osPNG_URL;
-    CPLString osJPEG_URL;
+
+    // Key - mime type, Value url
+    std::map<std::string, std::string> oMapItemUrls;
 
     for (const auto &oLink : oLinks)
     {
         if (oLink["rel"].ToString() ==
                 "http://www.opengis.net/def/rel/ogc/1.0/map" &&
-            oLink["type"].ToString() == "image/png")
+            oLink["type"].IsValid())
         {
-            osPNG_URL = BuildURL(oLink["href"].ToString());
+            oMapItemUrls[oLink["type"].ToString()] =
+                BuildURL(oLink["href"].ToString());
         }
-        else if (oLink["rel"].ToString() ==
-                     "http://www.opengis.net/def/rel/ogc/1.0/map" &&
-                 oLink["type"].ToString() == "image/jpeg")
+        else
         {
-            osJPEG_URL = BuildURL(oLink["href"].ToString());
+            // For lack of additional information assume we are getting some bytes
+            oMapItemUrls["application/octet-stream"] =
+                BuildURL(oLink["href"].ToString());
         }
     }
 
-    CPLString osImageURL =
-        SelectImageURL(poOpenInfo->papszOpenOptions, osPNG_URL, osJPEG_URL);
+    const std::pair<std::string, std::string> oContentUrlPair =
+        SelectImageURL(poOpenInfo->papszOpenOptions, oMapItemUrls);
+    const std::string osContentType = oContentUrlPair.first;
+    const std::string osImageURL = oContentUrlPair.second;
+
     if (osImageURL.empty())
     {
         CPLError(CE_Failure, CPLE_AppDefined,
-                 "Cannot find link to PNG or JPEG images");
+                 "Cannot find link to tileset items");
         return false;
     }
-    const int l_nBands = ((osImageURL == osPNG_URL) ? 4 : 3);
 
+    int l_nBands = FigureBands(osContentType, osImageURL);
     int nOverviewCount = 0;
     int nLargestDim = std::max(nRasterXSize, nRasterYSize);
     while (nLargestDim > 256)
@@ -1098,7 +1244,7 @@ bool OGCAPIDataset::InitWithMapAPI(GDALOpenInfo *poOpenInfo,
         CSLFetchNameValueDef(poOpenInfo->papszOpenOptions, "MAX_CONNECTIONS",
                              CPLGetConfigOption("GDAL_MAX_CONNECTIONS", "5")));
     CPLString osWMS_XML;
-    char *pszEscapedURL = CPLEscapeString(osImageURL, -1, CPLES_XML);
+    char *pszEscapedURL = CPLEscapeString(osImageURL.c_str(), -1, CPLES_XML);
     osWMS_XML.Printf("<GDAL_WMS>"
                      "    <Service name=\"OGCAPIMaps\">"
                      "        <ServerUrl>%s</ServerUrl>"
@@ -1487,8 +1633,7 @@ ParseXMLSchema(const std::string &osURL,
                std::vector<std::unique_ptr<OGRFieldDefn>> &apoFields,
                OGRwkbGeometryType &eGeomType)
 {
-    CPLErrorHandlerPusher oErrorHandlerPusher(CPLQuietErrorHandler);
-    CPLErrorStateBackuper oErrorStateBackuper;
+    CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
 
     std::vector<GMLFeatureClass *> apoClasses;
     bool bFullyUnderstood = false;
@@ -1512,7 +1657,7 @@ ParseXMLSchema(const std::string &osURL,
                 GML_GetOGRFieldType(poProperty->GetType(), eSubType);
 
             const char *pszName = poProperty->GetName();
-            auto poField = cpl::make_unique<OGRFieldDefn>(pszName, eFType);
+            auto poField = std::make_unique<OGRFieldDefn>(pszName, eFType);
             poField->SetSubType(eSubType);
             apoFields.emplace_back(std::move(poField));
         }
@@ -1597,25 +1742,22 @@ bool OGCAPIDataset::InitWithTilesAPI(GDALOpenInfo *poOpenInfo,
         }
         if (pszRequiredTileMatrixSet != nullptr)
         {
-            osTilesetURL = osCandidateTilesetURL;
-            break;
+            osTilesetURL = std::move(osCandidateTilesetURL);
         }
-        if (pszPreferredTileMatrixSet != nullptr &&
-            !osCandidateTilesetURL.empty() &&
-            (oTileMatrixSetURI.find(pszPreferredTileMatrixSet) !=
-             std::string::npos))
+        else if (pszPreferredTileMatrixSet != nullptr &&
+                 !osCandidateTilesetURL.empty() &&
+                 (oTileMatrixSetURI.find(pszPreferredTileMatrixSet) !=
+                  std::string::npos))
         {
-            osTilesetURL = osCandidateTilesetURL;
-            break;
+            osTilesetURL = std::move(osCandidateTilesetURL);
         }
-
-        if (oTileMatrixSetURI.find("WorldCRS84Quad") != std::string::npos)
+        else if (oTileMatrixSetURI.find("WorldCRS84Quad") != std::string::npos)
         {
-            osTilesetURL = osCandidateTilesetURL;
+            osTilesetURL = std::move(osCandidateTilesetURL);
         }
         else if (osTilesetURL.empty())
         {
-            osTilesetURL = osCandidateTilesetURL;
+            osTilesetURL = std::move(osCandidateTilesetURL);
         }
     }
     if (osTilesetURL.empty())
@@ -1634,12 +1776,14 @@ bool OGCAPIDataset::InitWithTilesAPI(GDALOpenInfo *poOpenInfo,
         CPLError(CE_Failure, CPLE_AppDefined, "Missing links for tileset");
         return false;
     }
-    CPLString osPNG_URL;
-    CPLString osJPEG_URL;
+
+    // Key - mime type, Value url
+    std::map<std::string, std::string> oMapItemUrls;
     CPLString osMVT_URL;
     CPLString osGEOJSON_URL;
     CPLString osTilingSchemeURL;
     bool bTilingSchemeURLJson = false;
+
     for (const auto &oLink : oLinks)
     {
         const auto osRel = oLink.GetString("rel");
@@ -1660,13 +1804,15 @@ bool OGCAPIDataset::InitWithTilesAPI(GDALOpenInfo *poOpenInfo,
         }
         else if (bIsMap)
         {
-            if (osRel == "item" && osType == "image/png")
+            if (osRel == "item" && !osType.empty())
             {
-                osPNG_URL = BuildURL(oLink["href"].ToString());
+                oMapItemUrls[osType] = BuildURL(oLink["href"].ToString());
             }
-            else if (osRel == "item" && osType == "image/jpeg")
+            else if (osRel == "item")
             {
-                osJPEG_URL = BuildURL(oLink["href"].ToString());
+                // For lack of additional information assume we are getting some bytes
+                oMapItemUrls["application/octet-stream"] =
+                    BuildURL(oLink["href"].ToString());
             }
         }
         else
@@ -1694,6 +1840,7 @@ bool OGCAPIDataset::InitWithTilesAPI(GDALOpenInfo *poOpenInfo,
     // Parse tile matrix set limits.
     const auto oTileMatrixSetLimits =
         oDoc.GetRoot().GetArray("tileMatrixSetLimits");
+
     struct Limits
     {
         int minTileRow;
@@ -1701,6 +1848,7 @@ bool OGCAPIDataset::InitWithTilesAPI(GDALOpenInfo *poOpenInfo,
         int minTileCol;
         int maxTileCol;
     };
+
     std::map<CPLString, Limits> oMapTileMatrixSetLimits;
     if (CPLTestBool(
             CPLGetConfigOption("GDAL_OGCAPI_TILEMATRIXSET_LIMITS", "YES")))
@@ -1722,8 +1870,11 @@ bool OGCAPIDataset::InitWithTilesAPI(GDALOpenInfo *poOpenInfo,
         }
     }
 
-    const CPLString osRasterURL =
-        SelectImageURL(poOpenInfo->papszOpenOptions, osPNG_URL, osJPEG_URL);
+    const std::pair<std::string, std::string> oContentUrlPair =
+        SelectImageURL(poOpenInfo->papszOpenOptions, oMapItemUrls);
+    const std::string osContentType = oContentUrlPair.first;
+    const std::string osRasterURL = oContentUrlPair.second;
+
     const CPLString osVectorURL = SelectVectorFormatURL(
         poOpenInfo->papszOpenOptions, osMVT_URL, osGEOJSON_URL);
     if (osRasterURL.empty() && osVectorURL.empty())
@@ -1880,7 +2031,8 @@ bool OGCAPIDataset::InitWithTilesAPI(GDALOpenInfo *poOpenInfo,
             CPLGetConfigOption("GDAL_WMS_MAX_CONNECTIONS", "5")));
         const char *pszTileMatrix =
             CSLFetchNameValue(poOpenInfo->papszOpenOptions, "TILEMATRIX");
-        const int l_nBands = ((osRasterURL == osPNG_URL) ? 4 : 3);
+
+        int l_nBands = FigureBands(osContentType, osRasterURL);
 
         for (const auto &tileMatrix : tms->tileMatrixList())
         {
@@ -1923,8 +2075,9 @@ bool OGCAPIDataset::InitWithTilesAPI(GDALOpenInfo *poOpenInfo,
                 bInvertAxis ? tileMatrix.mTopLeftX : tileMatrix.mTopLeftY;
 
             const auto CreateWMS_XML =
-                [=, &tileMatrix](int minRow, int rowCount, int nCoalesce,
-                                 double &dfStripMinY, double &dfStripMaxY)
+                [=, &osURL, &tileMatrix](int minRow, int rowCount,
+                                         int nCoalesce, double &dfStripMinY,
+                                         double &dfStripMaxY)
             {
                 int minCol = 0;
                 int maxCol = tileMatrix.mMatrixWidth - 1;
@@ -2334,37 +2487,17 @@ void OGCAPITiledLayer::ResetReading()
 
 GDALDataset *OGCAPITiledLayer::OpenTile(int nX, int nY, bool &bEmptyContent)
 {
-    bEmptyContent = false;
-    CPLString osURL(m_osTileURL);
-
     int nCoalesce = GetCoalesceFactorForRow(nY);
     if (nCoalesce <= 0)
         return nullptr;
     nX = (nX / nCoalesce) * nCoalesce;
 
-    osURL.replaceAll("{tileCol}", CPLSPrintf("%d", nX));
-    osURL.replaceAll("{tileRow}", CPLSPrintf("%d", nY));
+    const char *const *papszOpenOptions = nullptr;
+    CPLString poPrefix;
+    CPLStringList aosOpenOptions;
 
-    CPLString osContentType;
-    if (!m_poDS->Download(osURL, nullptr, nullptr, m_osTileData, osContentType,
-                          true, nullptr))
-    {
-        return nullptr;
-    }
-    bEmptyContent = m_osTileData.empty();
-    if (bEmptyContent)
-        return nullptr;
-
-    CPLString osTempFile;
-    osTempFile.Printf("/vsimem/ogcapi/%p", this);
-    VSIFCloseL(VSIFileFromMemBuffer(osTempFile.c_str(),
-                                    reinterpret_cast<GByte *>(&m_osTileData[0]),
-                                    m_osTileData.size(), false));
-
-    GDALDataset *poTileDS;
     if (m_bIsMVT)
     {
-        CPLStringList aosOpenOptions;
         const double dfOriX =
             m_bInvertAxis ? m_oTileMatrix.mTopLeftY : m_oTileMatrix.mTopLeftX;
         const double dfOriY =
@@ -2385,16 +2518,16 @@ GDALDataset *OGCAPITiledLayer::OpenTile(int nX, int nY, bool &bEmptyContent)
             "@GEOREF_TILEDIMY",
             CPLSPrintf("%.18g",
                        m_oTileMatrix.mResY * m_oTileMatrix.mTileWidth));
-        poTileDS =
-            GDALDataset::Open(("MVT:" + osTempFile).c_str(), GDAL_OF_VECTOR,
-                              nullptr, aosOpenOptions.List());
+
+        papszOpenOptions = aosOpenOptions.List();
+        poPrefix = "MVT";
     }
-    else
-    {
-        poTileDS = GDALDataset::Open(osTempFile.c_str(), GDAL_OF_VECTOR);
-    }
-    VSIUnlink(osTempFile);
-    return poTileDS;
+
+    std::unique_ptr<GDALDataset> dataset = m_poDS->OpenTile(
+        m_osTileURL, stoi(m_oTileMatrix.mId), nX, nY, bEmptyContent,
+        GDAL_OF_VECTOR, poPrefix, papszOpenOptions);
+
+    return dataset.release();
 }
 
 /************************************************************************/
@@ -2747,7 +2880,7 @@ GDALDataset *OGCAPIDataset::Open(GDALOpenInfo *poOpenInfo)
 {
     if (!Identify(poOpenInfo))
         return nullptr;
-    auto poDS = cpl::make_unique<OGCAPIDataset>();
+    auto poDS = std::make_unique<OGCAPIDataset>();
     if (STARTS_WITH_CI(poOpenInfo->pszFilename, "OGCAPI:"))
     {
         if (!poDS->InitFromURL(poOpenInfo))
@@ -2799,6 +2932,7 @@ void GDALRegister_OGCAPI()
         "       <Value>PNG_PREFERRED</Value>"
         "       <Value>JPEG</Value>"
         "       <Value>JPEG_PREFERRED</Value>"
+        "       <Value>GEOTIFF</Value>"
         "  </Option>"
         "  <Option name='VECTOR_FORMAT' scope='vector' type='string-select' "
         "description='Which format to use for vector data acquisition' "

@@ -161,6 +161,9 @@ void RegisterOGRFlatGeobuf()
         "create a spatial index' default='YES'/>"
         "  <Option name='TEMPORARY_DIR' type='string' description='Directory "
         "where temporary file should be created'/>"
+        "  <Option name='TITLE' type='string' description='Layer title'/>"
+        "  <Option name='DESCRIPTION' type='string' "
+        "description='Layer description'/>"
         "</LayerCreationOptionList>");
     poDriver->SetMetadataItem(
         GDAL_DMD_OPENOPTIONLIST,
@@ -402,9 +405,10 @@ static CPLString LaunderLayerName(const char *pszLayerName)
     return osRet;
 }
 
-OGRLayer *OGRFlatGeobufDataset::ICreateLayer(
-    const char *pszLayerName, const OGRSpatialReference *poSpatialRef,
-    OGRwkbGeometryType eGType, char **papszOptions)
+OGRLayer *
+OGRFlatGeobufDataset::ICreateLayer(const char *pszLayerName,
+                                   const OGRGeomFieldDefn *poGeomFieldDefn,
+                                   CSLConstList papszOptions)
 {
     // Verify we are in update mode.
     if (!m_bCreate)
@@ -424,6 +428,10 @@ OGRLayer *OGRFlatGeobufDataset::ICreateLayer(
 
         return nullptr;
     }
+
+    const auto eGType = poGeomFieldDefn ? poGeomFieldDefn->GetType() : wkbNone;
+    const auto poSpatialRef =
+        poGeomFieldDefn ? poGeomFieldDefn->GetSpatialRef() : nullptr;
 
     // Verify that the datasource is a directory.
     VSIStatBufL sStatBuf;

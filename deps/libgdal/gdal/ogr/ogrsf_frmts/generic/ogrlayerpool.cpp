@@ -252,6 +252,7 @@ void OGRProxiedLayer::SetSpatialFilter(int iGeomField, OGRGeometry *poGeom)
         return;
     poUnderlyingLayer->SetSpatialFilter(iGeomField, poGeom);
 }
+
 /************************************************************************/
 /*                          SetAttributeFilter()                        */
 /************************************************************************/
@@ -508,7 +509,7 @@ int OGRProxiedLayer::TestCapability(const char *pszCapability)
 /*                            CreateField()                             */
 /************************************************************************/
 
-OGRErr OGRProxiedLayer::CreateField(OGRFieldDefn *poField, int bApproxOK)
+OGRErr OGRProxiedLayer::CreateField(const OGRFieldDefn *poField, int bApproxOK)
 {
     if (poUnderlyingLayer == nullptr && !OpenUnderlyingLayer())
         return OGRERR_FAILURE;
@@ -665,7 +666,7 @@ const char *OGRProxiedLayer::GetGeometryColumn()
 /*                          SetIgnoredFields()                          */
 /************************************************************************/
 
-OGRErr OGRProxiedLayer::SetIgnoredFields(const char **papszFields)
+OGRErr OGRProxiedLayer::SetIgnoredFields(CSLConstList papszFields)
 {
     if (poUnderlyingLayer == nullptr && !OpenUnderlyingLayer())
         return OGRERR_FAILURE;

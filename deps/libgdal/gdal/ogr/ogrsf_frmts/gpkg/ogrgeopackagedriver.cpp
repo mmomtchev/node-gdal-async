@@ -30,8 +30,15 @@
 
 #include "tilematrixset.hpp"
 
+#include <cctype>
+
 // g++ -g -Wall -fPIC -shared -o ogr_geopackage.so -Iport -Igcore -Iogr
 // -Iogr/ogrsf_frmts -Iogr/ogrsf_frmts/gpkg ogr/ogrsf_frmts/gpkg/*.c* -L. -lgdal
+
+static inline bool ENDS_WITH_CI(const char *a, const char *b)
+{
+    return strlen(a) >= strlen(b) && EQUAL(a + strlen(a) - strlen(b), b);
+}
 
 /************************************************************************/
 /*                       OGRGeoPackageDriverIdentify()                  */
@@ -237,6 +244,13 @@ static int OGRGeoPackageDriverIdentify(GDALOpenInfo *poOpenInfo,
         }
     }
 
+    if ((poOpenInfo->nOpenFlags & GDAL_OF_RASTER) != 0 &&
+        ENDS_WITH_CI(poOpenInfo->pszFilename, ".gti.gpkg"))
+    {
+        // Most likely handled by GTI driver, but we can't be sure
+        return GDAL_IDENTIFY_UNKNOWN;
+    }
+
     return TRUE;
 }
 
@@ -276,8 +290,9 @@ struct OGRGeoPackageDriverSubdatasetInfo : public GDALSubdatasetInfo
             m_driverPrefixComponent = aosParts[0];
 
             int subdatasetIndex{2};
-            const bool hasDriveLetter{strlen(aosParts[1]) == 1 &&
-                                      std::isalpha(aosParts[1][0])};
+            const bool hasDriveLetter{
+                strlen(aosParts[1]) == 1 &&
+                std::isalpha(static_cast<unsigned char>(aosParts[1][0]))};
 
             // Check for drive letter
             if (iPartsCount == 4)
@@ -312,7 +327,7 @@ OGRGeoPackageDriverGetSubdatasetInfo(const char *pszFileName)
     if (STARTS_WITH_CI(pszFileName, "GPKG:"))
     {
         std::unique_ptr<GDALSubdatasetInfo> info =
-            cpl::make_unique<OGRGeoPackageDriverSubdatasetInfo>(pszFileName);
+            std::make_unique<OGRGeoPackageDriverSubdatasetInfo>(pszFileName);
         if (!info->GetSubdatasetComponent().empty() &&
             !info->GetPathComponent().empty())
         {
@@ -329,7 +344,8 @@ OGRGeoPackageDriverGetSubdatasetInfo(const char *pszFileName)
 static GDALDataset *OGRGeoPackageDriverOpen(GDALOpenInfo *poOpenInfo)
 {
     std::string osFilenameInGpkgZip;
-    if (!OGRGeoPackageDriverIdentify(poOpenInfo, osFilenameInGpkgZip, true))
+    if (OGRGeoPackageDriverIdentify(poOpenInfo, osFilenameInGpkgZip, true) ==
+        GDAL_IDENTIFY_FALSE)
         return nullptr;
 
     GDALGeoPackageDataset *poDS = new GDALGeoPackageDataset();
@@ -491,6 +507,9 @@ void GDALGPKGDriver::InitializeCreationOptionList()
 
     const char *pszCOEnd =
         "  </Option>"
+        "  <Option name='ZOOM_LEVEL' type='integer' scope='raster' "
+        "description='Zoom level of full resolution. Only "
+        "used for TILING_SCHEME != CUSTOM' min='0' max='30'/>"
         "  <Option name='ZOOM_LEVEL_STRATEGY' type='string-select' "
         "scope='raster' description='Strategy to determine zoom level. Only "
         "used for TILING_SCHEME != CUSTOM' default='AUTO'>"
@@ -651,11 +670,23 @@ void RegisterOGRGeoPackage()
     poDriver->SetMetadataItem(
         GDAL_DS_LAYER_CREATIONOPTIONLIST,
         "<LayerCreationOptionList>"
+        "  <Option name='LAUNDER' type='boolean' description='Whether layer "
+        "and field names will be laundered.' default='NO'/>"
         "  <Option name='GEOMETRY_NAME' type='string' description='Name of "
         "geometry column.' default='geom' deprecated_alias='GEOMETRY_COLUMN'/>"
         "  <Option name='GEOMETRY_NULLABLE' type='boolean' "
         "description='Whether the values of the geometry column can be NULL' "
         "default='YES'/>"
+        "  <Option name='SRID' type='integer' description='Forced srs_id of "
+        "the "
+        "entry in the gpkg_spatial_ref_sys table to point to'/>"
+        "  <Option name='DISCARD_COORD_LSB' type='boolean' "
+        "description='Whether the geometry coordinate precision should be used "
+        "to set to zero non-significant least-significant bits of geometries. "
+        "Helps when further compression is used' default='NO'/>"
+        "  <Option name='UNDO_DISCARD_COORD_LSB_ON_READING' type='boolean' "
+        "description='Whether to ask GDAL to take into coordinate precision to "
+        "undo the effects of DISCARD_COORD_LSB' default='NO'/>"
         "  <Option name='FID' type='string' description='Name of the FID "
         "column to create' default='fid'/>"
         "  <Option name='OVERWRITE' type='boolean' description='Whether to "
@@ -725,6 +756,8 @@ void RegisterOGRGeoPackage()
     poDriver->SetMetadataItem(
         GDAL_DMD_RELATIONSHIP_RELATED_TABLE_TYPES,
         "features media simple_attributes attributes tiles");
+
+    poDriver->SetMetadataItem(GDAL_DCAP_HONOR_GEOM_COORDINATE_PRECISION, "YES");
 
 #ifdef ENABLE_SQL_GPKG_FORMAT
     poDriver->SetMetadataItem("ENABLE_SQL_GPKG_FORMAT", "YES");

@@ -1089,6 +1089,7 @@ class GeometryInsertTransformer : public OGRCoordinateTransformation
     {
         return nullptr;
     }
+
     const OGRSpatialReference *GetTargetCS() const override
     {
         return nullptr;
@@ -1104,11 +1105,10 @@ class GeometryInsertTransformer : public OGRCoordinateTransformation
         return nullptr;
     }
 
-    int Transform(int nCount, double *x, double *y, double *z = nullptr,
+    int Transform(size_t nCount, double *x, double *y, double *z = nullptr,
                   double * /*t*/ = nullptr, int *pabSuccess = nullptr) override
     {
-        int i;
-        for (i = 0; i < nCount; i++)
+        for (size_t i = 0; i < nCount; i++)
         {
             double dfXNew, dfYNew;
 
@@ -1525,4 +1525,13 @@ int OGRDWGLayer::TestCapability(const char *pszCap)
         return TRUE;
     else
         return FALSE;
+}
+
+/************************************************************************/
+/*                             GetDataset()                             */
+/************************************************************************/
+
+GDALDataset *OGRDWGLayer::GetDataset()
+{
+    return poDS;
 }

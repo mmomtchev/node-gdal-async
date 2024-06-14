@@ -151,9 +151,8 @@ std::shared_ptr<ZarrArray> ZarrV2Group::OpenZarrArray(const std::string &osName,
             if (!oDoc.Load(osZarrayFilename))
                 return nullptr;
             const auto oRoot = oDoc.GetRoot();
-            std::set<std::string> oSetFilenamesInLoading;
             return LoadArray(osName, osZarrayFilename, oRoot, false,
-                             CPLJSONObject(), oSetFilenamesInLoading);
+                             CPLJSONObject());
         }
     }
 
@@ -220,8 +219,7 @@ void ZarrV2Group::LoadAttributes() const
     CPLJSONDocument oDoc;
     const std::string osZattrsFilename(
         CPLFormFilename(m_osDirectoryName.c_str(), ".zattrs", nullptr));
-    CPLErrorHandlerPusher quietError(CPLQuietErrorHandler);
-    CPLErrorStateBackuper errorStateBackuper;
+    CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
     if (!oDoc.Load(osZattrsFilename))
         return;
     auto oRoot = oDoc.GetRoot();
@@ -332,9 +330,8 @@ void ZarrV2Group::InitFromZMetadata(const CPLJSONObject &obj)
             CPLFormFilename(poBelongingGroup->m_osDirectoryName.c_str(),
                             osArrayName.c_str(), nullptr),
             ".zarray", nullptr);
-        std::set<std::string> oSetFilenamesInLoading;
         poBelongingGroup->LoadArray(osArrayName, osZarrayFilename, oArray, true,
-                                    oAttributes, oSetFilenamesInLoading);
+                                    oAttributes);
     };
 
     struct ArrayDesc
@@ -343,6 +340,7 @@ void ZarrV2Group::InitFromZMetadata(const CPLJSONObject &obj)
         const CPLJSONObject *poArray = nullptr;
         const CPLJSONObject *poAttrs = nullptr;
     };
+
     std::vector<ArrayDesc> aoRegularArrays;
 
     // Second pass to read attributes and create arrays that are indexing
@@ -831,7 +829,7 @@ static CPLJSONObject FillDTypeElts(const GDALExtendedDataType &oDataType,
                     subArray.Add(subdtype);
                 array.Add(subArray);
             }
-            dtype = array;
+            dtype = std::move(array);
             break;
         }
     }

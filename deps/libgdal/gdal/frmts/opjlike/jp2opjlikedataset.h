@@ -88,6 +88,7 @@ struct JP2DatasetBase
             nThreads = 1;
         return nThreads;
     }
+
     std::string m_osFilename;
     VSILFILE *fp_ = nullptr; /* Large FILE API */
     vsi_l_offset nCodeStreamStart = 0;
@@ -230,4 +231,6 @@ class JP2OPJLikeRasterBand final : public GDALPamRasterBand
     virtual int HasArbitraryOverviews() override;
 };
 
+#ifdef unused
 void GDALRegisterJP2();
+#endif

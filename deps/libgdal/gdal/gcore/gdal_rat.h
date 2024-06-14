@@ -281,7 +281,7 @@ class CPL_DLL GDALRasterAttributeTable
      */
     virtual CPLXMLNode *Serialize() const;
     virtual void *SerializeJSON() const;
-    virtual CPLErr XMLInit(CPLXMLNode *, const char *);
+    virtual CPLErr XMLInit(const CPLXMLNode *, const char *);
 
     virtual CPLErr InitializeFromColorTable(const GDALColorTable *);
     virtual GDALColorTable *TranslateToColorTable(int nEntryCount = -1);
@@ -333,6 +333,7 @@ class GDALRasterAttributeField
     std::vector<double> adfValues{};
     std::vector<CPLString> aosValues{};
 };
+
 //! @endcond
 
 /************************************************************************/

@@ -50,7 +50,7 @@ static void (*PyEval_InitThreads)(void) = nullptr;
 static PyObject *(*Py_CompileStringExFlags)(const char *, const char *, int,
                                             void *, int) = nullptr;
 
-static std::mutex gMutex;
+static std::mutex gMutexGDALPython;
 static bool gbHasInitializedPython = false;
 static PyThreadState *gphThreadState = nullptr;
 
@@ -278,15 +278,15 @@ static bool LoadPythonAPI()
 #endif
         )
         {
-            char **papszTokens = CSLTokenizeString2(pszPath, ":", 0);
+            const CPLStringList aosPathParts(
+                CSLTokenizeString2(pszPath, ":", 0));
             for (int iTry = 0; iTry < 2; ++iTry)
             {
-                for (char **papszIter = papszTokens;
-                     papszIter != nullptr && *papszIter != nullptr; ++papszIter)
+                for (const char *pszPathPart : aosPathParts)
                 {
                     struct stat sStat;
                     CPLString osPythonBinary(
-                        CPLFormFilename(*papszIter, "python", nullptr));
+                        CPLFormFilename(pszPathPart, "python", nullptr));
                     if (iTry == 0)
                         osPythonBinary += "3";
                     if (lstat(osPythonBinary, &sStat) != 0)
@@ -345,7 +345,8 @@ static bool LoadPythonAPI()
                                             0 &&
                                         S_ISLNK(sStat.st_mode))
                                     {
-                                        osPythonBinary = osResolvedFullLink;
+                                        osPythonBinary =
+                                            std::move(osResolvedFullLink);
                                         continue;
                                     }
 
@@ -400,7 +401,6 @@ static bool LoadPythonAPI()
                 if (!osVersion.empty())
                     break;
             }
-            CSLDestroy(papszTokens);
         }
 
         if (!osVersion.empty())
@@ -542,15 +542,15 @@ static bool LoadPythonAPI()
 #endif
         )
         {
-            char **papszTokens = CSLTokenizeString2(pszPath, ";", 0);
+            const CPLStringList aosPathParts(
+                CSLTokenizeString2(pszPath, ";", 0));
             for (int iTry = 0; iTry < 2; ++iTry)
             {
-                for (char **papszIter = papszTokens;
-                     papszIter != nullptr && *papszIter != nullptr; ++papszIter)
+                for (const char *pszPathPart : aosPathParts)
                 {
                     VSIStatBufL sStat;
                     CPLString osPythonBinary(
-                        CPLFormFilename(*papszIter, "python.exe", nullptr));
+                        CPLFormFilename(pszPathPart, "python.exe", nullptr));
                     if (iTry == 1)
                         osPythonBinary += "3";
                     if (VSIStatL(osPythonBinary, &sStat) != 0)
@@ -558,47 +558,42 @@ static bool LoadPythonAPI()
 
                     CPLDebug("GDAL", "Found %s", osPythonBinary.c_str());
 
-                    // Test when dll is in the same directory as the exe
-                    char **papszFiles = VSIReadDir(*papszIter);
-                    for (char **papszFileIter = papszFiles;
-                         papszFileIter != nullptr && *papszFileIter != nullptr;
-                         ++papszFileIter)
                     {
-                        if ((STARTS_WITH_CI(*papszFileIter, "python") ||
-                             // mingw64 uses libpython3.X.dll naming
-                             STARTS_WITH_CI(*papszFileIter, "libpython3.")) &&
-                            // do not load minimum API dll
-                            !EQUAL(*papszFileIter, "python3.dll") &&
-                            EQUAL(CPLGetExtension(*papszFileIter), "dll"))
+                        // Test when dll is in the same directory as the exe
+                        const CPLStringList aosFiles(VSIReadDir(pszPathPart));
+                        for (const char *pszFilename : aosFiles)
                         {
-                            osDLLName = CPLFormFilename(
-                                *papszIter, *papszFileIter, nullptr);
-                            osPythonBinaryUsed = osPythonBinary;
-                            break;
+                            if ((STARTS_WITH_CI(pszFilename, "python") ||
+                                 // mingw64 uses libpython3.X.dll naming
+                                 STARTS_WITH_CI(pszFilename, "libpython3.")) &&
+                                // do not load minimum API dll
+                                !EQUAL(pszFilename, "python3.dll") &&
+                                EQUAL(CPLGetExtension(pszFilename), "dll"))
+                            {
+                                osDLLName = CPLFormFilename(
+                                    pszPathPart, pszFilename, nullptr);
+                                osPythonBinaryUsed = osPythonBinary;
+                                break;
+                            }
                         }
                     }
-                    CSLDestroy(papszFiles);
 
                     // In python3.2, the dll is in the DLLs subdirectory
                     if (osDLLName.empty())
                     {
-                        CPLString osDLLsDir(
-                            CPLFormFilename(*papszIter, "DLLs", nullptr));
-                        papszFiles = VSIReadDir(osDLLsDir);
-                        for (char **papszFileIter = papszFiles;
-                             papszFileIter != nullptr &&
-                             *papszFileIter != nullptr;
-                             ++papszFileIter)
+                        const CPLString osDLLsDir(
+                            CPLFormFilename(pszPathPart, "DLLs", nullptr));
+                        const CPLStringList aosFiles(VSIReadDir(osDLLsDir));
+                        for (const char *pszFilename : aosFiles)
                         {
-                            if (STARTS_WITH_CI(*papszFileIter, "python") &&
-                                EQUAL(CPLGetExtension(*papszFileIter), "dll"))
+                            if (STARTS_WITH_CI(pszFilename, "python") &&
+                                EQUAL(CPLGetExtension(pszFilename), "dll"))
                             {
                                 osDLLName = CPLFormFilename(
-                                    osDLLsDir, *papszFileIter, nullptr);
+                                    osDLLsDir, pszFilename, nullptr);
                                 break;
                             }
                         }
-                        CSLDestroy(papszFiles);
                     }
 
                     break;
@@ -606,7 +601,6 @@ static bool LoadPythonAPI()
                 if (!osDLLName.empty())
                     break;
             }
-            CSLDestroy(papszTokens);
         }
 
         if (!osDLLName.empty())
@@ -825,7 +819,7 @@ static bool LoadPythonAPI()
  */
 bool GDALPythonInitialize()
 {
-    std::lock_guard<std::mutex> guard(gMutex);
+    std::lock_guard<std::mutex> guard(gMutexGDALPython);
 
     if (!LoadPythonAPI())
         return false;
@@ -872,7 +866,7 @@ GIL_Holder::GIL_Holder(bool bExclusiveLock) : m_bExclusiveLock(bExclusiveLock)
 {
     if (bExclusiveLock)
     {
-        gMutex.lock();
+        gMutexGDALPython.lock();
     }
     m_eState = PyGILState_Ensure();
 }
@@ -886,7 +880,7 @@ GIL_Holder::~GIL_Holder()
     PyGILState_Release(m_eState);
     if (m_bExclusiveLock)
     {
-        gMutex.unlock();
+        gMutexGDALPython.unlock();
     }
     else
     {

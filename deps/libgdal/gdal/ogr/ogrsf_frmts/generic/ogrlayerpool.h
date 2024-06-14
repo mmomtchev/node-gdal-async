@@ -90,6 +90,7 @@ class CPL_DLL OGRLayerPool
     {
         return nMaxSimultaneouslyOpened;
     }
+
     int GetSize() const
     {
         return nMRUListSize;
@@ -160,7 +161,7 @@ class OGRProxiedLayer : public OGRAbstractProxiedLayer
 
     virtual int TestCapability(const char *) override;
 
-    virtual OGRErr CreateField(OGRFieldDefn *poField,
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
     virtual OGRErr DeleteField(int iField) override;
     virtual OGRErr ReorderFields(int *panMap) override;
@@ -185,7 +186,7 @@ class OGRProxiedLayer : public OGRAbstractProxiedLayer
     virtual const char *GetFIDColumn() override;
     virtual const char *GetGeometryColumn() override;
 
-    virtual OGRErr SetIgnoredFields(const char **papszFields) override;
+    virtual OGRErr SetIgnoredFields(CSLConstList papszFields) override;
 
     virtual OGRErr Rename(const char *pszNewName) override;
 };

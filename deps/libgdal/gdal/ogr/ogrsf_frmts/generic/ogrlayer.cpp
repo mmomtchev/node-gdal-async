@@ -223,6 +223,82 @@ OGRErr OGRLayer::GetExtent(int iGeomField, OGREnvelope *psExtent, int bForce)
         return GetExtentInternal(iGeomField, psExtent, bForce);
 }
 
+OGRErr OGRLayer::GetExtent3D(int iGeomField, OGREnvelope3D *psExtent3D,
+                             int bForce)
+
+{
+    psExtent3D->MinX = 0.0;
+    psExtent3D->MaxX = 0.0;
+    psExtent3D->MinY = 0.0;
+    psExtent3D->MaxY = 0.0;
+    psExtent3D->MinZ = std::numeric_limits<double>::infinity();
+    psExtent3D->MaxZ = -std::numeric_limits<double>::infinity();
+
+    /* -------------------------------------------------------------------- */
+    /*      If this layer has a none geometry type, then we can             */
+    /*      reasonably assume there are not extents available.              */
+    /* -------------------------------------------------------------------- */
+    if (iGeomField < 0 || iGeomField >= GetLayerDefn()->GetGeomFieldCount() ||
+        GetLayerDefn()->GetGeomFieldDefn(iGeomField)->GetType() == wkbNone)
+    {
+        if (iGeomField != 0)
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Invalid geometry field index : %d", iGeomField);
+        }
+        return OGRERR_FAILURE;
+    }
+
+    /* -------------------------------------------------------------------- */
+    /*      If not forced, we should avoid having to scan all the           */
+    /*      features and just return a failure.                             */
+    /* -------------------------------------------------------------------- */
+    if (!bForce)
+        return OGRERR_FAILURE;
+
+    /* -------------------------------------------------------------------- */
+    /*      OK, we hate to do this, but go ahead and read through all       */
+    /*      the features to collect geometries and build extents.           */
+    /* -------------------------------------------------------------------- */
+    OGREnvelope3D oEnv;
+    bool bExtentSet = false;
+
+    for (auto &&poFeature : *this)
+    {
+        OGRGeometry *poGeom = poFeature->GetGeomFieldRef(iGeomField);
+        if (poGeom == nullptr || poGeom->IsEmpty())
+        {
+            /* Do nothing */
+        }
+        else if (!bExtentSet)
+        {
+            poGeom->getEnvelope(psExtent3D);
+            // This is required because getEnvelope initializes Z to 0 for 2D geometries
+            if (!poGeom->Is3D())
+            {
+                psExtent3D->MinZ = std::numeric_limits<double>::infinity();
+                psExtent3D->MaxZ = -std::numeric_limits<double>::infinity();
+            }
+            bExtentSet = true;
+        }
+        else
+        {
+            poGeom->getEnvelope(&oEnv);
+            // This is required because getEnvelope initializes Z to 0 for 2D geometries
+            if (!poGeom->Is3D())
+            {
+                oEnv.MinZ = std::numeric_limits<double>::infinity();
+                oEnv.MaxZ = -std::numeric_limits<double>::infinity();
+            }
+            // Merge handles infinity correctly
+            psExtent3D->Merge(oEnv);
+        }
+    }
+    ResetReading();
+
+    return bExtentSet ? OGRERR_NONE : OGRERR_FAILURE;
+}
+
 //! @cond Doxygen_Suppress
 OGRErr OGRLayer::GetExtentInternal(int iGeomField, OGREnvelope *psExtent,
                                    int bForce)
@@ -295,6 +371,7 @@ OGRErr OGRLayer::GetExtentInternal(int iGeomField, OGREnvelope *psExtent,
 
     return bExtentSet ? OGRERR_NONE : OGRERR_FAILURE;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -331,6 +408,25 @@ OGRErr OGR_L_GetExtentEx(OGRLayerH hLayer, int iGeomField,
 
     return OGRLayer::FromHandle(hLayer)->GetExtent(iGeomField, psExtent,
                                                    bForce);
+}
+
+/************************************************************************/
+/*                          OGR_L_GetExtent3D()                           */
+/************************************************************************/
+
+OGRErr OGR_L_GetExtent3D(OGRLayerH hLayer, int iGeomField,
+                         OGREnvelope3D *psExtent3D, int bForce)
+
+{
+    VALIDATE_POINTER1(hLayer, "OGR_L_GetExtent3D", OGRERR_INVALID_HANDLE);
+
+#ifdef OGRAPISPY_ENABLED
+    if (bOGRAPISpyEnabled)
+        OGRAPISpy_L_GetExtent3D(hLayer, iGeomField, bForce);
+#endif
+
+    return OGRLayer::FromHandle(hLayer)->GetExtent3D(iGeomField, psExtent3D,
+                                                     bForce);
 }
 
 /************************************************************************/
@@ -420,6 +516,7 @@ int OGRLayer::AttributeFilterEvaluationNeedsGeometry()
 
     return ContainGeomSpecialField(expr, nLayerFieldCount);
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -559,28 +656,80 @@ OGRFeatureH OGR_L_GetNextFeature(OGRLayerH hLayer)
 
 void OGRLayer::ConvertGeomsIfNecessary(OGRFeature *poFeature)
 {
-    const bool bSupportsCurve = CPL_TO_BOOL(TestCapability(OLCCurveGeometries));
-    const bool bSupportsM = CPL_TO_BOOL(TestCapability(OLCMeasuredGeometries));
-    if (!bSupportsCurve || !bSupportsM)
+    if (!m_poPrivate->m_bConvertGeomsIfNecessaryAlreadyCalled)
     {
-        int nGeomFieldCount = GetLayerDefn()->GetGeomFieldCount();
+        // One time initialization
+        m_poPrivate->m_bConvertGeomsIfNecessaryAlreadyCalled = true;
+        m_poPrivate->m_bSupportsCurve =
+            CPL_TO_BOOL(TestCapability(OLCCurveGeometries));
+        m_poPrivate->m_bSupportsM =
+            CPL_TO_BOOL(TestCapability(OLCMeasuredGeometries));
+        if (CPLTestBool(
+                CPLGetConfigOption("OGR_APPLY_GEOM_SET_PRECISION", "FALSE")))
+        {
+            const auto poFeatureDefn = GetLayerDefn();
+            const int nGeomFieldCount = poFeatureDefn->GetGeomFieldCount();
+            for (int i = 0; i < nGeomFieldCount; i++)
+            {
+                const double dfXYResolution = poFeatureDefn->GetGeomFieldDefn(i)
+                                                  ->GetCoordinatePrecision()
+                                                  .dfXYResolution;
+                if (dfXYResolution != OGRGeomCoordinatePrecision::UNKNOWN &&
+                    OGRGeometryFactory::haveGEOS())
+                {
+                    m_poPrivate->m_bApplyGeomSetPrecision = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!m_poPrivate->m_bSupportsCurve || !m_poPrivate->m_bSupportsM ||
+        m_poPrivate->m_bApplyGeomSetPrecision)
+    {
+        const auto poFeatureDefn = GetLayerDefn();
+        const int nGeomFieldCount = poFeatureDefn->GetGeomFieldCount();
         for (int i = 0; i < nGeomFieldCount; i++)
         {
             OGRGeometry *poGeom = poFeature->GetGeomFieldRef(i);
-            if (poGeom != nullptr &&
-                (!bSupportsM && OGR_GT_HasM(poGeom->getGeometryType())))
+            if (poGeom)
             {
-                poGeom->setMeasured(FALSE);
-            }
-            if (poGeom != nullptr &&
-                (!bSupportsCurve &&
-                 OGR_GT_IsNonLinear(poGeom->getGeometryType())))
-            {
-                OGRwkbGeometryType eTargetType =
-                    OGR_GT_GetLinear(poGeom->getGeometryType());
-                poFeature->SetGeomFieldDirectly(
-                    i, OGRGeometryFactory::forceTo(poFeature->StealGeometry(i),
-                                                   eTargetType));
+                if (!m_poPrivate->m_bSupportsM &&
+                    OGR_GT_HasM(poGeom->getGeometryType()))
+                {
+                    poGeom->setMeasured(FALSE);
+                }
+
+                if (!m_poPrivate->m_bSupportsCurve &&
+                    OGR_GT_IsNonLinear(poGeom->getGeometryType()))
+                {
+                    OGRwkbGeometryType eTargetType =
+                        OGR_GT_GetLinear(poGeom->getGeometryType());
+                    poGeom = OGRGeometryFactory::forceTo(
+                        poFeature->StealGeometry(i), eTargetType);
+                    poFeature->SetGeomFieldDirectly(i, poGeom);
+                    poGeom = poFeature->GetGeomFieldRef(i);
+                }
+
+                if (poGeom && m_poPrivate->m_bApplyGeomSetPrecision)
+                {
+                    const double dfXYResolution =
+                        poFeatureDefn->GetGeomFieldDefn(i)
+                            ->GetCoordinatePrecision()
+                            .dfXYResolution;
+                    if (dfXYResolution != OGRGeomCoordinatePrecision::UNKNOWN &&
+                        !poGeom->hasCurveGeometry())
+                    {
+                        auto poNewGeom = poGeom->SetPrecision(dfXYResolution,
+                                                              /* nFlags = */ 0);
+                        if (poNewGeom)
+                        {
+                            poFeature->SetGeomFieldDirectly(i, poNewGeom);
+                            // If there was potential further processing...
+                            // poGeom = poFeature->GetGeomFieldRef(i);
+                        }
+                    }
+                }
             }
         }
     }
@@ -806,7 +955,7 @@ OGRErr OGR_L_UpdateFeature(OGRLayerH hLayer, OGRFeatureH hFeat,
 /*                            CreateField()                             */
 /************************************************************************/
 
-OGRErr OGRLayer::CreateField(OGRFieldDefn *poField, int bApproxOK)
+OGRErr OGRLayer::CreateField(const OGRFieldDefn *poField, int bApproxOK)
 
 {
     (void)poField;
@@ -1052,7 +1201,7 @@ OGRErr OGR_L_AlterGeomFieldDefn(OGRLayerH hLayer, int iGeomField,
 /*                         CreateGeomField()                            */
 /************************************************************************/
 
-OGRErr OGRLayer::CreateGeomField(OGRGeomFieldDefn *poField, int bApproxOK)
+OGRErr OGRLayer::CreateGeomField(const OGRGeomFieldDefn *poField, int bApproxOK)
 
 {
     (void)poField;
@@ -1291,12 +1440,56 @@ OGRGeometryH OGR_L_GetSpatialFilter(OGRLayerH hLayer)
 }
 
 /************************************************************************/
+/*             ValidateGeometryFieldIndexForSetSpatialFilter()          */
+/************************************************************************/
+
+//! @cond Doxygen_Suppress
+bool OGRLayer::ValidateGeometryFieldIndexForSetSpatialFilter(
+    int iGeomField, const OGRGeometry *poGeomIn, bool bIsSelectLayer)
+{
+    if (iGeomField == 0 && poGeomIn == nullptr &&
+        GetLayerDefn()->GetGeomFieldCount() == 0)
+    {
+        // Setting a null spatial filter on geometry field idx 0
+        // when there are no geometry field can't harm, and is accepted silently
+        // for backward compatibility with existing practice.
+    }
+    else if (iGeomField < 0 ||
+             iGeomField >= GetLayerDefn()->GetGeomFieldCount())
+    {
+        if (iGeomField == 0)
+        {
+            CPLError(
+                CE_Failure, CPLE_AppDefined,
+                bIsSelectLayer
+                    ? "Cannot set spatial filter: no geometry field selected."
+                    : "Cannot set spatial filter: no geometry field present in "
+                      "layer.");
+        }
+        else
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Cannot set spatial filter on non-existing geometry field "
+                     "of index %d.",
+                     iGeomField);
+        }
+        return false;
+    }
+    return true;
+}
+
+//! @endcond
+
+/************************************************************************/
 /*                          SetSpatialFilter()                          */
 /************************************************************************/
 
 void OGRLayer::SetSpatialFilter(OGRGeometry *poGeomIn)
 
 {
+    if (poGeomIn && !ValidateGeometryFieldIndexForSetSpatialFilter(0, poGeomIn))
+        return;
+
     m_iGeomFieldFilter = 0;
     if (InstallFilter(poGeomIn))
         ResetReading();
@@ -1307,17 +1500,18 @@ void OGRLayer::SetSpatialFilter(int iGeomField, OGRGeometry *poGeomIn)
 {
     if (iGeomField == 0)
     {
+        if (poGeomIn &&
+            !ValidateGeometryFieldIndexForSetSpatialFilter(0, poGeomIn))
+            return;
+
         m_iGeomFieldFilter = iGeomField;
         SetSpatialFilter(poGeomIn);
     }
     else
     {
-        if (iGeomField < 0 || iGeomField >= GetLayerDefn()->GetGeomFieldCount())
-        {
-            CPLError(CE_Failure, CPLE_AppDefined,
-                     "Invalid geometry field index : %d", iGeomField);
+        if (!ValidateGeometryFieldIndexForSetSpatialFilter(iGeomField,
+                                                           poGeomIn))
             return;
-        }
 
         m_iGeomFieldFilter = iGeomField;
         if (InstallFilter(poGeomIn))
@@ -1361,6 +1555,7 @@ void OGR_L_SetSpatialFilterEx(OGRLayerH hLayer, int iGeomField,
     OGRLayer::FromHandle(hLayer)->SetSpatialFilter(
         iGeomField, OGRGeometry::FromHandle(hGeom));
 }
+
 /************************************************************************/
 /*                        SetSpatialFilterRect()                        */
 /************************************************************************/
@@ -1524,6 +1719,7 @@ int OGRLayer::InstallFilter(OGRGeometry *poFilter)
 
     return TRUE;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -1601,7 +1797,7 @@ static bool DoesGeometryHavePointInEnvelope(const OGRGeometry *poGeometry,
 /************************************************************************/
 
 //! @cond Doxygen_Suppress
-int OGRLayer::FilterGeometry(OGRGeometry *poGeometry)
+int OGRLayer::FilterGeometry(const OGRGeometry *poGeometry)
 
 {
     /* -------------------------------------------------------------------- */
@@ -1664,7 +1860,9 @@ int OGRLayer::FilterGeometry(OGRGeometry *poGeometry)
             // CPLDebug("OGRLayer", "GEOS intersection");
             if (m_pPreparedFilterGeom != nullptr)
                 return OGRPreparedGeometryIntersects(
-                    m_pPreparedFilterGeom, OGRGeometry::ToHandle(poGeometry));
+                    m_pPreparedFilterGeom,
+                    OGRGeometry::ToHandle(
+                        const_cast<OGRGeometry *>(poGeometry)));
             else
                 return m_poFilterGeom->Intersects(poGeometry);
         }
@@ -1775,6 +1973,7 @@ OGRErr OGRLayer::InitializeIndexSupport(const char *pszFilename)
 
     return eErr;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -1840,6 +2039,7 @@ GIntBig OGRLayer::GetFeaturesRead()
 {
     return m_nFeaturesRead;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -2051,7 +2251,7 @@ OGRwkbGeometryType OGR_L_GetGeomType(OGRLayerH hLayer)
 /*                          SetIgnoredFields()                          */
 /************************************************************************/
 
-OGRErr OGRLayer::SetIgnoredFields(const char **papszFields)
+OGRErr OGRLayer::SetIgnoredFields(CSLConstList papszFields)
 {
     OGRFeatureDefn *poDefn = GetLayerDefn();
 
@@ -2066,13 +2266,9 @@ OGRErr OGRLayer::SetIgnoredFields(const char **papszFields)
     }
     poDefn->SetStyleIgnored(FALSE);
 
-    if (papszFields == nullptr)
-        return OGRERR_NONE;
-
     // ignore some fields
-    while (*papszFields)
+    for (const char *pszFieldName : cpl::Iterate(papszFields))
     {
-        const char *pszFieldName = *papszFields;
         // check special fields
         if (EQUAL(pszFieldName, "OGR_GEOMETRY"))
             poDefn->SetGeometryIgnored(TRUE);
@@ -2096,7 +2292,6 @@ OGRErr OGRLayer::SetIgnoredFields(const char **papszFields)
             else
                 poDefn->GetFieldDefn(iField)->SetIgnored(TRUE);
         }
-        papszFields++;
     }
 
     return OGRERR_NONE;
@@ -5240,7 +5435,7 @@ OGRLayer::GetGeometryTypes(int iGeomField, int nFlagsGGT, int &nEntryCountOut,
     if (poDefn->IsStyleIgnored())
         aosIgnoredFieldsRestore.AddString("OGR_STYLE");
     aosIgnoredFields.AddString("OGR_STYLE");
-    SetIgnoredFields(const_cast<const char **>(aosIgnoredFields.List()));
+    SetIgnoredFields(aosIgnoredFields.List());
 
     // Iterate over features
     std::map<OGRwkbGeometryType, int64_t> oMapCount;
@@ -5288,7 +5483,7 @@ OGRLayer::GetGeometryTypes(int iGeomField, int nFlagsGGT, int &nEntryCountOut,
     }
 
     // Restore ignore fields state
-    SetIgnoredFields(const_cast<const char **>(aosIgnoredFieldsRestore.List()));
+    SetIgnoredFields(aosIgnoredFieldsRestore.List());
 
     if (bInterrupted)
     {
@@ -5481,4 +5676,59 @@ OGRErr OGR_L_SetActiveSRS(OGRLayerH hLayer, int iGeomField,
     VALIDATE_POINTER1(hLayer, "OGR_L_SetActiveSRS", OGRERR_FAILURE);
     return OGRLayer::FromHandle(hLayer)->SetActiveSRS(
         iGeomField, OGRSpatialReference::FromHandle(hSRS));
+}
+
+/************************************************************************/
+/*                             GetDataset()                             */
+/************************************************************************/
+
+/** Return the dataset associated with this layer.
+ *
+ * As of GDAL 3.9, GetDataset() is implemented on all in-tree drivers that
+ * have CreateLayer() capability. It may not be implemented in read-only
+ * drivers or out-of-tree drivers.
+ *
+ * It is currently only used by the GetRecordBatchSchema()
+ * method to retrieve the field domain associated with a field, to fill the
+ * dictionary field of a struct ArrowSchema.
+ * It is also used by CreateFieldFromArrowSchema() to determine which field
+ * types and subtypes are supported by the layer, by inspecting the driver
+ * metadata, and potentially use fallback types when needed.
+ *
+ * This method is the same as the C function OGR_L_GetDataset().
+ *
+ * @return dataset, or nullptr when unknown.
+ * @since GDAL 3.6
+ */
+GDALDataset *OGRLayer::GetDataset()
+{
+    return nullptr;
+}
+
+/************************************************************************/
+/*                          OGR_L_GetDataset()                          */
+/************************************************************************/
+
+/** Return the dataset associated with this layer.
+ *
+ * As of GDAL 3.9, GetDataset() is implemented on all in-tree drivers that
+ * have CreateLayer() capability. It may not be implemented in read-only
+ * drivers or out-of-tree drivers.
+ *
+ * It is currently only used by the GetRecordBatchSchema()
+ * method to retrieve the field domain associated with a field, to fill the
+ * dictionary field of a struct ArrowSchema.
+ * It is also used by CreateFieldFromArrowSchema() to determine which field
+ * types and subtypes are supported by the layer, by inspecting the driver
+ * metadata, and potentially use fallback types when needed.
+ *
+ * This function is the same as the C++ method OGRLayer::GetDataset().
+ *
+ * @return dataset, or nullptr when unknown.
+ * @since GDAL 3.9
+ */
+GDALDatasetH OGR_L_GetDataset(OGRLayerH hLayer)
+{
+    VALIDATE_POINTER1(hLayer, "OGR_L_GetDataset", nullptr);
+    return GDALDataset::ToHandle(OGRLayer::FromHandle(hLayer)->GetDataset());
 }

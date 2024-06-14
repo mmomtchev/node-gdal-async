@@ -105,7 +105,7 @@ hid_t GDAL_HDF5Open(const std::string &osFilename);
 class HDF5Dataset;
 class HDF5EOSParser;
 class BAGDataset;
-class S102Dataset;
+class S100BaseDataset;
 
 namespace GDAL
 {
@@ -119,7 +119,7 @@ class HDF5SharedResources
 {
     friend class ::HDF5Dataset;
     friend class ::BAGDataset;
-    friend class ::S102Dataset;
+    friend class ::S100BaseDataset;
 
     std::weak_ptr<HDF5SharedResources> m_poSelf{};
     bool m_bReadOnly = true;
@@ -151,6 +151,7 @@ class HDF5SharedResources
     {
         return m_hHDF5;
     }
+
     inline bool IsReadOnly() const
     {
         return m_bReadOnly;
@@ -273,7 +274,6 @@ class HDF5Dataset CPL_NON_FINAL : public GDALPamDataset
     static GDALDataset *OpenMultiDim(GDALOpenInfo *);
     static std::shared_ptr<GDALGroup> OpenGroup(
         const std::shared_ptr<GDAL::HDF5SharedResources> &poSharedResources);
-    static int Identify(GDALOpenInfo *);
 
     static GDALDataType GetDataType(hid_t);
 };

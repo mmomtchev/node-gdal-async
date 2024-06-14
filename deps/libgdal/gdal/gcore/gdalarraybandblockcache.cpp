@@ -55,6 +55,7 @@ class GDALArrayBandBlockCache final : public GDALAbstractBandBlockCache
     bool bSubBlockingActive = false;
     int nSubBlocksPerRow = 0;
     int nSubBlocksPerColumn = 0;
+
     union u
     {
         GDALRasterBlock **papoBlocks;
@@ -127,9 +128,9 @@ bool GDALArrayBandBlockCache::Init()
 
         if (poBand->nBlocksPerRow < INT_MAX / poBand->nBlocksPerColumn)
         {
-            u.papoBlocks = static_cast<GDALRasterBlock **>(
-                VSICalloc(sizeof(void *),
-                          poBand->nBlocksPerRow * poBand->nBlocksPerColumn));
+            u.papoBlocks = static_cast<GDALRasterBlock **>(VSICalloc(
+                sizeof(void *), cpl::fits_on<int>(poBand->nBlocksPerRow *
+                                                  poBand->nBlocksPerColumn)));
             if (u.papoBlocks == nullptr)
             {
                 poBand->ReportError(CE_Failure, CPLE_OutOfMemory,
@@ -156,7 +157,8 @@ bool GDALArrayBandBlockCache::Init()
         if (nSubBlocksPerRow < INT_MAX / nSubBlocksPerColumn)
         {
             u.papapoBlocks = static_cast<GDALRasterBlock ***>(VSICalloc(
-                sizeof(void *), nSubBlocksPerRow * nSubBlocksPerColumn));
+                sizeof(void *),
+                cpl::fits_on<int>(nSubBlocksPerRow * nSubBlocksPerColumn)));
             if (u.papapoBlocks == nullptr)
             {
                 poBand->ReportError(CE_Failure, CPLE_OutOfMemory,
@@ -442,7 +444,7 @@ CPLErr GDALArrayBandBlockCache::FlushBlock(int nXBlockOff, int nYBlockOff,
 
     CPLErr eErr = CE_None;
 
-    if (m_bWriteDirtyBlocks && bWriteDirtyBlock && poBlock->GetDirty())
+    if (!m_nWriteDirtyBlocksDisabled && bWriteDirtyBlock && poBlock->GetDirty())
     {
         UpdateDirtyBlockFlushingLog();
 

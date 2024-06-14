@@ -14,7 +14,8 @@
 				"../gdal/frmts/tiledb/tiledbsparse.cpp",
 				"../gdal/frmts/tiledb/tiledbmultidimgroup.cpp",
 				"../gdal/frmts/tiledb/tiledbmultidim.cpp",
-				"../gdal/frmts/tiledb/tiledbcommon.cpp"
+				"../gdal/frmts/tiledb/tiledbcommon.cpp",
+        "../gdal/frmts/tiledb/tiledbdrivercore.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/tiledb"

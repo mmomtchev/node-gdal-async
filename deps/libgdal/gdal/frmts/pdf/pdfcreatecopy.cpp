@@ -702,7 +702,7 @@ GDALPDFObjectNum GDALPDFBaseWriter::WriteSRS_ISO32000(GDALDataset *poSrcDS,
     double dfLRPixel = nWidth;
     double dfLRLine = nHeight;
 
-    GDAL_GCP asNeatLineGCPs[4];
+    std::vector<gdal::GCP> asNeatLineGCPs(4);
     if (pszNEATLINE == nullptr)
         pszNEATLINE = poSrcDS->GetMetadataItem("NEATLINE");
     if (bHasGT && pszNEATLINE != nullptr && pszNEATLINE[0] != '\0')
@@ -721,32 +721,33 @@ GDALPDFObjectNum GDALPDFBaseWriter::WriteSRS_ISO32000(GDALDataset *poSrcDS,
                 {
                     const double X = poLS->getX(i);
                     const double Y = poLS->getY(i);
-                    asNeatLineGCPs[i].dfGCPX = X;
-                    asNeatLineGCPs[i].dfGCPY = Y;
+                    asNeatLineGCPs[i].X() = X;
+                    asNeatLineGCPs[i].Y() = Y;
                     const double x = adfGeoTransformInv[0] +
                                      X * adfGeoTransformInv[1] +
                                      Y * adfGeoTransformInv[2];
                     const double y = adfGeoTransformInv[3] +
                                      X * adfGeoTransformInv[4] +
                                      Y * adfGeoTransformInv[5];
-                    asNeatLineGCPs[i].dfGCPPixel = x;
-                    asNeatLineGCPs[i].dfGCPLine = y;
+                    asNeatLineGCPs[i].Pixel() = x;
+                    asNeatLineGCPs[i].Line() = y;
                 }
 
                 int iUL = 0;
                 int iUR = 0;
                 int iLR = 0;
                 int iLL = 0;
-                GDALPDFFind4Corners(asNeatLineGCPs, iUL, iUR, iLR, iLL);
+                GDALPDFFind4Corners(gdal::GCP::c_ptr(asNeatLineGCPs), iUL, iUR,
+                                    iLR, iLL);
 
-                if (fabs(asNeatLineGCPs[iUL].dfGCPPixel -
-                         asNeatLineGCPs[iLL].dfGCPPixel) > .5 ||
-                    fabs(asNeatLineGCPs[iUR].dfGCPPixel -
-                         asNeatLineGCPs[iLR].dfGCPPixel) > .5 ||
-                    fabs(asNeatLineGCPs[iUL].dfGCPLine -
-                         asNeatLineGCPs[iUR].dfGCPLine) > .5 ||
-                    fabs(asNeatLineGCPs[iLL].dfGCPLine -
-                         asNeatLineGCPs[iLR].dfGCPLine) > .5)
+                if (fabs(asNeatLineGCPs[iUL].Pixel() -
+                         asNeatLineGCPs[iLL].Pixel()) > .5 ||
+                    fabs(asNeatLineGCPs[iUR].Pixel() -
+                         asNeatLineGCPs[iLR].Pixel()) > .5 ||
+                    fabs(asNeatLineGCPs[iUL].Line() -
+                         asNeatLineGCPs[iUR].Line()) > .5 ||
+                    fabs(asNeatLineGCPs[iLL].Line() -
+                         asNeatLineGCPs[iLR].Line()) > .5)
                 {
                     CPLError(CE_Warning, CPLE_NotSupported,
                              "Neatline coordinates should form a rectangle in "
@@ -754,13 +755,13 @@ GDALPDFObjectNum GDALPDFBaseWriter::WriteSRS_ISO32000(GDALDataset *poSrcDS,
                     for (int i = 0; i < 4; i++)
                     {
                         CPLDebug("PDF", "pixel[%d] = %.1f, line[%d] = %.1f", i,
-                                 asNeatLineGCPs[i].dfGCPPixel, i,
-                                 asNeatLineGCPs[i].dfGCPLine);
+                                 asNeatLineGCPs[i].Pixel(), i,
+                                 asNeatLineGCPs[i].Line());
                     }
                 }
                 else
                 {
-                    pasGCPList = asNeatLineGCPs;
+                    pasGCPList = gdal::GCP::c_ptr(asNeatLineGCPs);
                 }
             }
         }
@@ -2767,7 +2768,7 @@ void GDALPDFBaseWriter::GetObjectStyle(
                         }
                         else
                         {
-                            GDALPDFImageDesc &oDesc =
+                            const GDALPDFImageDesc &oDesc =
                                 oMapSymbolFilenameToDesc[os.osSymbolId];
                             os.nImageSymbolId = oDesc.nImageId;
                             os.nImageWidth = (int)oDesc.dfXSize;
@@ -3700,7 +3701,7 @@ int GDALPDFWriter::EndPage(const char *pszExtraImages,
     int iObj = 0;
     for (size_t iLayer = 0; iLayer < oPageContext.asVectorDesc.size(); iLayer++)
     {
-        GDALPDFLayerDesc &oLayerDesc = oPageContext.asVectorDesc[iLayer];
+        const GDALPDFLayerDesc &oLayerDesc = oPageContext.asVectorDesc[iLayer];
 
         VSIFPrintfL(m_fp, "/OC /Lyr%d BDC\n", oLayerDesc.nOCGId.toInt());
 
@@ -3733,9 +3734,8 @@ int GDALPDFWriter::EndPage(const char *pszExtraImages,
     /*  Write drawing instructions for labels of vector features      */
     /* -------------------------------------------------------------- */
     iObj = 0;
-    for (size_t iLayer = 0; iLayer < oPageContext.asVectorDesc.size(); iLayer++)
+    for (const GDALPDFLayerDesc &oLayerDesc : oPageContext.asVectorDesc)
     {
-        GDALPDFLayerDesc &oLayerDesc = oPageContext.asVectorDesc[iLayer];
         if (oLayerDesc.nOCGTextId.toBool())
         {
             VSIFPrintfL(m_fp, "/OC /Lyr%d BDC\n", oLayerDesc.nOCGId.toInt());
@@ -3828,7 +3828,8 @@ int GDALPDFWriter::EndPage(const char *pszExtraImages,
         for (size_t iLayer = 0; iLayer < oPageContext.asVectorDesc.size();
              iLayer++)
         {
-            GDALPDFLayerDesc &oLayerDesc = oPageContext.asVectorDesc[iLayer];
+            const GDALPDFLayerDesc &oLayerDesc =
+                oPageContext.asVectorDesc[iLayer];
             for (size_t iVector = 0; iVector < oLayerDesc.aIds.size();
                  iVector++)
             {
@@ -3868,10 +3869,8 @@ int GDALPDFWriter::EndPage(const char *pszExtraImages,
         GDALPDFDictionaryRW *poDictXObject = new GDALPDFDictionaryRW();
         oDict.Add("XObject", poDictXObject);
         size_t iImage;
-        for (size_t iRaster = 0; iRaster < oPageContext.asRasterDesc.size();
-             iRaster++)
+        for (const GDALPDFRasterDesc &oDesc : oPageContext.asRasterDesc)
         {
-            const GDALPDFRasterDesc &oDesc = oPageContext.asRasterDesc[iRaster];
             for (iImage = 0; iImage < oDesc.asImageDesc.size(); iImage++)
             {
                 poDictXObject->Add(
@@ -3887,10 +3886,8 @@ int GDALPDFWriter::EndPage(const char *pszExtraImages,
                            asExtraImageDesc[iImage].nImageId.toInt()),
                 asExtraImageDesc[iImage].nImageId, 0);
         }
-        for (size_t iLayer = 0; iLayer < oPageContext.asVectorDesc.size();
-             iLayer++)
+        for (const GDALPDFLayerDesc &oLayerDesc : oPageContext.asVectorDesc)
         {
-            GDALPDFLayerDesc &oLayerDesc = oPageContext.asVectorDesc[iLayer];
             for (size_t iVector = 0; iVector < oLayerDesc.aIds.size();
                  iVector++)
             {
@@ -4418,7 +4415,8 @@ GDALPDFObjectNum GDALPDFBaseWriter::WriteBlock(
     }
     else
     {
-        GByte *pabyLine = (GByte *)CPLMalloc(nReqXSize * nBands);
+        GByte *pabyLine =
+            (GByte *)CPLMalloc(static_cast<size_t>(nReqXSize) * nBands);
         for (int iLine = 0; iLine < nReqYSize; iLine++)
         {
             /* Get pixel interleaved data */
@@ -4464,7 +4462,8 @@ GDALPDFObjectNum GDALPDFBaseWriter::WriteBlock(
                 }
             }
 
-            if (VSIFWriteL(pabyLine, nReqXSize * nBands, 1, m_fp) != 1)
+            if (VSIFWriteL(pabyLine, static_cast<size_t>(nReqXSize) * nBands, 1,
+                           m_fp) != 1)
             {
                 eErr = CE_Failure;
                 break;

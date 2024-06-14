@@ -204,12 +204,14 @@ void OGRFormatDouble(char *pszBuffer, int nBufferLen, double dfVal,
 {
     OGRWktOptions opts;
 
-    opts.precision = nPrecision;
+    opts.xyPrecision = nPrecision;
+    opts.zPrecision = nPrecision;
+    opts.mPrecision = nPrecision;
     opts.format = (chConversionSpecifier == 'g' || chConversionSpecifier == 'G')
                       ? OGRWktFormat::G
                       : OGRWktFormat::F;
 
-    std::string s = OGRFormatDouble(dfVal, opts);
+    std::string s = OGRFormatDouble(dfVal, opts, 1);
     if (chDecimalSep != '\0' && chDecimalSep != '.')
     {
         auto pos = s.find('.');
@@ -229,7 +231,7 @@ void OGRFormatDouble(char *pszBuffer, int nBufferLen, double dfVal,
 
 /// Simplified OGRFormatDouble that can be made to adhere to provided
 /// options.
-std::string OGRFormatDouble(double val, const OGRWktOptions &opts)
+std::string OGRFormatDouble(double val, const OGRWktOptions &opts, int nDimIdx)
 {
     // So to have identical cross platform representation.
     if (std::isinf(val))
@@ -249,14 +251,16 @@ std::string OGRFormatDouble(double val, const OGRWktOptions &opts)
         oss << std::uppercase;
         l_round = false;
     }
-    oss << std::setprecision(opts.precision);
+    oss << std::setprecision(nDimIdx < 3    ? opts.xyPrecision
+                             : nDimIdx == 3 ? opts.zPrecision
+                                            : opts.mPrecision);
     oss << val;
 
     std::string sval = oss.str();
 
     if (l_round)
         sval = intelliround(sval);
-    return removeTrailingZeros(sval);
+    return removeTrailingZeros(std::move(sval));
 }
 
 /************************************************************************/
@@ -285,7 +289,7 @@ static bool isInteger(const std::string &s)
 }
 
 std::string OGRMakeWktCoordinate(double x, double y, double z, int nDimension,
-                                 OGRWktOptions opts)
+                                 const OGRWktOptions &opts)
 {
     std::string wkt;
 
@@ -300,19 +304,18 @@ std::string OGRMakeWktCoordinate(double x, double y, double z, int nDimension,
     }
     else
     {
-        wkt = OGRFormatDouble(x, opts);
+        wkt = OGRFormatDouble(x, opts, 1);
         // ABELL - Why do we do special formatting?
         if (isInteger(wkt))
             wkt += ".0";
         wkt += ' ';
 
-        std::string yval = OGRFormatDouble(y, opts);
+        std::string yval = OGRFormatDouble(y, opts, 2);
         if (isInteger(yval))
             yval += ".0";
         wkt += yval;
     }
 
-    // Why do we always format Z with type G.
     if (nDimension == 3)
     {
         wkt += ' ';
@@ -320,8 +323,7 @@ std::string OGRMakeWktCoordinate(double x, double y, double z, int nDimension,
             wkt += std::to_string(static_cast<int>(z));
         else
         {
-            opts.format = OGRWktFormat::G;
-            wkt += OGRFormatDouble(z, opts);
+            wkt += OGRFormatDouble(z, opts, 3);
         }
     }
     return wkt;
@@ -349,7 +351,7 @@ void OGRMakeWktCoordinateM(char *pszTarget, double x, double y, double z,
 
 std::string OGRMakeWktCoordinateM(double x, double y, double z, double m,
                                   OGRBoolean hasZ, OGRBoolean hasM,
-                                  OGRWktOptions opts)
+                                  const OGRWktOptions &opts)
 {
     std::string wkt;
     if (opts.format == OGRWktFormat::Default && CPLIsDoubleAnInt(x) &&
@@ -361,35 +363,33 @@ std::string OGRMakeWktCoordinateM(double x, double y, double z, double m,
     }
     else
     {
-        wkt = OGRFormatDouble(x, opts);
+        wkt = OGRFormatDouble(x, opts, 1);
         if (isInteger(wkt))
             wkt += ".0";
         wkt += ' ';
 
-        std::string yval = OGRFormatDouble(y, opts);
+        std::string yval = OGRFormatDouble(y, opts, 2);
         if (isInteger(yval))
             yval += ".0";
         wkt += yval;
     }
 
-    // For some reason we always format Z and M as G-type
-    opts.format = OGRWktFormat::G;
     if (hasZ)
     {
-        /*if( opts.format == OGRWktFormat::Default && CPLIsDoubleAnInt(z) )
-            wkt += " " + std::to_string(static_cast<int>(z));
-        else*/
         wkt += ' ';
-        wkt += OGRFormatDouble(z, opts);
+        if (opts.format == OGRWktFormat::Default && CPLIsDoubleAnInt(z))
+            wkt += std::to_string(static_cast<int>(z));
+        else
+            wkt += OGRFormatDouble(z, opts, 3);
     }
 
     if (hasM)
     {
-        /*if( opts.format == OGRWktFormat::Default && CPLIsDoubleAnInt(m) )
-            wkt += " " + std::to_string(static_cast<int>(m));
-        else*/
         wkt += ' ';
-        wkt += OGRFormatDouble(m, opts);
+        if (opts.format == OGRWktFormat::Default && CPLIsDoubleAnInt(m))
+            wkt += std::to_string(static_cast<int>(m));
+        else
+            wkt += OGRFormatDouble(m, opts, 4);
     }
     return wkt;
 }
@@ -512,9 +512,10 @@ const char *OGRWktReadPoints(const char *pszInput, OGRRawPoint **ppaoPoints,
         pszInput = OGRWktReadToken(pszInput, szTokenX);
         pszInput = OGRWktReadToken(pszInput, szTokenY);
 
-        if ((!isdigit(szTokenX[0]) && szTokenX[0] != '-' &&
-             szTokenX[0] != '.') ||
-            (!isdigit(szTokenY[0]) && szTokenY[0] != '-' && szTokenY[0] != '.'))
+        if ((!isdigit(static_cast<unsigned char>(szTokenX[0])) &&
+             szTokenX[0] != '-' && szTokenX[0] != '.') ||
+            (!isdigit(static_cast<unsigned char>(szTokenY[0])) &&
+             szTokenY[0] != '-' && szTokenY[0] != '.'))
             return nullptr;
 
         /* --------------------------------------------------------------------
@@ -550,7 +551,8 @@ const char *OGRWktReadPoints(const char *pszInput, OGRRawPoint **ppaoPoints,
          */
         pszInput = OGRWktReadToken(pszInput, szDelim);
 
-        if (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.')
+        if (isdigit(static_cast<unsigned char>(szDelim[0])) ||
+            szDelim[0] == '-' || szDelim[0] == '.')
         {
             if (*ppadfZ == nullptr)
             {
@@ -575,7 +577,8 @@ const char *OGRWktReadPoints(const char *pszInput, OGRRawPoint **ppaoPoints,
         /*      If we do, just skip it. */
         /* --------------------------------------------------------------------
          */
-        if (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.')
+        if (isdigit(static_cast<unsigned char>(szDelim[0])) ||
+            szDelim[0] == '-' || szDelim[0] == '.')
         {
             pszInput = OGRWktReadToken(pszInput, szDelim);
         }
@@ -658,10 +661,12 @@ const char *OGRWktReadPointsM(const char *pszInput, OGRRawPoint **ppaoPoints,
         pszInput = OGRWktReadToken(pszInput, szTokenX);
         pszInput = OGRWktReadToken(pszInput, szTokenY);
 
-        if ((!isdigit(szTokenX[0]) && szTokenX[0] != '-' &&
-             szTokenX[0] != '.' && !EQUAL(szTokenX, "nan")) ||
-            (!isdigit(szTokenY[0]) && szTokenY[0] != '-' &&
-             szTokenY[0] != '.' && !EQUAL(szTokenY, "nan")))
+        if ((!isdigit(static_cast<unsigned char>(szTokenX[0])) &&
+             szTokenX[0] != '-' && szTokenX[0] != '.' &&
+             !EQUAL(szTokenX, "nan")) ||
+            (!isdigit(static_cast<unsigned char>(szTokenY[0])) &&
+             szTokenY[0] != '-' && szTokenY[0] != '.' &&
+             !EQUAL(szTokenY, "nan")))
             return nullptr;
 
         /* --------------------------------------------------------------------
@@ -711,8 +716,8 @@ const char *OGRWktReadPointsM(const char *pszInput, OGRRawPoint **ppaoPoints,
 
         if (!(*flags & OGRGeometry::OGR_G_3D) &&
             !(*flags & OGRGeometry::OGR_G_MEASURED) &&
-            (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.' ||
-             EQUAL(szDelim, "nan")))
+            (isdigit(static_cast<unsigned char>(szDelim[0])) ||
+             szDelim[0] == '-' || szDelim[0] == '.' || EQUAL(szDelim, "nan")))
         {
             *flags |= OGRGeometry::OGR_G_3D;
         }
@@ -731,8 +736,8 @@ const char *OGRWktReadPointsM(const char *pszInput, OGRRawPoint **ppaoPoints,
                 *ppadfZ = static_cast<double *>(
                     CPLCalloc(sizeof(double), *pnMaxPoints));
             }
-            if (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.' ||
-                EQUAL(szDelim, "nan"))
+            if (isdigit(static_cast<unsigned char>(szDelim[0])) ||
+                szDelim[0] == '-' || szDelim[0] == '.' || EQUAL(szDelim, "nan"))
             {
                 (*ppadfZ)[*pnPointsRead] = CPLAtof(szDelim);
                 pszInput = OGRWktReadToken(pszInput, szDelim);
@@ -756,8 +761,8 @@ const char *OGRWktReadPointsM(const char *pszInput, OGRRawPoint **ppaoPoints,
          */
 
         if (!(*flags & OGRGeometry::OGR_G_MEASURED) &&
-            (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.' ||
-             EQUAL(szDelim, "nan")))
+            (isdigit(static_cast<unsigned char>(szDelim[0])) ||
+             szDelim[0] == '-' || szDelim[0] == '.' || EQUAL(szDelim, "nan")))
         {
             if (bNoFlags)
             {
@@ -783,8 +788,8 @@ const char *OGRWktReadPointsM(const char *pszInput, OGRRawPoint **ppaoPoints,
                 *ppadfM = static_cast<double *>(
                     CPLCalloc(sizeof(double), *pnMaxPoints));
             }
-            if (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.' ||
-                EQUAL(szDelim, "nan"))
+            if (isdigit(static_cast<unsigned char>(szDelim[0])) ||
+                szDelim[0] == '-' || szDelim[0] == '.' || EQUAL(szDelim, "nan"))
             {
                 (*ppadfM)[*pnPointsRead] = CPLAtof(szDelim);
                 pszInput = OGRWktReadToken(pszInput, szDelim);
@@ -808,8 +813,8 @@ const char *OGRWktReadPointsM(const char *pszInput, OGRRawPoint **ppaoPoints,
          */
 
         if (!(*flags & OGRGeometry::OGR_G_3D) &&
-            (isdigit(szDelim[0]) || szDelim[0] == '-' || szDelim[0] == '.' ||
-             EQUAL(szDelim, "nan")))
+            (isdigit(static_cast<unsigned char>(szDelim[0])) ||
+             szDelim[0] == '-' || szDelim[0] == '.' || EQUAL(szDelim, "nan")))
         {
             *flags |= OGRGeometry::OGR_G_3D;
             if (*ppadfZ == nullptr)
@@ -1313,7 +1318,9 @@ int OGRParseDate(const char *pszInput, OGRField *psField, int nOptions)
             if (pszInput[0] == '-')
                 psField->Date.TZFlag = -1 * (psField->Date.TZFlag - 100) + 100;
         }
-        else if (isdigit(pszInput[3]) && isdigit(pszInput[4])  // +HHMM offset
+        else if (isdigit(static_cast<unsigned char>(pszInput[3])) &&
+                 isdigit(
+                     static_cast<unsigned char>(pszInput[4]))  // +HHMM offset
                  && atoi(pszInput + 3) % 15 == 0)
         {
             psField->Date.TZFlag = static_cast<GByte>(
@@ -1323,7 +1330,8 @@ int OGRParseDate(const char *pszInput, OGRField *psField, int nOptions)
             if (pszInput[0] == '-')
                 psField->Date.TZFlag = -1 * (psField->Date.TZFlag - 100) + 100;
         }
-        else if (isdigit(pszInput[3]) && pszInput[4] == '\0'  // +HMM offset
+        else if (isdigit(static_cast<unsigned char>(pszInput[3])) &&
+                 pszInput[4] == '\0'  // +HMM offset
                  && atoi(pszInput + 2) % 15 == 0)
         {
             psField->Date.TZFlag = static_cast<GByte>(

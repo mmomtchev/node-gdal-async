@@ -48,19 +48,23 @@ struct NodeItem
     double maxX;
     double maxY;
     uint64_t offset;
+
     double width() const
     {
         return maxX - minX;
     }
+
     double height() const
     {
         return maxY - minY;
     }
+
     static NodeItem sum(NodeItem a, const NodeItem &b)
     {
         a.expand(b);
         return a;
     }
+
     static NodeItem create(uint64_t offset = 0);
     const NodeItem &expand(const NodeItem &r);
     bool intersects(const NodeItem &r) const;
@@ -91,7 +95,7 @@ template <class ITEM_TYPE>
 NodeItem calcExtent(const std::deque<ITEM_TYPE> &items)
 {
     return std::accumulate(items.begin(), items.end(), NodeItem::create(0),
-                           [](NodeItem a, const ITEM_TYPE &b)
+                           [](NodeItem a, const ITEM_TYPE &b) -> NodeItem
                            { return a.expand(b.nodeItem); });
 }
 
@@ -140,6 +144,7 @@ class PackedRTree
         if (_nodeItems != nullptr)
             delete[] _nodeItems;
     }
+
     PackedRTree(const std::vector<std::shared_ptr<Item>> &items,
                 const NodeItem &extent, const uint16_t nodeSize = 16);
     PackedRTree(const std::vector<NodeItem> &nodes, const NodeItem &extent,

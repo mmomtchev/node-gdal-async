@@ -129,6 +129,8 @@ bool CPL_DLL CPLFetchBool(CSLConstList papszStrList, const char *pszKey,
                           bool bDefault);
 
 const char CPL_DLL *CPLParseNameValue(const char *pszNameValue, char **ppszKey);
+const char CPL_DLL *CPLParseNameValueSep(const char *pszNameValue,
+                                         char **ppszKey, char chSep);
 
 const char CPL_DLL *CSLFetchNameValue(CSLConstList papszStrList,
                                       const char *pszName);
@@ -187,6 +189,9 @@ typedef enum
 } CPLValueType;
 
 CPLValueType CPL_DLL CPLGetValueType(const char *pszValue);
+
+int CPL_DLL CPLToupper(int c);
+int CPL_DLL CPLTolower(int c);
 
 size_t CPL_DLL CPLStrlcpy(char *pszDest, const char *pszSrc, size_t nDestSize);
 size_t CPL_DLL CPLStrlcat(char *pszDest, const char *pszSrc, size_t nDestSize);
@@ -271,6 +276,8 @@ int CPL_DLL CPLIsUTF8(const char *pabyData, int nLen);
 bool CPL_DLL CPLIsASCII(const char *pabyData, size_t nLen);
 char CPL_DLL *CPLForceToASCII(const char *pabyData, int nLen,
                               char chReplacementChar) CPL_WARN_UNUSED_RESULT;
+char CPL_DLL *CPLUTF8ForceToASCII(const char *pszStr, char chReplacementChar)
+    CPL_WARN_UNUSED_RESULT;
 int CPL_DLL CPLStrlenUTF8(const char *pszUTF8Str);
 int CPL_DLL CPLCanRecode(const char *pszTestStr, const char *pszSrcEncoding,
                          const char *pszDstEncoding) CPL_WARN_UNUSED_RESULT;
@@ -286,6 +293,7 @@ extern "C++"
 {
 #ifndef DOXYGEN_SKIP
 #include <string>
+#include <vector>
 #endif
 
 // VC++ implicitly applies __declspec(dllexport) to template base classes
@@ -315,16 +323,19 @@ extern "C++"
         CPLString(void)
         {
         }
+
         /** Constructor */
         // cppcheck-suppress noExplicitConstructor
         CPLString(const std::string &oStr) : std::string(oStr)
         {
         }
+
         /** Constructor */
         // cppcheck-suppress noExplicitConstructor
         CPLString(const char *pszStr) : std::string(pszStr)
         {
         }
+
         /** Constructor */
         CPLString(const char *pszStr, size_t n) : std::string(pszStr, n)
         {
@@ -450,17 +461,28 @@ extern "C++"
         CPLStringList();
         explicit CPLStringList(char **papszList, int bTakeOwnership = TRUE);
         explicit CPLStringList(CSLConstList papszList);
+        explicit CPLStringList(const std::vector<std::string> &aosList);
+        explicit CPLStringList(std::initializer_list<const char *> oInitList);
         CPLStringList(const CPLStringList &oOther);
         CPLStringList(CPLStringList &&oOther);
         ~CPLStringList();
 
+        static const CPLStringList BoundToConstList(CSLConstList papszList);
+
         CPLStringList &Clear();
+
+        /** Clear the list */
+        inline void clear()
+        {
+            Clear();
+        }
 
         /** Return size of list */
         int size() const
         {
             return Count();
         }
+
         int Count() const;
 
         /** Return whether the list is empty. */
@@ -476,6 +498,7 @@ extern "C++"
         {
             return InsertStringDirectly(nInsertAtLineNo, CPLStrdup(pszNewLine));
         }
+
         CPLStringList &InsertStringDirectly(int nInsertAtLineNo,
                                             char *pszNewLine);
 
@@ -488,6 +511,7 @@ extern "C++"
         {
             return CSLFindString(papszList, pszTarget);
         }
+
         /** Return index of pszTarget in the list (using partial search), or -1
          */
         int PartialFindString(const char *pszNeedle) const
@@ -506,11 +530,13 @@ extern "C++"
         CPLStringList &SetNameValue(const char *pszKey, const char *pszValue);
 
         CPLStringList &Assign(char **papszListIn, int bTakeOwnership = TRUE);
+
         /** Assignment operator */
         CPLStringList &operator=(char **papszListIn)
         {
             return Assign(papszListIn, TRUE);
         }
+
         /** Assignment operator */
         CPLStringList &operator=(const CPLStringList &oOther);
         /** Assignment operator */
@@ -520,22 +546,38 @@ extern "C++"
 
         /** Return string at specified index */
         char *operator[](int i);
+
         /** Return string at specified index */
         char *operator[](size_t i)
         {
             return (*this)[static_cast<int>(i)];
         }
+
         /** Return string at specified index */
         const char *operator[](int i) const;
+
         /** Return string at specified index */
         const char *operator[](size_t i) const
         {
             return (*this)[static_cast<int>(i)];
         }
+
         /** Return value corresponding to pszKey, or nullptr */
         const char *operator[](const char *pszKey) const
         {
             return FetchNameValue(pszKey);
+        }
+
+        /** Return first element */
+        inline const char *front() const
+        {
+            return papszList[0];
+        }
+
+        /** Return last element */
+        inline const char *back() const
+        {
+            return papszList[size() - 1];
         }
 
         /** begin() implementation */
@@ -555,14 +597,17 @@ extern "C++"
         {
             return papszList;
         }
+
         /** Return list. Ownership remains to the object */
         CSLConstList List() const
         {
             return papszList;
         }
+
         char **StealList();
 
         CPLStringList &Sort();
+
         /** Returns whether the list is sorted */
         int IsSorted() const
         {
@@ -574,16 +619,25 @@ extern "C++"
         {
             return List();
         }
+
         /** Return lists */
         operator CSLConstList(void) const
         {
             return List();
         }
+
+        /** Return the list as a vector of strings */
+        operator std::vector<std::string>(void) const
+        {
+            return std::vector<std::string>{begin(), end()};
+        }
     };
 
 #ifdef GDAL_COMPILATION
 
+#include <iterator>  // For std::input_iterator_tag
 #include <memory>
+#include <utility>  // For std::pair
 
     /*! @cond Doxygen_Suppress */
     struct CPL_DLL CSLDestroyReleaser
@@ -593,24 +647,225 @@ extern "C++"
             CSLDestroy(papszStr);
         }
     };
+
     /*! @endcond */
 
     /** Unique pointer type to use with CSL functions returning a char** */
     using CSLUniquePtr = std::unique_ptr<char *, CSLDestroyReleaser>;
 
-    /*! @cond Doxygen_Suppress */
-    struct CPL_DLL CPLFreeReleaser
+    /** Unique pointer type to use with functions returning a char* to release
+     * with VSIFree */
+    using CPLCharUniquePtr = std::unique_ptr<char, VSIFreeReleaser>;
+
+    namespace cpl
     {
-        void operator()(void *p) const
+
+    /*! @cond Doxygen_Suppress */
+    /** Iterator for a CSLConstList */
+    struct CPL_DLL CSLIterator
+    {
+        using iterator_category = std::input_iterator_tag;
+        using difference_type = std::ptrdiff_t;
+        using value_type = const char *;
+        using pointer = value_type *;
+        using reference = value_type &;
+
+        CSLConstList m_papszList = nullptr;
+        bool m_bAtEnd = false;
+
+        inline const char *operator*() const
         {
-            CPLFree(p);
+            return *m_papszList;
+        }
+
+        inline CSLIterator &operator++()
+        {
+            if (m_papszList)
+                ++m_papszList;
+            return *this;
+        }
+
+        bool operator==(const CSLIterator &other) const;
+
+        inline bool operator!=(const CSLIterator &other) const
+        {
+            return !(operator==(other));
         }
     };
+
     /*! @endcond */
 
-    /** Unique pointer type to use with functions returning a char* to release
-     * with CPLFree */
-    using CPLCharUniquePtr = std::unique_ptr<char, CPLFreeReleaser>;
+    /** Wrapper for a CSLConstList that can be used with C++ iterators.
+     *
+     * @since GDAL 3.9
+     */
+    struct CPL_DLL CSLIteratorWrapper
+    {
+      public:
+        /** Constructor */
+        inline explicit CSLIteratorWrapper(CSLConstList papszList)
+            : m_papszList(papszList)
+        {
+        }
+
+        /** Get the begin of the list */
+        inline CSLIterator begin() const
+        {
+            return {m_papszList, false};
+        }
+
+        /** Get the end of the list */
+        inline CSLIterator end() const
+        {
+            return {m_papszList, true};
+        }
+
+      private:
+        CSLConstList m_papszList;
+    };
+
+    /** Wraps a CSLConstList in a structure that can be used with C++ iterators.
+     *
+     * @since GDAL 3.9
+     */
+    inline CSLIteratorWrapper Iterate(CSLConstList papszList)
+    {
+        return CSLIteratorWrapper{papszList};
+    }
+
+    /*! @cond Doxygen_Suppress */
+    inline CSLIteratorWrapper Iterate(const CPLStringList &aosList)
+    {
+        return Iterate(aosList.List());
+    }
+
+    /*! @endcond */
+
+    /*! @cond Doxygen_Suppress */
+    inline CSLIteratorWrapper Iterate(char **) = delete;
+
+    /*! @endcond */
+
+    /*! @cond Doxygen_Suppress */
+    /** Iterator for a CSLConstList as (name, value) pairs. */
+    struct CPL_DLL CSLNameValueIterator
+    {
+        using iterator_category = std::input_iterator_tag;
+        using difference_type = std::ptrdiff_t;
+        using value_type = std::pair<const char *, const char *>;
+        using pointer = value_type *;
+        using reference = value_type &;
+
+        CSLConstList m_papszList = nullptr;
+        bool m_bReturnNullKeyIfNotNameValue = false;
+        std::string m_osKey{};
+
+        value_type operator*();
+
+        inline CSLNameValueIterator &operator++()
+        {
+            if (m_papszList)
+                ++m_papszList;
+            return *this;
+        }
+
+        inline bool operator==(const CSLNameValueIterator &other) const
+        {
+            return m_papszList == other.m_papszList;
+        }
+
+        inline bool operator!=(const CSLNameValueIterator &other) const
+        {
+            return !(operator==(other));
+        }
+    };
+
+    /*! @endcond */
+
+    /** Wrapper for a CSLConstList that can be used with C++ iterators
+     * to get (name, value) pairs.
+     *
+     * This can for example be used to do the following:
+     * for (const auto& [name, value]: cpl::IterateNameValue(papszList)) {}
+     *
+     * Note that a (name, value) pair returned by dereferencing an iterator
+     * is invalidated by the next iteration on the iterator.
+     *
+     * @since GDAL 3.9
+     */
+    struct CPL_DLL CSLNameValueIteratorWrapper
+    {
+      public:
+        /** Constructor */
+        inline explicit CSLNameValueIteratorWrapper(
+            CSLConstList papszList, bool bReturnNullKeyIfNotNameValue)
+            : m_papszList(papszList),
+              m_bReturnNullKeyIfNotNameValue(bReturnNullKeyIfNotNameValue)
+        {
+        }
+
+        /** Get the begin of the list */
+        inline CSLNameValueIterator begin() const
+        {
+            return {m_papszList, m_bReturnNullKeyIfNotNameValue};
+        }
+
+        /** Get the end of the list */
+        CSLNameValueIterator end() const;
+
+      private:
+        CSLConstList m_papszList;
+        const bool m_bReturnNullKeyIfNotNameValue;
+    };
+
+    /** Wraps a CSLConstList in a structure that can be used with C++ iterators
+     * to get (name, value) pairs.
+     *
+     * This can for example be used to do the following:
+     * for (const auto& [name, value]: cpl::IterateNameValue(papszList)) {}
+     *
+     * Note that a (name, value) pair returned by dereferencing an iterator
+     * is invalidated by the next iteration on the iterator.
+     *
+     * @param papszList List to iterate over.
+     * @param bReturnNullKeyIfNotNameValue When this is set to true, if a string
+     * contained in the list if not of the form name=value, then the value of
+     * the iterator will be (nullptr, string).
+     *
+     * @since GDAL 3.9
+     */
+    inline CSLNameValueIteratorWrapper
+    IterateNameValue(CSLConstList papszList,
+                     bool bReturnNullKeyIfNotNameValue = false)
+    {
+        return CSLNameValueIteratorWrapper{papszList,
+                                           bReturnNullKeyIfNotNameValue};
+    }
+
+    /*! @cond Doxygen_Suppress */
+    inline CSLNameValueIteratorWrapper
+    IterateNameValue(const CPLStringList &aosList,
+                     bool bReturnNullKeyIfNotNameValue = false)
+    {
+        return IterateNameValue(aosList.List(), bReturnNullKeyIfNotNameValue);
+    }
+
+    /*! @endcond */
+
+    /*! @cond Doxygen_Suppress */
+    inline CSLIteratorWrapper IterateNameValue(char **, bool = false) = delete;
+
+    /*! @endcond */
+
+    /** Converts a CSLConstList to a std::vector<std::string> */
+    inline std::vector<std::string> ToVector(CSLConstList papszList)
+    {
+        return CPLStringList::BoundToConstList(papszList);
+    }
+
+    inline std::vector<std::string> ToVector(char **) = delete;
+
+    }  // namespace cpl
 
 #endif
 

@@ -76,6 +76,7 @@ class OGROpenFileGDBGroup final : public GDALGroup
     {
         m_osDefinition = osDefinition;
     }
+
     const std::string &GetDefinition() const
     {
         return m_osDefinition;
@@ -153,8 +154,11 @@ int OGROpenFileGDBDataSource::FileExists(const char *pszFilename)
 /*                                Open()                                */
 /************************************************************************/
 
-bool OGROpenFileGDBDataSource::Open(const GDALOpenInfo *poOpenInfo)
+bool OGROpenFileGDBDataSource::Open(const GDALOpenInfo *poOpenInfo,
+                                    bool &bRetryFileGDBOut)
 {
+    bRetryFileGDBOut = false;
+
     if (poOpenInfo->nOpenFlags == (GDAL_OF_RASTER | GDAL_OF_UPDATE))
     {
         CPLError(CE_Failure, CPLE_NotSupported,
@@ -289,7 +293,7 @@ bool OGROpenFileGDBDataSource::Open(const GDALOpenInfo *poOpenInfo)
         if (nInterestTable > 0 && FileExists(poOpenInfo->pszFilename))
         {
             const char *pszLyrName = CPLSPrintf("a%08x", nInterestTable);
-            auto poLayer = cpl::make_unique<OGROpenFileGDBLayer>(
+            auto poLayer = std::make_unique<OGROpenFileGDBLayer>(
                 this, poOpenInfo->pszFilename, pszLyrName, "", "",
                 eAccess == GA_Update);
             const char *pszTablX =
@@ -392,9 +396,9 @@ bool OGROpenFileGDBDataSource::Open(const GDALOpenInfo *poOpenInfo)
     {
         eAccess = poOpenInfo->eAccess;
 
-        const bool bRet =
-            OpenFileGDBv10(iGDBItems, nInterestTable, poOpenInfo,
-                           osRasterLayerName, oSetIgnoredRasterLayerTableNum);
+        const bool bRet = OpenFileGDBv10(
+            iGDBItems, nInterestTable, poOpenInfo, osRasterLayerName,
+            oSetIgnoredRasterLayerTableNum, bRetryFileGDBOut);
         if (!bRet)
             return false;
     }
@@ -430,7 +434,7 @@ bool OGROpenFileGDBDataSource::Open(const GDALOpenInfo *poOpenInfo)
                 pszLyrName = aosTableNames[nInterestTable - 1].c_str();
             else
                 pszLyrName = CPLSPrintf("a%08x", nInterestTable);
-            m_apoLayers.push_back(cpl::make_unique<OGROpenFileGDBLayer>(
+            m_apoLayers.push_back(std::make_unique<OGROpenFileGDBLayer>(
                 this, poOpenInfo->pszFilename, pszLyrName, "", "",
                 eAccess == GA_Update));
         }
@@ -463,7 +467,7 @@ bool OGROpenFileGDBDataSource::Open(const GDALOpenInfo *poOpenInfo)
                     FileExists(osFilename))
                 {
                     m_apoLayers.emplace_back(
-                        cpl::make_unique<OGROpenFileGDBLayer>(
+                        std::make_unique<OGROpenFileGDBLayer>(
                             this, osFilename, oIter.first.c_str(), "", "",
                             eAccess == GA_Update));
                     if (m_poRootGroup)
@@ -566,7 +570,7 @@ OGRLayer *OGROpenFileGDBDataSource::AddLayer(
                 }
             }
 
-            m_apoLayers.emplace_back(cpl::make_unique<OGROpenFileGDBLayer>(
+            m_apoLayers.emplace_back(std::make_unique<OGROpenFileGDBLayer>(
                 this, osFilename, osName, osDefinition, osDocumentation,
                 eAccess == GA_Update, eGeomType, osParentDefinition));
             return m_apoLayers.back().get();
@@ -621,7 +625,7 @@ OGRLayer *OGROpenFileGDBGroup::OpenVectorLayer(const std::string &osName,
 bool OGROpenFileGDBDataSource::OpenFileGDBv10(
     int iGDBItems, int nInterestTable, const GDALOpenInfo *poOpenInfo,
     const std::string &osRasterLayerName,
-    std::set<int> &oSetIgnoredRasterLayerTableNum)
+    std::set<int> &oSetIgnoredRasterLayerTableNum, bool &bRetryFileGDBOut)
 {
 
     CPLDebug("OpenFileGDB", "FileGDB v10 or later");
@@ -728,9 +732,9 @@ bool OGROpenFileGDBDataSource::OpenFileGDBv10(
             auto poRelationship = ParseXMLRelationshipDef(psField->String);
             if (poRelationship)
             {
-                const auto relationshipName = poRelationship->GetName();
-                m_osMapRelationships[relationshipName] =
-                    std::move(poRelationship);
+                const auto &relationshipName = poRelationship->GetName();
+                m_osMapRelationships.insert(std::pair(
+                    std::string(relationshipName), std::move(poRelationship)));
             }
         }
     }
@@ -818,8 +822,9 @@ bool OGROpenFileGDBDataSource::OpenFileGDBv10(
             auto poDomain = ParseXMLFieldDomainDef(psField->String);
             if (poDomain)
             {
-                const auto domainName = poDomain->GetName();
-                m_oMapFieldDomains[domainName] = std::move(poDomain);
+                const auto &domainName = poDomain->GetName();
+                m_oMapFieldDomains.insert(
+                    std::pair(std::string(domainName), std::move(poDomain)));
             }
         }
         else if (psField && (poOpenInfo->nOpenFlags & GDAL_OF_RASTER) != 0 &&
@@ -917,11 +922,11 @@ bool OGROpenFileGDBDataSource::OpenFileGDBv10(
         }
     }
 
-    // Return false if there are no vector layers and all candidate layers are
-    // compressed ones.
-    if (m_apoLayers.empty() && nCandidateLayers > 0 &&
-        nCandidateLayers == nLayersSDCOrCDF)
+    // If there's at least one .cdf layer and the FileGDB driver is present,
+    // retry with it.
+    if (nLayersSDCOrCDF > 0 && GDALGetDriverByName("FileGDB") != nullptr)
     {
+        bRetryFileGDBOut = true;
         return false;
     }
 
@@ -937,7 +942,7 @@ int OGROpenFileGDBDataSource::OpenFileGDBv9(
     const GDALOpenInfo *poOpenInfo, const std::string &osRasterLayerName,
     std::set<int> &oSetIgnoredRasterLayerTableNum)
 {
-    auto poTable = cpl::make_unique<FileGDBTable>();
+    auto poTable = std::make_unique<FileGDBTable>();
 
     CPLDebug("OpenFileGDB", "FileGDB v9");
 
@@ -995,7 +1000,7 @@ int OGROpenFileGDBDataSource::OpenFileGDBv9(
     }
     poTable->Close();
 
-    poTable = cpl::make_unique<FileGDBTable>();
+    poTable = std::make_unique<FileGDBTable>();
 
     /* Find tables that are spatial layers */
     osFilename = CPLFormFilename(
@@ -1177,7 +1182,7 @@ OGROpenFileGDBDataSource::BuildLayerFromName(const char *pszName)
             CPLFormFilename(m_osDirName, CPLSPrintf("a%08x", idx), "gdbtable"));
         if (FileExists(osFilename))
         {
-            return cpl::make_unique<OGROpenFileGDBLayer>(
+            return std::make_unique<OGROpenFileGDBLayer>(
                 this, osFilename, pszName, "", "", eAccess == GA_Update);
         }
     }
@@ -1317,24 +1322,30 @@ class OGROpenFileGDBSimpleSQLLayer final : public OGRLayer
     virtual void ResetReading() override;
     virtual OGRFeature *GetNextFeature() override;
     virtual OGRFeature *GetFeature(GIntBig nFeatureId) override;
+
     virtual OGRFeatureDefn *GetLayerDefn() override
     {
         return poFeatureDefn;
     }
+
     virtual int TestCapability(const char *) override;
+
     virtual const char *GetFIDColumn() override
     {
         return poBaseLayer->GetFIDColumn();
     }
+
     virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce) override
     {
         return poBaseLayer->GetExtent(psExtent, bForce);
     }
+
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce) override
     {
         return OGRLayer::GetExtent(iGeomField, psExtent, bForce);
     }
+
     virtual GIntBig GetFeatureCount(int bForce) override;
 };
 
@@ -1792,7 +1803,7 @@ OGRLayer *OGROpenFileGDBDataSource::ExecuteSQL(const char *pszSQLCommand,
                 OGRMemLayer *poMemLayer = nullptr;
 
                 int i = 0;  // Used after for.
-                for (; i < oSelect.result_columns; i++)
+                for (; i < oSelect.result_columns(); i++)
                 {
                     swq_col_func col_func = oSelect.column_defs[i].col_func;
                     if (!(col_func == SWQCF_MIN || col_func == SWQCF_MAX ||
@@ -1853,7 +1864,7 @@ OGRLayer *OGROpenFileGDBDataSource::ExecuteSQL(const char *pszSQLCommand,
                                 {
                                     eOutOGRType = OFTDateTime;
                                     FileGDBDoubleDateToOGRDate(dfSum / nCount,
-                                                               &sField);
+                                                               false, &sField);
                                 }
                                 else
                                 {
@@ -1905,7 +1916,7 @@ OGRLayer *OGROpenFileGDBDataSource::ExecuteSQL(const char *pszSQLCommand,
                         delete poFeature;
                     }
                 }
-                if (i != oSelect.result_columns)
+                if (i != oSelect.result_columns())
                 {
                     delete poMemLayer;
                 }
@@ -1964,7 +1975,7 @@ OGRLayer *OGROpenFileGDBDataSource::ExecuteSQL(const char *pszSQLCommand,
                 if (eErr == OGRERR_NONE)
                 {
                     int i = 0;  // Used after for.
-                    for (; i < oSelect.result_columns; i++)
+                    for (; i < oSelect.result_columns(); i++)
                     {
                         if (oSelect.column_defs[i].col_func != SWQCF_NONE)
                             break;
@@ -1980,7 +1991,7 @@ OGRLayer *OGROpenFileGDBDataSource::ExecuteSQL(const char *pszSQLCommand,
                                 oSelect.column_defs[i].field_name) < 0)
                             break;
                     }
-                    if (i != oSelect.result_columns)
+                    if (i != oSelect.result_columns())
                         eErr = OGRERR_FAILURE;
                 }
                 if (eErr == OGRERR_NONE)
@@ -2012,8 +2023,9 @@ OGRLayer *OGROpenFileGDBDataSource::ExecuteSQL(const char *pszSQLCommand,
                                  "Using OGROpenFileGDBSimpleSQLLayer");
                         bLastSQLUsedOptimizedImplementation = true;
                         return new OGROpenFileGDBSimpleSQLLayer(
-                            poLayer, poIter, oSelect.result_columns,
-                            oSelect.column_defs, oSelect.offset, oSelect.limit);
+                            poLayer, poIter, oSelect.result_columns(),
+                            oSelect.column_defs.data(), oSelect.offset,
+                            oSelect.limit);
                     }
                 }
             }

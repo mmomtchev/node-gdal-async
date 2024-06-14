@@ -73,6 +73,7 @@ typedef struct _CPLSpinLock CPLSpinLock;
 struct _CPLLock
 {
     CPLLockType eType;
+
     union
     {
         CPLMutex *hMutex;
@@ -358,16 +359,16 @@ int CPLCreateOrAcquireMutexEx(CPLMutex **phMutex, double dfWaitInSeconds,
 /************************************************************************/
 
 #ifdef MUTEX_NONE
-static int CPLCreateOrAcquireMutexInternal(CPLLock **phLock,
-                                           double dfWaitInSeconds,
-                                           CPLLockType eType)
+static bool CPLCreateOrAcquireMutexInternal(CPLLock **phLock,
+                                            double dfWaitInSeconds,
+                                            CPLLockType eType)
 {
     return false;
 }
 #else
-static int CPLCreateOrAcquireMutexInternal(CPLLock **phLock,
-                                           double dfWaitInSeconds,
-                                           CPLLockType eType)
+static bool CPLCreateOrAcquireMutexInternal(CPLLock **phLock,
+                                            double dfWaitInSeconds,
+                                            CPLLockType eType)
 
 {
     bool bSuccess = false;
@@ -1462,35 +1463,31 @@ int CPLCreateOrAcquireMutexEx(CPLMutex **phMutex, double dfWaitInSeconds,
                               int nOptions)
 
 {
-    bool bSuccess = false;
-
     pthread_mutex_lock(&global_mutex);
     if (*phMutex == nullptr)
     {
         *phMutex = CPLCreateMutexInternal(true, nOptions);
-        bSuccess = *phMutex != nullptr;
+        const bool bSuccess = *phMutex != nullptr;
         pthread_mutex_unlock(&global_mutex);
+        if (!bSuccess)
+            return false;
     }
     else
     {
         pthread_mutex_unlock(&global_mutex);
-
-        bSuccess = CPL_TO_BOOL(CPLAcquireMutex(*phMutex, dfWaitInSeconds));
     }
 
-    return bSuccess;
+    return CPL_TO_BOOL(CPLAcquireMutex(*phMutex, dfWaitInSeconds));
 }
 
 /************************************************************************/
 /*                   CPLCreateOrAcquireMutexInternal()                  */
 /************************************************************************/
 
-static int CPLCreateOrAcquireMutexInternal(CPLLock **phLock,
-                                           double dfWaitInSeconds,
-                                           CPLLockType eType)
+static bool CPLCreateOrAcquireMutexInternal(CPLLock **phLock,
+                                            double dfWaitInSeconds,
+                                            CPLLockType eType)
 {
-    bool bSuccess = false;
-
     pthread_mutex_lock(&global_mutex);
     if (*phLock == nullptr)
     {
@@ -1507,18 +1504,17 @@ static int CPLCreateOrAcquireMutexInternal(CPLLock **phLock,
                 *phLock = nullptr;
             }
         }
-        bSuccess = *phLock != nullptr;
+        const bool bSuccess = *phLock != nullptr;
         pthread_mutex_unlock(&global_mutex);
+        if (!bSuccess)
+            return false;
     }
     else
     {
         pthread_mutex_unlock(&global_mutex);
-
-        bSuccess =
-            CPL_TO_BOOL(CPLAcquireMutex((*phLock)->u.hMutex, dfWaitInSeconds));
     }
 
-    return bSuccess;
+    return CPL_TO_BOOL(CPLAcquireMutex((*phLock)->u.hMutex, dfWaitInSeconds));
 }
 
 /************************************************************************/
@@ -1536,6 +1532,7 @@ const char *CPLGetThreadingModel()
 /************************************************************************/
 
 typedef struct _MutexLinkedElt MutexLinkedElt;
+
 struct _MutexLinkedElt
 {
     pthread_mutex_t sMutex;
@@ -1543,6 +1540,7 @@ struct _MutexLinkedElt
     _MutexLinkedElt *psPrev;
     _MutexLinkedElt *psNext;
 };
+
 static MutexLinkedElt *psMutexList = nullptr;
 
 static void CPLInitMutex(MutexLinkedElt *psItem)
@@ -1624,20 +1622,23 @@ static CPLMutex *CPLCreateMutexInternal(bool bAlreadyInGlobalLock, int nOptions)
     psItem->nOptions = nOptions;
     CPLInitMutex(psItem);
 
-    // Mutexes are implicitly acquired when created.
-    CPLAcquireMutex(reinterpret_cast<CPLMutex *>(psItem), 0.0);
-
     return reinterpret_cast<CPLMutex *>(psItem);
 }
 
 CPLMutex *CPLCreateMutex()
 {
-    return CPLCreateMutexInternal(false, CPL_MUTEX_RECURSIVE);
+    CPLMutex *mutex = CPLCreateMutexInternal(false, CPL_MUTEX_RECURSIVE);
+    if (mutex)
+        CPLAcquireMutex(mutex, 0);
+    return mutex;
 }
 
 CPLMutex *CPLCreateMutexEx(int nOptions)
 {
-    return CPLCreateMutexInternal(false, nOptions);
+    CPLMutex *mutex = CPLCreateMutexInternal(false, nOptions);
+    if (mutex)
+        CPLAcquireMutex(mutex, 0);
+    return mutex;
 }
 
 /************************************************************************/
@@ -1712,6 +1713,7 @@ void CPLDestroyMutex(CPLMutex *hMutexIn)
 // Used by gdalclientserver.cpp just after forking, to avoid
 // deadlocks while mixing threads with fork.
 void CPLReinitAllMutex();  // TODO(schwehr): Put this in a header.
+
 void CPLReinitAllMutex()
 {
     MutexLinkedElt *psItem = psMutexList;

@@ -76,6 +76,7 @@ CPL_C_END
 #include "rawdataset.h"
 #include "vsidataio.h"
 #include "vrt/vrtdataset.h"
+#include "jpegdrivercore.h"
 
 #if defined(EXPECTED_JPEG_LIB_VERSION) && !defined(LIBJPEG_12_PATH)
 #if EXPECTED_JPEG_LIB_VERSION != JPEG_LIB_VERSION
@@ -327,12 +328,14 @@ void JPGDatasetCommon::ReadXMPMetadata()
             break;
 
         nChunkLoc += 2 + abyChunkHeader[2] * 256 + abyChunkHeader[3];
-        // COM marker.
-        if (abyChunkHeader[0] == 0xFF && abyChunkHeader[1] == 0xFE)
+
+        // Not a marker
+        if (abyChunkHeader[0] != 0xFF)
             continue;
 
-        if (abyChunkHeader[0] != 0xFF || (abyChunkHeader[1] & 0xf0) != 0xe0)
-            break;  // Not an APP chunk.
+        // Stop on Start of Scan
+        if (abyChunkHeader[1] == 0xDA)
+            break;
 
         if (abyChunkHeader[1] == APP1_BYTE &&
             memcmp(reinterpret_cast<char *>(abyChunkHeader) + JFIF_MARKER_SIZE,
@@ -401,6 +404,14 @@ void JPGDatasetCommon::ReadFLIRMetadata()
 
         if (VSIFReadL(abyChunkHeader, sizeof(abyChunkHeader), 1, m_fpImage) !=
             1)
+            break;
+
+        // Not a marker
+        if (abyChunkHeader[0] != 0xFF)
+            continue;
+
+        // Stop on Start of Scan
+        if (abyChunkHeader[1] == 0xDA)
             break;
 
         int nMarkerLength = abyChunkHeader[2] * 256 + abyChunkHeader[3] - 2;
@@ -526,15 +537,18 @@ void JPGDatasetCommon::ReadFLIRMetadata()
     {
         int &m_nPamFlagsRef;
         int m_nOldPamFlags;
+
         explicit PamFlagKeeper(int &nPamFlagsRef)
             : m_nPamFlagsRef(nPamFlagsRef), m_nOldPamFlags(nPamFlagsRef)
         {
         }
+
         ~PamFlagKeeper()
         {
             m_nPamFlagsRef = m_nOldPamFlags;
         }
     };
+
     PamFlagKeeper oKeeper(nPamFlags);
 
     const auto SetStringIfNotEmpty =
@@ -851,6 +865,7 @@ void JPGDatasetCommon::ReadFLIRMetadata()
     };
 
     size_t nOffsetDirEntry = nOffsetRecordDirectory;
+
     enum FLIRRecordType
     {
         FLIR_REC_FREE = 0,
@@ -859,6 +874,7 @@ void JPGDatasetCommon::ReadFLIRMetadata()
         FLIR_REC_PALETTE_INFO = 34,
         FLIR_REC_GPS_INFO = 43,
     };
+
     // Iterate over records
     for (std::uint32_t iRec = 0; iRec < nEntryCountRecordDirectory; iRec++)
     {
@@ -1421,7 +1437,7 @@ CPLErr JPGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
     const int nWordSize = GDALGetDataTypeSizeBytes(eDataType);
     if (poGDS->m_fpImage == nullptr)
     {
-        memset(pImage, 0, nXSize * nWordSize);
+        memset(pImage, 0, cpl::fits_on<int>(nXSize * nWordSize));
         return CE_None;
     }
 
@@ -1437,7 +1453,8 @@ CPLErr JPGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
         GDALCopyWords(poGDS->m_pabyScanline, GDT_UInt16, 2, pImage, eDataType,
                       nWordSize, nXSize);
 #else
-        memcpy(pImage, poGDS->m_pabyScanline, nXSize * nWordSize);
+        memcpy(pImage, poGDS->m_pabyScanline,
+               cpl::fits_on<int>(nXSize * nWordSize));
 #endif
     }
     else
@@ -1641,9 +1658,9 @@ int JPGRasterBand::GetOverviewCount()
 JPGDatasetCommon::JPGDatasetCommon()
     : nScaleFactor(1), bHasInitInternalOverviews(false),
       nInternalOverviewsCurrent(0), nInternalOverviewsToFree(0),
-      papoInternalOverviews(nullptr), bGeoTransformValid(false), nGCPCount(0),
-      pasGCPList(nullptr), m_fpImage(nullptr), nSubfileOffset(0),
-      nLoadedScanline(-1), m_pabyScanline(nullptr), bHasReadEXIFMetadata(false),
+      papoInternalOverviews(nullptr), bGeoTransformValid(false),
+      m_fpImage(nullptr), nSubfileOffset(0), nLoadedScanline(-1),
+      m_pabyScanline(nullptr), bHasReadEXIFMetadata(false),
       bHasReadXMPMetadata(false), bHasReadICCMetadata(false),
       papszMetadata(nullptr), nExifOffset(-1), nInterOffset(-1), nGPSOffset(-1),
       bSwabflag(false), nTiffDirStart(-1), nTIFFHEADER(-1),
@@ -1675,12 +1692,6 @@ JPGDatasetCommon::~JPGDatasetCommon()
         CPLFree(m_pabyScanline);
     if (papszMetadata != nullptr)
         CSLDestroy(papszMetadata);
-
-    if (nGCPCount > 0)
-    {
-        GDALDeinitGCPs(nGCPCount, pasGCPList);
-        CPLFree(pasGCPList);
-    }
 
     CPLFree(pabyBitMask);
     CPLFree(pabyCMask);
@@ -2179,8 +2190,8 @@ CPLErr JPGDataset::LoadScanline(int iLine, GByte *outBuffer)
                 CPLAssert(false);
         }
 
-        m_pabyScanline =
-            static_cast<GByte *>(CPLMalloc(nJPEGBands * GetRasterXSize() * 2));
+        m_pabyScanline = static_cast<GByte *>(
+            CPLMalloc(cpl::fits_on<int>(nJPEGBands * GetRasterXSize() * 2)));
     }
 
     if (iLine < nLoadedScanline)
@@ -2497,7 +2508,7 @@ int JPGDatasetCommon::GetGCPCount()
 
     LoadWorldFileOrTab();
 
-    return nGCPCount;
+    return static_cast<int>(m_aoGCPs.size());
 }
 
 /************************************************************************/
@@ -2514,7 +2525,7 @@ const OGRSpatialReference *JPGDatasetCommon::GetGCPSpatialRef() const
 
     const_cast<JPGDatasetCommon *>(this)->LoadWorldFileOrTab();
 
-    if (!m_oSRS.IsEmpty() && nGCPCount > 0)
+    if (!m_oSRS.IsEmpty() && !m_aoGCPs.empty())
         return &m_oSRS;
 
     return nullptr;
@@ -2533,7 +2544,7 @@ const GDAL_GCP *JPGDatasetCommon::GetGCPs()
 
     LoadWorldFileOrTab();
 
-    return pasGCPList;
+    return gdal::GCP::c_ptr(m_aoGCPs);
 }
 
 /************************************************************************/
@@ -2631,97 +2642,6 @@ CPLErr JPGDatasetCommon::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
 }
 
 /************************************************************************/
-/*                    JPEGDatasetIsJPEGLS()                             */
-/************************************************************************/
-
-static bool JPEGDatasetIsJPEGLS(GDALOpenInfo *poOpenInfo)
-
-{
-    GByte *pabyHeader = poOpenInfo->pabyHeader;
-    int nHeaderBytes = poOpenInfo->nHeaderBytes;
-
-    if (nHeaderBytes < 10)
-        return false;
-
-    if (pabyHeader[0] != 0xff || pabyHeader[1] != 0xd8)
-        return false;
-
-    for (int nOffset = 2; nOffset + 4 < nHeaderBytes;)
-    {
-        if (pabyHeader[nOffset] != 0xFF)
-            return false;
-
-        int nMarker = pabyHeader[nOffset + 1];
-        if (nMarker == 0xDA)
-            return false;
-
-        if (nMarker == 0xF7)  // JPEG Extension 7, JPEG-LS.
-            return true;
-        if (nMarker == 0xF8)  // JPEG Extension 8, JPEG-LS Extension.
-            return true;
-        if (nMarker == 0xC3)  // Start of Frame 3 (Lossless Huffman)
-            return true;
-        if (nMarker ==
-            0xC7)  // Start of Frame 7 (Differential Lossless Huffman)
-            return true;
-        if (nMarker == 0xCB)  // Start of Frame 11 (Lossless Arithmetic)
-            return true;
-        if (nMarker ==
-            0xCF)  // Start of Frame 15 (Differential Lossless Arithmetic)
-            return true;
-
-        nOffset += 2 + pabyHeader[nOffset + 2] * 256 + pabyHeader[nOffset + 3];
-    }
-
-    return false;
-}
-
-/************************************************************************/
-/*                              Identify()                              */
-/************************************************************************/
-
-int JPGDatasetCommon::Identify(GDALOpenInfo *poOpenInfo)
-
-{
-    // If it is a subfile, read the JPEG header.
-    if (STARTS_WITH_CI(poOpenInfo->pszFilename, "JPEG_SUBFILE:"))
-        return TRUE;
-    if (STARTS_WITH(poOpenInfo->pszFilename, "JPEG:"))
-        return TRUE;
-
-    // First we check to see if the file has the expected header bytes.
-    const int nHeaderBytes = poOpenInfo->nHeaderBytes;
-
-    if (nHeaderBytes < 10)
-        return FALSE;
-
-    GByte *const pabyHeader = poOpenInfo->pabyHeader;
-    if (pabyHeader[0] != 0xff || pabyHeader[1] != 0xd8 || pabyHeader[2] != 0xff)
-        return FALSE;
-
-        // libjpeg-turbo >= 2.2 supports lossless mode
-#if !defined(D_LOSSLESS_SUPPORTED)
-    if (JPEGDatasetIsJPEGLS(poOpenInfo))
-    {
-        return FALSE;
-    }
-#endif
-
-    // Some files like
-    // http://dionecanali.hd.free.fr/~mdione/mapzen/N65E039.hgt.gz could be
-    // mis-identfied as JPEG
-    CPLString osFilenameLower = CPLString(poOpenInfo->pszFilename).tolower();
-    if (osFilenameLower.endsWith(".hgt") ||
-        osFilenameLower.endsWith(".hgt.gz") ||
-        osFilenameLower.endsWith(".hgt.zip"))
-    {
-        return FALSE;
-    }
-
-    return TRUE;
-}
-
-/************************************************************************/
 /*                                Open()                                */
 /************************************************************************/
 
@@ -2730,7 +2650,7 @@ GDALDataset *JPGDatasetCommon::Open(GDALOpenInfo *poOpenInfo)
 {
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
     // During fuzzing, do not use Identify to reject crazy content.
-    if (!Identify(poOpenInfo))
+    if (!JPEGDriverIdentify(poOpenInfo))
         return nullptr;
 #endif
 
@@ -2791,7 +2711,7 @@ GDALDataset *JPGDatasetCommon::Open(GDALOpenInfo *poOpenInfo)
             int nOrientation = atoi(pszOrientation);
             if (nOrientation >= 2 && nOrientation <= 8)
             {
-                auto poOrientedDS = cpl::make_unique<GDALOrientedDataset>(
+                auto poOrientedDS = std::make_unique<GDALOrientedDataset>(
                     std::move(poDS),
                     static_cast<GDALOrientedDataset::Origin>(nOrientation));
                 poDS = std::move(poOrientedDS);
@@ -2837,10 +2757,12 @@ GDALDataset *JPGDatasetCommon::OpenFLIRRawThermalImage()
                 nRasterXSize = nXSizeIn;
                 nRasterYSize = nYSizeIn;
             }
+
             CPLErr Close() override
             {
                 return GDALPamDataset::Close();
             }
+
             ~JPEGRawDataset() = default;
 
             void SetBand(int nBand, std::unique_ptr<GDALRasterBand> &&poBand)
@@ -3240,12 +3162,17 @@ void JPGDatasetCommon::LoadWorldFileOrTab()
     if (!bGeoTransformValid)
     {
         char *pszProjection = nullptr;
+        int nGCPCount = 0;
+        GDAL_GCP *pasGCPList = nullptr;
         const bool bTabFileOK = CPL_TO_BOOL(GDALReadTabFile2(
             GetDescription(), adfGeoTransform, &pszProjection, &nGCPCount,
             &pasGCPList, oOvManager.GetSiblingFiles(), &pszWldFilename));
         if (pszProjection)
             m_oSRS.importFromWkt(pszProjection);
         CPLFree(pszProjection);
+        m_aoGCPs = gdal::GCP::fromC(pasGCPList, nGCPCount);
+        GDALDeinitGCPs(nGCPCount, pasGCPList);
+        CPLFree(pasGCPList);
 
         if (bTabFileOK && nGCPCount == 0)
             bGeoTransformValid = true;
@@ -4102,9 +4029,6 @@ GDALDataset *JPGDataset::CreateCopy(const char *pszFilename,
                                     void *pProgressData)
 
 {
-    if (!pfnProgress(0.0, nullptr, pProgressData))
-        return nullptr;
-
     const int nBands = poSrcDS->GetRasterCount();
 
     const char *pszLossLessCopy =
@@ -4120,6 +4044,9 @@ GDALDataset *JPGDataset::CreateCopy(const char *pszFilename,
             GDALGetCompressionFormatForJPEG(pJPEGContent, nJPEGContent)
                     .find(";colorspace=RGBA") == std::string::npos)
         {
+            if (!pfnProgress(0.0, nullptr, pProgressData))
+                return nullptr;
+
             CPLDebug("JPEG", "Lossless copy from source dataset");
             std::vector<GByte> abyJPEG;
             try
@@ -4438,7 +4365,7 @@ GDALDataset *JPGDataset::CreateCopy(const char *pszFilename,
     {
         CPLError(bStrict ? CE_Failure : CE_Warning, CPLE_NotSupported,
                  "JPEG driver doesn't support data type %s. "
-                 "Only eight and twelve bit bands supported (Mk1 libjpeg).\n",
+                 "Only eight and twelve bit bands supported.",
                  GDALGetDataTypeName(
                      poSrcDS->GetRasterBand(1)->GetRasterDataType()));
 
@@ -4532,6 +4459,9 @@ GDALDataset *JPGDataset::CreateCopyStage2(
             VSIFCloseL(fpImage);
         return nullptr;
     }
+
+    if (!pfnProgress(0.0, nullptr, pProgressData))
+        return nullptr;
 
     // Initialize JPG access to the file.
     sCInfo.err = jpeg_std_error(&sJErr);
@@ -4669,8 +4599,8 @@ GDALDataset *JPGDataset::CreateCopyStage2(
 
     // Loop over image, copying image data.
     const int nWorkDTSize = GDALGetDataTypeSizeBytes(eWorkDT);
-    pabyScanline =
-        static_cast<GByte *>(CPLMalloc(nBands * nXSize * nWorkDTSize));
+    pabyScanline = static_cast<GByte *>(
+        CPLMalloc(cpl::fits_on<int>(nBands * nXSize * nWorkDTSize)));
 
     if (setjmp(sUserData.setjmp_buffer))
     {
@@ -4686,8 +4616,9 @@ GDALDataset *JPGDataset::CreateCopyStage2(
     {
         eErr = poSrcDS->RasterIO(
             GF_Read, 0, iLine, nXSize, 1, pabyScanline, nXSize, 1, eWorkDT,
-            nBands, nullptr, nBands * nWorkDTSize,
-            nBands * nXSize * nWorkDTSize, nWorkDTSize, nullptr);
+            nBands, nullptr, cpl::fits_on<int>(nBands * nWorkDTSize),
+            cpl::fits_on<int>(nBands * nXSize * nWorkDTSize), nWorkDTSize,
+            nullptr);
 
         // Clamp 16bit values to 12bit.
         if (nWorkDTSize == 2)
@@ -4950,45 +4881,14 @@ const char *GDALJPGDriver::GetMetadataItem(const char *pszName,
 void GDALRegister_JPEG()
 
 {
-    if (GDALGetDriverByName("JPEG") != nullptr)
+    if (GDALGetDriverByName(DRIVER_NAME) != nullptr)
         return;
 
     GDALDriver *poDriver = new GDALJPGDriver();
+    JPEGDriverSetCommonMetadata(poDriver);
 
-    poDriver->SetDescription("JPEG");
-    poDriver->SetMetadataItem(GDAL_DCAP_RASTER, "YES");
-    poDriver->SetMetadataItem(GDAL_DMD_LONGNAME, "JPEG JFIF");
-    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "drivers/raster/jpeg.html");
-    poDriver->SetMetadataItem(GDAL_DMD_EXTENSION, "jpg");
-    poDriver->SetMetadataItem(GDAL_DMD_EXTENSIONS, "jpg jpeg");
-    poDriver->SetMetadataItem(GDAL_DMD_MIMETYPE, "image/jpeg");
-
-#if defined(JPEG_LIB_MK1_OR_12BIT) || defined(JPEG_DUAL_MODE_8_12)
-    poDriver->SetMetadataItem(GDAL_DMD_CREATIONDATATYPES, "Byte UInt16");
-#else
-    poDriver->SetMetadataItem(GDAL_DMD_CREATIONDATATYPES, "Byte");
-#endif
-    poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");
-
-    const char *pszOpenOptions =
-        "<OpenOptionList>\n"
-        "   <Option name='USE_INTERNAL_OVERVIEWS' type='boolean' "
-        "description='whether to use implicit internal overviews' "
-        "default='YES'/>\n"
-        "   <Option name='APPLY_ORIENTATION' type='boolean' "
-        "description='whether to take into account EXIF Orientation to "
-        "rotate/flip the image' default='NO'/>\n"
-        "</OpenOptionList>\n";
-    poDriver->SetMetadataItem(GDAL_DMD_OPENOPTIONLIST, pszOpenOptions);
-
-    poDriver->pfnIdentify = JPGDatasetCommon::Identify;
     poDriver->pfnOpen = JPGDatasetCommon::Open;
     poDriver->pfnCreateCopy = JPGDataset::CreateCopy;
-
-#ifdef D_LOSSLESS_SUPPORTED
-    // For autotest purposes
-    poDriver->SetMetadataItem("LOSSLESS_JPEG_SUPPORTED", "YES", "JPEG");
-#endif
 
     GetGDALDriverManager()->RegisterDriver(poDriver);
 }

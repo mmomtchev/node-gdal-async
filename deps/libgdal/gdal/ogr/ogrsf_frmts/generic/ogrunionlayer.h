@@ -90,7 +90,7 @@ class CPL_DLL OGRUnionLayer final : public OGRLayer
     char *pszAttributeFilter;
     int nNextFID;
     int *panMap;
-    char **papszIgnoredFields;
+    CPLStringList m_aosIgnoredFields{};
     int bAttrFilterPassThroughValue;
     int *pabModifiedLayers;
     int *pabCheckIfAutoWrap;
@@ -125,10 +125,12 @@ class CPL_DLL OGRUnionLayer final : public OGRLayer
     void SetSourceLayerFieldName(const char *pszSourceLayerFieldName);
     void SetPreserveSrcFID(int bPreserveSrcFID);
     void SetFeatureCount(int nFeatureCount);
+
     virtual const char *GetName() override
     {
         return osName.c_str();
     }
+
     virtual OGRwkbGeometryType GetGeomType() override;
 
     virtual void ResetReading() override;
@@ -165,7 +167,7 @@ class CPL_DLL OGRUnionLayer final : public OGRLayer
     virtual void SetSpatialFilter(OGRGeometry *poGeomIn) override;
     virtual void SetSpatialFilter(int iGeomField, OGRGeometry *) override;
 
-    virtual OGRErr SetIgnoredFields(const char **papszFields) override;
+    virtual OGRErr SetIgnoredFields(CSLConstList papszFields) override;
 
     virtual OGRErr SyncToDisk() override;
 };

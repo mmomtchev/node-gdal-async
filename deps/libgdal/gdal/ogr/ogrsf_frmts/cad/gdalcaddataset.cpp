@@ -52,6 +52,7 @@ class CADWrapperRasterBand : public GDALProxyRasterBand
         eDataType = poBaseBand->GetRasterDataType();
         poBaseBand->GetBlockSize(&nBlockXSize, &nBlockYSize);
     }
+
     virtual ~CADWrapperRasterBand()
     {
     }
@@ -204,7 +205,7 @@ int GDALCADDataset::Open(GDALOpenInfo *poOpenInfo, CADFileIO *pFileIO,
                 OGRSpatialReference *poSRS =
                     poSpatialRef ? poSpatialRef->Clone() : nullptr;
                 papoLayers[nLayers++] =
-                    new OGRCADLayer(oLayer, poSRS, nEncoding);
+                    new OGRCADLayer(this, oLayer, poSRS, nEncoding);
                 if (poSRS)
                     poSRS->Release();
             }

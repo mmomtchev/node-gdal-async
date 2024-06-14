@@ -63,18 +63,19 @@ class OGRGeoconceptDataSource : public OGRDataSource
     {
         return _pszName;
     }
+
     int GetLayerCount() override
     {
         return _nLayers;
     }
+
     OGRLayer *GetLayer(int iLayer) override;
     //    OGRErr         DeleteLayer( int iLayer );
     int TestCapability(const char *pszCap) override;
 
     OGRLayer *ICreateLayer(const char *pszName,
-                           const OGRSpatialReference *poSpatialRef = nullptr,
-                           OGRwkbGeometryType eGType = wkbUnknown,
-                           char **papszOptions = nullptr) override;
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
 
   private:
     int LoadFile(const char *);

@@ -86,6 +86,7 @@ OGRGeomFieldDefn::OGRGeomFieldDefn(const OGRGeomFieldDefn *poPrototype)
         l_poSRS->Release();
     }
     SetNullable(poPrototype->IsNullable());
+    SetCoordinatePrecision(poPrototype->GetCoordinatePrecision());
 }
 
 /************************************************************************/
@@ -122,6 +123,7 @@ void OGRGeomFieldDefn::Initialize(const char *pszNameIn,
     pszName = CPLStrdup(pszNameIn);
     eGeomType = eTypeIn;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -165,6 +167,12 @@ void OGR_GFld_Destroy(OGRGeomFieldDefnH hDefn)
  *
  * This method is the same as the C function OGR_GFld_SetName().
  *
+ * Note that once a OGRGeomFieldDefn has been added to a layer definition with
+ * OGRLayer::AddGeomFieldDefn(), its setter methods should not be called on the
+ * object returned with OGRLayer::GetLayerDefn()->GetGeomFieldDefn(). Instead,
+ * OGRLayer::AlterGeomFieldDefn() should be called on a new instance of
+ * OGRFieldDefn, for drivers that support AlterFieldDefn().
+ *
  * @param pszNameIn the new name to apply.
  *
  * @since GDAL 1.11
@@ -173,6 +181,12 @@ void OGR_GFld_Destroy(OGRGeomFieldDefnH hDefn)
 void OGRGeomFieldDefn::SetName(const char *pszNameIn)
 
 {
+    if (m_bSealed)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "OGRGeomFieldDefn::SetName() not allowed on a sealed object");
+        return;
+    }
     if (pszName != pszNameIn)
     {
         CPLFree(pszName);
@@ -187,6 +201,12 @@ void OGRGeomFieldDefn::SetName(const char *pszNameIn)
  * \brief Reset the name of this field.
  *
  * This function is the same as the CPP method OGRGeomFieldDefn::SetName().
+ *
+ * Note that once a OGRGeomFieldDefn has been added to a layer definition with
+ * OGRLayer::AddGeomFieldDefn(), its setter methods should not be called on the
+ * object returned with OGRLayer::GetLayerDefn()->GetGeomFieldDefn(). Instead,
+ * OGRLayer::AlterGeomFieldDefn() should be called on a new instance of
+ * OGRFieldDefn, for drivers that support AlterFieldDefn().
  *
  * @param hDefn handle to the geometry field definition to apply the
  * new name to.
@@ -306,6 +326,12 @@ OGRwkbGeometryType OGR_GFld_GetType(OGRGeomFieldDefnH hDefn)
  *
  * This method is the same as the C function OGR_GFld_SetType().
  *
+ * Note that once a OGRGeomFieldDefn has been added to a layer definition with
+ * OGRLayer::AddGeomFieldDefn(), its setter methods should not be called on the
+ * object returned with OGRLayer::GetLayerDefn()->GetGeomFieldDefn(). Instead,
+ * OGRLayer::AlterGeomFieldDefn() should be called on a new instance of
+ * OGRFieldDefn, for drivers that support AlterFieldDefn().
+ *
  * @param eTypeIn the new field geometry type.
  *
  * @since GDAL 1.11
@@ -314,6 +340,12 @@ OGRwkbGeometryType OGR_GFld_GetType(OGRGeomFieldDefnH hDefn)
 void OGRGeomFieldDefn::SetType(OGRwkbGeometryType eTypeIn)
 
 {
+    if (m_bSealed)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "OGRGeomFieldDefn::SetType() not allowed on a sealed object");
+        return;
+    }
     eGeomType = eTypeIn;
 }
 
@@ -326,6 +358,12 @@ void OGRGeomFieldDefn::SetType(OGRwkbGeometryType eTypeIn)
  * that is already part of an OGRFeatureDefn.
  *
  * This function is the same as the CPP method OGRGeomFieldDefn::SetType().
+ *
+ * Note that once a OGRGeomFieldDefn has been added to a layer definition with
+ * OGRLayer::AddGeomFieldDefn(), its setter methods should not be called on the
+ * object returned with OGRLayer::GetLayerDefn()->GetGeomFieldDefn(). Instead,
+ * OGRLayer::AlterGeomFieldDefn() should be called on a new instance of
+ * OGRFieldDefn, for drivers that support AlterFieldDefn().
  *
  * @param hDefn handle to the geometry field definition to set type to.
  * @param eType the new field geometry type.
@@ -390,6 +428,10 @@ int OGR_GFld_IsIgnored(OGRGeomFieldDefnH hDefn)
  *
  * This method is the same as the C function OGR_GFld_SetIgnored().
  *
+ * This method should not be called on a object returned with
+ * OGRLayer::GetLayerDefn()->GetGeomFieldDefn(). Instead, the
+ * OGRLayer::SetIgnoredFields() method should be called.
+ *
  * @param ignore ignore state
  *
  * @since GDAL 1.11
@@ -403,6 +445,10 @@ int OGR_GFld_IsIgnored(OGRGeomFieldDefnH hDefn)
  * \brief Set whether this field should be omitted when fetching features
  *
  * This method is the same as the C++ method OGRGeomFieldDefn::SetIgnored().
+ *
+ * This method should not be called on a object returned with
+ * OGRLayer::GetLayerDefn()->GetGeomFieldDefn(). Instead, the
+ * OGRLayer::SetIgnoredFields() method should be called.
  *
  * @param hDefn handle to the geometry field definition
  * @param ignore ignore state
@@ -478,12 +524,25 @@ OGRSpatialReferenceH OGR_GFld_GetSpatialRef(OGRGeomFieldDefnH hDefn)
  * This method drops the reference of the previously set SRS object and
  * acquires a new reference on the passed object (if non-NULL).
  *
+ * Note that once a OGRGeomFieldDefn has been added to a layer definition with
+ * OGRLayer::AddGeomFieldDefn(), its setter methods should not be called on the
+ * object returned with OGRLayer::GetLayerDefn()->GetGeomFieldDefn(). Instead,
+ * OGRLayer::AlterGeomFieldDefn() should be called on a new instance of
+ * OGRFieldDefn, for drivers that support AlterFieldDefn().
+ *
  * @param poSRSIn the new SRS to apply.
  *
  * @since GDAL 1.11
  */
 void OGRGeomFieldDefn::SetSpatialRef(const OGRSpatialReference *poSRSIn)
 {
+    if (m_bSealed)
+    {
+        CPLError(
+            CE_Failure, CPLE_AppDefined,
+            "OGRGeomFieldDefn::SetSpatialRef() not allowed on a sealed object");
+        return;
+    }
     if (poSRS != nullptr)
         const_cast<OGRSpatialReference *>(poSRS)->Release();
     poSRS = poSRSIn;
@@ -503,6 +562,12 @@ void OGRGeomFieldDefn::SetSpatialRef(const OGRSpatialReference *poSRSIn)
  *
  * This function drops the reference of the previously set SRS object and
  * acquires a new reference on the passed object (if non-NULL).
+ *
+ * Note that once a OGRGeomFieldDefn has been added to a layer definition with
+ * OGRLayer::AddGeomFieldDefn(), its setter methods should not be called on the
+ * object returned with OGRLayer::GetLayerDefn()->GetGeomFieldDefn(). Instead,
+ * OGRLayer::AlterGeomFieldDefn() should be called on a new instance of
+ * OGRFieldDefn, for drivers that support AlterFieldDefn().
  *
  * @param hDefn handle to the geometry field definition
  * @param hSRS the new SRS to apply.
@@ -535,7 +600,13 @@ int OGRGeomFieldDefn::IsSame(const OGRGeomFieldDefn *poOtherFieldDefn) const
 {
     if (!(strcmp(GetNameRef(), poOtherFieldDefn->GetNameRef()) == 0 &&
           GetType() == poOtherFieldDefn->GetType() &&
-          IsNullable() == poOtherFieldDefn->IsNullable()))
+          IsNullable() == poOtherFieldDefn->IsNullable() &&
+          m_oCoordPrecision.dfXYResolution ==
+              poOtherFieldDefn->m_oCoordPrecision.dfXYResolution &&
+          m_oCoordPrecision.dfZResolution ==
+              poOtherFieldDefn->m_oCoordPrecision.dfZResolution &&
+          m_oCoordPrecision.dfMResolution ==
+              poOtherFieldDefn->m_oCoordPrecision.dfMResolution))
         return FALSE;
     const OGRSpatialReference *poMySRS = GetSpatialRef();
     const OGRSpatialReference *poOtherSRS = poOtherFieldDefn->GetSpatialRef();
@@ -586,6 +657,12 @@ int OGRGeomFieldDefn::IsSame(const OGRGeomFieldDefn *poOtherFieldDefn) const
  *
  * This method is the same as the C++ method OGRGeomFieldDefn::IsNullable().
  *
+ * Note that once a OGRGeomFieldDefn has been added to a layer definition with
+ * OGRLayer::AddGeomFieldDefn(), its setter methods should not be called on the
+ * object returned with OGRLayer::GetLayerDefn()->GetGeomFieldDefn(). Instead,
+ * OGRLayer::AlterGeomFieldDefn() should be called on a new instance of
+ * OGRFieldDefn, for drivers that support AlterFieldDefn().
+ *
  * @param hDefn handle to the field definition
  * @return TRUE if the field is authorized to be null.
  * @since GDAL 2.0
@@ -613,9 +690,26 @@ int OGR_GFld_IsNullable(OGRGeomFieldDefnH hDefn)
  *
  * This method is the same as the C function OGR_GFld_SetNullable().
  *
+ * Note that once a OGRGeomFieldDefn has been added to a layer definition with
+ * OGRLayer::AddGeomFieldDefn(), its setter methods should not be called on the
+ * object returned with OGRLayer::GetLayerDefn()->GetGeomFieldDefn(). Instead,
+ * OGRLayer::AlterGeomFieldDefn() should be called on a new instance of
+ * OGRFieldDefn, for drivers that support AlterFieldDefn().
+ *
  * @param bNullableIn FALSE if the field must have a not-null constraint.
  * @since GDAL 2.0
  */
+void OGRGeomFieldDefn::SetNullable(int bNullableIn)
+{
+    if (m_bSealed)
+    {
+        CPLError(
+            CE_Failure, CPLE_AppDefined,
+            "OGRGeomFieldDefn::SetNullable() not allowed on a sealed object");
+        return;
+    }
+    bNullable = bNullableIn;
+}
 
 /************************************************************************/
 /*                        OGR_GFld_SetNullable()                        */
@@ -640,4 +734,151 @@ int OGR_GFld_IsNullable(OGRGeomFieldDefnH hDefn)
 void OGR_GFld_SetNullable(OGRGeomFieldDefnH hDefn, int bNullableIn)
 {
     OGRGeomFieldDefn::FromHandle(hDefn)->SetNullable(bNullableIn);
+}
+
+/************************************************************************/
+/*                        GetCoordinatePrecision()                      */
+/************************************************************************/
+
+/**
+ * \fn int OGRGeomFieldDefn::GetCoordinatePrecision() const
+ *
+ * \brief Return the coordinate precision associated to this geometry field.
+ *
+ * This method is the same as the C function OGR_GFld_GetCoordinatePrecision().
+ *
+ * @return the coordinate precision
+ * @since GDAL 3.9
+ */
+
+/************************************************************************/
+/*                     OGR_GFld_GetCoordinatePrecision()                */
+/************************************************************************/
+
+/**
+ * \brief Return the coordinate precision associated to this geometry field.
+ *
+ * This method is the same as the C++ method OGRGeomFieldDefn::GetCoordinatePrecision()
+ *
+ * @param hDefn handle to the field definition
+ * @return the coordinate precision
+ * @since GDAL 3.9
+ */
+
+OGRGeomCoordinatePrecisionH
+OGR_GFld_GetCoordinatePrecision(OGRGeomFieldDefnH hDefn)
+{
+    return const_cast<OGRGeomCoordinatePrecision *>(
+        &(OGRGeomFieldDefn::FromHandle(hDefn)->GetCoordinatePrecision()));
+}
+
+/************************************************************************/
+/*                        SetCoordinatePrecision()                      */
+/************************************************************************/
+
+/**
+ * \brief Set coordinate precision associated to this geometry field.
+ *
+ * This method is the same as the C function OGR_GFld_SetCoordinatePrecision().
+ *
+ * Note that once a OGRGeomFieldDefn has been added to a layer definition with
+ * OGRLayer::AddGeomFieldDefn(), its setter methods should not be called on the
+ * object returned with OGRLayer::GetLayerDefn()->GetGeomFieldDefn().
+ *
+ * @param prec Coordinate precision
+ * @since GDAL 3.9
+ */
+void OGRGeomFieldDefn::SetCoordinatePrecision(
+    const OGRGeomCoordinatePrecision &prec)
+{
+    if (m_bSealed)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "OGRGeomFieldDefn::SetCoordinatePrecision() not allowed on a "
+                 "sealed object");
+        return;
+    }
+    m_oCoordPrecision = prec;
+}
+
+/************************************************************************/
+/*                     OGR_GFld_SetCoordinatePrecision()                */
+/************************************************************************/
+
+/**
+ * \brief Set coordinate precision associated to this geometry field.
+ *
+ * This method is the same as the C++ method OGRGeomFieldDefn::SetCoordinatePrecision()
+ *
+ * Note that once a OGRGeomFieldDefn has been added to a layer definition with
+ * OGRLayer::AddGeomFieldDefn(), its setter methods should not be called on the
+ * object returned with OGRLayer::GetLayerDefn()->GetGeomFieldDefn().
+ *
+ * @param hDefn handle to the field definition.  Must not be NULL.
+ * @param hGeomCoordPrec Coordinate precision. Must not be NULL.
+ * @since GDAL 3.9
+ */
+void OGR_GFld_SetCoordinatePrecision(OGRGeomFieldDefnH hDefn,
+                                     OGRGeomCoordinatePrecisionH hGeomCoordPrec)
+{
+    VALIDATE_POINTER0(hGeomCoordPrec, "OGR_GFld_SetCoordinatePrecision");
+    OGRGeomFieldDefn::FromHandle(hDefn)->SetCoordinatePrecision(
+        *hGeomCoordPrec);
+}
+
+/************************************************************************/
+/*                       OGRGeomFieldDefn::Seal()                       */
+/************************************************************************/
+
+/** Seal a OGRGeomFieldDefn.
+ *
+ * A sealed OGRGeomFieldDefn can not be modified while it is sealed.
+ *
+ * This method should only be called by driver implementations.
+ *
+ * @since GDAL 3.9
+ */
+void OGRGeomFieldDefn::Seal()
+{
+    m_bSealed = true;
+}
+
+/************************************************************************/
+/*                       OGRGeomFieldDefn::Unseal()                     */
+/************************************************************************/
+
+/** Unseal a OGRGeomFieldDefn.
+ *
+ * Undo OGRGeomFieldDefn::Seal()
+ *
+ * Using GetTemporaryUnsealer() is recommended for most use cases.
+ *
+ * This method should only be called by driver implementations.
+ *
+ * @since GDAL 3.9
+ */
+void OGRGeomFieldDefn::Unseal()
+{
+    m_bSealed = false;
+}
+
+/************************************************************************/
+/*                  OGRGeomFieldDefn::GetTemporaryUnsealer()            */
+/************************************************************************/
+
+/** Return an object that temporary unseals the OGRGeomFieldDefn
+ *
+ * The returned object calls Unseal() initially, and when it is destroyed
+ * it calls Seal().
+ *
+ * This method should only be called by driver implementations.
+ *
+ * It is also possible to use the helper method whileUnsealing(). Example:
+ * whileUnsealing(poGeomFieldDefn)->some_method()
+ *
+ * @since GDAL 3.9
+ */
+OGRGeomFieldDefn::TemporaryUnsealer OGRGeomFieldDefn::GetTemporaryUnsealer()
+{
+    return TemporaryUnsealer(this);
 }

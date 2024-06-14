@@ -13,7 +13,8 @@
 				"../gdal/frmts/pds/isis3dataset.cpp",
 				"../gdal/frmts/pds/pds4vector.cpp",
 				"../gdal/frmts/pds/pds4dataset.cpp",
-				"../gdal/frmts/pds/pdsdataset.cpp"
+				"../gdal/frmts/pds/pdsdataset.cpp",
+        "../gdal/frmts/pds/pdsdrivercore.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/pds",

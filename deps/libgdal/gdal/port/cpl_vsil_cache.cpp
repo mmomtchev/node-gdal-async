@@ -64,6 +64,7 @@ class VSICachedFile final : public VSIVirtualHandle
   public:
     VSICachedFile(VSIVirtualHandle *poBaseHandle, size_t nChunkSize,
                   size_t nCacheSize);
+
     ~VSICachedFile() override
     {
         VSICachedFile::Close();
@@ -100,6 +101,7 @@ class VSICachedFile final : public VSIVirtualHandle
     int Eof() override;
     int Flush() override;
     int Close() override;
+
     void *GetNativeFileDescriptor() override
     {
         return m_poBase->GetNativeFileDescriptor();
@@ -109,6 +111,7 @@ class VSICachedFile final : public VSIVirtualHandle
     {
         return m_poBase->HasPRead();
     }
+
     size_t PRead(void *pBuffer, size_t nSize,
                  vsi_l_offset nOffset) const override
     {
@@ -357,8 +360,15 @@ size_t VSICachedFile::Read(void *pBuffer, size_t nSize, size_t nCount)
     /*      Make sure the cache is loaded for the whole request region.     */
     /* ==================================================================== */
     const vsi_l_offset nStartBlock = m_nOffset / m_nChunkSize;
-    const vsi_l_offset nEndBlock =
-        (m_nOffset + nRequestedBytes - 1) / m_nChunkSize;
+    // Calculate last block
+    const vsi_l_offset nLastBlock = m_nFileSize / m_nChunkSize;
+    vsi_l_offset nEndBlock = (m_nOffset + nRequestedBytes - 1) / m_nChunkSize;
+
+    // if nLastBlock is not 0 consider the min value to avoid out-of-range reads
+    if (nLastBlock != 0 && nEndBlock > nLastBlock)
+    {
+        nEndBlock = nLastBlock;
+    }
 
     for (vsi_l_offset iBlock = nStartBlock; iBlock <= nEndBlock; iBlock++)
     {

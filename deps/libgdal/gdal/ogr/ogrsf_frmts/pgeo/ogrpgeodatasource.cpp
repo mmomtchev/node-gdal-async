@@ -297,7 +297,7 @@ int OGRPGeoDataSource::Open(GDALOpenInfo *poOpenInfo)
                 {
                     if (auto poDomain = ParseXMLFieldDomainDef(osDefinition))
                     {
-                        const auto domainName = poDomain->GetName();
+                        const std::string domainName(poDomain->GetName());
                         m_oMapFieldDomains[domainName] = std::move(poDomain);
                     }
                 }
@@ -307,7 +307,8 @@ int OGRPGeoDataSource::Open(GDALOpenInfo *poOpenInfo)
                     if (auto poRelationship =
                             ParseXMLRelationshipDef(osDefinition))
                     {
-                        const auto relationshipName = poRelationship->GetName();
+                        const std::string relationshipName(
+                            poRelationship->GetName());
                         m_osMapRelationships[relationshipName] =
                             std::move(poRelationship);
                     }
@@ -440,11 +441,14 @@ class OGRPGeoSingleFeatureLayer final : public OGRLayer
     {
         iNextShapeId = 0;
     }
+
     virtual OGRFeature *GetNextFeature() override;
+
     virtual OGRFeatureDefn *GetLayerDefn() override
     {
         return poFeatureDefn;
     }
+
     virtual int TestCapability(const char *) override
     {
         return FALSE;
@@ -654,8 +658,7 @@ bool OGRPGeoDataSource::CountStarWorking() const
         }
 #endif
 
-        CPLErrorHandlerPusher oErrorHandler(CPLErrorHandlerPusher);
-        CPLErrorStateBackuper oStateBackuper;
+        CPLErrorStateBackuper oStateBackuper(CPLErrorHandlerPusher);
 
         CPLODBCStatement oStmt(&oSession);
         oStmt.Append("SELECT COUNT(*) FROM GDB_GeomColumns");

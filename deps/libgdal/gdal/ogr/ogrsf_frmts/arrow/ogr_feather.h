@@ -156,6 +156,7 @@ class OGRFeatherWriterLayer final : public OGRArrowWriterLayer
     OGRFeatherWriterLayer(const OGRFeatherWriterLayer &) = delete;
     OGRFeatherWriterLayer &operator=(const OGRFeatherWriterLayer &) = delete;
 
+    GDALDataset *m_poDS = nullptr;
     bool m_bStreamFormat = false;
     std::shared_ptr<arrow::ipc::RecordBatchWriter> m_poFileWriter{};
     std::shared_ptr<arrow::KeyValueMetadata> m_poFooterKeyValueMetadata{};
@@ -164,8 +165,9 @@ class OGRFeatherWriterLayer final : public OGRArrowWriterLayer
     {
         return m_poFileWriter != nullptr;
     }
+
     virtual void CreateWriter() override;
-    virtual void CloseFileWriter() override;
+    virtual bool CloseFileWriter() override;
 
     virtual void CreateSchema() override;
     virtual void PerformStepsBeforeFinalFlushGroup() override;
@@ -179,6 +181,7 @@ class OGRFeatherWriterLayer final : public OGRArrowWriterLayer
 
     virtual bool
     IsSupportedGeometryType(OGRwkbGeometryType eGType) const override;
+
     virtual bool IsSRSRequired() const override
     {
         return true;
@@ -186,7 +189,7 @@ class OGRFeatherWriterLayer final : public OGRArrowWriterLayer
 
   public:
     OGRFeatherWriterLayer(
-        arrow::MemoryPool *poMemoryPool,
+        GDALDataset *poDS, arrow::MemoryPool *poMemoryPool,
         const std::shared_ptr<arrow::io::OutputStream> &poOutputStream,
         const char *pszLayerName);
 
@@ -199,6 +202,11 @@ class OGRFeatherWriterLayer final : public OGRArrowWriterLayer
     bool WriteArrowBatch(const struct ArrowSchema *schema,
                          struct ArrowArray *array,
                          CSLConstList papszOptions = nullptr) override;
+
+    GDALDataset *GetDataset() override
+    {
+        return m_poDS;
+    }
 };
 
 /************************************************************************/
@@ -234,9 +242,8 @@ class OGRFeatherWriterDataset final : public GDALPamDataset
 
   protected:
     OGRLayer *ICreateLayer(const char *pszName,
-                           const OGRSpatialReference *poSpatialRef = nullptr,
-                           OGRwkbGeometryType eGType = wkbUnknown,
-                           char **papszOptions = nullptr) override;
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
 };
 
 #endif  // OGR_FEATHER_H

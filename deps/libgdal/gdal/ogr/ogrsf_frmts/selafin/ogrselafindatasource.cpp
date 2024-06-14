@@ -572,8 +572,9 @@ int OGRSelafinDataSource::OpenTable(const char *pszFilename)
                     osLayerName = osBaseLayerName + "_p" + szTemp;
                 else
                     osLayerName = osBaseLayerName + "_e" + szTemp;
-                papoLayers[nLayers++] = new OGRSelafinLayer(
-                    osLayerName, bUpdate, poSpatialRef, poHeader, i, eType);
+                papoLayers[nLayers++] =
+                    new OGRSelafinLayer(this, osLayerName, bUpdate,
+                                        poSpatialRef, poHeader, i, eType);
                 // poHeader->nRefCount++;
             }
         }
@@ -587,10 +588,16 @@ int OGRSelafinDataSource::OpenTable(const char *pszFilename)
 /*                           ICreateLayer()                             */
 /************************************************************************/
 
-OGRLayer *OGRSelafinDataSource::ICreateLayer(
-    const char *pszLayerName, const OGRSpatialReference *poSpatialRefP,
-    OGRwkbGeometryType eGType, char **papszOptions)
+OGRLayer *
+OGRSelafinDataSource::ICreateLayer(const char *pszLayerName,
+                                   const OGRGeomFieldDefn *poGeomFieldDefn,
+                                   CSLConstList papszOptions)
+
 {
+    auto eGType = poGeomFieldDefn ? poGeomFieldDefn->GetType() : wkbNone;
+    const auto poSpatialRefP =
+        poGeomFieldDefn ? poGeomFieldDefn->GetSpatialRef() : nullptr;
+
     CPLDebug("Selafin", "CreateLayer(%s,%s)", pszLayerName,
              (eGType == wkbPoint) ? "wkbPoint" : "wkbPolygon");
     // Verify we are in update mode.
@@ -602,6 +609,7 @@ OGRLayer *OGRSelafinDataSource::ICreateLayer(
                  pszName, pszLayerName);
         return nullptr;
     }
+
     // Check that new layer is a point or polygon layer
     if (eGType != wkbPoint)
     {
@@ -676,12 +684,12 @@ OGRLayer *OGRSelafinDataSource::ICreateLayer(
     CPLString szName = pszLayerName;
     CPLString szNewLayerName = szName + "_p";
     papoLayers[nLayers - 2] =
-        new OGRSelafinLayer(szNewLayerName, bUpdate, poSpatialRef, poHeader,
-                            poHeader->nSteps - 1, POINTS);
+        new OGRSelafinLayer(this, szNewLayerName, bUpdate, poSpatialRef,
+                            poHeader, poHeader->nSteps - 1, POINTS);
     szNewLayerName = szName + "_e";
     papoLayers[nLayers - 1] =
-        new OGRSelafinLayer(szNewLayerName, bUpdate, poSpatialRef, poHeader,
-                            poHeader->nSteps - 1, ELEMENTS);
+        new OGRSelafinLayer(this, szNewLayerName, bUpdate, poSpatialRef,
+                            poHeader, poHeader->nSteps - 1, ELEMENTS);
     return papoLayers[nLayers - 2];
 }
 

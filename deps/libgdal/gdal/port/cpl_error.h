@@ -180,10 +180,13 @@ void CPL_DLL CPL_STDCALL CPLSetCurrentErrorHandlerCatchDebug(int bCatchDebug);
 void CPL_DLL CPL_STDCALL CPLPopErrorHandler(void);
 
 #ifdef WITHOUT_CPLDEBUG
-#define CPLDebug(...) /* Eat all CPLDebug calls. */
+#define CPLDebug(...)         /* Eat all CPLDebug calls. */
+#define CPLDebugProgress(...) /* Eat all CPLDebugProgress calls. */
 #else
 void CPL_DLL CPLDebug(const char *, CPL_FORMAT_STRING(const char *), ...)
     CPL_PRINT_FUNC_FORMAT(2, 3);
+void CPL_DLL CPLDebugProgress(const char *, CPL_FORMAT_STRING(const char *),
+                              ...) CPL_PRINT_FUNC_FORMAT(2, 3);
 #endif
 
 #ifdef DEBUG
@@ -234,69 +237,87 @@ CPL_C_END
 #define VALIDATE_POINTER_ERR CE_Failure
 #endif
 
-#if defined(__cplusplus) && !defined(CPL_SUPRESS_CPLUSPLUS) &&                 \
-    !defined(DOXYGEN_SKIP)
+/*! @endcond */
+
+#if defined(__cplusplus) && !defined(CPL_SUPRESS_CPLUSPLUS)
 
 extern "C++"
 {
+    /*! @cond Doxygen_Suppress */
     template <class T> T *CPLAssertNotNull(T *x) CPL_RETURNS_NONNULL;
+
     template <class T> T *CPLAssertNotNull(T *x)
     {
         CPLAssert(x);
         return x;
     }
 
+#include <memory>
 #include <string>
 
-    class CPLErrorHandlerPusher
+    /*! @endcond */
+
+    /** Class that installs a (thread-local) error handler on construction, and
+     * restore the initial one on destruction.
+     */
+    class CPL_DLL CPLErrorHandlerPusher
     {
       public:
+        /** Constructor that installs a thread-local temporary error handler
+         * (typically CPLQuietErrorHandler)
+         */
         explicit CPLErrorHandlerPusher(CPLErrorHandler hHandler)
         {
             CPLPushErrorHandler(hHandler);
         }
 
+        /** Constructor that installs a thread-local temporary error handler,
+         * and its user data.
+         */
         CPLErrorHandlerPusher(CPLErrorHandler hHandler, void *user_data)
         {
             CPLPushErrorHandlerEx(hHandler, user_data);
         }
 
+        /** Destructor that restores the initial error handler. */
         ~CPLErrorHandlerPusher()
         {
             CPLPopErrorHandler();
         }
     };
 
-    class CPLErrorStateBackuper
+    /** Class that saves the error state on construction, and
+     * restores it on destruction.
+     */
+    class CPL_DLL CPLErrorStateBackuper
     {
         CPLErrorNum m_nLastErrorNum;
         CPLErr m_nLastErrorType;
         std::string m_osLastErrorMsg;
+        GUInt32 m_nLastErrorCounter;
+        std::unique_ptr<CPLErrorHandlerPusher> m_poErrorHandlerPusher;
 
       public:
-        CPLErrorStateBackuper()
-            : m_nLastErrorNum(CPLGetLastErrorNo()),
-              m_nLastErrorType(CPLGetLastErrorType()),
-              m_osLastErrorMsg(CPLGetLastErrorMsg())
-        {
-        }
+        /** Constructor that backs up the error state, and optionally installs
+         * a thread-local temporary error handler (typically CPLQuietErrorHandler).
+         */
+        explicit CPLErrorStateBackuper(CPLErrorHandler hHandler = nullptr);
 
-        ~CPLErrorStateBackuper()
-        {
-            CPLErrorSetState(m_nLastErrorType, m_nLastErrorNum,
-                             m_osLastErrorMsg.c_str());
-        }
+        /** Destructor that restores the error state to its initial state
+         * before construction.
+         */
+        ~CPLErrorStateBackuper();
     };
 }
 
 #ifdef GDAL_COMPILATION
+/*! @cond Doxygen_Suppress */
 // internal only
 bool CPLIsDefaultErrorHandlerAndCatchDebug();
-#endif
-
-#endif
-
 /*! @endcond */
+#endif
+
+#endif
 
 /** Validate that a pointer is not NULL */
 #define VALIDATE_POINTER0(ptr, func)                                           \

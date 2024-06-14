@@ -39,46 +39,7 @@
 #include "gdal_pam.h"
 #include "ogrsf_frmts.h"
 
-#ifdef HAVE_GCC_SYSTEM_HEADER
-#pragma GCC system_header
-#endif
-
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable : 4996) /* XXXX was deprecated */
-#endif
-
-#include "tiledb/tiledb"
-#include "tiledb/tiledb_experimental"
-
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
-
-#if TILEDB_VERSION_MAJOR > 2 ||                                                \
-    (TILEDB_VERSION_MAJOR == 2 && TILEDB_VERSION_MINOR >= 9)
-#define HAS_TILEDB_GROUP
-#endif
-
-#if TILEDB_VERSION_MAJOR > 2 ||                                                \
-    (TILEDB_VERSION_MAJOR == 2 && TILEDB_VERSION_MINOR >= 10)
-#define HAS_TILEDB_BOOL
-#endif
-
-#if TILEDB_VERSION_MAJOR > 2 ||                                                \
-    (TILEDB_VERSION_MAJOR == 2 && TILEDB_VERSION_MINOR >= 11)
-#define HAS_TILEDB_WORKING_OR_FILTER
-#endif
-
-#if TILEDB_VERSION_MAJOR > 2 ||                                                \
-    (TILEDB_VERSION_MAJOR == 2 && TILEDB_VERSION_MINOR >= 14)
-#define HAS_TILEDB_WORKING_UTF8_STRING_FILTER
-#endif
-
-#if TILEDB_VERSION_MAJOR > 2 ||                                                \
-    (TILEDB_VERSION_MAJOR == 2 && TILEDB_VERSION_MINOR >= 15)
-#define HAS_TILEDB_DIMENSION_LABEL
-#endif
+#include "include_tiledb.h"
 
 #if TILEDB_VERSION_MAJOR > 2 ||                                                \
     (TILEDB_VERSION_MAJOR == 2 && TILEDB_VERSION_MINOR >= 17)
@@ -89,10 +50,12 @@ struct gdal_tiledb_vector_of_bool
     bool *m_v = nullptr;
 
     gdal_tiledb_vector_of_bool() = default;
+
     ~gdal_tiledb_vector_of_bool()
     {
         std::free(m_v);
     }
+
     gdal_tiledb_vector_of_bool(gdal_tiledb_vector_of_bool &&other)
         : m_size(other.m_size), m_capacity(other.m_capacity),
           m_v(std::move(other.m_v))
@@ -101,6 +64,7 @@ struct gdal_tiledb_vector_of_bool
         other.m_capacity = 0;
         other.m_v = nullptr;
     }
+
     gdal_tiledb_vector_of_bool(const gdal_tiledb_vector_of_bool &) = delete;
     gdal_tiledb_vector_of_bool &
     operator=(const gdal_tiledb_vector_of_bool &) = delete;
@@ -111,22 +75,27 @@ struct gdal_tiledb_vector_of_bool
     {
         return m_size;
     }
+
     const bool *data() const
     {
         return m_v;
     }
+
     bool *data()
     {
         return m_v;
     }
+
     bool &operator[](size_t idx)
     {
         return m_v[idx];
     }
+
     bool operator[](size_t idx) const
     {
         return m_v[idx];
     }
+
     void resize(size_t new_size)
     {
         if (new_size > m_capacity)
@@ -146,33 +115,28 @@ struct gdal_tiledb_vector_of_bool
             memset(m_v + m_size, 0, (new_size - m_size) * sizeof(bool));
         m_size = new_size;
     }
+
     void clear()
     {
         resize(0);
     }
+
     size_t capacity() const
     {
         return m_capacity;
     }
+
     void push_back(uint8_t v)
     {
         resize(size() + 1);
         m_v[size() - 1] = static_cast<bool>(v);
     }
 };
+
 #define VECTOR_OF_BOOL gdal_tiledb_vector_of_bool
 #define VECTOR_OF_BOOL_IS_NOT_UINT8_T
 #else
 #define VECTOR_OF_BOOL std::vector<uint8_t>
-#endif
-
-#ifdef HAS_TILEDB_DIMENSION_LABEL
-#define HAS_TILEDB_MULTIDIM
-#endif
-
-#if TILEDB_VERSION_MAJOR > 2 ||                                                \
-    (TILEDB_VERSION_MAJOR == 2 && TILEDB_VERSION_MINOR >= 21)
-#define HAS_TILEDB_GEOM_WKB_WKT
 #endif
 
 typedef enum
@@ -226,13 +190,12 @@ class TileDBDataset : public GDALPamDataset
                                    char **papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
-#ifdef HAS_TILEDB_MULTIDIM
+
     static GDALDataset *OpenMultiDimensional(GDALOpenInfo *);
     static GDALDataset *
     CreateMultiDimensional(const char *pszFilename,
                            CSLConstList papszRootGroupOptions,
                            CSLConstList papszOptions);
-#endif
 };
 
 /************************************************************************/
@@ -334,6 +297,7 @@ class OGRTileDBLayer final : public OGRLayer,
 
   private:
     friend OGRTileDBDataset;
+    GDALDataset *m_poDS = nullptr;
     std::string m_osGroupName{};
     std::string m_osFilename{};
     uint64_t m_nTimestamp = 0;
@@ -368,11 +332,7 @@ class OGRTileDBLayer final : public OGRLayer,
     uint64_t m_nRowCountInResultSet = 0;
     int m_nUseOptimizedAttributeFilter = -1;  // uninitialized
 
-#ifdef HAS_TILEDB_WORKING_UTF8_STRING_FILTER
     tiledb_datatype_t m_eTileDBStringType = TILEDB_STRING_UTF8;
-#else
-    tiledb_datatype_t m_eTileDBStringType = TILEDB_STRING_ASCII;
-#endif
 
     std::string m_osXDim = "_X";
     std::string m_osYDim = "_Y";
@@ -484,18 +444,19 @@ class OGRTileDBLayer final : public OGRLayer,
                           struct ArrowArray *out_array) override;
 
   public:
-    OGRTileDBLayer(const char *pszFilename, const char *pszLayerName,
-                   const OGRwkbGeometryType eGType,
+    OGRTileDBLayer(GDALDataset *poDS, const char *pszFilename,
+                   const char *pszLayerName, const OGRwkbGeometryType eGType,
                    const OGRSpatialReference *poSRS);
     ~OGRTileDBLayer();
     void ResetReading() override;
-    DEFINE_GET_NEXT_FEATURE_THROUGH_RAW(OGRTileDBLayer);
+    DEFINE_GET_NEXT_FEATURE_THROUGH_RAW(OGRTileDBLayer)
     OGRFeature *GetFeature(GIntBig nFID) override;
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
-    OGRErr CreateField(OGRFieldDefn *poField, int bApproxOK) override;
+    OGRErr CreateField(const OGRFieldDefn *poField, int bApproxOK) override;
     int TestCapability(const char *) override;
     GIntBig GetFeatureCount(int bForce) override;
     OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
+
     OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent, int bForce) override
     {
         return OGRLayer::GetExtent(iGeomField, psExtent, bForce);
@@ -505,6 +466,7 @@ class OGRTileDBLayer final : public OGRLayer,
     {
         return m_osFIDColumn.c_str();
     }
+
     OGRFeatureDefn *GetLayerDefn() override
     {
         return m_poFeatureDefn;
@@ -514,6 +476,11 @@ class OGRTileDBLayer final : public OGRLayer,
 
     const char *GetMetadataItem(const char *pszName,
                                 const char *pszDomain) override;
+
+    GDALDataset *GetDataset() override
+    {
+        return m_poDS;
+    }
 };
 
 /************************************************************************/
@@ -532,20 +499,24 @@ class OGRTileDBDataset final : public TileDBDataset
     OGRLayer *ExecuteSQL(const char *pszSQLCommand,
                          OGRGeometry *poSpatialFilter,
                          const char *pszDialect) override;
+
     int GetLayerCount() override
     {
         return static_cast<int>(m_apoLayers.size());
     }
+
     OGRLayer *GetLayer(int nIdx) override
     {
         return nIdx >= 0 && nIdx < GetLayerCount() ? m_apoLayers[nIdx].get()
                                                    : nullptr;
     }
+
     int TestCapability(const char *) override;
+
     OGRLayer *ICreateLayer(const char *pszName,
-                           const OGRSpatialReference *poSpatialRef = nullptr,
-                           OGRwkbGeometryType eGType = wkbUnknown,
-                           char **papszOptions = nullptr) override;
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
+
     static GDALDataset *Open(GDALOpenInfo *, tiledb::Object::Type objectType);
     static GDALDataset *Create(const char *pszFilename,
                                CSLConstList papszOptions);

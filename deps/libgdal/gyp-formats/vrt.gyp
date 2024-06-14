@@ -18,7 +18,10 @@
 				"../gdal/frmts/vrt/vrtdriver.cpp",
 				"../gdal/frmts/vrt/vrtsourcedrasterband.cpp",
 				"../gdal/frmts/vrt/vrtmultidim.cpp",
-				"../gdal/frmts/vrt/vrtpansharpened.cpp"
+				"../gdal/frmts/vrt/vrtpansharpened.cpp",
+				"../gdal/frmts/vrt/vrtprocesseddataset.cpp",
+				"../gdal/frmts/vrt/vrtprocesseddatasetfunctions.cpp",
+        "../gdal/frmts/vrt/gdaltileindexdataset.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/vrt",

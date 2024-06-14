@@ -42,6 +42,29 @@ OGRParquetWriterDataset::OGRParquetWriterDataset(
 }
 
 /************************************************************************/
+/*                                Close()                               */
+/************************************************************************/
+
+CPLErr OGRParquetWriterDataset::Close()
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
+    {
+        if (m_poLayer && !m_poLayer->Close())
+        {
+            eErr = CE_Failure;
+        }
+
+        if (GDALPamDataset::Close() != CE_None)
+        {
+            eErr = CE_Failure;
+        }
+    }
+
+    return eErr;
+}
+
+/************************************************************************/
 /*                           GetLayerCount()                            */
 /************************************************************************/
 
@@ -76,9 +99,10 @@ int OGRParquetWriterDataset::TestCapability(const char *pszCap)
 /*                          ICreateLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGRParquetWriterDataset::ICreateLayer(
-    const char *pszName, const OGRSpatialReference *poSpatialRef,
-    OGRwkbGeometryType eGType, char **papszOptions)
+OGRLayer *
+OGRParquetWriterDataset::ICreateLayer(const char *pszName,
+                                      const OGRGeomFieldDefn *poGeomFieldDefn,
+                                      CSLConstList papszOptions)
 {
     if (m_poLayer)
     {
@@ -86,8 +110,13 @@ OGRLayer *OGRParquetWriterDataset::ICreateLayer(
                  "Can write only one layer in a Parquet file");
         return nullptr;
     }
-    m_poLayer = cpl::make_unique<OGRParquetWriterLayer>(
-        m_poMemoryPool.get(), m_poOutputStream, pszName);
+
+    const auto eGType = poGeomFieldDefn ? poGeomFieldDefn->GetType() : wkbNone;
+    const auto poSpatialRef =
+        poGeomFieldDefn ? poGeomFieldDefn->GetSpatialRef() : nullptr;
+
+    m_poLayer = std::make_unique<OGRParquetWriterLayer>(
+        this, m_poMemoryPool.get(), m_poOutputStream, pszName);
     if (!m_poLayer->SetOptions(papszOptions, poSpatialRef, eGType))
     {
         m_poLayer.reset();

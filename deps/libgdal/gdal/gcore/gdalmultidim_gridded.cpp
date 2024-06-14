@@ -52,7 +52,7 @@ class GDALMDArrayGridded final : public GDALPamMDArray
     std::shared_ptr<GDALMDArray> m_poVarY{};
     std::unique_ptr<GDALDataset> m_poVectorDS{};
     GDALGridAlgorithm m_eAlg;
-    std::unique_ptr<void, CPLFreeReleaser> m_poGridOptions;
+    std::unique_ptr<void, VSIFreeReleaser> m_poGridOptions;
     const GDALExtendedDataType m_dt;
     std::vector<GUInt64> m_anBlockSize{};
     const double m_dfNoDataValue;
@@ -71,7 +71,7 @@ class GDALMDArrayGridded final : public GDALPamMDArray
         const std::shared_ptr<GDALMDArray> &poVarX,
         const std::shared_ptr<GDALMDArray> &poVarY,
         std::unique_ptr<GDALDataset> &&poVectorDS, GDALGridAlgorithm eAlg,
-        std::unique_ptr<void, CPLFreeReleaser> &&poGridOptions,
+        std::unique_ptr<void, VSIFreeReleaser> &&poGridOptions,
         double dfNoDataValue, double dfMinX, double dfResX, double dfMinY,
         double dfResY, double dfRadius)
         : GDALAbstractMDArray(std::string(),
@@ -106,7 +106,7 @@ class GDALMDArrayGridded final : public GDALPamMDArray
            const std::shared_ptr<GDALMDArray> &poVarX,
            const std::shared_ptr<GDALMDArray> &poVarY,
            std::unique_ptr<GDALDataset> &&poVectorDS, GDALGridAlgorithm eAlg,
-           std::unique_ptr<void, CPLFreeReleaser> &&poGridOptions,
+           std::unique_ptr<void, VSIFreeReleaser> &&poGridOptions,
            double dfNoDataValue, double dfMinX, double dfResX, double dfMinY,
            double dfResY, double dfRadius)
     {
@@ -263,7 +263,7 @@ bool GDALMDArrayGridded::IRead(const GUInt64 *arrayStartIdx,
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnull-dereference"
 #endif
-        m_anLastStartIdx = anStartIdx;
+        m_anLastStartIdx = std::move(anStartIdx);
 #if defined(__GNUC__) && __GNUC__ >= 13
 #pragma GCC diagnostic pop
 #endif
@@ -442,7 +442,7 @@ GDALMDArray::GetGridded(const std::string &osGridOptions,
         return nullptr;
     }
 
-    std::unique_ptr<void, CPLFreeReleaser> poGridOptions(pOptions);
+    std::unique_ptr<void, VSIFreeReleaser> poGridOptions(pOptions);
 
     if (GetDataType().GetClass() != GEDTC_NUMERIC)
     {
@@ -793,7 +793,7 @@ GDALMDArray::GetGridded(const std::string &osGridOptions,
     // CPLDebug("GDAL", "nXSize = %d, nYSize = %d", nXSize, nYSize);
 
     std::vector<std::shared_ptr<GDALDimension>> apoNewDims;
-    const auto apoSelfDims = GetDimensions();
+    const auto &apoSelfDims = GetDimensions();
     for (size_t i = 0; i < GetDimensionCount() - 1; ++i)
         apoNewDims.emplace_back(apoSelfDims[i]);
 

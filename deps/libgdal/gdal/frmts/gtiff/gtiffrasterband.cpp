@@ -271,7 +271,6 @@ CPLErr GTiffRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
             return static_cast<CPLErr>(nErr);
     }
 
-#ifdef SUPPORTS_GET_OFFSET_BYTECOUNT
     bool bCanUseMultiThreadedRead = false;
     if (m_poGDS->m_nDisableMultiThreadedRead == 0 && eRWFlag == GF_Read &&
         m_poGDS->m_poThreadPool != nullptr && nXSize == nBufXSize &&
@@ -288,7 +287,6 @@ CPLErr GTiffRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
             bCanUseMultiThreadedRead = true;
         }
     }
-#endif
 
     // Cleanup data cached by below CacheMultiRange() call.
     struct BufferedDataFreer
@@ -319,7 +317,6 @@ CPLErr GTiffRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
     if (m_poGDS->eAccess == GA_ReadOnly && eRWFlag == GF_Read &&
         m_poGDS->HasOptimizedReadMultiRange())
     {
-#ifdef SUPPORTS_GET_OFFSET_BYTECOUNT
         if (bCanUseMultiThreadedRead &&
             VSI_TIFFGetVSILFile(TIFFClientdata(m_poGDS->m_hTIFF))->HasPRead())
         {
@@ -329,10 +326,7 @@ CPLErr GTiffRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
         else
         {
             bCanUseMultiThreadedRead = false;
-#endif
             GTiffRasterBand *poBandForCache = this;
-
-#ifdef SUPPORTS_GET_OFFSET_BYTECOUNT
             if (!m_poGDS->m_bStreamingIn && m_poGDS->m_bBlockOrderRowMajor &&
                 m_poGDS->m_bLeaderSizeAsUInt4 &&
                 m_poGDS->m_bMaskInterleavedWithImagery &&
@@ -341,14 +335,11 @@ CPLErr GTiffRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
                 poBandForCache = cpl::down_cast<GTiffRasterBand *>(
                     m_poGDS->m_poImageryDS->GetRasterBand(1));
             }
-#endif
             bufferedDataFreer.Init(poBandForCache->CacheMultiRange(
                                        nXOff, nYOff, nXSize, nYSize, nBufXSize,
                                        nBufYSize, psExtraArg),
                                    poBandForCache->m_poGDS->m_hTIFF);
-#ifdef SUPPORTS_GET_OFFSET_BYTECOUNT
         }
-#endif
     }
 
     if (eRWFlag == GF_Read && nXSize == nBufXSize && nYSize == nBufYSize)
@@ -360,17 +351,14 @@ CPLErr GTiffRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
         const int nXBlocks = nBlockX2 - nBlockX1 + 1;
         const int nYBlocks = nBlockY2 - nBlockY1 + 1;
 
-#ifdef SUPPORTS_GET_OFFSET_BYTECOUNT
         if (bCanUseMultiThreadedRead)
         {
             return m_poGDS->MultiThreadedRead(nXOff, nYOff, nXSize, nYSize,
                                               pData, eBufType, 1, &nBand,
                                               nPixelSpace, nLineSpace, 0);
         }
-        else
-#endif
-            if (m_poGDS->nBands != 1 &&
-                m_poGDS->m_nPlanarConfig == PLANARCONFIG_CONTIG)
+        else if (m_poGDS->nBands != 1 &&
+                 m_poGDS->m_nPlanarConfig == PLANARCONFIG_CONTIG)
         {
             const GIntBig nRequiredMem =
                 static_cast<GIntBig>(m_poGDS->nBands) * nXBlocks * nYBlocks *

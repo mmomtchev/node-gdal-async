@@ -155,6 +155,7 @@ class OGRIDBSelectLayer final : public OGRIDBLayer
     virtual OGRFeature *GetFeature(GIntBig nFeatureId) override;
 
     virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
+
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce) override
     {
@@ -190,10 +191,12 @@ class OGRIDBDataSource final : public OGRDataSource
     {
         return pszName;
     }
+
     int GetLayerCount() override
     {
         return nLayers;
     }
+
     OGRLayer *GetLayer(int) override;
 
     int TestCapability(const char *) override;
@@ -208,23 +211,6 @@ class OGRIDBDataSource final : public OGRDataSource
     {
         return poConn;
     }
-};
-
-/************************************************************************/
-/*                             OGRIDBDriver                            */
-/************************************************************************/
-
-class OGRIDBDriver final : public OGRSFDriver
-{
-  public:
-    ~OGRIDBDriver();
-    const char *GetName() override;
-    OGRDataSource *Open(const char *, int) override;
-
-    OGRDataSource *CreateDataSource(const char *pszName,
-                                    char ** = NULL) override;
-
-    int TestCapability(const char *) override;
 };
 
 ITCallbackResult IDBErrorHandler(const ITErrorManager &err, void *userdata,

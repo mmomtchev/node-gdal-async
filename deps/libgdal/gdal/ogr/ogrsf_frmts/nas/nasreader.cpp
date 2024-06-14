@@ -151,6 +151,8 @@ bool NASReader::SetupParser()
         m_poSAXReader->setLexicalHandler(m_poNASHandler);
         m_poSAXReader->setEntityResolver(m_poNASHandler);
         m_poSAXReader->setDTDHandler(m_poNASHandler);
+        m_poSAXReader->setFeature(
+            XMLUni::fgXercesDisableDefaultEntityResolution, true);
 
         xmlUriValid =
             XMLString::transcode("http://xml.org/sax/features/validation");
@@ -915,7 +917,7 @@ bool NASReader::PrescanForSchema(bool bGetExtents, bool /*bOnlyDetectSRS*/)
                     eGType = wkbNone;
 
                 poClass->GetGeometryProperty(0)->SetType(
-                    (int)OGRMergeGeometryTypesEx(
+                    OGRMergeGeometryTypesEx(
                         eGType, poGeometry->getGeometryType(), TRUE));
 
                 // merge extents.

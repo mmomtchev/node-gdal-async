@@ -97,8 +97,7 @@ class GDALDatasetPamInfo
     int bHaveGeoTransform = false;
     double adfGeoTransform[6]{0, 0, 0, 0, 0, 0};
 
-    int nGCPCount = 0;
-    GDAL_GCP *pasGCPList = nullptr;
+    std::vector<gdal::GCP> asGCPs{};
     OGRSpatialReference *poGCP_SRS = nullptr;
 
     CPLString osPhysicalFilename{};
@@ -108,6 +107,7 @@ class GDALDatasetPamInfo
 
     int bHasMetadata = false;
 };
+
 //! @endcond
 
 /* ******************************************************************** */
@@ -129,7 +129,7 @@ class CPL_DLL GDALPamDataset : public GDALDataset
     GDALDatasetPamInfo *psPam = nullptr;
 
     virtual CPLXMLNode *SerializeToXML(const char *);
-    virtual CPLErr XMLInit(CPLXMLNode *, const char *);
+    virtual CPLErr XMLInit(const CPLXMLNode *, const char *);
 
     virtual CPLErr TryLoadXML(char **papszSiblingFiles = nullptr);
     virtual CPLErr TrySaveXML();
@@ -191,18 +191,22 @@ class CPL_DLL GDALPamDataset : public GDALDataset
 
     // "semi private" methods.
     void MarkPamDirty();
+
     GDALDatasetPamInfo *GetPamInfo()
     {
         return psPam;
     }
+
     int GetPamFlags()
     {
         return nPamFlags;
     }
+
     void SetPamFlags(int nValue)
     {
         nPamFlags = nValue;
     }
+
     //! @endcond
 
   private:
@@ -265,6 +269,7 @@ struct GDALRasterBandPamInfo
     bool bOffsetSet = false;
     bool bScaleSet = false;
 };
+
 //! @endcond
 /* ******************************************************************** */
 /*                          GDALPamRasterBand                           */
@@ -278,7 +283,7 @@ class CPL_DLL GDALPamRasterBand : public GDALRasterBand
   protected:
     //! @cond Doxygen_Suppress
     virtual CPLXMLNode *SerializeToXML(const char *pszVRTPath);
-    virtual CPLErr XMLInit(CPLXMLNode *, const char *);
+    virtual CPLErr XMLInit(const CPLXMLNode *, const char *);
 
     void PamInitialize();
     void PamClear();
@@ -351,6 +356,7 @@ class CPL_DLL GDALPamRasterBand : public GDALRasterBand
     {
         return psPam;
     }
+
     //! @endcond
   private:
     CPL_DISALLOW_COPY_ASSIGN(GDALPamRasterBand)

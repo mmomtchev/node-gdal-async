@@ -57,7 +57,7 @@ const char *GNMGenericLayer::GetGeometryColumn()
     return m_poLayer->GetGeometryColumn();
 }
 
-OGRErr GNMGenericLayer::SetIgnoredFields(const char **papszFields)
+OGRErr GNMGenericLayer::SetIgnoredFields(CSLConstList papszFields)
 {
     return m_poLayer->SetIgnoredFields(papszFields);
 }
@@ -173,6 +173,7 @@ OGRErr GNMGenericLayer::ICreateFeature(OGRFeature *poFeature)
         return OGRERR_FAILURE;
     return m_poLayer->CreateFeature(poFeature);
 }
+
 //! @endcond
 
 OGRGeometry *GNMGenericLayer::GetSpatialFilter()
@@ -294,7 +295,7 @@ int GNMGenericLayer::TestCapability(const char *pszCapability)
     return m_poLayer->TestCapability(pszCapability);
 }
 
-OGRErr GNMGenericLayer::CreateField(OGRFieldDefn *poField, int bApproxOK)
+OGRErr GNMGenericLayer::CreateField(const OGRFieldDefn *poField, int bApproxOK)
 {
     return m_poLayer->CreateField(poField, bApproxOK);
 }
@@ -323,7 +324,7 @@ OGRErr GNMGenericLayer::AlterFieldDefn(int iField, OGRFieldDefn *poNewFieldDefn,
     return m_poLayer->AlterFieldDefn(iField, poNewFieldDefn, nFlagsIn);
 }
 
-OGRErr GNMGenericLayer::CreateGeomField(OGRGeomFieldDefn *poField,
+OGRErr GNMGenericLayer::CreateGeomField(const OGRGeomFieldDefn *poField,
                                         int bApproxOK)
 {
     return m_poLayer->CreateGeomField(poField, bApproxOK);

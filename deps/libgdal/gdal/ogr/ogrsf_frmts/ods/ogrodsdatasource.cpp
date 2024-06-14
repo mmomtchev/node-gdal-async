@@ -212,6 +212,15 @@ int OGRODSLayer::TestCapability(const char *pszCap)
 }
 
 /************************************************************************/
+/*                             GetDataset()                             */
+/************************************************************************/
+
+GDALDataset *OGRODSLayer::GetDataset()
+{
+    return poDS;
+}
+
+/************************************************************************/
 /*                          OGRODSDataSource()                          */
 /************************************************************************/
 
@@ -1214,7 +1223,7 @@ void OGRODSDataSource::endElementRow(
                                  eValType == OFTInteger &&
                                  eValSubType != OFSTBoolean)
                         {
-                            poFieldDefn->SetSubType(OFSTNone);
+                            whileUnsealing(poFieldDefn)->SetSubType(OFSTNone);
                         }
                     }
                 }
@@ -1524,9 +1533,10 @@ void OGRODSDataSource::AnalyseSettings()
 /*                           ICreateLayer()                             */
 /************************************************************************/
 
-OGRLayer *OGRODSDataSource::ICreateLayer(
-    const char *pszLayerName, const OGRSpatialReference * /* poSRS */,
-    OGRwkbGeometryType /* eType */, char **papszOptions)
+OGRLayer *
+OGRODSDataSource::ICreateLayer(const char *pszLayerName,
+                               const OGRGeomFieldDefn * /*poGeomFieldDefn*/,
+                               CSLConstList papszOptions)
 {
     /* -------------------------------------------------------------------- */
     /*      Verify we are in update mode.                                   */
@@ -2329,8 +2339,7 @@ int ODSCellEvaluator::EvaluateRange(int nRow1, int nCol1, int nRow2, int nCol2,
 
 int ODSCellEvaluator::Evaluate(int nRow, int nCol)
 {
-    if (oVisisitedCells.find(std::pair<int, int>(nRow, nCol)) !=
-        oVisisitedCells.end())
+    if (oVisisitedCells.find(std::pair(nRow, nCol)) != oVisisitedCells.end())
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Circular dependency with (row=%d, col=%d)", nRow + 1,
@@ -2338,7 +2347,7 @@ int ODSCellEvaluator::Evaluate(int nRow, int nCol)
         return FALSE;
     }
 
-    oVisisitedCells.insert(std::pair<int, int>(nRow, nCol));
+    oVisisitedCells.insert(std::pair(nRow, nCol));
 
     if (poLayer->SetNextByIndex(nRow) != OGRERR_NONE)
     {

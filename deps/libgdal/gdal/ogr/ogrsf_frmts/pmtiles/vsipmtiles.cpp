@@ -198,7 +198,7 @@ VSIPMTilesOpen(const char *pszFilename, std::string &osSubfilename,
     aosOptions.SetNameValue("DECOMPRESS_TILES", "NO");
     aosOptions.SetNameValue("ACCEPT_ANY_TILE_TYPE", "YES");
     oOpenInfo.papszOpenOptions = aosOptions.List();
-    auto poDS = cpl::make_unique<OGRPMTilesDataset>();
+    auto poDS = std::make_unique<OGRPMTilesDataset>();
     {
         CPLErrorHandlerPusher oErrorHandler(CPLQuietErrorHandler);
         if (!poDS->Open(&oOpenInfo))
@@ -259,8 +259,7 @@ VSIPMTilesFilesystemHandler::Open(const char *pszFilename,
     if (nComponents != 3)
         return nullptr;
 
-    CPLErrorHandlerPusher oErrorHandler(CPLQuietErrorHandler);
-    CPLErrorStateBackuper oBackuper;
+    CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
 
     OGRPMTilesTileIterator oIter(poDS.get(), nZ, nX, nY, nX, nY);
     auto sTile = oIter.GetNextTile();
@@ -320,8 +319,7 @@ int VSIPMTilesFilesystemHandler::Stat(const char *pszFilename,
         return 0;
     }
 
-    CPLErrorHandlerPusher oErrorHandler(CPLQuietErrorHandler);
-    CPLErrorStateBackuper oBackuper;
+    CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
 
     OGRPMTilesTileIterator oIter(poDS.get(), nZ, nX, nY, nX, nY);
     auto sTile = oIter.GetNextTile();

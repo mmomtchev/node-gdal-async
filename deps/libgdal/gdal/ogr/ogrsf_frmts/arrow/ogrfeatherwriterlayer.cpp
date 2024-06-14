@@ -35,10 +35,11 @@
 /************************************************************************/
 
 OGRFeatherWriterLayer::OGRFeatherWriterLayer(
-    arrow::MemoryPool *poMemoryPool,
+    GDALDataset *poDS, arrow::MemoryPool *poMemoryPool,
     const std::shared_ptr<arrow::io::OutputStream> &poOutputStream,
     const char *pszLayerName)
-    : OGRArrowWriterLayer(poMemoryPool, poOutputStream, pszLayerName)
+    : OGRArrowWriterLayer(poMemoryPool, poOutputStream, pszLayerName),
+      m_poDS(poDS)
 {
     m_bWriteFieldArrowExtensionName = true;
 }
@@ -96,15 +97,18 @@ bool OGRFeatherWriterLayer::SetOptions(const std::string &osFilename,
 
     const char *pszGeomEncoding =
         CSLFetchNameValue(papszOptions, "GEOMETRY_ENCODING");
-    m_eGeomEncoding = OGRArrowGeomEncoding::GEOARROW_GENERIC;
+    m_eGeomEncoding = OGRArrowGeomEncoding::GEOARROW_STRUCT_GENERIC;
     if (pszGeomEncoding)
     {
         if (EQUAL(pszGeomEncoding, "WKB"))
             m_eGeomEncoding = OGRArrowGeomEncoding::WKB;
         else if (EQUAL(pszGeomEncoding, "WKT"))
             m_eGeomEncoding = OGRArrowGeomEncoding::WKT;
-        else if (EQUAL(pszGeomEncoding, "GEOARROW"))
-            m_eGeomEncoding = OGRArrowGeomEncoding::GEOARROW_GENERIC;
+        else if (EQUAL(pszGeomEncoding, "GEOARROW_INTERLEAVED"))
+            m_eGeomEncoding = OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC;
+        else if (EQUAL(pszGeomEncoding, "GEOARROW") ||
+                 EQUAL(pszGeomEncoding, "GEOARROW_STRUCT"))
+            m_eGeomEncoding = OGRArrowGeomEncoding::GEOARROW_STRUCT_GENERIC;
         else
         {
             CPLError(CE_Failure, CPLE_NotSupported,
@@ -128,10 +132,12 @@ bool OGRFeatherWriterLayer::SetOptions(const std::string &osFilename,
 
         m_poFeatureDefn->SetGeomType(eGType);
         auto eGeomEncoding = m_eGeomEncoding;
-        if (eGeomEncoding == OGRArrowGeomEncoding::GEOARROW_GENERIC)
+        if (eGeomEncoding == OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC ||
+            eGeomEncoding == OGRArrowGeomEncoding::GEOARROW_STRUCT_GENERIC)
         {
-            eGeomEncoding = GetPreciseArrowGeomEncoding(eGType);
-            if (eGeomEncoding == OGRArrowGeomEncoding::GEOARROW_GENERIC)
+            const auto eEncodingType = eGeomEncoding;
+            eGeomEncoding = GetPreciseArrowGeomEncoding(eEncodingType, eGType);
+            if (eGeomEncoding == eEncodingType)
                 return false;
         }
         m_aeGeomEncoding.push_back(eGeomEncoding);
@@ -201,7 +207,7 @@ bool OGRFeatherWriterLayer::SetOptions(const std::string &osFilename,
 /*                         CloseFileWriter()                            */
 /************************************************************************/
 
-void OGRFeatherWriterLayer::CloseFileWriter()
+bool OGRFeatherWriterLayer::CloseFileWriter()
 {
     auto status = m_poFileWriter->Close();
     if (!status.ok())
@@ -210,6 +216,7 @@ void OGRFeatherWriterLayer::CloseFileWriter()
                  "FileWriter::Close() failed with %s",
                  status.message().c_str());
     }
+    return status.ok();
 }
 
 /************************************************************************/
@@ -235,7 +242,7 @@ void OGRFeatherWriterLayer::CreateSchema()
             CPLJSONObject oColumn;
             oColumns.Add(poGeomFieldDefn->GetNameRef(), oColumn);
             oColumn.Add("encoding",
-                        GetGeomEncodingAsString(m_aeGeomEncoding[i], true));
+                        GetGeomEncodingAsString(m_aeGeomEncoding[i], false));
 
             const auto poSRS = poGeomFieldDefn->GetSpatialRef();
             if (poSRS)
@@ -457,7 +464,7 @@ bool OGRFeatherWriterLayer::FlushGroup()
         }
     }
 
-    m_apoBuilders.clear();
+    ClearArrayBuilers();
     return ret;
 }
 

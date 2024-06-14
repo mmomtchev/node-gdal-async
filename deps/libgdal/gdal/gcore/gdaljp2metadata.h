@@ -85,6 +85,7 @@ class CPL_DLL GDALJP2Box
     {
         return nBoxOffset;
     }
+
     GIntBig GetBoxLength() const
     {
         return nBoxLength;
@@ -94,6 +95,7 @@ class CPL_DLL GDALJP2Box
     {
         return nDataOffset;
     }
+
     GIntBig GetDataLength() const;
 
     const char *GetType()
@@ -124,10 +126,12 @@ class CPL_DLL GDALJP2Box
     void AppendUInt32(GUInt32 nVal);
     void AppendUInt16(GUInt16 nVal);
     void AppendUInt8(GByte nVal);
+
     const GByte *GetWritableData() const
     {
         return pabyData;
     }
+
     GByte *GetWritableBoxData() const;
 
     // factory methods.
@@ -235,6 +239,8 @@ class CPL_DLL GDALJP2Metadata
     static GDALJP2Box *CreateIPRBox(GDALDataset *poSrcDS);
     static int IsUUID_MSI(const GByte *abyUUID);
     static int IsUUID_XMP(const GByte *abyUUID);
+
+    static bool IsSRSCompatible(const OGRSpatialReference *poSRS);
 };
 
 CPLXMLNode *GDALGetJPEG2000Structure(const char *pszFilename, VSILFILE *fp,

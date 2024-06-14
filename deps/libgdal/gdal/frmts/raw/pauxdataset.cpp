@@ -75,14 +75,17 @@ class PAuxDataset final : public RawDataset
     {
         return m_oSRS.IsEmpty() ? nullptr : &m_oSRS;
     }
+
     CPLErr GetGeoTransform(double *) override;
     CPLErr SetGeoTransform(double *) override;
 
     int GetGCPCount() override;
+
     const OGRSpatialReference *GetGCPSpatialRef() const override
     {
         return m_oGCPSRS.IsEmpty() ? nullptr : &m_oGCPSRS;
     }
+
     const GDAL_GCP *GetGCPs() override;
 
     char **GetFileList() override;
@@ -679,7 +682,7 @@ GDALDataset *PAuxDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create a corresponding GDALDataset.                             */
     /* -------------------------------------------------------------------- */
-    auto poDS = cpl::make_unique<PAuxDataset>();
+    auto poDS = std::make_unique<PAuxDataset>();
 
     /* -------------------------------------------------------------------- */
     /*      Load the .aux file into a string list suitable to be            */
@@ -801,7 +804,7 @@ GDALDataset *PAuxDataset::Open(GDALOpenInfo *poOpenInfo)
             continue;
         }
 
-        auto poBand = cpl::make_unique<PAuxRasterBand>(
+        auto poBand = std::make_unique<PAuxRasterBand>(
             poDS.get(), poDS->nBands + 1, poDS->fpImage, nBandOffset,
             nPixelOffset, nLineOffset, eType, bNative);
         if (!poBand->IsValid())
@@ -962,7 +965,8 @@ GDALDataset *PAuxDataset::Create(const char *pszFilename, int nXSize,
         {
             nPixelOffset = GDALGetDataTypeSizeBytes(eType);
             nLineOffset = nXSize * nPixelSizeSum;
-            nNextImgOffset = nImgOffset + nPixelOffset * nXSize;
+            nNextImgOffset =
+                nImgOffset + static_cast<vsi_l_offset>(nPixelOffset) * nXSize;
         }
         else if (EQUAL(pszInterleave, "PIXEL"))
         {

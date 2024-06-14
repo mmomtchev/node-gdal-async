@@ -83,6 +83,8 @@ class OGRVRTGeomFieldProps
 
     OGREnvelope sStaticEnvelope;
 
+    OGRGeomCoordinatePrecision sCoordinatePrecision{};
+
     OGRVRTGeomFieldProps();
     ~OGRVRTGeomFieldProps();
 };
@@ -154,6 +156,7 @@ class OGRVRTLayer final : public OGRLayer
     {
         return osName.c_str();
     }
+
     virtual OGRwkbGeometryType GetGeomType() override;
 
     /* -------------------------------------------------------------------- */
@@ -198,7 +201,7 @@ class OGRVRTLayer final : public OGRLayer
     virtual OGRErr CommitTransaction() override;
     virtual OGRErr RollbackTransaction() override;
 
-    virtual OGRErr SetIgnoredFields(const char **papszFields) override;
+    virtual OGRErr SetIgnoredFields(CSLConstList papszFields) override;
 
     GDALDataset *GetSrcDataset();
 };
@@ -259,10 +262,12 @@ class OGRVRTDataSource final : public OGRDataSource
     {
         return pszName;
     }
+
     int GetLayerCount() override
     {
         return nLayers;
     }
+
     OGRLayer *GetLayer(int) override;
 
     int TestCapability(const char *) override;
@@ -274,6 +279,7 @@ class OGRVRTDataSource final : public OGRDataSource
     {
         nCallLevel = nCallLevelIn;
     }
+
     int GetCallLevel()
     {
         return nCallLevel;
@@ -283,6 +289,7 @@ class OGRVRTDataSource final : public OGRDataSource
     {
         poParentDS = poParentDSIn;
     }
+
     OGRVRTDataSource *GetParentDS()
     {
         return poParentDS;
@@ -292,6 +299,7 @@ class OGRVRTDataSource final : public OGRDataSource
     {
         bRecursionDetected = true;
     }
+
     bool GetRecursionDetected() const
     {
         return bRecursionDetected;
@@ -303,6 +311,6 @@ class OGRVRTDataSource final : public OGRDataSource
 };
 
 OGRwkbGeometryType OGRVRTGetGeometryType(const char *pszGType, int *pbError);
-CPLString OGRVRTGetSerializedGeometryType(OGRwkbGeometryType eGeomType);
+CPLString CPL_DLL OGRVRTGetSerializedGeometryType(OGRwkbGeometryType eGeomType);
 
 #endif  // ndef OGR_VRT_H_INCLUDED

@@ -303,6 +303,8 @@ bool GMLReader::SetupParserXerces()
         m_poSAXReader->setLexicalHandler(poXercesHandler);
         m_poSAXReader->setEntityResolver(poXercesHandler);
         m_poSAXReader->setDTDHandler(poXercesHandler);
+        m_poSAXReader->setFeature(
+            XMLUni::fgXercesDisableDefaultEntityResolution, true);
 
         xmlUriValid =
             XMLString::transcode("http://xml.org/sax/features/validation");
@@ -1427,9 +1429,8 @@ bool GMLReader::PrescanForSchema(bool bGetExtents, bool bOnlyDetectSRS)
                 }
                 else
                 {
-                    poGeomProperty->SetType(
-                        static_cast<int>(OGRMergeGeometryTypesEx(
-                            eGType, poGeometry->getGeometryType(), true)));
+                    poGeomProperty->SetType(OGRMergeGeometryTypesEx(
+                        eGType, poGeometry->getGeometryType(), true));
                 }
 
                 // Merge extents.

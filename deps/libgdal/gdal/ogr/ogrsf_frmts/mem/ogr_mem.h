@@ -106,7 +106,7 @@ class CPL_DLL OGRMemLayer CPL_NON_FINAL : public OGRLayer
 
     GIntBig GetFeatureCount(int) override;
 
-    virtual OGRErr CreateField(OGRFieldDefn *poField,
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
     virtual OGRErr DeleteField(int iField) override;
     virtual OGRErr ReorderFields(int *panMap) override;
@@ -116,7 +116,7 @@ class CPL_DLL OGRMemLayer CPL_NON_FINAL : public OGRLayer
     AlterGeomFieldDefn(int iGeomField,
                        const OGRGeomFieldDefn *poNewGeomFieldDefn,
                        int nFlagsIn) override;
-    virtual OGRErr CreateGeomField(OGRGeomFieldDefn *poGeomField,
+    virtual OGRErr CreateGeomField(const OGRGeomFieldDefn *poGeomField,
                                    int bApproxOK = TRUE) override;
 
     int TestCapability(const char *) override;
@@ -130,10 +130,12 @@ class CPL_DLL OGRMemLayer CPL_NON_FINAL : public OGRLayer
     {
         return m_bUpdatable;
     }
+
     void SetUpdatable(bool bUpdatableIn)
     {
         m_bUpdatable = bUpdatableIn;
     }
+
     void SetAdvertizeUTF8(bool bAdvertizeUTF8In)
     {
         m_bAdvertizeUTF8 = bAdvertizeUTF8In;
@@ -148,6 +150,7 @@ class CPL_DLL OGRMemLayer CPL_NON_FINAL : public OGRLayer
     {
         return m_bUpdated;
     }
+
     void SetUpdated(bool bUpdated)
     {
         m_bUpdated = bUpdated;
@@ -190,16 +193,17 @@ class OGRMemDataSource CPL_NON_FINAL : public OGRDataSource
     {
         return pszName;
     }
+
     int GetLayerCount() override
     {
         return nLayers;
     }
+
     OGRLayer *GetLayer(int) override;
 
-    virtual OGRLayer *ICreateLayer(const char *,
-                                   const OGRSpatialReference * = nullptr,
-                                   OGRwkbGeometryType = wkbUnknown,
-                                   char ** = nullptr) override;
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
     OGRErr DeleteLayer(int iLayer) override;
 
     int TestCapability(const char *) override;

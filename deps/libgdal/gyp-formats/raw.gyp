@@ -38,7 +38,8 @@
 				"../gdal/frmts/raw/nsidcbindataset.cpp",
 				"../gdal/frmts/raw/btdataset.cpp",
 				"../gdal/frmts/raw/byndataset.cpp",
-				"../gdal/frmts/raw/ctable2dataset.cpp"
+				"../gdal/frmts/raw/ctable2dataset.cpp",
+        "../gdal/frmts/raw/rawdrivers.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/raw"

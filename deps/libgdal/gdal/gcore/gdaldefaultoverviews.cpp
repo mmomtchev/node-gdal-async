@@ -174,21 +174,21 @@ void GDALDefaultOverviews::TransferSiblingFiles(char **papszSiblingFiles)
 namespace
 {
 // Prevent infinite recursion.
-struct AntiRecursionStruct
+struct AntiRecursionStructDefaultOvr
 {
     int nRecLevel = 0;
     std::set<CPLString> oSetFiles{};
 };
 }  // namespace
 
-static void FreeAntiRecursion(void *pData)
+static void FreeAntiRecursionDefaultOvr(void *pData)
 {
-    delete static_cast<AntiRecursionStruct *>(pData);
+    delete static_cast<AntiRecursionStructDefaultOvr *>(pData);
 }
 
-static AntiRecursionStruct &GetAntiRecursion()
+static AntiRecursionStructDefaultOvr &GetAntiRecursionDefaultOvr()
 {
-    static AntiRecursionStruct dummy;
+    static AntiRecursionStructDefaultOvr dummy;
     int bMemoryErrorOccurred = false;
     void *pData =
         CPLGetTLSEx(CTLS_GDALDEFAULTOVR_ANTIREC, &bMemoryErrorOccurred);
@@ -198,9 +198,10 @@ static AntiRecursionStruct &GetAntiRecursion()
     }
     if (pData == nullptr)
     {
-        auto pAntiRecursion = new AntiRecursionStruct();
+        auto pAntiRecursion = new AntiRecursionStructDefaultOvr();
         CPLSetTLSWithFreeFuncEx(CTLS_GDALDEFAULTOVR_ANTIREC, pAntiRecursion,
-                                FreeAntiRecursion, &bMemoryErrorOccurred);
+                                FreeAntiRecursionDefaultOvr,
+                                &bMemoryErrorOccurred);
         if (bMemoryErrorOccurred)
         {
             delete pAntiRecursion;
@@ -208,7 +209,7 @@ static AntiRecursionStruct &GetAntiRecursion()
         }
         return *pAntiRecursion;
     }
-    return *static_cast<AntiRecursionStruct *>(pData);
+    return *static_cast<AntiRecursionStructDefaultOvr *>(pData);
 }
 
 /************************************************************************/
@@ -230,7 +231,7 @@ void GDALDefaultOverviews::OverviewScan()
     if (pszInitName == nullptr)
         pszInitName = CPLStrdup(poDS->GetDescription());
 
-    AntiRecursionStruct &antiRec = GetAntiRecursion();
+    AntiRecursionStructDefaultOvr &antiRec = GetAntiRecursionDefaultOvr();
     // 32 should be enough to handle a .ovr.ovr.ovr...
     if (antiRec.nRecLevel == 32)
         return;
@@ -260,7 +261,7 @@ void GDALDefaultOverviews::OverviewScan()
             CPLCheckForFile(&achOvrFilename[0], papszInitSiblingFiles));
         osOvrFilename = &achOvrFilename[0];
 
-#if !defined(WIN32)
+#if !defined(_WIN32)
         if (!bInitNameIsOVR && !bExists && !papszInitSiblingFiles)
         {
             osOvrFilename.Printf("%s.OVR", pszInitName);
@@ -603,6 +604,29 @@ CPLErr GDALDefaultOverviews::BuildOverviewsSubDataset(
 }
 
 /************************************************************************/
+/*                           GetOptionValue()                           */
+/************************************************************************/
+
+static const char *GetOptionValue(CSLConstList papszOptions,
+                                  const char *pszOptionKey,
+                                  const char *pszConfigOptionKey)
+{
+    const char *pszVal =
+        pszOptionKey ? CSLFetchNameValue(papszOptions, pszOptionKey) : nullptr;
+    if (pszVal)
+    {
+        return pszVal;
+    }
+    pszVal = CSLFetchNameValue(papszOptions, pszConfigOptionKey);
+    if (pszVal)
+    {
+        return pszVal;
+    }
+    pszVal = CPLGetConfigOption(pszConfigOptionKey, nullptr);
+    return pszVal;
+}
+
+/************************************************************************/
 /*                           BuildOverviews()                           */
 /************************************************************************/
 
@@ -619,32 +643,14 @@ CPLErr GDALDefaultOverviews::BuildOverviews(
     if (nOverviews == 0)
         return CleanOverviews();
 
-    const auto GetOptionValue =
-        [papszOptions](const char *pszOptionKey, const char *pszConfigOptionKey)
-    {
-        const char *pszVal = pszOptionKey
-                                 ? CSLFetchNameValue(papszOptions, pszOptionKey)
-                                 : nullptr;
-        if (pszVal)
-        {
-            return pszVal;
-        }
-        pszVal = CSLFetchNameValue(papszOptions, pszConfigOptionKey);
-        if (pszVal)
-        {
-            return pszVal;
-        }
-        pszVal = CPLGetConfigOption(pszConfigOptionKey, nullptr);
-        return pszVal;
-    };
-
     /* -------------------------------------------------------------------- */
     /*      If we don't already have an overview file, we need to decide    */
     /*      what format to use.                                             */
     /* -------------------------------------------------------------------- */
     if (poODS == nullptr)
     {
-        const char *pszUseRRD = GetOptionValue(nullptr, "USE_RRD");
+        const char *pszUseRRD =
+            GetOptionValue(papszOptions, nullptr, "USE_RRD");
         bOvrIsAux = pszUseRRD && CPLTestBool(pszUseRRD);
         if (bOvrIsAux)
         {
@@ -742,6 +748,26 @@ CPLErr GDALDefaultOverviews::BuildOverviews(
                                                 poBand->GetXSize(),
                                                 poBand->GetYSize()))
             {
+                const auto osNewResampling =
+                    GDALGetNormalizedOvrResampling(pszResampling);
+                const char *pszExistingResampling =
+                    poOverview->GetMetadataItem("RESAMPLING");
+                if (pszExistingResampling &&
+                    pszExistingResampling != osNewResampling)
+                {
+                    if (auto l_poODS = poOverview->GetDataset())
+                    {
+                        if (auto poDriver = l_poODS->GetDriver())
+                        {
+                            if (EQUAL(poDriver->GetDescription(), "GTiff"))
+                            {
+                                poOverview->SetMetadataItem(
+                                    "RESAMPLING", osNewResampling.c_str());
+                            }
+                        }
+                    }
+                }
+
                 abRequireRefresh[i] = true;
                 break;
             }
@@ -949,48 +975,14 @@ CPLErr GDALDefaultOverviews::BuildOverviews(
     /* -------------------------------------------------------------------- */
     /*      If we have a mask file, we need to build its overviews too.     */
     /* -------------------------------------------------------------------- */
-    if (HaveMaskFile() && poMaskDS && eErr == CE_None)
+    if (HaveMaskFile() && eErr == CE_None)
     {
-        // Some options are not compatible with mask overviews
-        // so unset them, and define more sensible values.
-        CPLStringList aosMaskOptions(papszOptions);
-        const char *pszCompress =
-            GetOptionValue("COMPRESS", "COMPRESS_OVERVIEW");
-        const bool bJPEG = pszCompress && EQUAL(pszCompress, "JPEG");
-        const char *pszPhotometric =
-            GetOptionValue("PHOTOMETRIC", "PHOTOMETRIC_OVERVIEW");
-        const bool bPHOTOMETRIC_YCBCR =
-            pszPhotometric && EQUAL(pszPhotometric, "YCBCR");
-        if (bJPEG)
-            aosMaskOptions.SetNameValue("COMPRESS", "DEFLATE");
-        if (bPHOTOMETRIC_YCBCR)
-            aosMaskOptions.SetNameValue("PHOTOMETRIC", "MINISBLACK");
-
         pScaledProgress = GDALCreateScaledProgress(
             double(nBands) / (nBands + 1), 1.0, pfnProgress, pProgressData);
-        eErr = poMaskDS->BuildOverviews(
-            pszResampling, nOverviews, panOverviewList, 0, nullptr,
-            GDALScaledProgress, pScaledProgress, aosMaskOptions.List());
+        eErr = BuildOverviewsMask(pszResampling, nOverviews, panOverviewList,
+                                  GDALScaledProgress, pScaledProgress,
+                                  papszOptions);
         GDALDestroyScaledProgress(pScaledProgress);
-
-        if (bOwnMaskDS)
-        {
-            // Reset the poMask member of main dataset bands, since it
-            // will become invalid after poMaskDS closing.
-            for (int iBand = 1; iBand <= poDS->GetRasterCount(); iBand++)
-            {
-                GDALRasterBand *poOtherBand = poDS->GetRasterBand(iBand);
-                if (poOtherBand != nullptr)
-                    poOtherBand->InvalidateMaskBand();
-            }
-
-            GDALClose(poMaskDS);
-        }
-
-        // force next request to reread mask file.
-        poMaskDS = nullptr;
-        bOwnMaskDS = false;
-        bCheckedForMask = false;
     }
 
     /* -------------------------------------------------------------------- */
@@ -1014,6 +1006,62 @@ CPLErr GDALDefaultOverviews::BuildOverviews(
                 poOverDS->oOvManager.poDS = poOverDS;
             }
         }
+    }
+
+    return eErr;
+}
+
+/************************************************************************/
+/*                          BuildOverviewsMask()                        */
+/************************************************************************/
+
+CPLErr GDALDefaultOverviews::BuildOverviewsMask(const char *pszResampling,
+                                                int nOverviews,
+                                                const int *panOverviewList,
+                                                GDALProgressFunc pfnProgress,
+                                                void *pProgressData,
+                                                CSLConstList papszOptions)
+{
+    CPLErr eErr = CE_None;
+    if (HaveMaskFile() && poMaskDS)
+    {
+        // Some options are not compatible with mask overviews
+        // so unset them, and define more sensible values.
+        CPLStringList aosMaskOptions(papszOptions);
+        const char *pszCompress =
+            GetOptionValue(papszOptions, "COMPRESS", "COMPRESS_OVERVIEW");
+        const bool bJPEG = pszCompress && EQUAL(pszCompress, "JPEG");
+        const char *pszPhotometric =
+            GetOptionValue(papszOptions, "PHOTOMETRIC", "PHOTOMETRIC_OVERVIEW");
+        const bool bPHOTOMETRIC_YCBCR =
+            pszPhotometric && EQUAL(pszPhotometric, "YCBCR");
+        if (bJPEG)
+            aosMaskOptions.SetNameValue("COMPRESS", "DEFLATE");
+        if (bPHOTOMETRIC_YCBCR)
+            aosMaskOptions.SetNameValue("PHOTOMETRIC", "MINISBLACK");
+
+        eErr = poMaskDS->BuildOverviews(
+            pszResampling, nOverviews, panOverviewList, 0, nullptr, pfnProgress,
+            pProgressData, aosMaskOptions.List());
+
+        if (bOwnMaskDS)
+        {
+            // Reset the poMask member of main dataset bands, since it
+            // will become invalid after poMaskDS closing.
+            for (int iBand = 1; iBand <= poDS->GetRasterCount(); iBand++)
+            {
+                GDALRasterBand *poOtherBand = poDS->GetRasterBand(iBand);
+                if (poOtherBand != nullptr)
+                    poOtherBand->InvalidateMaskBand();
+            }
+
+            GDALClose(poMaskDS);
+        }
+
+        // force next request to reread mask file.
+        poMaskDS = nullptr;
+        bOwnMaskDS = false;
+        bCheckedForMask = false;
     }
 
     return eErr;
@@ -1249,7 +1297,7 @@ int GDALDefaultOverviews::HaveMaskFile(char **papszSiblingFiles,
         CPL_TO_BOOL(CPLCheckForFile(&achMskFilename[0], papszSiblingFiles));
     osMskFilename = &achMskFilename[0];
 
-#if !defined(WIN32)
+#if !defined(_WIN32)
     if (!bExists && !papszSiblingFiles)
     {
         osMskFilename.Printf("%s.MSK", pszBasename);
@@ -1280,4 +1328,29 @@ int GDALDefaultOverviews::HaveMaskFile(char **papszSiblingFiles,
 
     return TRUE;
 }
+
+/************************************************************************/
+/*                    GDALGetNormalizedOvrResampling()                  */
+/************************************************************************/
+
+std::string GDALGetNormalizedOvrResampling(const char *pszResampling)
+{
+    if (pszResampling &&
+        EQUAL(pszResampling, "AVERAGE_BIT2GRAYSCALE_MINISWHITE"))
+        return "AVERAGE_BIT2GRAYSCALE_MINISWHITE";
+    else if (pszResampling && STARTS_WITH_CI(pszResampling, "AVERAGE_BIT2"))
+        return "AVERAGE_BIT2GRAYSCALE";
+    else if (pszResampling && STARTS_WITH_CI(pszResampling, "NEAR"))
+        return "NEAREST";
+    else if (pszResampling && EQUAL(pszResampling, "AVERAGE_MAGPHASE"))
+        return "AVERAGE_MAGPHASE";
+    else if (pszResampling && STARTS_WITH_CI(pszResampling, "AVER"))
+        return "AVERAGE";
+    else if (pszResampling && !EQUAL(pszResampling, "NONE"))
+    {
+        return CPLString(pszResampling).toupper();
+    }
+    return std::string();
+}
+
 //! @endcond

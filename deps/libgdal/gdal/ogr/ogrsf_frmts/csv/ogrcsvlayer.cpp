@@ -66,21 +66,23 @@
 /*      file pointer.                                                   */
 /************************************************************************/
 
-OGRCSVLayer::OGRCSVLayer(const char *pszLayerNameIn, VSILFILE *fp,
-                         int nMaxLineSize, const char *pszFilenameIn,
-                         int bNewIn, int bInWriteModeIn, char chDelimiterIn)
-    : poFeatureDefn(nullptr), fpCSV(fp), m_nMaxLineSize(nMaxLineSize),
-      nNextFID(1), bHasFieldNames(false), bNew(CPL_TO_BOOL(bNewIn)),
-      bInWriteMode(CPL_TO_BOOL(bInWriteModeIn)), bUseCRLF(false),
-      bNeedRewindBeforeRead(false), eGeometryFormat(OGR_CSV_GEOM_NONE),
-      pszFilename(CPLStrdup(pszFilenameIn)), bCreateCSVT(false),
-      bWriteBOM(false), nCSVFieldCount(0), panGeomFieldIndex(nullptr),
-      bFirstFeatureAppendedDuringSession(true), bHiddenWKTColumn(false),
-      iNfdcLongitudeS(-1), iNfdcLatitudeS(-1), bHonourStrings(true),
-      iLongitudeField(-1), iLatitudeField(-1), iZField(-1),
-      bIsEurostatTSV(false), nEurostatDims(0), nTotalFeatures(bNewIn ? 0 : -1),
-      bWarningBadTypeOrWidth(false), bKeepSourceColumns(false),
-      bKeepGeomColumns(true), bMergeDelimiter(false), bEmptyStringNull(false)
+OGRCSVLayer::OGRCSVLayer(GDALDataset *poDS, const char *pszLayerNameIn,
+                         VSILFILE *fp, int nMaxLineSize,
+                         const char *pszFilenameIn, int bNewIn,
+                         int bInWriteModeIn, char chDelimiterIn)
+    : m_poDS(poDS), poFeatureDefn(nullptr), fpCSV(fp),
+      m_nMaxLineSize(nMaxLineSize), nNextFID(1), bHasFieldNames(false),
+      bNew(CPL_TO_BOOL(bNewIn)), bInWriteMode(CPL_TO_BOOL(bInWriteModeIn)),
+      bUseCRLF(false), bNeedRewindBeforeRead(false),
+      eGeometryFormat(OGR_CSV_GEOM_NONE), pszFilename(CPLStrdup(pszFilenameIn)),
+      bCreateCSVT(false), bWriteBOM(false), nCSVFieldCount(0),
+      panGeomFieldIndex(nullptr), bFirstFeatureAppendedDuringSession(true),
+      bHiddenWKTColumn(false), iNfdcLongitudeS(-1), iNfdcLatitudeS(-1),
+      bHonourStrings(true), iLongitudeField(-1), iLatitudeField(-1),
+      iZField(-1), bIsEurostatTSV(false), nEurostatDims(0),
+      nTotalFeatures(bNewIn ? 0 : -1), bWarningBadTypeOrWidth(false),
+      bKeepSourceColumns(false), bKeepGeomColumns(true), bMergeDelimiter(false),
+      bEmptyStringNull(false)
 {
     szDelimiter[0] = chDelimiterIn;
     szDelimiter[1] = 0;
@@ -248,11 +250,15 @@ void OGRCSVLayer::BuildFeatureDefn(const char *pszNfdcGeomField,
             }
 
             // Tokenize without quotes to get the actual values.
+            VSIRewindL(fpCSV);
             CSLDestroy(papszTokens);
-            int l_nFlags = CSLT_HONOURSTRINGS;
-            if (!bMergeDelimiter)
-                l_nFlags |= CSLT_ALLOWEMPTYTOKENS;
-            papszTokens = CSLTokenizeString2(pszLine, szDelimiter, l_nFlags);
+            papszTokens =
+                CSVReadParseLine3L(fpCSV, m_nMaxLineSize, szDelimiter,
+                                   true,   // bHonourStrings
+                                   false,  // bKeepLeadingAndClosingQuotes
+                                   bMergeDelimiter,
+                                   true  // bSkipBOM
+                );
             nFieldCount = CSLCount(papszTokens);
         }
     }
@@ -314,6 +320,7 @@ void OGRCSVLayer::BuildFeatureDefn(const char *pszNfdcGeomField,
                 {"POPULATION", OFTReal},  {"ELEVATION", OFTInteger},
                 {"GTOPO30", OFTInteger},  {"TIMEZONE", OFTString},
                 {"MODDATE", OFTString}};
+
             for (int iField = 0; iField < nFieldCount; iField++)
             {
                 OGRFieldDefn oFieldDefn(asGeonamesFieldDesc[iField].pszName,
@@ -338,7 +345,8 @@ void OGRCSVLayer::BuildFeatureDefn(const char *pszNfdcGeomField,
         const char *pszExt = CPLGetExtension(pszFilename);
         if (pszExt[0])
         {
-            std::string osCSVTFilename = CPLResetExtension(pszFilename, "csvt");
+            const std::string osCSVTFilename =
+                CPLResetExtension(pszFilename, "csvt");
             VSILFILE *fpCSVT = VSIFOpenL(osCSVTFilename.c_str(), "r");
             if (fpCSVT != nullptr)
             {
@@ -1750,7 +1758,7 @@ int OGRCSVLayer::TestCapability(const char *pszCap)
 OGRCSVCreateFieldAction
 OGRCSVLayer::PreCreateField(OGRFeatureDefn *poFeatureDefn,
                             const std::set<CPLString> &oSetFields,
-                            OGRFieldDefn *poNewField, int bApproxOK)
+                            const OGRFieldDefn *poNewField, int bApproxOK)
 {
     // Does this duplicate an existing field?
     if (oSetFields.find(CPLString(poNewField->GetNameRef()).toupper()) !=
@@ -1813,7 +1821,7 @@ OGRCSVLayer::PreCreateField(OGRFeatureDefn *poFeatureDefn,
 /*                            CreateField()                             */
 /************************************************************************/
 
-OGRErr OGRCSVLayer::CreateField(OGRFieldDefn *poNewField, int bApproxOK)
+OGRErr OGRCSVLayer::CreateField(const OGRFieldDefn *poNewField, int bApproxOK)
 
 {
     // If we have already written our field names, then we are not
@@ -1864,7 +1872,7 @@ OGRErr OGRCSVLayer::CreateField(OGRFieldDefn *poNewField, int bApproxOK)
 /*                          CreateGeomField()                           */
 /************************************************************************/
 
-OGRErr OGRCSVLayer::CreateGeomField(OGRGeomFieldDefn *poGeomField,
+OGRErr OGRCSVLayer::CreateGeomField(const OGRGeomFieldDefn *poGeomField,
                                     int /* bApproxOK */)
 {
     if (!TestCapability(OLCCreateGeomField))
@@ -2216,33 +2224,67 @@ OGRErr OGRCSVLayer::ICreateFeature(OGRFeature *poNewFeature)
     bool bNeedDelimiter = false;
     bool bEmptyLine = true;
 
+    const auto GetWktOptions = [](const OGRGeomFieldDefn *poGeomFieldDefn)
+    {
+        const auto &sCoordPrec = poGeomFieldDefn->GetCoordinatePrecision();
+
+        OGRWktOptions wktOptions;
+        wktOptions.variant = wkbVariantIso;
+        if (sCoordPrec.dfXYResolution != OGRGeomCoordinatePrecision::UNKNOWN)
+        {
+            wktOptions.format = OGRWktFormat::F;
+            wktOptions.xyPrecision =
+                OGRGeomCoordinatePrecision::ResolutionToPrecision(
+                    sCoordPrec.dfXYResolution);
+        }
+        if (sCoordPrec.dfZResolution != OGRGeomCoordinatePrecision::UNKNOWN)
+        {
+            wktOptions.format = OGRWktFormat::F;
+            wktOptions.zPrecision =
+                OGRGeomCoordinatePrecision::ResolutionToPrecision(
+                    sCoordPrec.dfZResolution);
+        }
+        if (sCoordPrec.dfMResolution != OGRGeomCoordinatePrecision::UNKNOWN)
+        {
+            wktOptions.format = OGRWktFormat::F;
+            wktOptions.mPrecision =
+                OGRGeomCoordinatePrecision::ResolutionToPrecision(
+                    sCoordPrec.dfMResolution);
+        }
+
+        return wktOptions;
+    };
+
     // Write out the geometry.
     if (eGeometryFormat == OGR_CSV_GEOM_AS_XYZ ||
         eGeometryFormat == OGR_CSV_GEOM_AS_XY ||
         eGeometryFormat == OGR_CSV_GEOM_AS_YX)
     {
-        OGRGeometry *poGeom = poNewFeature->GetGeometryRef();
+        const OGRGeometry *poGeom = poNewFeature->GetGeometryRef();
         if (poGeom && wkbFlatten(poGeom->getGeometryType()) == wkbPoint)
         {
-            OGRPoint *poPoint = poGeom->toPoint();
-            char szBuffer[75] = {};
+            const auto poGeomFieldDefn = poFeatureDefn->GetGeomFieldDefn(0);
+            const OGRPoint *poPoint = poGeom->toPoint();
+            std::string osCoord;
             if (eGeometryFormat == OGR_CSV_GEOM_AS_XYZ)
-                OGRMakeWktCoordinate(szBuffer, poPoint->getX(), poPoint->getY(),
-                                     poPoint->getZ(), 3);
+                osCoord = OGRMakeWktCoordinate(poPoint->getX(), poPoint->getY(),
+                                               poPoint->getZ(), 3,
+                                               GetWktOptions(poGeomFieldDefn));
             else if (eGeometryFormat == OGR_CSV_GEOM_AS_XY)
-                OGRMakeWktCoordinate(szBuffer, poPoint->getX(), poPoint->getY(),
-                                     0, 2);
+                osCoord =
+                    OGRMakeWktCoordinate(poPoint->getX(), poPoint->getY(), 0, 2,
+                                         GetWktOptions(poGeomFieldDefn));
             else
-                OGRMakeWktCoordinate(szBuffer, poPoint->getY(), poPoint->getX(),
-                                     0, 2);
-            char *pc = szBuffer;
-            while (*pc != '\0')
+                osCoord =
+                    OGRMakeWktCoordinate(poPoint->getY(), poPoint->getX(), 0, 2,
+                                         GetWktOptions(poGeomFieldDefn));
+
+            for (char &ch : osCoord)
             {
-                if (*pc == ' ')
-                    *pc = szDelimiter[0];
-                pc++;
+                if (ch == ' ')
+                    ch = szDelimiter[0];
             }
-            bRet &= VSIFPrintfL(fpCSV, "%s", szBuffer) > 0;
+            bRet &= VSIFPrintfL(fpCSV, "%s", osCoord.c_str()) > 0;
         }
         else
         {
@@ -2255,17 +2297,20 @@ OGRErr OGRCSVLayer::ICreateFeature(OGRFeature *poNewFeature)
     }
     else if (bHiddenWKTColumn)
     {
-        char *pszWKT = nullptr;
-        OGRGeometry *poGeom = poNewFeature->GetGeomFieldRef(0);
-        if (poGeom &&
-            poGeom->exportToWkt(&pszWKT, wkbVariantIso) == OGRERR_NONE)
+        const OGRGeometry *poGeom = poNewFeature->GetGeomFieldRef(0);
+        if (poGeom)
         {
-            bRet &= VSIFWriteL("\"", 1, 1, fpCSV) > 0;
-            bRet &= VSIFWriteL(pszWKT, strlen(pszWKT), 1, fpCSV) > 0;
-            bRet &= VSIFWriteL("\"", 1, 1, fpCSV) > 0;
-            bEmptyLine = false;
+            const auto poGeomFieldDefn = poFeatureDefn->GetGeomFieldDefn(0);
+            const std::string wkt =
+                poGeom->exportToWkt(GetWktOptions(poGeomFieldDefn));
+            if (!wkt.empty())
+            {
+                bRet &= VSIFWriteL("\"", 1, 1, fpCSV) > 0;
+                bRet &= VSIFWriteL(wkt.c_str(), wkt.size(), 1, fpCSV) > 0;
+                bRet &= VSIFWriteL("\"", 1, 1, fpCSV) > 0;
+                bEmptyLine = false;
+            }
         }
-        CPLFree(pszWKT);
         bNeedDelimiter = true;
     }
 
@@ -2285,19 +2330,29 @@ OGRErr OGRCSVLayer::ICreateFeature(OGRFeature *poNewFeature)
             panGeomFieldIndex[iField] >= 0)
         {
             const int iGeom = panGeomFieldIndex[iField];
-            OGRGeometry *poGeom = poNewFeature->GetGeomFieldRef(iGeom);
-            if (poGeom &&
-                poGeom->exportToWkt(&pszEscaped, wkbVariantIso) == OGRERR_NONE)
+            const OGRGeometry *poGeom = poNewFeature->GetGeomFieldRef(iGeom);
+            if (poGeom)
             {
-                const int nLenWKT = static_cast<int>(strlen(pszEscaped));
-                char *pszNew =
-                    static_cast<char *>(CPLMalloc(1 + nLenWKT + 1 + 1));
-                pszNew[0] = '"';
-                memcpy(pszNew + 1, pszEscaped, nLenWKT);
-                pszNew[1 + nLenWKT] = '"';
-                pszNew[1 + nLenWKT + 1] = '\0';
-                CPLFree(pszEscaped);
-                pszEscaped = pszNew;
+                const auto poGeomFieldDefn =
+                    poFeatureDefn->GetGeomFieldDefn(iGeom);
+                const std::string wkt =
+                    poGeom->exportToWkt(GetWktOptions(poGeomFieldDefn));
+                if (!wkt.empty())
+                {
+                    char *pszNew =
+                        static_cast<char *>(CPLMalloc(1 + wkt.size() + 1 + 1));
+                    pszNew[0] = '"';
+                    memcpy(pszNew + 1, wkt.c_str(), wkt.size());
+                    pszNew[1 + wkt.size()] = '"';
+                    pszNew[1 + wkt.size() + 1] = '\0';
+                    CPLFree(pszEscaped);
+                    pszEscaped = pszNew;
+                }
+                else
+                {
+                    CPLFree(pszEscaped);
+                    pszEscaped = CPLStrdup("");
+                }
             }
             else
             {

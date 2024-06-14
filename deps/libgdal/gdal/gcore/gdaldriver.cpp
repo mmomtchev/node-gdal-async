@@ -110,6 +110,7 @@ GDALDataset *GDALDriver::Open(GDALOpenInfo *poOpenInfo, bool bSetOpenOptions)
 {
 
     GDALDataset *poDS = nullptr;
+    pfnOpen = GetOpenCallback();
     if (pfnOpen != nullptr)
     {
         poDS = pfnOpen(poOpenInfo);
@@ -121,7 +122,7 @@ GDALDataset *GDALDriver::Open(GDALOpenInfo *poOpenInfo, bool bSetOpenOptions)
 
     if (poDS)
     {
-        poDS->nOpenFlags = poOpenInfo->nOpenFlags;
+        poDS->nOpenFlags = poOpenInfo->nOpenFlags & ~GDAL_OF_FROM_GDALOPEN;
 
         if (strlen(poDS->GetDescription()) == 0)
             poDS->SetDescription(poOpenInfo->pszFilename);
@@ -202,6 +203,7 @@ GDALDataset *GDALDriver::Create(const char *pszFilename, int nXSize, int nYSize,
     /* -------------------------------------------------------------------- */
     /*      Does this format support creation.                              */
     /* -------------------------------------------------------------------- */
+    pfnCreate = GetCreateCallback();
     if (pfnCreate == nullptr && pfnCreateEx == nullptr &&
         pfnCreateVectorOnly == nullptr)
     {
@@ -357,6 +359,7 @@ GDALDriver::CreateMultiDimensional(const char *pszFilename,
     /* -------------------------------------------------------------------- */
     /*      Does this format support creation.                              */
     /* -------------------------------------------------------------------- */
+    pfnCreateMultiDimensional = GetCreateMultiDimensionalCallback();
     if (pfnCreateMultiDimensional == nullptr)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
@@ -444,6 +447,7 @@ CPLErr GDALDriver::DefaultCreateCopyMultiDimensional(
                ? CE_None
                : CE_Failure;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -572,11 +576,10 @@ GDALDataset *GDALDriver::DefaultCreateCopy(const char *pszFilename,
     if (poSrcGroup != nullptr && GetMetadataItem(GDAL_DCAP_MULTIDIM_RASTER))
     {
         CPLStringList aosDatasetCO;
-        for (CSLConstList papszIter = papszOptions; papszIter && *papszIter;
-             ++papszIter)
+        for (const char *pszOption : cpl::Iterate(papszOptions))
         {
-            if (!STARTS_WITH_CI(*papszIter, "ARRAY:"))
-                aosDatasetCO.AddString(*papszIter);
+            if (!STARTS_WITH_CI(pszOption, "ARRAY:"))
+                aosDatasetCO.AddString(pszOption);
         }
         auto poDstDS = std::unique_ptr<GDALDataset>(
             CreateMultiDimensional(pszFilename, nullptr, aosDatasetCO.List()));
@@ -929,13 +932,9 @@ void GDALDriver::DefaultCopyMetadata(GDALDataset *poSrcDS, GDALDataset *poDstDS,
         if ((!EQUAL(pszCopySrcMDD, "AUTO") && CPLTestBool(pszCopySrcMDD)) ||
             papszSrcMDD)
         {
-            char **papszDomainList = poSrcDS->GetMetadataDomainList();
-            constexpr const char *apszReservedDomains[] = {
-                "IMAGE_STRUCTURE", "DERIVED_SUBDATASETS"};
-            for (char **papszIter = papszDomainList; papszIter && *papszIter;
-                 ++papszIter)
+            for (const char *pszDomain :
+                 CPLStringList(poSrcDS->GetMetadataDomainList()))
             {
-                const char *pszDomain = *papszIter;
                 if (pszDomain[0] != 0 &&
                     (!papszSrcMDD ||
                      CSLFindString(papszSrcMDD, pszDomain) >= 0))
@@ -957,6 +956,8 @@ void GDALDriver::DefaultCopyMetadata(GDALDataset *poSrcDS, GDALDataset *poDstDS,
                         }
                         if (!papszSrcMDD)
                         {
+                            constexpr const char *const apszReservedDomains[] =
+                                {"IMAGE_STRUCTURE", "DERIVED_SUBDATASETS"};
                             for (const char *pszOtherDomain :
                                  apszReservedDomains)
                             {
@@ -975,7 +976,6 @@ void GDALDriver::DefaultCopyMetadata(GDALDataset *poSrcDS, GDALDataset *poDstDS,
                     }
                 }
             }
-            CSLDestroy(papszDomainList);
         }
     }
     CSLDestroy(papszSrcMDD);
@@ -1015,14 +1015,12 @@ CPLErr GDALDriver::QuietDeleteForCreateCopy(const char *pszFilename,
                     pszFilename, GDAL_OF_RASTER, apszAllowedDrivers));
             if (poExistingOutputDS)
             {
-                char **papszFileList = poExistingOutputDS->GetFileList();
-                for (char **papszIter = papszFileList; papszIter && *papszIter;
-                     ++papszIter)
+                for (const char *pszFileInList :
+                     CPLStringList(poExistingOutputDS->GetFileList()))
                 {
                     oSetExistingDestFiles.insert(
-                        CPLString(*papszIter).replaceAll('\\', '/'));
+                        CPLString(pszFileInList).replaceAll('\\', '/'));
                 }
-                CSLDestroy(papszFileList);
             }
             CPLPopErrorHandler();
         }
@@ -1050,11 +1048,10 @@ CPLErr GDALDriver::QuietDeleteForCreateCopy(const char *pszFilename,
                 poSrcDS->papszOpenOptions));
             if (poSrcDSTmp)
             {
-                char **papszFileList = poSrcDSTmp->GetFileList();
-                for (char **papszIter = papszFileList; papszIter && *papszIter;
-                     ++papszIter)
+                for (const char *pszFileInList :
+                     CPLStringList(poSrcDSTmp->GetFileList()))
                 {
-                    CPLString osFilename(*papszIter);
+                    CPLString osFilename(pszFileInList);
                     osFilename.replaceAll('\\', '/');
                     if (oSetExistingDestFiles.find(osFilename) !=
                         oSetExistingDestFiles.end())
@@ -1062,7 +1059,6 @@ CPLErr GDALDriver::QuietDeleteForCreateCopy(const char *pszFilename,
                         oSetExistingDestFilesFoundInSource.insert(osFilename);
                     }
                 }
-                CSLDestroy(papszFileList);
             }
             CPLPopErrorHandler();
         }
@@ -1320,11 +1316,10 @@ GDALDataset *GDALDriver::CreateCopy(const char *pszFilename,
         if (poSrcGroup != nullptr && GetMetadataItem(GDAL_DCAP_MULTIDIM_RASTER))
         {
             CPLStringList aosDatasetCO;
-            for (CSLConstList papszIter = papszOptions; papszIter && *papszIter;
-                 ++papszIter)
+            for (const char *pszOption : cpl::Iterate(papszOptions))
             {
-                if (!STARTS_WITH_CI(*papszIter, "ARRAY:"))
-                    aosDatasetCO.AddString(*papszIter);
+                if (!STARTS_WITH_CI(pszOption, "ARRAY:"))
+                    aosDatasetCO.AddString(pszOption);
             }
             GDALValidateCreationOptions(this, aosDatasetCO.List());
         }
@@ -1356,12 +1351,13 @@ GDALDataset *GDALDriver::CreateCopy(const char *pszFilename,
     /*      Create() method.                                                */
     /* -------------------------------------------------------------------- */
     GDALDataset *poDstDS = nullptr;
-    if (pfnCreateCopy != nullptr &&
+    auto l_pfnCreateCopy = GetCreateCopyCallback();
+    if (l_pfnCreateCopy != nullptr &&
         !CPLTestBool(CPLGetConfigOption("GDAL_DEFAULT_CREATE_COPY", "NO")))
     {
-        poDstDS = pfnCreateCopy(pszFilename, poSrcDS, bStrict,
-                                const_cast<char **>(papszOptions), pfnProgress,
-                                pProgressData);
+        poDstDS = l_pfnCreateCopy(pszFilename, poSrcDS, bStrict,
+                                  const_cast<char **>(papszOptions),
+                                  pfnProgress, pProgressData);
         if (poDstDS != nullptr)
         {
             if (poDstDS->GetDescription() == nullptr ||
@@ -1458,10 +1454,10 @@ bool GDALDriver::CanVectorTranslateFrom(
         ppapszFailureReasons ? ppapszFailureReasons : &papszFailureReasons);
     if (!ppapszFailureReasons)
     {
-        for (CSLConstList papszIter = papszFailureReasons;
-             papszIter && *papszIter; ++papszIter)
+        for (const char *pszReason :
+             cpl::Iterate(CSLConstList(papszFailureReasons)))
         {
-            CPLDebug("GDAL", "%s", *papszIter);
+            CPLDebug("GDAL", "%s", pszReason);
         }
         CSLDestroy(papszFailureReasons);
     }
@@ -1556,11 +1552,10 @@ CPLErr GDALDriver::QuietDelete(const char *pszName,
     if (papszAllowedDrivers)
     {
         GDALOpenInfo oOpenInfo(pszName, GDAL_OF_ALL);
-        for (CSLConstList papszIter = papszAllowedDrivers; *papszIter;
-             ++papszIter)
+        for (const char *pszDriverName : cpl::Iterate(papszAllowedDrivers))
         {
             GDALDriver *poTmpDriver =
-                GDALDriver::FromHandle(GDALGetDriverByName(*papszIter));
+                GDALDriver::FromHandle(GDALGetDriverByName(pszDriverName));
             if (poTmpDriver)
             {
                 const bool bIdentifyRes =
@@ -1579,8 +1574,7 @@ CPLErr GDALDriver::QuietDelete(const char *pszName,
     }
     else
     {
-        CPLErrorStateBackuper oBackuper;
-        CPLErrorHandlerPusher oErrorHandler(CPLQuietErrorHandler);
+        CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
         poDriver = GDALDriver::FromHandle(GDALIdentifyDriver(pszName, nullptr));
     }
 
@@ -1589,12 +1583,12 @@ CPLErr GDALDriver::QuietDelete(const char *pszName,
 
     CPLDebug("GDAL", "QuietDelete(%s) invoking Delete()", pszName);
 
+    poDriver->pfnDelete = poDriver->GetDeleteCallback();
     const bool bQuiet = !bExists && poDriver->pfnDelete == nullptr &&
                         poDriver->pfnDeleteDataSource == nullptr;
     if (bQuiet)
     {
-        CPLErrorStateBackuper oBackuper;
-        CPLErrorHandlerPusher oErrorHandler(CPLQuietErrorHandler);
+        CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
         return poDriver->Delete(pszName);
     }
     else
@@ -1629,6 +1623,7 @@ CPLErr GDALDriver::QuietDelete(const char *pszName,
 CPLErr GDALDriver::Delete(const char *pszFilename)
 
 {
+    pfnDelete = GetDeleteCallback();
     if (pfnDelete != nullptr)
         return pfnDelete(pszFilename);
     else if (pfnDeleteDataSource != nullptr)
@@ -1780,6 +1775,7 @@ CPLErr GDALDriver::DefaultRename(const char *pszNewName, const char *pszOldName)
 
     return eErr;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -1806,6 +1802,7 @@ CPLErr GDALDriver::DefaultRename(const char *pszNewName, const char *pszOldName)
 CPLErr GDALDriver::Rename(const char *pszNewName, const char *pszOldName)
 
 {
+    pfnRename = GetRenameCallback();
     if (pfnRename != nullptr)
         return pfnRename(pszNewName, pszOldName);
 
@@ -1909,6 +1906,7 @@ CPLErr GDALDriver::DefaultCopyFiles(const char *pszNewName,
 
     return eErr;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -1931,6 +1929,7 @@ CPLErr GDALDriver::DefaultCopyFiles(const char *pszNewName,
 CPLErr GDALDriver::CopyFiles(const char *pszNewName, const char *pszOldName)
 
 {
+    pfnCopyFiles = GetCopyFilesCallback();
     if (pfnCopyFiles != nullptr)
         return pfnCopyFiles(pszNewName, pszOldName);
 
@@ -2110,14 +2109,13 @@ int CPL_STDCALL GDALValidateCreationOptions(GDALDriverH hDriver,
     osDriver.Printf("driver %s",
                     GDALDriver::FromHandle(hDriver)->GetDescription());
     bool bFoundOptionToRemove = false;
-    for (CSLConstList papszIter = papszCreationOptions; papszIter && *papszIter;
-         ++papszIter)
+    for (const char *pszCO : cpl::Iterate(papszCreationOptions))
     {
         for (const char *pszExcludedOptions :
              {"APPEND_SUBDATASET", "COPY_SRC_MDD", "SRC_MDD"})
         {
-            if (STARTS_WITH_CI(*papszIter, pszExcludedOptions) &&
-                (*papszIter)[strlen(pszExcludedOptions)] == '=')
+            if (STARTS_WITH_CI(pszCO, pszExcludedOptions) &&
+                pszCO[strlen(pszExcludedOptions)] == '=')
             {
                 bFoundOptionToRemove = true;
                 break;
@@ -2130,23 +2128,21 @@ int CPL_STDCALL GDALValidateCreationOptions(GDALDriverH hDriver,
     char **papszOptionsToFree = nullptr;
     if (bFoundOptionToRemove)
     {
-        for (CSLConstList papszIter = papszCreationOptions;
-             papszIter && *papszIter; ++papszIter)
+        for (const char *pszCO : cpl::Iterate(papszCreationOptions))
         {
             bool bMatch = false;
             for (const char *pszExcludedOptions :
                  {"APPEND_SUBDATASET", "COPY_SRC_MDD", "SRC_MDD"})
             {
-                if (STARTS_WITH_CI(*papszIter, pszExcludedOptions) &&
-                    (*papszIter)[strlen(pszExcludedOptions)] == '=')
+                if (STARTS_WITH_CI(pszCO, pszExcludedOptions) &&
+                    pszCO[strlen(pszExcludedOptions)] == '=')
                 {
                     bMatch = true;
                     break;
                 }
             }
             if (!bMatch)
-                papszOptionsToFree =
-                    CSLAddString(papszOptionsToFree, *papszIter);
+                papszOptionsToFree = CSLAddString(papszOptionsToFree, pszCO);
         }
         papszOptionsToValidate = papszOptionsToFree;
     }
@@ -2563,18 +2559,18 @@ int GDALValidateOptions(const char *pszOptionList,
 /************************************************************************/
 
 /**
- * \brief Identify the driver that can open a raster file.
+ * \brief Identify the driver that can open a dataset.
  *
  * This function will try to identify the driver that can open the passed file
  * name by invoking the Identify method of each registered GDALDriver in turn.
- * The first driver that successful identifies the file name will be returned.
+ * The first driver that successfully identifies the file name will be returned.
  * If all drivers fail then NULL is returned.
  *
- * In order to reduce the need for such searches touch the operating system
+ * In order to reduce the need for such searches to touch the operating system
  * file system machinery, it is possible to give an optional list of files.
  * This is the list of all files at the same level in the file system as the
  * target file, including the target file. The filenames will not include any
- * path components, are essentially just the output of VSIReadDir() on the
+ * path components, and are essentially just the output of VSIReadDir() on the
  * parent directory. If the target object does not have filesystem semantics
  * then the file list should be NULL.
  *
@@ -2602,18 +2598,18 @@ GDALDriverH CPL_STDCALL GDALIdentifyDriver(const char *pszFilename,
 /************************************************************************/
 
 /**
- * \brief Identify the driver that can open a raster file.
+ * \brief Identify the driver that can open a dataset.
  *
  * This function will try to identify the driver that can open the passed file
  * name by invoking the Identify method of each registered GDALDriver in turn.
- * The first driver that successful identifies the file name will be returned.
+ * The first driver that successfully identifies the file name will be returned.
  * If all drivers fail then NULL is returned.
  *
- * In order to reduce the need for such searches touch the operating system
+ * In order to reduce the need for such searches to touch the operating system
  * file system machinery, it is possible to give an optional list of files.
  * This is the list of all files at the same level in the file system as the
  * target file, including the target file. The filenames will not include any
- * path components, are essentially just the output of VSIReadDir() on the
+ * path components, and are essentially just the output of VSIReadDir() on the
  * parent directory. If the target object does not have filesystem semantics
  * then the file list should be NULL.
  *
@@ -2653,6 +2649,7 @@ GDALDriverH CPL_STDCALL GDALIdentifyDriverEx(
     const int nDriverCount = poDM->GetDriverCount();
 
     // First pass: only use drivers that have a pfnIdentify implementation.
+    std::vector<GDALDriver *> apoSecondPassDrivers;
     for (int iDriver = 0; iDriver < nDriverCount; ++iDriver)
     {
         GDALDriver *poDriver = poDM->GetDriver(iDriver);
@@ -2691,12 +2688,28 @@ GDALDriverH CPL_STDCALL GDALIdentifyDriverEx(
         }
         else
         {
-            if (poDriver->pfnIdentify(&oOpenInfo) > 0)
+            const int nIdentifyRes = poDriver->pfnIdentify(&oOpenInfo);
+            if (nIdentifyRes > 0)
                 return poDriver;
+            if (nIdentifyRes < 0 &&
+                poDriver->GetMetadataItem("IS_NON_LOADED_PLUGIN"))
+            {
+                // Not loaded plugin
+                apoSecondPassDrivers.push_back(poDriver);
+            }
         }
     }
 
-    // Second pass: slow method.
+    // second pass: try loading plugin drivers
+    for (auto poDriver : apoSecondPassDrivers)
+    {
+        // Force plugin driver loading
+        poDriver->GetMetadata();
+        if (poDriver->pfnIdentify(&oOpenInfo) > 0)
+            return poDriver;
+    }
+
+    // third pass: slow method.
     for (int iDriver = 0; iDriver < nDriverCount; ++iDriver)
     {
         GDALDriver *poDriver = poDM->GetDriver(iDriver);
@@ -2775,6 +2788,176 @@ CPLErr GDALDriver::SetMetadataItem(const char *pszName, const char *pszValue,
         {
             GDALMajorObject::SetMetadataItem(GDAL_DMD_EXTENSIONS, pszValue);
         }
+        /* and vice-versa if there is a single extension in GDAL_DMD_EXTENSIONS */
+        else if (EQUAL(pszName, GDAL_DMD_EXTENSIONS) &&
+                 strchr(pszValue, ' ') == nullptr &&
+                 GDALMajorObject::GetMetadataItem(GDAL_DMD_EXTENSION) ==
+                     nullptr)
+        {
+            GDALMajorObject::SetMetadataItem(GDAL_DMD_EXTENSION, pszValue);
+        }
     }
     return GDALMajorObject::SetMetadataItem(pszName, pszValue, pszDomain);
+}
+
+/************************************************************************/
+/*                   DoesDriverHandleExtension()                        */
+/************************************************************************/
+
+static bool DoesDriverHandleExtension(GDALDriverH hDriver, const char *pszExt)
+{
+    bool bRet = false;
+    const char *pszDriverExtensions =
+        GDALGetMetadataItem(hDriver, GDAL_DMD_EXTENSIONS, nullptr);
+    if (pszDriverExtensions)
+    {
+        const CPLStringList aosTokens(CSLTokenizeString(pszDriverExtensions));
+        const int nTokens = aosTokens.size();
+        for (int j = 0; j < nTokens; ++j)
+        {
+            if (EQUAL(pszExt, aosTokens[j]))
+            {
+                bRet = true;
+                break;
+            }
+        }
+    }
+    return bRet;
+}
+
+/************************************************************************/
+/*                  GDALGetOutputDriversForDatasetName()                */
+/************************************************************************/
+
+/** Return a list of driver short names that are likely candidates for the
+ * provided output file name.
+ *
+ * @param pszDestDataset Output dataset name (might not exist).
+ * @param nFlagRasterVector GDAL_OF_RASTER, GDAL_OF_VECTOR or
+ *                          binary-or'ed combination of both
+ * @param bSingleMatch Whether a single match is desired, that is to say the
+ *                     returned list will contain at most one item, which will
+ *                     be the first driver in the order they are registered to
+ *                     match the output dataset name. Note that in this mode, if
+ *                     nFlagRasterVector==GDAL_OF_RASTER and pszDestDataset has
+ *                     no extension, GTiff will be selected.
+ * @param bEmitWarning Whether a warning should be emitted when bSingleMatch is
+ *                     true and there are more than 2 candidates.
+ * @return NULL terminated list of driver short names.
+ * To be freed with CSLDestroy()
+ * @since 3.9
+ */
+char **GDALGetOutputDriversForDatasetName(const char *pszDestDataset,
+                                          int nFlagRasterVector,
+                                          bool bSingleMatch, bool bEmitWarning)
+{
+    CPLStringList aosDriverNames;
+
+    std::string osExt = CPLGetExtension(pszDestDataset);
+    if (EQUAL(osExt.c_str(), "zip"))
+    {
+        const CPLString osLower(CPLString(pszDestDataset).tolower());
+        if (osLower.endsWith(".shp.zip"))
+        {
+            osExt = "shp.zip";
+        }
+        else if (osLower.endsWith(".gpkg.zip"))
+        {
+            osExt = "gpkg.zip";
+        }
+    }
+
+    const int nDriverCount = GDALGetDriverCount();
+    for (int i = 0; i < nDriverCount; i++)
+    {
+        GDALDriverH hDriver = GDALGetDriver(i);
+        bool bOk = false;
+        if ((GDALGetMetadataItem(hDriver, GDAL_DCAP_CREATE, nullptr) !=
+                 nullptr ||
+             GDALGetMetadataItem(hDriver, GDAL_DCAP_CREATECOPY, nullptr) !=
+                 nullptr) &&
+            (((nFlagRasterVector & GDAL_OF_RASTER) &&
+              GDALGetMetadataItem(hDriver, GDAL_DCAP_RASTER, nullptr) !=
+                  nullptr) ||
+             ((nFlagRasterVector & GDAL_OF_VECTOR) &&
+              GDALGetMetadataItem(hDriver, GDAL_DCAP_VECTOR, nullptr) !=
+                  nullptr)))
+        {
+            bOk = true;
+        }
+        else if (GDALGetMetadataItem(hDriver, GDAL_DCAP_VECTOR_TRANSLATE_FROM,
+                                     nullptr) &&
+                 (nFlagRasterVector & GDAL_OF_VECTOR) != 0)
+        {
+            bOk = true;
+        }
+        if (bOk)
+        {
+            if (!osExt.empty() &&
+                DoesDriverHandleExtension(hDriver, osExt.c_str()))
+            {
+                aosDriverNames.AddString(GDALGetDriverShortName(hDriver));
+            }
+            else
+            {
+                const char *pszPrefix = GDALGetMetadataItem(
+                    hDriver, GDAL_DMD_CONNECTION_PREFIX, nullptr);
+                if (pszPrefix && STARTS_WITH_CI(pszDestDataset, pszPrefix))
+                {
+                    aosDriverNames.AddString(GDALGetDriverShortName(hDriver));
+                }
+            }
+        }
+    }
+
+    // GMT is registered before netCDF for opening reasons, but we want
+    // netCDF to be used by default for output.
+    if (EQUAL(osExt.c_str(), "nc") && aosDriverNames.size() == 2 &&
+        EQUAL(aosDriverNames[0], "GMT") && EQUAL(aosDriverNames[1], "netCDF"))
+    {
+        aosDriverNames.Clear();
+        aosDriverNames.AddString("netCDF");
+        aosDriverNames.AddString("GMT");
+    }
+
+    if (bSingleMatch)
+    {
+        if (nFlagRasterVector == GDAL_OF_RASTER)
+        {
+            if (aosDriverNames.empty())
+            {
+                if (osExt.empty())
+                {
+                    aosDriverNames.AddString("GTiff");
+                }
+            }
+            else if (aosDriverNames.size() >= 2)
+            {
+                if (bEmitWarning && !(EQUAL(aosDriverNames[0], "GTiff") &&
+                                      EQUAL(aosDriverNames[1], "COG")))
+                {
+                    CPLError(CE_Warning, CPLE_AppDefined,
+                             "Several drivers matching %s extension. Using %s",
+                             osExt.c_str(), aosDriverNames[0]);
+                }
+                const std::string osDrvName = aosDriverNames[0];
+                aosDriverNames.Clear();
+                aosDriverNames.AddString(osDrvName.c_str());
+            }
+        }
+        else if (aosDriverNames.size() >= 2)
+        {
+            if (bEmitWarning)
+            {
+                CPLError(CE_Warning, CPLE_AppDefined,
+                         "Several drivers matching %s extension. Using %s",
+                         osExt.c_str(), aosDriverNames[0]);
+            }
+            const std::string osDrvName = aosDriverNames[0];
+            aosDriverNames.Clear();
+            aosDriverNames.AddString(osDrvName.c_str());
+        }
+    }
+
+    return aosDriverNames.StealList();
 }

@@ -105,9 +105,11 @@ struct OGRGPKGTableLayerFillArrowArray
     std::string osErrorMsg{};
     OGRFeatureDefn *poFeatureDefn = nullptr;
     OGRGeoPackageLayer *poLayer = nullptr;
+
     struct tm brokenDown
     {
     };
+
     sqlite3 *hDB = nullptr;
     int nMaxBatchSize = 0;
     bool bAsynchronousMode = false;
@@ -156,6 +158,9 @@ class GDALGeoPackageDataset final : public OGRSQLiteBaseDataSource,
     mutable int m_nHasMetadataTables = -1;  // -1 = unknown, 0 = false, 1 = true
     int m_nCreateMetadataTables = -1;  // -1 = on demand, 0 = false, 1 = true
 
+    // Set by CreateTileGriddedTable() and used by FinalizeRasterRegistration()
+    std::string m_osSQLInsertIntoGpkg2dGriddedCoverageAncillary{};
+
     CPLString m_osIdentifier{};
     bool m_bIdentifierAsCO = false;
     CPLString m_osDescription{};
@@ -201,10 +206,12 @@ class GDALGeoPackageDataset final : public OGRSQLiteBaseDataSource,
     {
         m_nReadTableDefCount++;
     }
+
     int GetReadTableDefCounter() const
     {
         return m_nReadTableDefCount;
     }
+
     const std::vector<SQLSqliteMasterContent> &GetSqliteMasterContent();
 
     bool ComputeTileAndPixelShifts();
@@ -277,7 +284,7 @@ class GDALGeoPackageDataset final : public OGRSQLiteBaseDataSource,
     void FixupWrongRTreeTrigger();
     void FixupWrongMedataReferenceColumnNameUpdate();
     void ClearCachedRelationships();
-    void LoadRelationships() const;
+    void LoadRelationships() const override;
     void LoadRelationshipsUsingRelatedTablesExtension() const;
     static std::string
     GenerateNameForRelationship(const char *pszBaseTableName,
@@ -324,15 +331,15 @@ class GDALGeoPackageDataset final : public OGRSQLiteBaseDataSource,
     {
         return m_nLayers;
     }
+
     int Open(GDALOpenInfo *poOpenInfo, const std::string &osFilenameInZip);
     int Create(const char *pszFilename, int nXSize, int nYSize, int nBands,
                GDALDataType eDT, char **papszOptions);
     OGRLayer *GetLayer(int iLayer) override;
     OGRErr DeleteLayer(int iLayer) override;
-    OGRLayer *ICreateLayer(const char *pszLayerName,
-                           const OGRSpatialReference *poSpatialRef,
-                           OGRwkbGeometryType eGType,
-                           char **papszOptions) override;
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
     int TestCapability(const char *) override;
 
     std::vector<std::string>
@@ -341,12 +348,6 @@ class GDALGeoPackageDataset final : public OGRSQLiteBaseDataSource,
     GetFieldDomain(const std::string &name) const override;
     bool AddFieldDomain(std::unique_ptr<OGRFieldDomain> &&domain,
                         std::string &failureReason) override;
-
-    std::vector<std::string>
-    GetRelationshipNames(CSLConstList papszOptions = nullptr) const override;
-
-    const GDALRelationship *
-    GetRelationship(const std::string &name) const override;
 
     bool AddRelationship(std::unique_ptr<GDALRelationship> &&relationship,
                          std::string &failureReason) override;
@@ -373,12 +374,18 @@ class GDALGeoPackageDataset final : public OGRSQLiteBaseDataSource,
         return nSoftTransactionLevel > 0;
     }
 
-    int GetSrsId(const OGRSpatialReference &oSRS);
+    static std::string LaunderName(const std::string &osStr);
+
+    // At least 100000 to avoid conflicting with EPSG codes
+    static constexpr int FIRST_CUSTOM_SRSID = 100000;
+
+    int GetSrsId(const OGRSpatialReference *poSRS);
     const char *GetSrsName(const OGRSpatialReference &oSRS);
-    OGRSpatialReference *GetSpatialRef(int iSrsId,
-                                       bool bFallbackToEPSG = false);
+    OGRSpatialReference *GetSpatialRef(int iSrsId, bool bFallbackToEPSG = false,
+                                       bool bEmitErrorIfNotFound = true);
     OGRErr CreateExtensionsTableIfNecessary();
     bool HasExtensionsTable();
+
     void SetMetadataDirty()
     {
         m_bMetadataDirty = true;
@@ -391,6 +398,7 @@ class GDALGeoPackageDataset final : public OGRSQLiteBaseDataSource,
     bool HasGpkgextRelationsTable() const;
     bool CreateRelationsTableIfNecessary();
     bool HasQGISLayerStyles() const;
+
     bool HasNonSpatialTablesNonRegisteredInGpkgContents() const
     {
         return m_bNonSpatialTablesNonRegisteredInGpkgContentsFound;
@@ -420,35 +428,44 @@ class GDALGeoPackageDataset final : public OGRSQLiteBaseDataSource,
     // Coming from GDALGPKGMBTilesLikePseudoDataset
 
     virtual CPLErr IFlushCacheWithErrCode(bool bAtClosing) override;
+
     virtual int IGetRasterCount() override
     {
         return nBands;
     }
+
     virtual GDALRasterBand *IGetRasterBand(int nBand) override
     {
         return GetRasterBand(nBand);
     }
+
     virtual sqlite3 *IGetDB() override
     {
         return GetDB();
     }
+
     virtual bool IGetUpdate() override
     {
         return GetUpdate();
     }
+
     virtual bool ICanIWriteBlock() override;
+
     virtual OGRErr IStartTransaction() override
     {
         return SoftStartTransaction();
     }
+
     virtual OGRErr ICommitTransaction() override
     {
         return SoftCommitTransaction();
     }
+
     virtual const char *IGetFilename() override
     {
         return m_pszFilename;
     }
+
     virtual int GetRowFromIntoTopConvention(int nRow) override
     {
         return nRow;
@@ -460,6 +477,41 @@ class GDALGeoPackageDataset final : public OGRSQLiteBaseDataSource,
     bool OpenOrCreateDB(int flags);
     void InstallSQLFunctions();
     bool HasGDALAspatialExtension();
+};
+
+/************************************************************************/
+/*                   GPKGTemporaryForeignKeyCheckDisabler               */
+/************************************************************************/
+
+//! Instance of that class temporarily disable foreign key checks
+class GPKGTemporaryForeignKeyCheckDisabler
+{
+  public:
+    explicit GPKGTemporaryForeignKeyCheckDisabler(GDALGeoPackageDataset *poDS)
+        : m_poDS(poDS), m_nPragmaForeignKeysOldValue(SQLGetInteger(
+                            m_poDS->GetDB(), "PRAGMA foreign_keys", nullptr))
+    {
+        if (m_nPragmaForeignKeysOldValue)
+        {
+            CPL_IGNORE_RET_VAL(
+                SQLCommand(m_poDS->GetDB(), "PRAGMA foreign_keys = 0"));
+        }
+    }
+
+    ~GPKGTemporaryForeignKeyCheckDisabler()
+    {
+        if (m_nPragmaForeignKeysOldValue)
+        {
+            CPL_IGNORE_RET_VAL(
+                SQLCommand(m_poDS->GetDB(), "PRAGMA foreign_keys = 1"));
+        }
+    }
+
+  private:
+    CPL_DISALLOW_COPY_ASSIGN(GPKGTemporaryForeignKeyCheckDisabler)
+
+    GDALGeoPackageDataset *m_poDS = nullptr;
+    int m_nPragmaForeignKeysOldValue = 0;
 };
 
 /************************************************************************/
@@ -509,10 +561,12 @@ class GDALGeoPackageRasterBand final : public GDALGPKGMBTilesLikeRasterBand
     {
         m_bAddImplicitStatistics = b;
     }
+
     inline bool HaveStatsMetadataBeenSetInThisSession() const
     {
         return m_bStatsMetadataSetInThisSession;
     }
+
     void InvalidateStatistics();
 };
 
@@ -543,6 +597,9 @@ class OGRGeoPackageLayer CPL_NON_FINAL : public OGRLayer,
     int m_iGeomCol = -1;
     std::vector<int> m_anFieldOrdinals{};
 
+    //! Whether to call OGRGeometry::SetPrecision() when reading back geometries from the database
+    bool m_bUndoDiscardCoordLSBOnReading = false;
+
     void ClearStatement();
     virtual OGRErr ResetStatement() = 0;
 
@@ -564,6 +621,7 @@ class OGRGeoPackageLayer CPL_NON_FINAL : public OGRLayer,
     {
         return m_poDS;
     }
+
     virtual bool GetArrowStream(struct ArrowArrayStream *out_stream,
                                 CSLConstList papszOptions = nullptr) override;
     virtual int GetNextArrowArray(struct ArrowArrayStream *,
@@ -581,16 +639,19 @@ class OGRGeoPackageLayer CPL_NON_FINAL : public OGRLayer,
     const char *GetFIDColumn() override;
     void ResetReading() override;
     int TestCapability(const char *) override;
+
     OGRFeatureDefn *GetLayerDefn() override
     {
         return m_poFeatureDefn;
     }
-    OGRErr SetIgnoredFields(const char **papszFields) override;
+
+    OGRErr SetIgnoredFields(CSLConstList papszFields) override;
 
     virtual bool HasFastSpatialFilter(int /*iGeomCol*/) override
     {
         return false;
     }
+
     virtual CPLString GetSpatialWhere(int /*iGeomCol*/,
                                       OGRGeometry * /*poFilterGeom*/) override
     {
@@ -615,6 +676,7 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
     int m_iSrs = 0;
     int m_nZFlag = 0;
     int m_nMFlag = 0;
+    OGRGeomCoordinateBinaryPrecision m_sBinaryPrecision{};
     OGREnvelope *m_poExtent = nullptr;
 #ifdef ENABLE_GPKG_OGR_CONTENTS
     GIntBig m_nTotalFeatureCount = -1;
@@ -647,6 +709,7 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
     bool m_bTruncateFields = false;
     bool m_bDeferredCreation = false;
     bool m_bTableCreatedInTransaction = false;
+    bool m_bLaunder = false;
     int m_iFIDAsRegularColumnIndex = -1;
     std::string m_osInsertionBuffer{};  // used by FeatureBindParameters to
                                         // store datetime values
@@ -667,6 +730,7 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
     bool m_bUpdate1TriggerDisabled = false;
     bool m_bHasUpdate6And7Triggers = false;
     std::string m_osUpdate1Trigger{};
+
     typedef struct
     {
         GIntBig nId;
@@ -675,6 +739,7 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
         float fMaxX;
         float fMaxY;
     } GPKGRTreeEntry;
+
     std::vector<GPKGRTreeEntry> m_aoRTreeEntries{};
 
     // Variables used for background RTree building
@@ -718,12 +783,12 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
     void DisableFeatureCountTriggers(bool bNullifyFeatureCount = true);
 #endif
 
-    void CheckGeometryType(OGRFeature *poFeature);
+    void CheckGeometryType(const OGRFeature *poFeature);
 
     OGRErr ReadTableDefinition();
     void InitView();
 
-    bool DoSpecialProcessingForColumnCreation(OGRFieldDefn *poField);
+    bool DoSpecialProcessingForColumnCreation(const OGRFieldDefn *poField);
 
     bool StartDeferredSpatialIndexUpdate();
     bool FlushPendingSpatialIndexUpdate();
@@ -755,6 +820,7 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
         GIntBig m_iStartShapeId = 0;
         std::unique_ptr<struct ArrowArray> m_psArrowArray = nullptr;
     };
+
     std::queue<std::unique_ptr<ArrowArrayPrefetchTask>>
         m_oQueueArrowArrayPrefetchTasks{};
 
@@ -790,13 +856,15 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
     {
         return GetDescription();
     }
+
     const char *GetFIDColumn() override;
     OGRwkbGeometryType GetGeomType() override;
     const char *GetGeometryColumn() override;
     OGRFeatureDefn *GetLayerDefn() override;
     int TestCapability(const char *) override;
-    OGRErr CreateField(OGRFieldDefn *poField, int bApproxOK = TRUE) override;
-    OGRErr CreateGeomField(OGRGeomFieldDefn *poGeomFieldIn,
+    OGRErr CreateField(const OGRFieldDefn *poField,
+                       int bApproxOK = TRUE) override;
+    OGRErr CreateGeomField(const OGRGeomFieldDefn *poGeomFieldIn,
                            int bApproxOK = TRUE) override;
     virtual OGRErr DeleteField(int iFieldToDelete) override;
     virtual OGRErr AlterFieldDefn(int iFieldToAlter,
@@ -819,6 +887,7 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
                           bool bUpdateStyleString) override;
     OGRErr DeleteFeature(GIntBig nFID) override;
     virtual void SetSpatialFilter(OGRGeometry *) override;
+
     virtual void SetSpatialFilter(int iGeomField, OGRGeometry *poGeom) override
     {
         OGRGeoPackageLayer::SetSpatialFilter(iGeomField, poGeom);
@@ -833,12 +902,15 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
     OGRErr RollbackTransaction() override;
     GIntBig GetFeatureCount(int) override;
     OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
+
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce) override
     {
         return OGRGeoPackageLayer::GetExtent(iGeomField, psExtent, bForce);
     }
 
+    virtual OGRErr GetExtent3D(int iGeomField, OGREnvelope3D *psExtent3D,
+                               int bForce) override;
     OGRGeometryTypeCounter *GetGeometryTypes(int iGeomField, int nFlagsGGT,
                                              int &nEntryCountOut,
                                              GDALProgressFunc pfnProgress,
@@ -850,19 +922,22 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
                               const char *pszObjectType, bool bIsInGpkgContents,
                               bool bIsSpatial, const char *pszGeomColName,
                               const char *pszGeomType, bool bHasZ, bool bHasM);
-    void SetCreationParameters(OGRwkbGeometryType eGType,
-                               const char *pszGeomColumnName, int bGeomNullable,
-                               OGRSpatialReference *poSRS,
-                               const char *pszFIDColumnName,
-                               const char *pszIdentifier,
-                               const char *pszDescription);
+    void SetCreationParameters(
+        OGRwkbGeometryType eGType, const char *pszGeomColumnName,
+        int bGeomNullable, const OGRSpatialReference *poSRS,
+        const char *pszSRID, const OGRGeomCoordinatePrecision &oCoordPrec,
+        bool bDiscardCoordLSB, bool bUndoDiscardCoordLSBOnReading,
+        const char *pszFIDColumnName, const char *pszIdentifier,
+        const char *pszDescription);
     void SetDeferredSpatialIndexCreation(bool bFlag);
+
     void SetASpatialVariant(GPKGASpatialVariant eASpatialVariant)
     {
         m_eASpatialVariant = eASpatialVariant;
         if (eASpatialVariant == GPKG_ATTRIBUTES)
             m_bIsInGpkgContents = true;
     }
+
     void SetDateTimePrecision(OGRISO8601Precision ePrecision)
     {
         m_sDateTimeFormat.ePrecision = ePrecision;
@@ -894,14 +969,22 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
                                       OGRGeometry *poFilterGeom) override;
 
     bool HasSpatialIndex();
+
     void SetPrecisionFlag(int bFlag)
     {
         m_bPreservePrecision = CPL_TO_BOOL(bFlag);
     }
+
     void SetTruncateFieldsFlag(int bFlag)
     {
         m_bTruncateFields = CPL_TO_BOOL(bFlag);
     }
+
+    void SetLaunder(bool bFlag)
+    {
+        m_bLaunder = bFlag;
+    }
+
     OGRErr RunDeferredCreationIfNecessary();
     bool RunDeferredDropRTreeTableIfNecessary();
     bool DoJobAtTransactionCommit();
@@ -913,14 +996,17 @@ class OGRGeoPackageTableLayer final : public OGRGeoPackageLayer
     {
         return m_bAddOGRFeatureCountTriggers;
     }
+
     void SetAddOGRFeatureCountTriggers(bool b)
     {
         m_bAddOGRFeatureCountTriggers = b;
     }
+
     bool GetOGRFeatureCountTriggersDeletedInTransaction() const
     {
         return m_bFeatureCountTriggersDeletedInTransaction;
     }
+
     void SetOGRFeatureCountTriggersEnabled(bool b)
     {
         m_bOGRFeatureCountTriggersEnabled = b;
@@ -997,6 +1083,7 @@ class OGRGeoPackageSelectLayer final : public OGRGeoPackageLayer,
     {
         SetSpatialFilter(0, poGeom);
     }
+
     virtual void SetSpatialFilter(int iGeomField, OGRGeometry *) override;
     virtual OGRErr SetAttributeFilter(const char *) override;
 
@@ -1006,6 +1093,7 @@ class OGRGeoPackageSelectLayer final : public OGRGeoPackageLayer,
     {
         return GetExtent(0, psExtent, bForce);
     }
+
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce = TRUE) override;
 
@@ -1013,62 +1101,86 @@ class OGRGeoPackageSelectLayer final : public OGRGeoPackageLayer,
     {
         return OGRGeoPackageLayer::GetLayerDefn();
     }
+
     virtual char *&GetAttrQueryString() override
     {
         return m_pszAttrQueryString;
     }
+
     virtual OGRFeatureQuery *&GetFeatureQuery() override
     {
         return m_poAttrQuery;
     }
+
     virtual OGRGeometry *&GetFilterGeom() override
     {
         return m_poFilterGeom;
     }
+
     virtual int &GetIGeomFieldFilter() override
     {
         return m_iGeomFieldFilter;
     }
+
     virtual OGRSpatialReference *GetSpatialRef() override
     {
         return OGRGeoPackageLayer::GetSpatialRef();
     }
+
     virtual int InstallFilter(OGRGeometry *poGeomIn) override
     {
         return OGRGeoPackageLayer::InstallFilter(poGeomIn);
     }
+
     virtual int HasReadFeature() override
     {
         return m_iNextShapeId > 0;
     }
+
     virtual void BaseResetReading() override
     {
         OGRGeoPackageLayer::ResetReading();
     }
+
     virtual OGRFeature *BaseGetNextFeature() override
     {
         return OGRGeoPackageLayer::GetNextFeature();
     }
+
     virtual OGRErr BaseSetAttributeFilter(const char *pszQuery) override
     {
         return OGRGeoPackageLayer::SetAttributeFilter(pszQuery);
     }
+
     virtual GIntBig BaseGetFeatureCount(int bForce) override
     {
         return OGRGeoPackageLayer::GetFeatureCount(bForce);
     }
+
     virtual int BaseTestCapability(const char *pszCap) override
     {
         return OGRGeoPackageLayer::TestCapability(pszCap);
     }
+
     virtual OGRErr BaseGetExtent(OGREnvelope *psExtent, int bForce) override
     {
         return OGRGeoPackageLayer::GetExtent(psExtent, bForce);
     }
+
     virtual OGRErr BaseGetExtent(int iGeomField, OGREnvelope *psExtent,
                                  int bForce) override
     {
         return OGRGeoPackageLayer::GetExtent(iGeomField, psExtent, bForce);
+    }
+
+    bool
+    ValidateGeometryFieldIndexForSetSpatialFilter(int iGeomField,
+                                                  const OGRGeometry *poGeomIn,
+                                                  bool bIsSelectLayer) override
+    {
+        return OGRGeoPackageLayer::
+            ValidateGeometryFieldIndexForSetSpatialFilter(iGeomField, poGeomIn,
+                                                          bIsSelectLayer);
     }
 };
 

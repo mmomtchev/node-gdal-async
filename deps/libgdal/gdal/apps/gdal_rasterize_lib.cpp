@@ -52,10 +52,10 @@
 #include "ogr_srs_api.h"
 
 /************************************************************************/
-/*                            ArgIsNumeric()                            */
+/*                       ArgIsNumericRasterize()                        */
 /************************************************************************/
 
-static bool ArgIsNumeric(const char *pszArg)
+static bool ArgIsNumericRasterize(const char *pszArg)
 
 {
     char *pszEnd = nullptr;
@@ -1067,19 +1067,17 @@ GDALRasterizeOptionsNew(char **papszArgv,
         {
             if (strchr(papszArgv[i + 1], ' '))
             {
-                char **papszTokens = CSLTokenizeString(papszArgv[i + 1]);
-                char **papszIter = papszTokens;
-                while (papszIter && *papszIter)
+                const CPLStringList aosTokens(
+                    CSLTokenizeString(papszArgv[i + 1]));
+                for (const char *pszToken : aosTokens)
                 {
-                    psOptions->anBandList.push_back(atoi(*papszIter));
-                    papszIter++;
+                    psOptions->anBandList.push_back(atoi(pszToken));
                 }
-                CSLDestroy(papszTokens);
                 i += 1;
             }
             else
             {
-                while (i < argc - 1 && ArgIsNumeric(papszArgv[i + 1]))
+                while (i < argc - 1 && ArgIsNumericRasterize(papszArgv[i + 1]))
                 {
                     psOptions->anBandList.push_back(atoi(papszArgv[i + 1]));
                     i += 1;
@@ -1120,19 +1118,17 @@ GDALRasterizeOptionsNew(char **papszArgv,
         {
             if (strchr(papszArgv[i + 1], ' '))
             {
-                char **papszTokens = CSLTokenizeString(papszArgv[i + 1]);
-                char **papszIter = papszTokens;
-                while (papszIter && *papszIter)
+                const CPLStringList aosTokens(
+                    CSLTokenizeString(papszArgv[i + 1]));
+                for (const char *pszToken : aosTokens)
                 {
-                    psOptions->adfBurnValues.push_back(CPLAtof(*papszIter));
-                    papszIter++;
+                    psOptions->adfBurnValues.push_back(CPLAtof(pszToken));
                 }
-                CSLDestroy(papszTokens);
                 i += 1;
             }
             else
             {
-                while (i < argc - 1 && ArgIsNumeric(papszArgv[i + 1]))
+                while (i < argc - 1 && ArgIsNumericRasterize(papszArgv[i + 1]))
                 {
                     psOptions->adfBurnValues.push_back(
                         CPLAtof(papszArgv[i + 1]));
@@ -1179,19 +1175,17 @@ GDALRasterizeOptionsNew(char **papszArgv,
         {
             if (strchr(papszArgv[i + 1], ' '))
             {
-                char **papszTokens = CSLTokenizeString(papszArgv[i + 1]);
-                char **papszIter = papszTokens;
-                while (papszIter && *papszIter)
+                const CPLStringList aosTokens(
+                    CSLTokenizeString(papszArgv[i + 1]));
+                for (const char *pszToken : aosTokens)
                 {
-                    psOptions->adfInitVals.push_back(CPLAtof(*papszIter));
-                    papszIter++;
+                    psOptions->adfInitVals.push_back(CPLAtof(pszToken));
                 }
-                CSLDestroy(papszTokens);
                 i += 1;
             }
             else
             {
-                while (i < argc - 1 && ArgIsNumeric(papszArgv[i + 1]))
+                while (i < argc - 1 && ArgIsNumericRasterize(papszArgv[i + 1]))
                 {
                     psOptions->adfInitVals.push_back(CPLAtof(papszArgv[i + 1]));
                     i += 1;

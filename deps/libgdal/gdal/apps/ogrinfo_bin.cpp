@@ -40,31 +40,10 @@
 /*                               Usage()                                */
 /************************************************************************/
 
-static void Usage(bool bIsError, const char *pszErrorMsg = nullptr)
+static void Usage()
 {
-    fprintf(bIsError ? stderr : stdout,
-            "Usage: ogrinfo [--help] [--help-general]\n"
-            "               [-if <driver_name>] [-json] [-ro] [-q] [-where "
-            "<restricted_where>|@f<ilename>]\n"
-            "               [-spat <xmin> <ymin> <xmax> <ymax>] [-geomfield "
-            "<field>] "
-            "[-fid <fid>]\n"
-            "               [-sql <statement>|@<filename>] [-dialect "
-            "<sql_dialect>] "
-            "[-al] [-rl]\n"
-            "               [-so|-features] [-fields={YES|NO}]]\n"
-            "               [-geom={YES|NO|SUMMARY|WKT|ISO_WKT}] "
-            "[-oo <NAME>=<VALUE>]...\n"
-            "               [-nomd] [-listmdd] [-mdd {<domain>|all}]...\n"
-            "               [-nocount] [-noextent] [-nogeomtype] [-wkt_format "
-            "WKT1|WKT2|<other_values>]\n"
-            "               [-fielddomain <name>]\n"
-            "               <datasource_name> [<layer> [<layer> ...]]\n");
-
-    if (pszErrorMsg != nullptr)
-        fprintf(stderr, "\nFAILURE: %s\n", pszErrorMsg);
-
-    exit(bIsError ? 1 : 0);
+    fprintf(stderr, "%s\n", GDALVectorInfoGetParserUsage().c_str());
+    exit(1);
 }
 
 /************************************************************************/
@@ -86,33 +65,13 @@ MAIN_START(argc, argv)
     if (argc < 1)
         exit(-argc);
 
-    for (int i = 0; argv != nullptr && argv[i] != nullptr; i++)
-    {
-        if (EQUAL(argv[i], "--utility_version"))
-        {
-            printf("%s was compiled against GDAL %s and is running against "
-                   "GDAL %s\n",
-                   argv[0], GDAL_RELEASE_NAME, GDALVersionInfo("RELEASE_NAME"));
-            CSLDestroy(argv);
-            return 0;
-        }
-        else if (EQUAL(argv[i], "--help"))
-        {
-            Usage(false);
-        }
-    }
-    argv = CSLAddString(argv, "-stdout");
-
     auto psOptionsForBinary =
-        cpl::make_unique<GDALVectorInfoOptionsForBinary>();
+        std::make_unique<GDALVectorInfoOptionsForBinary>();
 
     GDALVectorInfoOptions *psOptions =
         GDALVectorInfoOptionsNew(argv + 1, psOptionsForBinary.get());
     if (psOptions == nullptr)
-        Usage(true);
-
-    if (psOptionsForBinary->osFilename.empty())
-        Usage(true, "No datasource specified.");
+        Usage();
 
 /* -------------------------------------------------------------------- */
 /*      Open dataset.                                                   */
@@ -137,6 +96,10 @@ MAIN_START(argc, argv)
         else if (psOptionsForBinary->osSQLStatement.empty())
         {
             nFlags |= GDAL_OF_READONLY;
+            // GDALIdentifyDriverEx() might emit an error message, e.g.
+            // when opening "/vsizip/foo.zip/" and the zip has more than one
+            // file. Cf https://github.com/OSGeo/gdal/issues/9459
+            CPLErrorHandlerPusher oErrorHandler(CPLQuietErrorHandler);
             if (GDALIdentifyDriverEx(
                     psOptionsForBinary->osFilename.c_str(), GDAL_OF_VECTOR,
                     psOptionsForBinary->aosAllowInputDrivers.List(), nullptr))
@@ -191,8 +154,22 @@ MAIN_START(argc, argv)
         if (poDS == nullptr)
         {
             nRet = 1;
-            fprintf(stderr, "ogrinfo failed - unable to open '%s'.\n",
-                    psOptionsForBinary->osFilename.c_str());
+
+            VSIStatBuf sStat;
+            CPLString message;
+            message.Printf("ogrinfo failed - unable to open '%s'.",
+                           psOptionsForBinary->osFilename.c_str());
+            if (VSIStat(psOptionsForBinary->osFilename.c_str(), &sStat) == 0)
+            {
+                GDALDriverH drv =
+                    GDALIdentifyDriverEx(psOptionsForBinary->osFilename.c_str(),
+                                         GDAL_OF_RASTER, nullptr, nullptr);
+                if (drv)
+                {
+                    message += " Did you intend to call gdalinfo?";
+                }
+            }
+            fprintf(stderr, "%s\n", message.c_str());
         }
         else
         {
@@ -225,4 +202,5 @@ MAIN_START(argc, argv)
 
     exit(nRet);
 }
+
 MAIN_END

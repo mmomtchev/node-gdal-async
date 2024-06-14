@@ -96,18 +96,22 @@ class VFKProperty
     {
         return m_bIsNull;
     }
+
     int GetValueI() const
     {
         return static_cast<int>(m_iValue);
     }
+
     GIntBig GetValueI64() const
     {
         return m_iValue;
     }
+
     double GetValueD() const
     {
         return m_dValue;
     }
+
     const char *GetValueS(bool = false) const;
 };
 
@@ -116,13 +120,19 @@ class VFKProperty
 /************************************************************************/
 class IVFKFeature
 {
+  private:
+    static double GetDeterminatOfMatrixDim3(double[3], double[3], double[3]);
+    static void GetCircleCenterFrom3Points(double[2], double[3], double[3]);
+    static void AddCirclePointsToGeomString(OGRCircularString &, double, double,
+                                            double);
+
   protected:
     IVFKDataBlock *m_poDataBlock;
     GIntBig m_nFID;
     OGRwkbGeometryType m_nGeometryType;
     bool m_bGeometry;
     bool m_bValid;
-    OGRGeometry *m_paGeom;
+    std::unique_ptr<OGRGeometry> m_paGeom{};
 
     virtual bool LoadGeometryPoint() = 0;
     virtual bool LoadGeometryLineStringSBP() = 0;
@@ -137,6 +147,7 @@ class IVFKFeature
     {
         return m_nFID;
     }
+
     void SetFID(GIntBig);
     void SetGeometryType(OGRwkbGeometryType);
 
@@ -149,12 +160,14 @@ class IVFKFeature
     {
         return m_poDataBlock;
     }
+
     OGRwkbGeometryType GetGeometryType() const
     {
         return m_nGeometryType;
     }
-    bool SetGeometry(OGRGeometry *, const char * = nullptr);
-    OGRGeometry *GetGeometry();
+
+    bool SetGeometry(const OGRGeometry *, const char * = nullptr);
+    const OGRGeometry *GetGeometry();
 
     bool LoadGeometry();
     virtual OGRErr LoadProperties(OGRFeature *) = 0;
@@ -241,19 +254,24 @@ class VFKPropertyDefn
     {
         return m_pszName;
     }
+
     int GetWidth() const
     {
         return m_nWidth;
     }
+
     int GetPrecision() const
     {
         return m_nPrecision;
     }
+
     OGRFieldType GetType() const
     {
         return m_eFType;
     }
+
     CPLString GetTypeSQL() const;
+
     const char *GetEncoding() const
     {
         return m_pszEncoding;
@@ -315,6 +333,7 @@ class IVFKDataBlock
     {
         return m_nPropertyCount;
     }
+
     VFKPropertyDefn *GetProperty(int) const;
     void SetProperties(const char *);
     int GetPropertyIndex(const char *) const;
@@ -344,6 +363,7 @@ class IVFKDataBlock
     {
         return m_poReader;
     }
+
     int GetRecordCount(RecordType = RecordValid) const;
     void SetIncRecordCount(RecordType);
 };
@@ -375,6 +395,7 @@ class VFKDataBlock : public IVFKDataBlock
     {
         return OGRERR_UNSUPPORTED_OPERATION;
     }
+
     OGRErr CleanProperties() override
     {
         return OGRERR_UNSUPPORTED_OPERATION;

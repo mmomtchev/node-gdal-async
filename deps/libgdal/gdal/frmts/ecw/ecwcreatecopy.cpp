@@ -34,7 +34,7 @@
 #include "gdaljp2metadata.h"
 #include "ogr_spatialref.h"
 
-#if defined(FRMT_ecw) && defined(HAVE_COMPRESS)
+#if defined(HAVE_COMPRESS)
 
 #define OPTIMIZED_FOR_GDALWARP
 
@@ -53,7 +53,7 @@ static CPLString GetCompressionSoftwareName()
     if (CPLGetExecPath(szProcessName, sizeof(szProcessName) - 1))
     {
         szProcessName[sizeof(szProcessName) - 1] = 0;
-#ifdef WIN32
+#ifdef _WIN32
         char *szLastSlash = strrchr(szProcessName, '\\');
 #else
         char *szLastSlash = strrchr(szProcessName, '/');
@@ -593,6 +593,7 @@ CPLErr GDALECWCompressor::ourWriteLineBIL(UINT16 nBands, void **ppOutputLine,
     }
     return CE_None;
 }
+
 /************************************************************************/
 /*                             Initialize()                             */
 /*                                                                      */
@@ -1032,10 +1033,33 @@ CPLErr GDALECWCompressor::Initialize(
                 const char *pszGMLJP2V2Def =
                     CSLFetchNameValue(papszOptions, "GMLJP2V2_DEF");
                 if (pszGMLJP2V2Def != nullptr)
+                {
                     WriteJP2Box(oJP2MD.CreateGMLJP2V2(nXSize, nYSize,
                                                       pszGMLJP2V2Def, poSrcDS));
+                }
                 else
-                    WriteJP2Box(oJP2MD.CreateGMLJP2(nXSize, nYSize));
+                {
+                    if (!poSRS || poSRS->IsEmpty() ||
+                        GDALJP2Metadata::IsSRSCompatible(poSRS))
+                    {
+                        WriteJP2Box(oJP2MD.CreateGMLJP2(nXSize, nYSize));
+                    }
+                    else if (CSLFetchNameValue(papszOptions, "GMLJP2"))
+                    {
+                        CPLError(CE_Warning, CPLE_AppDefined,
+                                 "GMLJP2 box was explicitly required but "
+                                 "cannot be written due "
+                                 "to lack of georeferencing and/or unsupported "
+                                 "georeferencing "
+                                 "for GMLJP2");
+                    }
+                    else
+                    {
+                        CPLDebug(
+                            "JP2ECW",
+                            "Cannot write GMLJP2 box due to unsupported SRS");
+                    }
+                }
             }
             if (CPLFetchBool(papszOptions, "GeoJP2", true))
                 WriteJP2Box(oJP2MD.CreateJP2GeoTIFF());
@@ -1203,7 +1227,7 @@ CPLErr GDALECWCompressor::Initialize(
     {
         if (fpVSIL == nullptr)
         {
-#if ECWSDK_VERSION >= 40 && defined(WIN32)
+#if ECWSDK_VERSION >= 40 && defined(_WIN32)
             if (CPLTestBool(CPLGetConfigOption("GDAL_FILENAME_IS_UTF8", "YES")))
             {
                 wchar_t *pwszFilename =
@@ -1704,6 +1728,7 @@ class IRasterIORequest
                           nDataTypeSize, nBufXSize);
         }
     }
+
     ~IRasterIORequest()
     {
         CPLFree(pabyData);
@@ -1791,6 +1816,7 @@ class ECWWriteRasterBand final : public GDALRasterBand
             SetDescription(ECWGetColorInterpretationName(eInterp, nBand - 1));
         return CE_None;
     }
+
     virtual GDALColorInterp GetColorInterpretation() override
     {
         return eInterp;
@@ -1857,7 +1883,7 @@ ECWWriteDataset::ECWWriteDataset(const char *pszFilenameIn, int nXSize,
 ECWWriteDataset::~ECWWriteDataset()
 
 {
-    FlushCache(true);
+    ECWWriteDataset::FlushCache(true);
 
     if (bCrystalized)
     {
@@ -2274,4 +2300,4 @@ GDALDataset *ECWCreateECW(const char *pszFilename, int nXSize, int nYSize,
                                papszOptions, FALSE);
 }
 
-#endif /* def FRMT_ecw && def HAVE_COMPRESS */
+#endif /* def HAVE_COMPRESS */

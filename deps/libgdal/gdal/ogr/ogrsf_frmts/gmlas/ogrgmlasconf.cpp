@@ -30,52 +30,9 @@
 
 #include "ogr_gmlas.h"
 
-#define CONSTANT_DEFINITION
-#undef OGR_GMLAS_CONSTS_INCLUDED_REDEFINABLE
-#include "ogr_gmlas_consts.h"
-
 #include "cpl_minixml.h"
 
 #include <algorithm>
-
-/************************************************************************/
-/*                          GMLASConfiguration()                        */
-/************************************************************************/
-
-GMLASConfiguration::GMLASConfiguration()
-    : m_bAllowRemoteSchemaDownload(ALLOW_REMOTE_SCHEMA_DOWNLOAD_DEFAULT),
-      m_bAlwaysGenerateOGRId(ALWAYS_GENERATE_OGR_ID_DEFAULT),
-      m_bRemoveUnusedLayers(REMOVE_UNUSED_LAYERS_DEFAULT),
-      m_bRemoveUnusedFields(REMOVE_UNUSED_FIELDS_DEFAULT),
-      m_bUseArrays(USE_ARRAYS_DEFAULT), m_bUseNullState(USE_NULL_STATE_DEFAULT),
-      m_bIncludeGeometryXML(INCLUDE_GEOMETRY_XML_DEFAULT),
-      m_bInstantiateGMLFeaturesOnly(INSTANTIATE_GML_FEATURES_ONLY_DEFAULT),
-      m_nIdentifierMaxLength(0),
-      m_bCaseInsensitiveIdentifier(CASE_INSENSITIVE_IDENTIFIER_DEFAULT),
-      m_bPGIdentifierLaundering(PG_IDENTIFIER_LAUNDERING_DEFAULT),
-      m_nMaximumFieldsForFlattening(MAXIMUM_FIELDS_FLATTENING_DEFAULT),
-      m_bAllowXSDCache(ALLOW_XSD_CACHE_DEFAULT),
-      m_bSchemaFullChecking(SCHEMA_FULL_CHECKING_DEFAULT),
-      m_bHandleMultipleImports(HANDLE_MULTIPLE_IMPORTS_DEFAULT),
-      m_bValidate(VALIDATE_DEFAULT),
-      m_bFailIfValidationError(FAIL_IF_VALIDATION_ERROR_DEFAULT),
-      m_bExposeMetadataLayers(WARN_IF_EXCLUDED_XPATH_FOUND_DEFAULT),
-      m_eSWEActivationMode(SWE_ACTIVATE_IF_NAMESPACE_FOUND),
-      m_bSWEProcessDataRecord(SWE_PROCESS_DATA_RECORD_DEFAULT),
-      m_bSWEProcessDataArray(SWE_PROCESS_DATA_ARRAY_DEFAULT),
-      m_nIndentSize(INDENT_SIZE_DEFAULT), m_osSRSNameFormat(szSRSNAME_DEFAULT),
-      m_osWrapping(szWFS2_FEATURECOLLECTION),
-      m_osWFS20SchemaLocation(szWFS20_SCHEMALOCATION)
-{
-}
-
-/************************************************************************/
-/*                         ~GMLASConfiguration()                        */
-/************************************************************************/
-
-GMLASConfiguration::~GMLASConfiguration()
-{
-}
 
 /************************************************************************/
 /*                        GetBaseCacheDirectory()                       */
@@ -83,7 +40,7 @@ GMLASConfiguration::~GMLASConfiguration()
 
 CPLString GMLASConfiguration::GetBaseCacheDirectory()
 {
-#ifdef WIN32
+#ifdef _WIN32
     const char *pszHome = CPLGetConfigOption("USERPROFILE", nullptr);
 #else
     const char *pszHome = CPLGetConfigOption("HOME", nullptr);
@@ -171,25 +128,25 @@ static bool IsValidXPath(const CPLString &osXPath)
         }
         else if (chCur == '@' && (i == 0 || osXPath[i - 1] == '/') &&
                  i < osXPath.size() - 1 &&
-                 isalpha(static_cast<int>(osXPath[i + 1])))
+                 isalpha(static_cast<unsigned char>(osXPath[i + 1])))
         {
             // OK
         }
-        else if (chCur == '_' || isalpha(static_cast<int>(chCur)))
+        else if (chCur == '_' || isalpha(static_cast<unsigned char>(chCur)))
         {
             // OK
         }
-        else if (isdigit(static_cast<int>(chCur)) && i > 0 &&
-                 (isalnum(static_cast<int>(osXPath[i - 1])) ||
+        else if (isdigit(static_cast<unsigned char>(chCur)) && i > 0 &&
+                 (isalnum(static_cast<unsigned char>(osXPath[i - 1])) ||
                   osXPath[i - 1] == '_'))
         {
             // OK
         }
         else if (chCur == ':' && i > 0 &&
-                 (isalnum(static_cast<int>(osXPath[i - 1])) ||
+                 (isalnum(static_cast<unsigned char>(osXPath[i - 1])) ||
                   osXPath[i - 1] == '_') &&
                  i < osXPath.size() - 1 &&
-                 isalpha(static_cast<int>(osXPath[i + 1])))
+                 isalpha(static_cast<unsigned char>(osXPath[i + 1])))
         {
             // OK
         }
@@ -211,7 +168,7 @@ static void CPL_STDCALL GMLASConfigurationErrorHandler(CPLErr /*eErr*/,
                                                        const char *pszMsg)
 {
     std::vector<CPLString> *paosErrors =
-        (std::vector<CPLString> *)CPLGetErrorHandlerUserData();
+        static_cast<std::vector<CPLString> *>(CPLGetErrorHandlerUserData());
     paosErrors->push_back(pszMsg);
 }
 
@@ -231,8 +188,9 @@ static void ParseNamespaces(CPLXMLNode *psContainerNode,
             if (psIter->eType == CXT_Element &&
                 EQUAL(psIter->pszValue, "Namespace"))
             {
-                CPLString osPrefix = CPLGetXMLValue(psIter, "prefix", "");
-                CPLString osURI = CPLGetXMLValue(psIter, "uri", "");
+                const std::string osPrefix =
+                    CPLGetXMLValue(psIter, "prefix", "");
+                const std::string osURI = CPLGetXMLValue(psIter, "uri", "");
                 if (!osPrefix.empty() && !osURI.empty())
                 {
                     if (oMap.find(osPrefix) == oMap.end())
@@ -529,21 +487,6 @@ bool GMLASConfiguration::Load(const char *pszFilename)
 }
 
 /************************************************************************/
-/*                         GMLASXLinkResolutionConf()                   */
-/************************************************************************/
-
-GMLASXLinkResolutionConf::GMLASXLinkResolutionConf()
-    : m_nTimeOut(0), m_nMaxFileSize(MAX_FILE_SIZE_DEFAULT),
-      m_nMaxGlobalResolutionTime(0),
-      m_bDefaultResolutionEnabled(DEFAULT_RESOLUTION_ENABLED_DEFAULT),
-      m_bDefaultAllowRemoteDownload(ALLOW_REMOTE_DOWNLOAD_DEFAULT),
-      m_eDefaultResolutionMode(RawContent), m_nDefaultResolutionDepth(1),
-      m_bDefaultCacheResults(CACHE_RESULTS_DEFAULT),
-      m_bResolveInternalXLinks(INTERNAL_XLINK_RESOLUTION_DEFAULT)
-{
-}
-
-/************************************************************************/
 /*                               LoadFromXML()                          */
 /************************************************************************/
 
@@ -645,14 +588,4 @@ bool GMLASXLinkResolutionConf::LoadFromXML(CPLXMLNode *psRoot)
         psRoot, "ResolveInternalXLinks", INTERNAL_XLINK_RESOLUTION_DEFAULT);
 
     return true;
-}
-
-/************************************************************************/
-/*                          URLSpecificResolution()                     */
-/************************************************************************/
-
-GMLASXLinkResolutionConf::URLSpecificResolution::URLSpecificResolution()
-    : m_bAllowRemoteDownload(false), m_eResolutionMode(RawContent),
-      m_nResolutionDepth(1), m_bCacheResults(false)
-{
 }

@@ -871,7 +871,7 @@ int GDALJP2Metadata::GMLSRSLookup(const char *pszURN)
 
     if (oSRS.importFromXML(pszDictEntryXML) == OGRERR_NONE)
     {
-        m_oSRS = oSRS;
+        m_oSRS = std::move(oSRS);
         m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         bSuccess = true;
     }
@@ -1021,13 +1021,13 @@ int GDALJP2Metadata::ParseGMLCoverageDesc()
     /* -------------------------------------------------------------------- */
     bool bNeedAxisFlip = false;
 
-    OGRSpatialReference oSRS;
     if (bSuccess && pszSRSName != nullptr && m_oSRS.IsEmpty())
     {
+        OGRSpatialReference oSRS;
         if (STARTS_WITH_CI(pszSRSName, "epsg:"))
         {
             if (oSRS.SetFromUserInput(pszSRSName) == OGRERR_NONE)
-                m_oSRS = oSRS;
+                m_oSRS = std::move(oSRS);
         }
         else if ((STARTS_WITH_CI(pszSRSName, "urn:") &&
                   strstr(pszSRSName, ":def:") != nullptr &&
@@ -1040,11 +1040,11 @@ int GDALJP2Metadata::ParseGMLCoverageDesc()
                                  "http://www.opengis.net/def/crs/") &&
                   oSRS.importFromCRSURL(pszSRSName) == OGRERR_NONE))
         {
-            m_oSRS = oSRS;
+            m_oSRS = std::move(oSRS);
 
             // Per #2131
-            if (oSRS.EPSGTreatsAsLatLong() ||
-                oSRS.EPSGTreatsAsNorthingEasting())
+            if (m_oSRS.EPSGTreatsAsLatLong() ||
+                m_oSRS.EPSGTreatsAsNorthingEasting())
             {
                 CPLDebug("GMLJP2", "Request axis flip for SRS=%s", pszSRSName);
                 bNeedAxisFlip = true;
@@ -1253,6 +1253,31 @@ GDALJP2Box *GDALJP2Metadata::CreateJP2GeoTIFF()
 }
 
 /************************************************************************/
+/*                          IsSRSCompatible()                           */
+/************************************************************************/
+
+/* Returns true if the SRS can be references through a EPSG code, or encoded
+ * as a GML SRS
+ */
+bool GDALJP2Metadata::IsSRSCompatible(const OGRSpatialReference *poSRS)
+{
+    const char *pszAuthName = poSRS->GetAuthorityName(nullptr);
+    const char *pszAuthCode = poSRS->GetAuthorityCode(nullptr);
+
+    if (pszAuthName && pszAuthCode && EQUAL(pszAuthName, "epsg"))
+    {
+        if (atoi(pszAuthCode))
+            return true;
+    }
+
+    CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
+    char *pszGMLDef = nullptr;
+    const bool bRet = (poSRS->exportToXML(&pszGMLDef, nullptr) == OGRERR_NONE);
+    CPLFree(pszGMLDef);
+    return bRet;
+}
+
+/************************************************************************/
 /*                     GetGMLJP2GeoreferencingInfo()                    */
 /************************************************************************/
 
@@ -1269,42 +1294,27 @@ void GDALJP2Metadata::GetGMLJP2GeoreferencingInfo(
     bNeedAxisFlip = false;
     OGRSpatialReference oSRS(m_oSRS);
 
-    if (oSRS.IsProjected())
-    {
-        const char *pszAuthName = oSRS.GetAuthorityName("PROJCS");
+    const char *pszAuthName = oSRS.GetAuthorityName(nullptr);
+    const char *pszAuthCode = oSRS.GetAuthorityCode(nullptr);
 
-        if (pszAuthName != nullptr && EQUAL(pszAuthName, "epsg"))
-        {
-            nEPSGCode = atoi(oSRS.GetAuthorityCode("PROJCS"));
-        }
-    }
-    else if (oSRS.IsGeographic())
+    if (pszAuthName && pszAuthCode && EQUAL(pszAuthName, "epsg"))
     {
-        const char *pszAuthName = oSRS.GetAuthorityName("GEOGCS");
-
-        if (pszAuthName != nullptr && EQUAL(pszAuthName, "epsg"))
-        {
-            nEPSGCode = atoi(oSRS.GetAuthorityCode("GEOGCS"));
-        }
+        nEPSGCode = atoi(pszAuthCode);
     }
 
-    // Save error state as importFromEPSGA() will call CPLReset()
-    CPLErrorNum errNo = CPLGetLastErrorNo();
-    CPLErr eErr = CPLGetLastErrorType();
-    CPLString osLastErrorMsg = CPLGetLastErrorMsg();
-
-    // Determine if we need to flip axis. Reimport from EPSG and make
-    // sure not to strip axis definitions to determine the axis order.
-    if (nEPSGCode != 0 && oSRS.importFromEPSGA(nEPSGCode) == OGRERR_NONE)
     {
-        if (oSRS.EPSGTreatsAsLatLong() || oSRS.EPSGTreatsAsNorthingEasting())
+        CPLErrorStateBackuper oErrorStateBackuper;
+        // Determine if we need to flip axis. Reimport from EPSG and make
+        // sure not to strip axis definitions to determine the axis order.
+        if (nEPSGCode != 0 && oSRS.importFromEPSG(nEPSGCode) == OGRERR_NONE)
         {
-            bNeedAxisFlip = true;
+            if (oSRS.EPSGTreatsAsLatLong() ||
+                oSRS.EPSGTreatsAsNorthingEasting())
+            {
+                bNeedAxisFlip = true;
+            }
         }
     }
-
-    // Restore error state
-    CPLErrorSetState(eErr, errNo, osLastErrorMsg);
 
     /* -------------------------------------------------------------------- */
     /*      Prepare coverage origin and offset vectors.  Take axis          */
@@ -1369,6 +1379,7 @@ void GDALJP2Metadata::GetGMLJP2GeoreferencingInfo(
     {
         char *pszGMLDef = nullptr;
 
+        CPLErrorStateBackuper oErrorStateBackuper;
         if (oSRS.exportToXML(&pszGMLDef, nullptr) == OGRERR_NONE)
         {
             char *pszWKT = nullptr;
@@ -2937,7 +2948,7 @@ GDALJP2Box *GDALJP2Metadata::CreateGMLJP2V2(int nXSize, int nYSize,
                         if (!osXSD.empty())
                         {
                             GMLJP2V2BoxDesc oDesc;
-                            oDesc.osFile = osXSD;
+                            oDesc.osFile = std::move(osXSD);
                             oDesc.osLabel = CPLGetFilename(oDesc.osFile);
                             osSchemaLocation += papszTokens[0];
                             osSchemaLocation += " ";
@@ -3213,7 +3224,7 @@ GDALJP2Box *GDALJP2Metadata::CreateGMLJP2V2(int nXSize, int nYSize,
     /* -------------------------------------------------------------------- */
     /*      Additional user specified boxes.                                */
     /* -------------------------------------------------------------------- */
-    for (auto &oBox : aoBoxes)
+    for (const auto &oBox : aoBoxes)
     {
         GByte *pabyContent = nullptr;
         if (VSIIngestFile(nullptr, oBox.osFile, &pabyContent, nullptr, -1))

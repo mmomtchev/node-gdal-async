@@ -28,6 +28,9 @@
  * DEALINGS IN THE SOFTWARE.
  ****************************************************************************/
 
+#ifndef RDATASET_H_INCLUDED
+#define RDATASET_H_INCLUDED
+
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -97,9 +100,12 @@ class RRasterBand final : public GDALPamRasterBand
 
   public:
     RRasterBand(RDataset *, int, const double *);
+
     virtual ~RRasterBand()
     {
     }
 
     virtual CPLErr IReadBlock(int, int, void *) override;
 };
+
+#endif /* RDATASET_H_INCLUDED */

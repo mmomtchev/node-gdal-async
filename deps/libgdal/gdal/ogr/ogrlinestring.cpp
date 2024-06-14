@@ -31,6 +31,8 @@
 #include "ogr_geos.h"
 #include "ogr_p.h"
 
+#include "geodesic.h"  // from PROJ
+
 #include <cmath>
 #include <cstdlib>
 #include <algorithm>
@@ -1632,23 +1634,28 @@ OGRErr OGRSimpleCurve::importFromWkb(const unsigned char *pabyData,
 /*      Build a well known binary representation of this object.        */
 /************************************************************************/
 
-OGRErr OGRSimpleCurve::exportToWkb(OGRwkbByteOrder eByteOrder,
-                                   unsigned char *pabyData,
-                                   OGRwkbVariant eWkbVariant) const
+OGRErr OGRSimpleCurve::exportToWkb(unsigned char *pabyData,
+                                   const OGRwkbExportOptions *psOptions) const
 
 {
+    if (psOptions == nullptr)
+    {
+        static const OGRwkbExportOptions defaultOptions;
+        psOptions = &defaultOptions;
+    }
+
     /* -------------------------------------------------------------------- */
     /*      Set the byte order.                                             */
     /* -------------------------------------------------------------------- */
-    pabyData[0] =
-        DB2_V72_UNFIX_BYTE_ORDER(static_cast<unsigned char>(eByteOrder));
+    pabyData[0] = DB2_V72_UNFIX_BYTE_ORDER(
+        static_cast<unsigned char>(psOptions->eByteOrder));
 
     /* -------------------------------------------------------------------- */
     /*      Set the geometry feature type.                                  */
     /* -------------------------------------------------------------------- */
     GUInt32 nGType = getGeometryType();
 
-    if (eWkbVariant == wkbVariantPostGIS1)
+    if (psOptions->eWkbVariant == wkbVariantPostGIS1)
     {
         nGType = wkbFlatten(nGType);
         if (Is3D())
@@ -1658,10 +1665,10 @@ OGRErr OGRSimpleCurve::exportToWkb(OGRwkbByteOrder eByteOrder,
         if (IsMeasured())
             nGType = static_cast<OGRwkbGeometryType>(nGType | 0x40000000);
     }
-    else if (eWkbVariant == wkbVariantIso)
+    else if (psOptions->eWkbVariant == wkbVariantIso)
         nGType = getIsoGeometryType();
 
-    if (eByteOrder == wkbNDR)
+    if (psOptions->eByteOrder == wkbNDR)
     {
         CPL_LSBPTR32(&nGType);
     }
@@ -1688,6 +1695,14 @@ OGRErr OGRSimpleCurve::exportToWkb(OGRwkbByteOrder eByteOrder,
             memcpy(pabyData + 9 + 16 + 32 * i, padfZ + i, 8);
             memcpy(pabyData + 9 + 24 + 32 * i, padfM + i, 8);
         }
+        OGRRoundCoordinatesIEEE754XYValues<32>(
+            psOptions->sPrecision.nXYBitPrecision, pabyData + 9, nPointCount);
+        OGRRoundCoordinatesIEEE754<32>(psOptions->sPrecision.nZBitPrecision,
+                                       pabyData + 9 + 2 * sizeof(uint64_t),
+                                       nPointCount);
+        OGRRoundCoordinatesIEEE754<32>(psOptions->sPrecision.nMBitPrecision,
+                                       pabyData + 9 + 3 * sizeof(uint64_t),
+                                       nPointCount);
     }
     else if (flags & OGR_G_MEASURED)
     {
@@ -1696,6 +1711,11 @@ OGRErr OGRSimpleCurve::exportToWkb(OGRwkbByteOrder eByteOrder,
             memcpy(pabyData + 9 + 24 * i, paoPoints + i, 16);
             memcpy(pabyData + 9 + 16 + 24 * i, padfM + i, 8);
         }
+        OGRRoundCoordinatesIEEE754XYValues<24>(
+            psOptions->sPrecision.nXYBitPrecision, pabyData + 9, nPointCount);
+        OGRRoundCoordinatesIEEE754<24>(psOptions->sPrecision.nMBitPrecision,
+                                       pabyData + 9 + 2 * sizeof(uint64_t),
+                                       nPointCount);
     }
     else if (flags & OGR_G_3D)
     {
@@ -1704,14 +1724,23 @@ OGRErr OGRSimpleCurve::exportToWkb(OGRwkbByteOrder eByteOrder,
             memcpy(pabyData + 9 + 24 * i, paoPoints + i, 16);
             memcpy(pabyData + 9 + 16 + 24 * i, padfZ + i, 8);
         }
+        OGRRoundCoordinatesIEEE754XYValues<24>(
+            psOptions->sPrecision.nXYBitPrecision, pabyData + 9, nPointCount);
+        OGRRoundCoordinatesIEEE754<24>(psOptions->sPrecision.nZBitPrecision,
+                                       pabyData + 9 + 2 * sizeof(uint64_t),
+                                       nPointCount);
     }
     else if (nPointCount)
+    {
         memcpy(pabyData + 9, paoPoints, 16 * static_cast<size_t>(nPointCount));
+        OGRRoundCoordinatesIEEE754XYValues<16>(
+            psOptions->sPrecision.nXYBitPrecision, pabyData + 9, nPointCount);
+    }
 
     /* -------------------------------------------------------------------- */
     /*      Swap if needed.                                                 */
     /* -------------------------------------------------------------------- */
-    if (OGR_SWAP(eByteOrder))
+    if (OGR_SWAP(psOptions->eByteOrder))
     {
         const int nCount = CPL_SWAP32(nPointCount);
         memcpy(pabyData + 5, &nCount, 4);
@@ -1845,6 +1874,7 @@ OGRErr OGRSimpleCurve::importFromWKTListOnly(const char **ppszInput, int bHasZ,
 
     return OGRERR_NONE;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -1878,7 +1908,8 @@ std::string OGRSimpleCurve::exportToWkt(const OGRWktOptions &opts,
                 2 + ((hasZ) ? 1 : 0) + ((hasM) ? 1 : 0);
             // At least 2 bytes per ordinate: one for the value,
             // and one for the separator...
-            wkt.reserve(wkt.size() + 2 * nPointCount * nOrdinatesPerVertex);
+            wkt.reserve(wkt.size() + 2 * static_cast<size_t>(nPointCount) *
+                                         nOrdinatesPerVertex);
 
             for (int i = 0; i < nPointCount; i++)
             {
@@ -2009,33 +2040,20 @@ void OGRSimpleCurve::Value(double dfDistance, OGRPoint *poPoint) const
  * from point to the linestring. The distance from begin of linestring to
  * the point projection returned.
  *
- * This method is built on the GEOS library (GEOS >= 3.2.0), check it for the
+ * This method is built on the GEOS library. Check it for the
  * definition of the geometry operation.
  * If OGR is built without the GEOS library, this method will always return -1,
  * issuing a CPLE_NotSupported error.
  *
  * @return a distance from the begin of the linestring to the projected point.
- *
- * @since OGR 1.11.0
  */
 
-// GEOS >= 3.2.0 for project capability.
-#if defined(HAVE_GEOS)
-#if GEOS_VERSION_MAJOR > 3 ||                                                  \
-    (GEOS_VERSION_MAJOR == 3 && GEOS_VERSION_MINOR >= 2)
-#define HAVE_GEOS_PROJECT
-#endif
-#endif
-
-double OGRSimpleCurve::Project(const OGRPoint *
-#ifdef HAVE_GEOS_PROJECT
-                                   poPoint
-#endif
-) const
+double OGRSimpleCurve::Project(const OGRPoint *poPoint) const
 
 {
     double dfResult = -1;
-#ifndef HAVE_GEOS_PROJECT
+#ifndef HAVE_GEOS
+    CPL_IGNORE_RET_VAL(poPoint);
     CPLError(CE_Failure, CPLE_NotSupported, "GEOS support not enabled.");
     return dfResult;
 #else
@@ -2868,6 +2886,7 @@ OGRLineString *OGRLineString::TransferMembersAndDestroy(OGRLineString *poSrc,
     delete poSrc;
     return poDst;
 }
+
 //! @endcond
 /************************************************************************/
 /*                         CastToLinearRing()                           */
@@ -2946,23 +2965,99 @@ double OGRLineString::get_Area() const
 }
 
 /************************************************************************/
+/*                        get_GeodesicArea()                            */
+/************************************************************************/
+
+double
+OGRLineString::get_GeodesicArea(const OGRSpatialReference *poSRSOverride) const
+{
+    if (!poSRSOverride)
+        poSRSOverride = getSpatialReference();
+
+    if (!poSRSOverride)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "Cannot compute area on ellipsoid due to missing SRS");
+        return -1;
+    }
+
+    OGRErr eErr = OGRERR_NONE;
+    double dfSemiMajor = poSRSOverride->GetSemiMajor(&eErr);
+    if (eErr != OGRERR_NONE)
+        return -1;
+    const double dfInvFlattening = poSRSOverride->GetInvFlattening(&eErr);
+    if (eErr != OGRERR_NONE)
+        return -1;
+
+    geod_geodesic g;
+    geod_init(&g, dfSemiMajor,
+              dfInvFlattening != 0 ? 1.0 / dfInvFlattening : 0.0);
+    double dfArea = -1;
+    std::vector<double> adfLat;
+    std::vector<double> adfLon;
+    adfLat.reserve(nPointCount);
+    adfLon.reserve(nPointCount);
+
+    OGRSpatialReference oGeogCRS;
+    if (oGeogCRS.CopyGeogCSFrom(poSRSOverride) != OGRERR_NONE)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "Cannot reproject geometry to geographic CRS");
+        return -1;
+    }
+    oGeogCRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    auto poCT = std::unique_ptr<OGRCoordinateTransformation>(
+        OGRCreateCoordinateTransformation(poSRSOverride, &oGeogCRS));
+    if (!poCT)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "Cannot reproject geometry to geographic CRS");
+        return -1;
+    }
+    for (int i = 0; i < nPointCount; ++i)
+    {
+        adfLon.push_back(paoPoints[i].x);
+        adfLat.push_back(paoPoints[i].y);
+    }
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnull-dereference"
+#endif
+    std::vector<int> anSuccess;
+    anSuccess.resize(adfLon.size());
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
+    poCT->Transform(adfLon.size(), adfLon.data(), adfLat.data(), nullptr,
+                    anSuccess.data());
+    double dfToDegrees =
+        oGeogCRS.GetAngularUnits(nullptr) / CPLAtof(SRS_UA_DEGREE_CONV);
+    if (std::fabs(dfToDegrees - 1) <= 1e-10)
+        dfToDegrees = 1.0;
+    for (int i = 0; i < nPointCount; ++i)
+    {
+        if (!anSuccess[i])
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Cannot reproject geometry to geographic CRS");
+            return -1;
+        }
+        adfLon[i] *= dfToDegrees;
+        adfLat[i] *= dfToDegrees;
+    }
+
+    geod_polygonarea(&g, adfLat.data(), adfLon.data(),
+                     static_cast<int>(adfLat.size()), &dfArea, nullptr);
+    return std::fabs(dfArea);
+}
+
+/************************************************************************/
 /*                       get_AreaOfCurveSegments()                      */
 /************************************************************************/
 
 double OGRLineString::get_AreaOfCurveSegments() const
 {
     return 0;
-}
-
-/************************************************************************/
-/*                            epsilonEqual()                            */
-/************************************************************************/
-
-constexpr double EPSILON = 1.0E-5;
-
-static inline bool epsilonEqual(double a, double b, double eps)
-{
-    return ::fabs(a - b) < eps;
 }
 
 /************************************************************************/
@@ -3015,6 +3110,10 @@ int OGRLineString::isClockwise() const
     {
         next = nPointCount - 1 - 1;
     }
+
+    constexpr double EPSILON = 1.0E-5;
+    const auto epsilonEqual = [](double a, double b, double eps)
+    { return ::fabs(a - b) < eps; };
 
     if (epsilonEqual(paoPoints[next].x, paoPoints[v].x, EPSILON) &&
         epsilonEqual(paoPoints[next].y, paoPoints[v].y, EPSILON))

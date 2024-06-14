@@ -50,6 +50,7 @@ namespace polygonizer
 using IndexType = std::uint32_t;
 using Point = std::array<IndexType, 2>;
 using Arc = std::vector<Point>;
+
 struct IndexedArc
 {
     Arc *poArc;
@@ -89,7 +90,7 @@ struct RPolygon
     /**
      * set the next arc index of the current arc
      */
-    void setArcConnection(IndexedArc &oArc, IndexedArc &oNextArc);
+    void setArcConnection(const IndexedArc &oArc, const IndexedArc &oNextArc);
 
     /**
      * update the bottom-right most cell index of the current polygon

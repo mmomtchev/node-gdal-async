@@ -33,6 +33,8 @@
 #include "ogrsf_frmts.h"
 #include "avc.h"
 
+constexpr int SERIAL_ACCESS_FID = INT_MIN;
+
 class OGRAVCDataSource;
 
 /************************************************************************/
@@ -156,10 +158,12 @@ class OGRAVCBinDataSource final : public OGRAVCDataSource
     {
         return pszName;
     }
+
     int GetLayerCount() override
     {
         return nLayers;
     }
+
     OGRLayer *GetLayer(int) override;
 
     int TestCapability(const char *) override;
@@ -233,10 +237,12 @@ class OGRAVCE00DataSource final : public OGRAVCDataSource
     {
         return psE00;
     }
+
     const char *GetName() override
     {
         return pszName;
     }
+
     int GetLayerCount() override
     {
         return nLayers;

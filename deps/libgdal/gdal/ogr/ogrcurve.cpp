@@ -61,6 +61,7 @@ OGRCurve &OGRCurve::operator=(const OGRCurve &other)
     }
     return *this;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -243,10 +244,38 @@ int OGRCurve::get_IsClosed() const
  *
  * This method is designed to be used by OGRCurvePolygon::get_Area().
  *
- * @return the area of the feature in square units of the spatial reference
+ * @return the area of the geometry in square units of the spatial reference
  * system in use.
  *
+ * @see get_GeodesicArea() for an alternative method returning areas
+ * computed on the ellipsoid, an in square meters.
+ *
  * @since GDAL 2.0
+ */
+
+/**
+ * \fn double OGRCurve::get_GeodesicArea(const OGRSpatialReference* poSRSOverride = nullptr) const;
+ *
+ * \brief Get the area of the (closed) curve, considered as a surface on the
+ * underlying ellipsoid of the SRS attached to the geometry.
+ *
+ * This method is designed to be used by OGRCurvePolygon::get_GeodesicArea().
+ *
+ * The returned area will always be in square meters, and assumes that
+ * polygon edges describe geodesic lines on the ellipsoid.
+ *
+ * Note that geometries with circular arcs will be linearized in their original
+ * coordinate space first, so the resulting geodesic area will be an
+ * approximation.
+ *
+ * @param poSRSOverride If not null, overrides OGRGeometry::getSpatialReference()
+ * @return the area of the geometry in square meters, or a negative value in case
+ * of error.
+ *
+ * @see get_Area() for an alternative method returning areas computed in
+ * 2D Cartesian space.
+ *
+ * @since GDAL 3.9
  */
 
 /**
@@ -686,17 +715,6 @@ OGRCurve::ConstIterator OGRCurve::end() const
 }
 
 /************************************************************************/
-/*                            epsilonEqual()                            */
-/************************************************************************/
-
-constexpr double EPSILON = 1.0E-5;
-
-static inline bool epsilonEqual(double a, double b, double eps)
-{
-    return ::fabs(a - b) < eps;
-}
-
-/************************************************************************/
 /*                            isClockwise()                             */
 /************************************************************************/
 
@@ -771,6 +789,10 @@ int OGRCurve::isClockwise() const
         oPointBeforeSel = oPointN_m2;
     }
 
+    constexpr double EPSILON = 1.0E-5;
+    const auto epsilonEqual = [](double a, double b, double eps)
+    { return ::fabs(a - b) < eps; };
+
     if (epsilonEqual(oPointBeforeSel.getX(), oPointSel.getX(), EPSILON) &&
         epsilonEqual(oPointBeforeSel.getY(), oPointSel.getY(), EPSILON))
     {
@@ -822,7 +844,7 @@ int OGRCurve::isClockwise() const
     for (int i = 1; i < nPointCount - 1; i++)
     {
         ++oIter;
-        auto oPointNext = *oIter;
+        const auto &oPointNext = *oIter;
         dfSum += oPointCur.getX() * (oPointNext.getY() - oPointBefore.getY());
         oPointBefore = oPointCur;
         oPointCur = oPointNext;

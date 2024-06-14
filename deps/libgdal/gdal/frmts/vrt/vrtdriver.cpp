@@ -34,6 +34,8 @@
 #include "gdal_alg_priv.h"
 #include "gdal_frmts.h"
 
+#include <mutex>
+
 /*! @cond Doxygen_Suppress */
 
 /************************************************************************/
@@ -136,7 +138,7 @@ void VRTDriver::AddSourceParser(const char *pszElementName,
 /************************************************************************/
 
 VRTSource *
-VRTDriver::ParseSource(CPLXMLNode *psSrc, const char *pszVRTPath,
+VRTDriver::ParseSource(const CPLXMLNode *psSrc, const char *pszVRTPath,
                        std::map<CPLString, GDALDataset *> &oMapSharedSources)
 
 {
@@ -193,8 +195,7 @@ static GDALDataset *VRTCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
     /*      it to disk as a special case to avoid extra layers of           */
     /*      indirection.                                                    */
     /* -------------------------------------------------------------------- */
-    if (poSrcDS->GetDriver() != nullptr &&
-        EQUAL(poSrcDS->GetDriver()->GetDescription(), "VRT"))
+    if (auto poSrcVRTDS = dynamic_cast<VRTDataset *>(poSrcDS))
     {
 
         /* --------------------------------------------------------------------
@@ -203,7 +204,6 @@ static GDALDataset *VRTCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
         /* --------------------------------------------------------------------
          */
         char *pszVRTPath = CPLStrdup(CPLGetPath(pszFilename));
-        auto poSrcVRTDS = cpl::down_cast<VRTDataset *>(poSrcDS);
         poSrcVRTDS->UnsetPreservedRelativeFilenames();
         CPLXMLNode *psDSTree = poSrcVRTDS->SerializeToXML(pszVRTPath);
 
@@ -506,8 +506,16 @@ void GDALRegister_VRT()
     if (GDALGetDriverByName("VRT") != nullptr)
         return;
 
-    // First register the pixel functions
-    GDALRegisterDefaultPixelFunc();
+    static std::once_flag flag;
+    std::call_once(flag,
+                   []()
+                   {
+                       // First register the pixel functions
+                       GDALRegisterDefaultPixelFunc();
+
+                       // Register functions for VRTProcessedDataset
+                       GDALVRTRegisterDefaultProcessedDatasetFuncs();
+                   });
 
     VRTDriver *poDriver = new VRTDriver();
 
@@ -557,6 +565,7 @@ void GDALRegister_VRT()
     poDriver->AddSourceParser("SimpleSource", VRTParseCoreSources);
     poDriver->AddSourceParser("ComplexSource", VRTParseCoreSources);
     poDriver->AddSourceParser("AveragedSource", VRTParseCoreSources);
+    poDriver->AddSourceParser("NoDataFromMaskSource", VRTParseCoreSources);
     poDriver->AddSourceParser("KernelFilteredSource", VRTParseFilterSources);
     poDriver->AddSourceParser("ArraySource", VRTParseArraySource);
 

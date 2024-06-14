@@ -46,8 +46,6 @@
 #include <mutex>
 #include <vector>
 
-// #define SIMUL_OLD_PROJ6
-
 /*! @cond Doxygen_Suppress */
 
 static void osr_proj_logger(void * /* user_data */, int level,
@@ -79,6 +77,7 @@ static unsigned g_projNetworkEnabledGenerationCounter = 0;
 
 #if !defined(_WIN32) && defined(HAVE_PTHREAD_ATFORK)
 static bool g_bForkOccurred = false;
+
 static void ForkOccurred(void)
 {
     g_bForkOccurred = true;
@@ -97,10 +96,6 @@ struct OSRPJContextHolder
 #if !defined(_WIN32)
 #if !defined(HAVE_PTHREAD_ATFORK)
     pid_t curpid = 0;
-#endif
-#if defined(SIMUL_OLD_PROJ6) ||                                                \
-    !(PROJ_VERSION_MAJOR > 6 || PROJ_VERSION_MINOR >= 2)
-    std::vector<PJ_CONTEXT *> oldcontexts{};
 #endif
 #endif
 
@@ -217,17 +212,9 @@ void OSRPJContextHolder::deinit()
     // Destroy context in last
     proj_context_destroy(context);
     context = nullptr;
-#if defined(SIMUL_OLD_PROJ6) ||                                                \
-    (!defined(_WIN32) && !(PROJ_VERSION_MAJOR > 6 || PROJ_VERSION_MINOR >= 2))
-    for (size_t i = 0; i < oldcontexts.size(); i++)
-    {
-        proj_context_destroy(oldcontexts[i]);
-    }
-    oldcontexts.clear();
-#endif
 }
 
-#ifdef WIN32
+#ifdef _WIN32
 // Currently thread_local and C++ objects don't work well with DLL on Windows
 static void FreeProjTLSContextHolder(void *pData)
 {
@@ -260,6 +247,7 @@ static OSRPJContextHolder &GetProjTLSContextHolder()
 }
 #else
 static thread_local OSRPJContextHolder g_tls_projContext;
+
 static OSRPJContextHolder &GetProjTLSContextHolder()
 {
     OSRPJContextHolder &l_projContext = g_tls_projContext;
@@ -280,13 +268,6 @@ static OSRPJContextHolder &GetProjTLSContextHolder()
 #else
         l_projContext.curpid = curpid;
 #endif
-#if defined(SIMUL_OLD_PROJ6) ||                                                \
-    !(PROJ_VERSION_MAJOR > 6 || PROJ_VERSION_MINOR >= 2)
-        // PROJ < 6.2 ? Recreate new context
-        l_projContext.oldcontexts.push_back(l_projContext.context);
-        l_projContext.context = nullptr;
-        l_projContext.init();
-#else
         const auto osr_proj_logger_none = [](void *, int, const char *) {};
         proj_log_func(l_projContext.context, nullptr, osr_proj_logger_none);
         proj_context_set_autoclose_database(l_projContext.context, true);
@@ -294,7 +275,6 @@ static OSRPJContextHolder &GetProjTLSContextHolder()
         proj_context_get_database_path(l_projContext.context);
         proj_context_set_autoclose_database(l_projContext.context, false);
         proj_log_func(l_projContext.context, nullptr, osr_proj_logger);
-#endif
     }
 
     return l_projContext;

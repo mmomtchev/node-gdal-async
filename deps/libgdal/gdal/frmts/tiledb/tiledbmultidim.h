@@ -31,7 +31,7 @@
 
 #include "tiledbheaders.h"
 
-#ifdef HAS_TILEDB_MULTIDIM
+#include <set>
 
 constexpr const char *CRS_ATTRIBUTE_NAME = "_CRS";
 constexpr const char *UNIT_ATTRIBUTE_NAME = "_UNIT";
@@ -167,6 +167,9 @@ class TileDBGroup final : public GDALGroup, public TileDBAttributeHolder
     mutable std::map<std::string, std::shared_ptr<GDALDimension>>
         m_oMapDimensions{};
 
+    //! To prevent OpenMDArray() to indefinitely recursing
+    mutable std::set<std::string> m_oSetArrayInOpening{};
+
     TileDBGroup(const std::shared_ptr<TileDBSharedResource> &poSharedResource,
                 const std::string &osParentName, const std::string &osName,
                 const std::string &osPath)
@@ -197,6 +200,7 @@ class TileDBGroup final : public GDALGroup, public TileDBAttributeHolder
     {
         return m_poTileDBGroup->metadata_num();
     }
+
     void get_metadata_from_index(uint64_t index, std::string *key,
                                  tiledb_datatype_t *value_type,
                                  uint32_t *value_num,
@@ -205,25 +209,30 @@ class TileDBGroup final : public GDALGroup, public TileDBAttributeHolder
         m_poTileDBGroup->get_metadata_from_index(index, key, value_type,
                                                  value_num, value);
     }
+
     bool has_metadata(const std::string &key,
                       tiledb_datatype_t *value_type) const override
     {
         return m_poTileDBGroup->has_metadata(key, value_type);
     }
+
     void get_metadata(const std::string &key, tiledb_datatype_t *value_type,
                       uint32_t *value_num, const void **value) const override
     {
         m_poTileDBGroup->get_metadata(key, value_type, value_num, value);
     }
+
     void put_metadata(const std::string &key, tiledb_datatype_t value_type,
                       uint32_t value_num, const void *value) override
     {
         m_poTileDBGroup->put_metadata(key, value_type, value_num, value);
     }
+
     void delete_metadata(const std::string &key) override
     {
         m_poTileDBGroup->delete_metadata(key);
     }
+
     std::shared_ptr<TileDBAttributeHolder>
     AsAttributeHolderSharedPtr() const override
     {
@@ -234,6 +243,7 @@ class TileDBGroup final : public GDALGroup, public TileDBAttributeHolder
     {
         return m_poSharedResource->IsUpdatable();
     }
+
     const std::string &IGetFullName() const override
     {
         return GetFullName();
@@ -374,6 +384,7 @@ class TileDBArray final : public GDALMDArray, public TileDBAttributeHolder
     {
         return m_poTileDBArray->metadata_num();
     }
+
     void get_metadata_from_index(uint64_t index, std::string *key,
                                  tiledb_datatype_t *value_type,
                                  uint32_t *value_num,
@@ -382,25 +393,30 @@ class TileDBArray final : public GDALMDArray, public TileDBAttributeHolder
         m_poTileDBArray->get_metadata_from_index(index, key, value_type,
                                                  value_num, value);
     }
+
     bool has_metadata(const std::string &key,
                       tiledb_datatype_t *value_type) const override
     {
         return m_poTileDBArray->has_metadata(key, value_type);
     }
+
     void get_metadata(const std::string &key, tiledb_datatype_t *value_type,
                       uint32_t *value_num, const void **value) const override
     {
         m_poTileDBArray->get_metadata(key, value_type, value_num, value);
     }
+
     void put_metadata(const std::string &key, tiledb_datatype_t value_type,
                       uint32_t value_num, const void *value) override
     {
         m_poTileDBArray->put_metadata(key, value_type, value_num, value);
     }
+
     void delete_metadata(const std::string &key) override
     {
         m_poTileDBArray->delete_metadata(key);
     }
+
     std::shared_ptr<TileDBAttributeHolder>
     AsAttributeHolderSharedPtr() const override
     {
@@ -411,6 +427,7 @@ class TileDBArray final : public GDALMDArray, public TileDBAttributeHolder
     {
         return IsWritable();
     }
+
     const std::string &IGetFullName() const override
     {
         return GetFullName();
@@ -423,6 +440,7 @@ class TileDBArray final : public GDALMDArray, public TileDBAttributeHolder
 
     static std::shared_ptr<TileDBArray>
     OpenFromDisk(const std::shared_ptr<TileDBSharedResource> &poSharedResource,
+                 const std::shared_ptr<GDALGroup> &poParent,
                  const std::string &osParentName, const std::string &osName,
                  const std::string &osAttributeName, const std::string &osPath,
                  CSLConstList papszOptions);
@@ -581,7 +599,8 @@ class TileDBArrayGroup final : public GDALGroup
     std::vector<std::shared_ptr<GDALMDArray>> m_apoArrays;
 
   public:
-    TileDBArrayGroup(const std::vector<std::shared_ptr<GDALMDArray>> &apoArrays)
+    explicit TileDBArrayGroup(
+        const std::vector<std::shared_ptr<GDALMDArray>> &apoArrays)
         : GDALGroup(std::string(), "/"), m_apoArrays(apoArrays)
     {
     }
@@ -609,7 +628,8 @@ class TileDBMultiDimDataset final : public GDALDataset
     std::shared_ptr<GDALGroup> m_poRG{};
 
   public:
-    TileDBMultiDimDataset(const std::shared_ptr<GDALGroup> &poRG) : m_poRG(poRG)
+    explicit TileDBMultiDimDataset(const std::shared_ptr<GDALGroup> &poRG)
+        : m_poRG(poRG)
     {
     }
 
@@ -618,7 +638,5 @@ class TileDBMultiDimDataset final : public GDALDataset
         return m_poRG;
     }
 };
-
-#endif  // HAS_TILEDB_MULTIDIM
 
 #endif  // TILEDBMULTIDIM_H_INCLUDED

@@ -46,6 +46,10 @@
 #include "webp/encode.h"
 #endif
 
+#ifdef LERC_SUPPORT
+#include "Lerc_c_api.h"
+#endif
+
 #define STRINGIFY(x) #x
 #define XSTRINGIFY(x) STRINGIFY(x)
 
@@ -264,6 +268,99 @@ void GTIFFSetMaxZError(GDALDatasetH hGTIFFDS, double dfMaxZError)
             poDS->m_dfMaxZErrorOverview;
     }
 }
+
+#if HAVE_JXL
+
+/************************************************************************/
+/*                       GTIFFSetJXLLossless()                          */
+/* Called by GTIFFBuildOverviews() to set the JXL lossyness on the IFD  */
+/* of the .ovr file.                                                    */
+/************************************************************************/
+
+void GTIFFSetJXLLossless(GDALDatasetH hGTIFFDS, bool bIsLossless)
+{
+    CPLAssert(
+        EQUAL(GDALGetDriverShortName(GDALGetDatasetDriver(hGTIFFDS)), "GTIFF"));
+
+    GTiffDataset *const poDS = static_cast<GTiffDataset *>(hGTIFFDS);
+    poDS->m_bJXLLossless = bIsLossless;
+
+    poDS->ScanDirectories();
+
+    for (int i = 0; i < poDS->m_nOverviewCount; ++i)
+    {
+        poDS->m_papoOverviewDS[i]->m_bJXLLossless = poDS->m_bJXLLossless;
+    }
+}
+
+/************************************************************************/
+/*                       GTIFFSetJXLEffort()                            */
+/* Called by GTIFFBuildOverviews() to set the JXL effort on the IFD     */
+/* of the .ovr file.                                                    */
+/************************************************************************/
+
+void GTIFFSetJXLEffort(GDALDatasetH hGTIFFDS, int nEffort)
+{
+    CPLAssert(
+        EQUAL(GDALGetDriverShortName(GDALGetDatasetDriver(hGTIFFDS)), "GTIFF"));
+
+    GTiffDataset *const poDS = static_cast<GTiffDataset *>(hGTIFFDS);
+    poDS->m_nJXLEffort = nEffort;
+
+    poDS->ScanDirectories();
+
+    for (int i = 0; i < poDS->m_nOverviewCount; ++i)
+    {
+        poDS->m_papoOverviewDS[i]->m_nJXLEffort = poDS->m_nJXLEffort;
+    }
+}
+
+/************************************************************************/
+/*                       GTIFFSetJXLDistance()                          */
+/* Called by GTIFFBuildOverviews() to set the JXL distance on the IFD   */
+/* of the .ovr file.                                                    */
+/************************************************************************/
+
+void GTIFFSetJXLDistance(GDALDatasetH hGTIFFDS, float fDistance)
+{
+    CPLAssert(
+        EQUAL(GDALGetDriverShortName(GDALGetDatasetDriver(hGTIFFDS)), "GTIFF"));
+
+    GTiffDataset *const poDS = static_cast<GTiffDataset *>(hGTIFFDS);
+    poDS->m_fJXLDistance = fDistance;
+
+    poDS->ScanDirectories();
+
+    for (int i = 0; i < poDS->m_nOverviewCount; ++i)
+    {
+        poDS->m_papoOverviewDS[i]->m_fJXLDistance = poDS->m_fJXLDistance;
+    }
+}
+
+/************************************************************************/
+/*                     GTIFFSetJXLAlphaDistance()                       */
+/* Called by GTIFFBuildOverviews() to set the JXL alpha distance on the */
+/* IFD of the .ovr file.                                                */
+/************************************************************************/
+
+void GTIFFSetJXLAlphaDistance(GDALDatasetH hGTIFFDS, float fAlphaDistance)
+{
+    CPLAssert(
+        EQUAL(GDALGetDriverShortName(GDALGetDatasetDriver(hGTIFFDS)), "GTIFF"));
+
+    GTiffDataset *const poDS = static_cast<GTiffDataset *>(hGTIFFDS);
+    poDS->m_fJXLAlphaDistance = fAlphaDistance;
+
+    poDS->ScanDirectories();
+
+    for (int i = 0; i < poDS->m_nOverviewCount; ++i)
+    {
+        poDS->m_papoOverviewDS[i]->m_fJXLAlphaDistance =
+            poDS->m_fJXLAlphaDistance;
+    }
+}
+
+#endif  // HAVE_JXL
 
 /************************************************************************/
 /*                         GTiffGetAlphaValue()                         */
@@ -1167,8 +1264,9 @@ struct GTiffDriverSubdatasetInfo : public GDALSubdatasetInfo
 
             m_driverPrefixComponent = aosParts[0];
 
-            const bool hasDriveLetter{strlen(aosParts[2]) == 1 &&
-                                      std::isalpha(aosParts[2][0])};
+            const bool hasDriveLetter{
+                strlen(aosParts[2]) == 1 &&
+                std::isalpha(static_cast<unsigned char>(aosParts[2][0]))};
 
             // Check for drive letter
             if (iPartsCount == 4)
@@ -1201,7 +1299,7 @@ static GDALSubdatasetInfo *GTiffDriverGetSubdatasetInfo(const char *pszFileName)
     if (STARTS_WITH_CI(pszFileName, "GTIFF_DIR:"))
     {
         std::unique_ptr<GDALSubdatasetInfo> info =
-            cpl::make_unique<GTiffDriverSubdatasetInfo>(pszFileName);
+            std::make_unique<GTiffDriverSubdatasetInfo>(pszFileName);
         if (!info->GetSubdatasetComponent().empty() &&
             !info->GetPathComponent().empty())
         {
@@ -1491,6 +1589,15 @@ void GDALRegister_GTiff()
 #endif
 
     poDriver->SetMetadataItem("LIBGEOTIFF", XSTRINGIFY(LIBGEOTIFF_VERSION));
+
+#if defined(LERC_SUPPORT) && defined(LERC_VERSION_MAJOR)
+    poDriver->SetMetadataItem("LERC_VERSION_MAJOR",
+                              XSTRINGIFY(LERC_VERSION_MAJOR), "LERC");
+    poDriver->SetMetadataItem("LERC_VERSION_MINOR",
+                              XSTRINGIFY(LERC_VERSION_MINOR), "LERC");
+    poDriver->SetMetadataItem("LERC_VERSION_PATCH",
+                              XSTRINGIFY(LERC_VERSION_PATCH), "LERC");
+#endif
 
     poDriver->SetMetadataItem(GDAL_DCAP_COORDINATE_EPOCH, "YES");
 

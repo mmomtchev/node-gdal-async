@@ -140,7 +140,7 @@ int OGRTABDataSource::Create(const char *pszName, char **papszOptions)
 
         if (m_bCreateMIF)
         {
-            poFile = new MIFFile;
+            poFile = new MIFFile(this);
             if (poFile->Open(m_pszName, TABWrite, FALSE, pszCharset) != 0)
             {
                 delete poFile;
@@ -149,7 +149,7 @@ int OGRTABDataSource::Create(const char *pszName, char **papszOptions)
         }
         else
         {
-            TABFile *poTabFile = new TABFile;
+            TABFile *poTabFile = new TABFile(this);
             if (poTabFile->Open(m_pszName, TABWrite, FALSE, m_nBlockSize,
                                 pszCharset) != 0)
             {
@@ -188,7 +188,7 @@ int OGRTABDataSource::Open(GDALOpenInfo *poOpenInfo, int bTestOpen)
     if (!poOpenInfo->bIsDirectory)
     {
         IMapInfoFile *poFile =
-            IMapInfoFile::SmartOpen(m_pszName, GetUpdate(), bTestOpen);
+            IMapInfoFile::SmartOpen(this, m_pszName, GetUpdate(), bTestOpen);
         if (poFile == nullptr)
             return FALSE;
 
@@ -224,8 +224,8 @@ int OGRTABDataSource::Open(GDALOpenInfo *poOpenInfo, int bTestOpen)
             char *pszSubFilename = CPLStrdup(
                 CPLFormFilename(m_pszDirectory, papszFileList[iFile], nullptr));
 
-            IMapInfoFile *poFile =
-                IMapInfoFile::SmartOpen(pszSubFilename, GetUpdate(), bTestOpen);
+            IMapInfoFile *poFile = IMapInfoFile::SmartOpen(
+                this, pszSubFilename, GetUpdate(), bTestOpen);
             CPLFree(pszSubFilename);
 
             if (poFile == nullptr)
@@ -287,10 +287,10 @@ OGRLayer *OGRTABDataSource::GetLayer(int iLayer)
 /*                           ICreateLayer()                             */
 /************************************************************************/
 
-OGRLayer *OGRTABDataSource::ICreateLayer(const char *pszLayerName,
-                                         const OGRSpatialReference *poSRSIn,
-                                         OGRwkbGeometryType /* eGeomTypeIn */,
-                                         char **papszOptions)
+OGRLayer *
+OGRTABDataSource::ICreateLayer(const char *pszLayerName,
+                               const OGRGeomFieldDefn *poGeomFieldDefnIn,
+                               CSLConstList papszOptions)
 
 {
     if (!GetUpdate())
@@ -299,6 +299,9 @@ OGRLayer *OGRTABDataSource::ICreateLayer(const char *pszLayerName,
                  "Cannot create layer on read-only dataset.");
         return nullptr;
     }
+
+    const auto poSRSIn =
+        poGeomFieldDefnIn ? poGeomFieldDefnIn->GetSpatialRef() : nullptr;
 
     // If it is a single file mode file, then we may have already
     // instantiated the low level layer.   We would just need to
@@ -337,7 +340,7 @@ OGRLayer *OGRTABDataSource::ICreateLayer(const char *pszLayerName,
             pszFullFilename =
                 CPLStrdup(CPLFormFilename(m_pszDirectory, pszLayerName, "mif"));
 
-            poFile = new MIFFile;
+            poFile = new MIFFile(this);
 
             if (poFile->Open(pszFullFilename, TABWrite, FALSE, pszCharset) != 0)
             {
@@ -351,7 +354,7 @@ OGRLayer *OGRTABDataSource::ICreateLayer(const char *pszLayerName,
             pszFullFilename =
                 CPLStrdup(CPLFormFilename(m_pszDirectory, pszLayerName, "tab"));
 
-            TABFile *poTABFile = new TABFile;
+            TABFile *poTABFile = new TABFile(this);
 
             if (poTABFile->Open(pszFullFilename, TABWrite, FALSE, m_nBlockSize,
                                 pszCharset) != 0)
@@ -383,8 +386,9 @@ OGRLayer *OGRTABDataSource::ICreateLayer(const char *pszLayerName,
         poFile->SetSpatialRef(poSRSClone);
         poSRSClone->Release();
         // SetSpatialRef() has cloned the passed geometry
-        poFile->GetLayerDefn()->GetGeomFieldDefn(0)->SetSpatialRef(
-            poFile->GetSpatialRef());
+        auto poGeomFieldDefn = poFile->GetLayerDefn()->GetGeomFieldDefn(0);
+        auto oTemporaryUnsealer(poGeomFieldDefn->GetTemporaryUnsealer());
+        poGeomFieldDefn->SetSpatialRef(poFile->GetSpatialRef());
     }
 
     // Pull out the bounds if supplied

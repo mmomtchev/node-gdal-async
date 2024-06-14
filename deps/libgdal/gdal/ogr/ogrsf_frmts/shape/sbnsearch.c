@@ -7,33 +7,10 @@
  ******************************************************************************
  * Copyright (c) 2012-2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * This software is available under the following "MIT Style" license,
- * or at the option of the licensee under the LGPL (see COPYING).  This
- * option is discussed in more detail in shapelib.html.
- *
- * --
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT OR LGPL-2.0-or-later
  ******************************************************************************/
 
-#include "shapefil.h"
-#include "cpl_port.h"
+#include "shapefil_private.h"
 
 #include <assert.h>
 #include <math.h>
@@ -42,14 +19,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-SHP_CVSID("$Id$")
-
 #ifndef USE_CPL
 #if defined(_MSC_VER)
 #if _MSC_VER < 1900
 #define snprintf _snprintf
 #endif
-#elif defined(WIN32) || defined(_WIN32)
+#elif defined(_WIN32)
 #ifndef snprintf
 #define snprintf _snprintf
 #endif
@@ -58,33 +33,21 @@ SHP_CVSID("$Id$")
 
 #define CACHED_DEPTH_LIMIT 8
 
-#ifdef __cplusplus
-#define STATIC_CAST(type, x) static_cast<type>(x)
-#define REINTERPRET_CAST(type, x) reinterpret_cast<type>(x)
-#define CONST_CAST(type, x) const_cast<type>(x)
-#define SHPLIB_NULLPTR nullptr
-#else
-#define STATIC_CAST(type, x) ((type)(x))
-#define REINTERPRET_CAST(type, x) ((type)(x))
-#define CONST_CAST(type, x) ((type)(x))
-#define SHPLIB_NULLPTR NULL
-#endif
-
 #define READ_MSB_INT(ptr)                                                      \
     STATIC_CAST(int, (((STATIC_CAST(unsigned, (ptr)[0])) << 24) |              \
                       ((ptr)[1] << 16) | ((ptr)[2] << 8) | (ptr)[3]))
 
-typedef unsigned char uchar;
-
 typedef int coord;
-/*typedef uchar coord;*/
+
+/*typedef unsigned char coord;*/
 
 typedef struct
 {
-    uchar *pabyShapeDesc; /* Cache of (nShapeCount * 8) bytes of the bins. May
+    unsigned char
+        *pabyShapeDesc; /* Cache of (nShapeCount * 8) bytes of the bins. May
                              be NULL. */
-    int nBinStart;        /* Index of first bin for this node. */
-    int nShapeCount;      /* Number of shapes attached to this node. */
+    int nBinStart;      /* Index of first bin for this node. */
+    int nShapeCount;    /* Number of shapes attached to this node. */
     int nBinCount;  /* Number of bins for this node. May be 0 if node is empty.
                      */
     int nBinOffset; /* Offset in file of the start of the first bin. May be 0 if
@@ -128,7 +91,7 @@ typedef struct
     int nShapeAlloc;
     int *panShapeId; /* 0 based */
 
-    uchar abyBinShape[8 * 100];
+    unsigned char abyBinShape[8 * 100];
 
 #ifdef DEBUG_IO
     int nBytesRead;
@@ -154,40 +117,12 @@ static int SBNCompareNodeIdBinStartPairs(const void *a, const void *b)
 }
 
 /************************************************************************/
-/*                              SwapWord()                              */
-/*                                                                      */
-/*      Swap a 2, 4 or 8 byte word.                                     */
-/************************************************************************/
-
-static void SwapWord(int length, void *wordP)
-{
-    for (int i = 0; i < length / 2; i++)
-    {
-        const uchar temp = STATIC_CAST(uchar *, wordP)[i];
-        STATIC_CAST(uchar *, wordP)
-        [i] = STATIC_CAST(uchar *, wordP)[length - i - 1];
-        STATIC_CAST(uchar *, wordP)[length - i - 1] = temp;
-    }
-}
-
-/************************************************************************/
 /*                         SBNOpenDiskTree()                            */
 /************************************************************************/
 
-SBNSearchHandle SBNOpenDiskTree(const char *pszSBNFilename, SAHooks *psHooks)
+SBNSearchHandle SBNOpenDiskTree(const char *pszSBNFilename,
+                                const SAHooks *psHooks)
 {
-    /* -------------------------------------------------------------------- */
-    /*  Establish the byte order on this machine.                           */
-    /* -------------------------------------------------------------------- */
-    bool bBigEndian;
-    {
-        int i = 1;
-        if (*REINTERPRET_CAST(unsigned char *, &i) == 1)
-            bBigEndian = false;
-        else
-            bBigEndian = true;
-    }
-
     /* -------------------------------------------------------------------- */
     /*      Initialize the handle structure.                                */
     /* -------------------------------------------------------------------- */
@@ -199,7 +134,8 @@ SBNSearchHandle SBNOpenDiskTree(const char *pszSBNFilename, SAHooks *psHooks)
     else
         memcpy(&(hSBN->sHooks), psHooks, sizeof(SAHooks));
 
-    hSBN->fpSBN = hSBN->sHooks.FOpen(pszSBNFilename, "rb");
+    hSBN->fpSBN =
+        hSBN->sHooks.FOpen(pszSBNFilename, "rb", hSBN->sHooks.pvUserData);
     if (hSBN->fpSBN == SHPLIB_NULLPTR)
     {
         free(hSBN);
@@ -209,7 +145,7 @@ SBNSearchHandle SBNOpenDiskTree(const char *pszSBNFilename, SAHooks *psHooks)
     /* -------------------------------------------------------------------- */
     /*      Check file header signature.                                    */
     /* -------------------------------------------------------------------- */
-    uchar abyHeader[108];
+    unsigned char abyHeader[108];
     if (hSBN->sHooks.FRead(abyHeader, 108, 1, hSBN->fpSBN) != 1 ||
         abyHeader[0] != 0 || abyHeader[1] != 0 || abyHeader[2] != 0x27 ||
         (abyHeader[3] != 0x0A && abyHeader[3] != 0x0D) ||
@@ -225,18 +161,17 @@ SBNSearchHandle SBNOpenDiskTree(const char *pszSBNFilename, SAHooks *psHooks)
     /*      Read shapes bounding box.                                       */
     /* -------------------------------------------------------------------- */
 
+#if !defined(SHP_BIG_ENDIAN)
+    SHP_SWAPDOUBLE_CPY(&hSBN->dfMinX, abyHeader + 32);
+    SHP_SWAPDOUBLE_CPY(&hSBN->dfMinY, abyHeader + 40);
+    SHP_SWAPDOUBLE_CPY(&hSBN->dfMaxX, abyHeader + 48);
+    SHP_SWAPDOUBLE_CPY(&hSBN->dfMaxY, abyHeader + 56);
+#else
     memcpy(&hSBN->dfMinX, abyHeader + 32, 8);
     memcpy(&hSBN->dfMinY, abyHeader + 40, 8);
     memcpy(&hSBN->dfMaxX, abyHeader + 48, 8);
     memcpy(&hSBN->dfMaxY, abyHeader + 56, 8);
-
-    if (!bBigEndian)
-    {
-        SwapWord(8, &hSBN->dfMinX);
-        SwapWord(8, &hSBN->dfMinY);
-        SwapWord(8, &hSBN->dfMaxX);
-        SwapWord(8, &hSBN->dfMaxY);
-    }
+#endif
 
     if (hSBN->dfMinX > hSBN->dfMaxX || hSBN->dfMinY > hSBN->dfMaxY)
     {
@@ -482,7 +417,7 @@ SBNSearchHandle SBNOpenDiskTree(const char *pszSBNFilename, SAHooks *psHooks)
     /*      node.                                                           */
     /*      Note: we could use the .sbx file to compute the offsets instead.*/
     /* -------------------------------------------------------------------- */
-    uchar abyBinHeader[8];
+    unsigned char abyBinHeader[8];
 
     while (hSBN->sHooks.FRead(abyBinHeader, 8, 1, hSBN->fpSBN) == 1)
     {
@@ -581,21 +516,6 @@ void SBNCloseDiskTree(SBNSearchHandle hSBN)
 }
 
 /************************************************************************/
-/*                             SfRealloc()                              */
-/*                                                                      */
-/*      A realloc cover function that will access a NULL pointer as     */
-/*      a valid input.                                                  */
-/************************************************************************/
-
-static void *SfRealloc(void *pMem, int nNewSize)
-{
-    if (pMem == SHPLIB_NULLPTR)
-        return malloc(nNewSize);
-    else
-        return realloc(pMem, nNewSize);
-}
-
-/************************************************************************/
 /*                         SBNAddShapeId()                              */
 /************************************************************************/
 
@@ -606,8 +526,8 @@ static bool SBNAddShapeId(SearchStruct *psSearch, int nShapeId)
         psSearch->nShapeAlloc =
             STATIC_CAST(int, ((psSearch->nShapeCount + 100) * 5) / 4);
         int *pNewPtr =
-            STATIC_CAST(int *, SfRealloc(psSearch->panShapeId,
-                                         psSearch->nShapeAlloc * sizeof(int)));
+            STATIC_CAST(int *, realloc(psSearch->panShapeId,
+                                       psSearch->nShapeAlloc * sizeof(int)));
         if (pNewPtr == SHPLIB_NULLPTR)
         {
             psSearch->hSBN->sHooks.Error("Out of memory error");
@@ -667,7 +587,7 @@ static bool SBNSearchDiskInternal(SearchStruct *psSearch, int nDepth,
     /* -------------------------------------------------------------------- */
     else if (psNode->pabyShapeDesc != SHPLIB_NULLPTR)
     {
-        uchar *pabyShapeDesc = psNode->pabyShapeDesc;
+        unsigned char *pabyShapeDesc = psNode->pabyShapeDesc;
 
         /* printf("nNodeId = %d, nDepth = %d\n", nNodeId, nDepth); */
 
@@ -707,9 +627,9 @@ static bool SBNSearchDiskInternal(SearchStruct *psSearch, int nDepth,
 
         if (nDepth < CACHED_DEPTH_LIMIT)
             psNode->pabyShapeDesc =
-                STATIC_CAST(uchar *, malloc(psNode->nShapeCount * 8));
+                STATIC_CAST(unsigned char *, malloc(psNode->nShapeCount * 8));
 
-        uchar abyBinHeader[8];
+        unsigned char abyBinHeader[8];
         int nShapeCountAcc = 0;
 
         for (int i = 0; i < psNode->nBinCount; i++)
@@ -760,7 +680,7 @@ static bool SBNSearchDiskInternal(SearchStruct *psSearch, int nDepth,
                 return false;
             }
 
-            uchar *pabyBinShape;
+            unsigned char *pabyBinShape;
             if (nDepth < CACHED_DEPTH_LIMIT &&
                 psNode->pabyShapeDesc != SHPLIB_NULLPTR)
             {
@@ -818,16 +738,15 @@ static bool SBNSearchDiskInternal(SearchStruct *psSearch, int nDepth,
                         bMaxX < bNodeMinX || bMaxY < bNodeMinY ||
                         bMinX > bNodeMaxX || bMinY > bNodeMaxY)
                     {
-                        /* printf("shape %d %d %d %d\n", bMinX, bMinY, bMaxX,
-                         * bMaxY);*/
-                        /* printf("node  %d %d %d %d\n", bNodeMinX, bNodeMinY,
-                         * bNodeMaxX, bNodeMaxY);*/
+                        /* printf("shape %d %d %d %d\n", bMinX, bMinY, bMaxX, bMaxY);*/
+                        /* printf("node  %d %d %d %d\n", bNodeMinX, bNodeMinY, bNodeMaxX, bNodeMaxY);*/
                         hSBN->sHooks.Error("Invalid shape bounding box in bin");
                         free(psNode->pabyShapeDesc);
                         psNode->pabyShapeDesc = SHPLIB_NULLPTR;
                         return false;
                     }
 #endif
+                    /* clang-format on */
                     if (bMinX < psNode->bMinX)
                         psNode->bMinX = bMinX;
                     if (bMinY < psNode->bMinY)
@@ -934,8 +853,8 @@ static int compare_ints(const void *a, const void *b)
 /*                        SBNSearchDiskTree()                           */
 /************************************************************************/
 
-int *SBNSearchDiskTree(SBNSearchHandle hSBN, double *padfBoundsMin,
-                       double *padfBoundsMax, int *pnShapeCount)
+int *SBNSearchDiskTree(const SBNSearchHandle hSBN, const double *padfBoundsMin,
+                       const double *padfBoundsMax, int *pnShapeCount)
 {
     *pnShapeCount = 0;
 
@@ -1033,7 +952,7 @@ int *SBNSearchDiskTree(SBNSearchHandle hSBN, double *padfBoundsMin,
 /*                     SBNSearchDiskTreeInteger()                       */
 /************************************************************************/
 
-int *SBNSearchDiskTreeInteger(SBNSearchHandle hSBN, int bMinX, int bMinY,
+int *SBNSearchDiskTreeInteger(const SBNSearchHandle hSBN, int bMinX, int bMinY,
                               int bMaxX, int bMaxY, int *pnShapeCount)
 {
     *pnShapeCount = 0;

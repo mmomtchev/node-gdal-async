@@ -74,12 +74,15 @@ class OGRESRIFeatureServiceLayer final : public OGRLayer
     OGRFeature *GetNextFeature() override;
     GIntBig GetFeatureCount(int bForce = TRUE) override;
     OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
+
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce) override
     {
         return OGRLayer::GetExtent(iGeomField, psExtent, bForce);
     }
+
     int TestCapability(const char *pszCap) override;
+
     OGRFeatureDefn *GetLayerDefn() override
     {
         return poFeatureDefn;
@@ -109,6 +112,7 @@ class OGRESRIFeatureServiceDataset final : public GDALDataset
     {
         return 1;
     }
+
     OGRLayer *GetLayer(int nLayer) override
     {
         return (nLayer == 0) ? poLayer : nullptr;
@@ -181,12 +185,26 @@ OGRFeature *OGRESRIFeatureServiceLayer::GetNextFeature()
     while (true)
     {
         const bool bWasInFirstPage = !bOtherPage;
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnull-dereference"
+#endif
         OGRFeature *poSrcFeat = poDS->GetUnderlyingLayer()->GetNextFeature();
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
         if (poSrcFeat == nullptr)
         {
             if (!poDS->LoadNextPage())
                 return nullptr;
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnull-dereference"
+#endif
             poSrcFeat = poDS->GetUnderlyingLayer()->GetNextFeature();
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
             if (poSrcFeat == nullptr)
                 return nullptr;
             bOtherPage = true;
@@ -237,7 +255,15 @@ int OGRESRIFeatureServiceLayer::TestCapability(const char *pszCap)
         return m_poAttrQuery == nullptr && m_poFilterGeom == nullptr;
     if (EQUAL(pszCap, OLCFastGetExtent))
         return FALSE;
-    return poDS->GetUnderlyingLayer()->TestCapability(pszCap);
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnull-dereference"
+#endif
+    auto poUnderlyingLayer = poDS->GetUnderlyingLayer();
+    return poUnderlyingLayer->TestCapability(pszCap);
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 }
 
 /************************************************************************/
@@ -379,7 +405,14 @@ int OGRESRIFeatureServiceDataset::MyResetReading()
         return LoadPage();
     }
 
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnull-dereference"
+#endif
     poCurrent->GetLayer(0)->ResetReading();
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
     return TRUE;
 }
 
@@ -391,7 +424,14 @@ int OGRESRIFeatureServiceDataset::LoadNextPage()
 {
     if (!poCurrent->HasOtherPages())
         return FALSE;
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnull-dereference"
+#endif
     nLastOffset += poCurrent->GetLayer(0)->GetFeatureCount();
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
     return LoadPage();
 }
 
@@ -436,7 +476,14 @@ static int OGRGeoJSONDriverIdentifyInternal(GDALOpenInfo *poOpenInfo,
 
     nSrcType = GeoJSONGetSourceType(poOpenInfo);
     if (nSrcType == eGeoJSONSourceUnknown)
+    {
+        const char *pszHeader =
+            reinterpret_cast<const char *>(poOpenInfo->pabyHeader);
+        if (pszHeader && STARTS_WITH(pszHeader, "{\"properties\":{"))
+            return GDAL_IDENTIFY_UNKNOWN;
+
         return FALSE;
+    }
     if (nSrcType == eGeoJSONSourceService &&
         !STARTS_WITH_CI(poOpenInfo->pszFilename, "GeoJSON:"))
     {
@@ -727,6 +774,12 @@ void RegisterOGRGeoJSON()
         "  <Option name='AUTODETECT_JSON_STRINGS' type='boolean' "
         "description='Whether to try to interpret string fields as JSON "
         "arrays or objects' default='YES'/>"
+        "  <Option name='FOREIGN_MEMBERS_FEATURE' type='string' "
+        "description='Extra JSON content to add in each feature as a foreign "
+        "members'/>"
+        "  <Option name='FOREIGN_MEMBERS_COLLECTION' type='string' "
+        "description='Extra JSON content to add to the feature collection as "
+        "a foreign members'/>"
         "</LayerCreationOptionList>");
 
     poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");
@@ -738,6 +791,7 @@ void RegisterOGRGeoJSON()
     poDriver->SetMetadataItem(GDAL_DMD_SUPPORTED_SQL_DIALECTS, "OGRSQL SQLITE");
     poDriver->SetMetadataItem(GDAL_DCAP_MEASURED_GEOMETRIES, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_FLUSHCACHE_CONSISTENT_STATE, "YES");
+    poDriver->SetMetadataItem(GDAL_DCAP_HONOR_GEOM_COORDINATE_PRECISION, "YES");
 
     poDriver->pfnOpen = OGRGeoJSONDriverOpen;
     poDriver->pfnIdentify = OGRGeoJSONDriverIdentify;

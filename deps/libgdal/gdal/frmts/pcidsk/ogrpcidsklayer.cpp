@@ -35,9 +35,11 @@
 /*                           OGRPCIDSKLayer()                           */
 /************************************************************************/
 
-OGRPCIDSKLayer::OGRPCIDSKLayer(PCIDSK::PCIDSKSegment *poSegIn,
+OGRPCIDSKLayer::OGRPCIDSKLayer(GDALDataset *poDS,
+                               PCIDSK::PCIDSKSegment *poSegIn,
                                PCIDSK::PCIDSKVectorSegment *poVecSegIn,
                                bool bUpdate)
+    : m_poDS(poDS)
 
 {
     poSRS = nullptr;
@@ -765,7 +767,8 @@ OGRErr OGRPCIDSKLayer::ISetFeature(OGRFeature *poFeature)
 /*                            CreateField()                             */
 /************************************************************************/
 
-OGRErr OGRPCIDSKLayer::CreateField(OGRFieldDefn *poFieldDefn, int bApproxOK)
+OGRErr OGRPCIDSKLayer::CreateField(const OGRFieldDefn *poFieldDefn,
+                                   int bApproxOK)
 
 {
     try

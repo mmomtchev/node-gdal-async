@@ -106,7 +106,7 @@ std::string CreateResource(const std::string &osUrl,
                            char **papszHTTPOptions);
 bool UpdateResource(const std::string &osUrl, const std::string &osResourceId,
                     const std::string &osPayload, char **papszHTTPOptions);
-void FillResmeta(CPLJSONObject &oRoot, char **papszMetadata);
+void FillResmeta(const CPLJSONObject &oRoot, char **papszMetadata);
 std::string GetResmetaSuffix(CPLJSONObject::Type eType);
 bool DeleteFeature(const std::string &osUrl, const std::string &osResourceId,
                    const std::string &osFeatureId, char **papszHTTPOptions);
@@ -180,7 +180,7 @@ class OGRNGWLayer final : public OGRLayer
     virtual OGRFeatureDefn *GetLayerDefn() override;
     virtual int TestCapability(const char *) override;
 
-    virtual OGRErr CreateField(OGRFieldDefn *poField,
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
     virtual OGRErr DeleteField(int iField) override;
     virtual OGRErr ReorderFields(int *panMap) override;
@@ -197,7 +197,7 @@ class OGRNGWLayer final : public OGRLayer
     virtual CPLErr SetMetadataItem(const char *pszName, const char *pszValue,
                                    const char *pszDomain = "") override;
 
-    virtual OGRErr SetIgnoredFields(const char **papszFields) override;
+    virtual OGRErr SetIgnoredFields(CSLConstList papszFields) override;
     virtual OGRErr SetAttributeFilter(const char *pszQuery) override;
     virtual void SetSpatialFilter(OGRGeometry *poGeom) override;
     virtual void SetSpatialFilter(int iGeomField, OGRGeometry *poGeom) override;
@@ -268,13 +268,12 @@ class OGRNGWDataset final : public GDALDataset
     {
         return nLayers;
     }
+
     virtual OGRLayer *GetLayer(int) override;
     virtual int TestCapability(const char *) override;
-    virtual OGRLayer *
-    ICreateLayer(const char *pszName,
-                 const OGRSpatialReference *poSpatialRef = nullptr,
-                 OGRwkbGeometryType eGType = wkbUnknown,
-                 char **papszOptions = nullptr) override;
+    virtual OGRLayer *ICreateLayer(const char *pszName,
+                                   const OGRGeomFieldDefn *poGeomFieldDefn,
+                                   CSLConstList papszOptions) override;
     virtual OGRErr DeleteLayer(int) override;
     virtual CPLErr SetMetadata(char **papszMetadata,
                                const char *pszDomain = "") override;
@@ -297,14 +296,17 @@ class OGRNGWDataset final : public GDALDataset
 
   private:
     char **GetHeaders() const;
+
     std::string GetUrl() const
     {
         return osUrl;
     }
+
     std::string GetResourceId() const
     {
         return osResourceId;
     }
+
     void FillMetadata(const CPLJSONObject &oRootObject);
     bool FillResources(char **papszOptions, int nOpenFlagsIn);
     void AddLayer(const CPLJSONObject &oResourceJsonObject, char **papszOptions,
@@ -313,30 +315,37 @@ class OGRNGWDataset final : public GDALDataset
                    char **papszOptions);
     bool Init(int nOpenFlagsIn);
     bool FlushMetadata(char **papszMetadata);
+
     inline bool IsUpdateMode() const
     {
         return eAccess == GA_Update;
     }
+
     bool IsBatchMode() const
     {
         return nBatchSize >= 0;
     }
+
     bool HasFeaturePaging() const
     {
         return bHasFeaturePaging;
     }
+
     int GetPageSize() const
     {
         return bHasFeaturePaging ? nPageSize : -1;
     }
+
     int GetBatchSize() const
     {
         return nBatchSize;
     }
+
     bool IsExtInNativeData() const
     {
         return bExtInNativeData;
     }
+
     void FetchPermissions();
     void FillCapabilities(char **papszOptions);
 

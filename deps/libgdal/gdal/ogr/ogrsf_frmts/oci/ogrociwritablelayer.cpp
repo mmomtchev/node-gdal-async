@@ -36,7 +36,8 @@
 /*                        OGROCIWritableLayer()                         */
 /************************************************************************/
 
-OGROCIWritableLayer::OGROCIWritableLayer()
+OGROCIWritableLayer::OGROCIWritableLayer(OGROCIDataSource *poDSIn)
+    : OGROCILayer(poDSIn)
 
 {
     nDimension =
@@ -231,7 +232,7 @@ void OGROCIWritableLayer::ReportTruncation(OGRFieldDefn *psFldDefn)
 /*      Set layer creation or other options.                            */
 /************************************************************************/
 
-void OGROCIWritableLayer::SetOptions(char **papszOptionsIn)
+void OGROCIWritableLayer::SetOptions(CSLConstList papszOptionsIn)
 
 {
     CSLDestroy(papszOptions);
@@ -242,7 +243,8 @@ void OGROCIWritableLayer::SetOptions(char **papszOptionsIn)
 /*                            CreateField()                             */
 /************************************************************************/
 
-OGRErr OGROCIWritableLayer::CreateField(OGRFieldDefn *poFieldIn, int bApproxOK)
+OGRErr OGROCIWritableLayer::CreateField(const OGRFieldDefn *poFieldIn,
+                                        int bApproxOK)
 
 {
     OGROCISession *poSession = poDS->GetSession();

@@ -34,6 +34,8 @@
 #include "oci.h"
 #include "cpl_error.h"
 
+#include <map>
+
 /* -------------------------------------------------------------------- */
 /*      Low level Oracle spatial declarations.                          */
 /* -------------------------------------------------------------------- */
@@ -150,6 +152,7 @@ class CPL_DLL OGROCIStatement
     {
         return hStatement;
     }
+
     CPLErr BindScalar(const char *pszPlaceName, void *pData, int nDataLen,
                       int nSQLType, sb2 *paeInd = nullptr);
     CPLErr BindString(const char *pszPlaceName, const char *pszData,
@@ -212,11 +215,13 @@ class OGROCIStringBuf
     char *StealString();
 
     char GetLast();
+
     char *GetEnd()
     {
         UpdateEnd();
         return pszString + nLen;
     }
+
     char *GetString()
     {
         return pszString;
@@ -234,11 +239,11 @@ class OGROCIDataSource;
 class OGROCILayer CPL_NON_FINAL : public OGRLayer
 {
   protected:
+    OGROCIDataSource *poDS;
+
     OGRFeatureDefn *poFeatureDefn;
 
     int iNextShapeId;
-
-    OGROCIDataSource *poDS;
 
     char *pszQueryStatement;
 
@@ -269,8 +274,9 @@ class OGROCILayer CPL_NON_FINAL : public OGRLayer
                         double *pdfY, double *pdfZ);
 
   public:
-    OGROCILayer();
+    explicit OGROCILayer(OGROCIDataSource *poDSIn);
     virtual ~OGROCILayer();
+
     virtual int FindFieldIndex(const char *pszFieldName,
                                int bExactMatch) override
     {
@@ -290,6 +296,8 @@ class OGROCILayer CPL_NON_FINAL : public OGRLayer
 
     virtual const char *GetFIDColumn() override;
     virtual const char *GetGeometryColumn() override;
+
+    GDALDataset *GetDataset() override;
 
     int LookupTableSRID();
 };
@@ -331,7 +339,7 @@ class OGROCIWritableLayer CPL_NON_FINAL : public OGROCILayer
 
     void ParseDIMINFO(const char *, double *, double *, double *);
 
-    OGROCIWritableLayer();
+    explicit OGROCIWritableLayer(OGROCIDataSource *poDSIn);
     virtual ~OGROCIWritableLayer();
 
   public:
@@ -339,23 +347,27 @@ class OGROCIWritableLayer CPL_NON_FINAL : public OGROCILayer
     {
         return poSRS;
     }
-    virtual OGRErr CreateField(OGRFieldDefn *poField,
+
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
     virtual int FindFieldIndex(const char *pszFieldName,
                                int bExactMatch) override;
 
     // following methods are not base class overrides
-    void SetOptions(char **);
+    void SetOptions(CSLConstList);
 
     void SetDimension(int);
+
     void SetLaunderFlag(int bFlag)
     {
         bLaunderColumnNames = bFlag;
     }
+
     void SetPrecisionFlag(int bFlag)
     {
         bPreservePrecision = bFlag;
     }
+
     void SetDefaultStringSize(int nSize)
     {
         nDefaultStringSize = nSize;
@@ -405,6 +417,7 @@ class OGROCILoaderLayer final : public OGROCIWritableLayer
     virtual void SetSpatialFilter(OGRGeometry *) override
     {
     }
+
     virtual void SetSpatialFilter(int iGeomField, OGRGeometry *poGeom) override
     {
         OGRLayer::SetSpatialFilter(iGeomField, poGeom);
@@ -497,6 +510,7 @@ class OGROCITableLayer final : public OGROCIWritableLayer
     virtual GIntBig GetFeatureCount(int) override;
 
     virtual void SetSpatialFilter(OGRGeometry *) override;
+
     virtual void SetSpatialFilter(int iGeomField, OGRGeometry *poGeom) override
     {
         OGRLayer::SetSpatialFilter(iGeomField, poGeom);
@@ -512,6 +526,7 @@ class OGROCITableLayer final : public OGROCIWritableLayer
     virtual OGRErr DeleteFeature(GIntBig nFID) override;
 
     virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
+
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce) override
     {
@@ -564,9 +579,9 @@ class OGROCIDataSource final : public OGRDataSource
 
     // We maintain a list of known SRID to reduce the number of trips to
     // the database to get SRSes.
-    int nKnownSRID;
-    int *panSRID;
-    OGRSpatialReference **papoSRS;
+    std::map<int,
+             std::unique_ptr<OGRSpatialReference, OGRSpatialReferenceReleaser>>
+        m_oSRSCache{};
 
   public:
     OGROCIDataSource();
@@ -586,18 +601,20 @@ class OGROCIDataSource final : public OGRDataSource
     {
         return pszName;
     }
+
     int GetLayerCount() override
     {
         return nLayers;
     }
+
     OGRLayer *GetLayer(int) override;
     OGRLayer *GetLayerByName(const char *pszName) override;
 
     virtual OGRErr DeleteLayer(int) override;
-    virtual OGRLayer *ICreateLayer(const char *,
-                                   const OGRSpatialReference * = nullptr,
-                                   OGRwkbGeometryType = wkbUnknown,
-                                   char ** = nullptr) override;
+
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
 
     int TestCapability(const char *) override;
 

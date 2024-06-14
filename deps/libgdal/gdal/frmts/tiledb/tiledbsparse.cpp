@@ -38,6 +38,7 @@
 #include <limits>
 
 constexpr int SECONDS_PER_DAY = 3600 * 24;
+constexpr const char *GEOMETRY_DATASET_TYPE = "geometry";
 
 /************************************************************************/
 /* ==================================================================== */
@@ -72,12 +73,10 @@ template <> struct GetType<TILEDB_UINT16>
     using EltType = std::vector<uint16_t>;
 };
 
-#ifdef HAS_TILEDB_BOOL
 template <> struct GetType<TILEDB_BOOL>
 {
     using EltType = VECTOR_OF_BOOL;
 };
-#endif
 
 template <> struct GetType<TILEDB_INT64>
 {
@@ -142,11 +141,9 @@ template <template <class> class Func> struct ProcessField
             case TILEDB_UINT16:
                 Func<GetType<TILEDB_UINT16>::EltType>::exec(array);
                 break;
-#ifdef HAS_TILEDB_BOOL
             case TILEDB_BOOL:
                 Func<GetType<TILEDB_BOOL>::EltType>::exec(array);
                 break;
-#endif
             case TILEDB_INT64:
                 Func<GetType<TILEDB_INT64>::EltType>::exec(array);
                 break;
@@ -216,7 +213,7 @@ GDALDataset *OGRTileDBDataset::Open(GDALOpenInfo *poOpenInfo,
                                     tiledb::Object::Type objectType)
 
 {
-    auto poDS = cpl::make_unique<OGRTileDBDataset>();
+    auto poDS = std::make_unique<OGRTileDBDataset>();
     poDS->eAccess = poOpenInfo->eAccess;
     const char *pszConfig =
         CSLFetchNameValue(poOpenInfo->papszOpenOptions, "TILEDB_CONFIG");
@@ -247,8 +244,8 @@ GDALDataset *OGRTileDBDataset::Open(GDALOpenInfo *poOpenInfo,
                               const std::optional<std::string> &osLayerName =
                                   std::optional<std::string>())
     {
-        auto poLayer = cpl::make_unique<OGRTileDBLayer>(
-            osLayerFilename.c_str(),
+        auto poLayer = std::make_unique<OGRTileDBLayer>(
+            poDS.get(), osLayerFilename.c_str(),
             osLayerName.has_value() ? (*osLayerName).c_str()
                                     : CPLGetBasename(osLayerFilename.c_str()),
             wkbUnknown, nullptr);
@@ -273,7 +270,6 @@ GDALDataset *OGRTileDBDataset::Open(GDALOpenInfo *poOpenInfo,
     };
 
     CPL_IGNORE_RET_VAL(objectType);
-#ifdef HAS_TILEDB_GROUP
     if (objectType == tiledb::Object::Type::Group)
     {
         poDS->m_osGroupName = osFilename;
@@ -292,7 +288,6 @@ GDALDataset *OGRTileDBDataset::Open(GDALOpenInfo *poOpenInfo,
         }
     }
     else
-#endif
     {
         if (!AddLayer(osFilename))
             return nullptr;
@@ -336,8 +331,8 @@ OGRLayer *OGRTileDBDataset::ExecuteSQL(const char *pszSQLCommand,
 /***********************************************************************/
 OGRLayer *
 OGRTileDBDataset::ICreateLayer(const char *pszName,
-                               const OGRSpatialReference *poSpatialRef,
-                               OGRwkbGeometryType eGType, char **papszOptions)
+                               const OGRGeomFieldDefn *poGeomFieldDefn,
+                               CSLConstList papszOptions)
 {
     if (eAccess != GA_Update)
     {
@@ -346,7 +341,6 @@ OGRTileDBDataset::ICreateLayer(const char *pszName,
         return nullptr;
     }
 
-#ifdef HAS_TILEDB_GROUP
     if (!m_osGroupName.empty() && strchr(pszName, '/'))
     {
         // Otherwise a layer name wit ha slash when groups are enabled causes
@@ -356,21 +350,18 @@ OGRTileDBDataset::ICreateLayer(const char *pszName,
                  "Slash is not supported in layer name");
         return nullptr;
     }
-#endif
+
+    const auto eGType = poGeomFieldDefn ? poGeomFieldDefn->GetType() : wkbNone;
+    const auto poSpatialRef =
+        poGeomFieldDefn ? poGeomFieldDefn->GetSpatialRef() : nullptr;
 
     if (m_osGroupName.empty() && !m_apoLayers.empty())
     {
-#ifdef HAS_TILEDB_GROUP
         CPLError(CE_Failure, CPLE_NotSupported,
                  "CreateLayer() failed: no more than one layer per dataset "
                  "supported on a array object. Create a dataset with the "
                  "CREATE_GROUP=YES creation option or open such group "
                  "to enable multiple layer creation.");
-#else
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "CreateLayer() failed: no more than one layer per dataset "
-                 "supported on a array object.");
-#endif
         return nullptr;
     }
 
@@ -394,8 +385,8 @@ OGRTileDBDataset::ICreateLayer(const char *pszName,
         }
         osFilename = CPLFormFilename(osFilename.c_str(), pszName, nullptr);
     }
-    auto poLayer = cpl::make_unique<OGRTileDBLayer>(osFilename.c_str(), pszName,
-                                                    eGType, poSpatialRef);
+    auto poLayer = std::make_unique<OGRTileDBLayer>(
+        this, osFilename.c_str(), pszName, eGType, poSpatialRef);
     poLayer->m_bUpdatable = true;
     poLayer->m_ctx.reset(new tiledb::Context(*m_ctx));
     poLayer->m_osGroupName = m_osGroupName;
@@ -545,7 +536,7 @@ OGRTileDBDataset::ICreateLayer(const char *pszName,
 GDALDataset *OGRTileDBDataset::Create(const char *pszFilename,
                                       CSLConstList papszOptions)
 {
-    auto poDS = cpl::make_unique<OGRTileDBDataset>();
+    auto poDS = std::make_unique<OGRTileDBDataset>();
     poDS->SetDescription(TileDBDataset::VSI_to_tiledb_uri(pszFilename));
     poDS->eAccess = GA_Update;
 
@@ -560,7 +551,6 @@ GDALDataset *OGRTileDBDataset::Create(const char *pszFilename,
         poDS->m_ctx.reset(new tiledb::Context());
     }
 
-#ifdef HAS_TILEDB_GROUP
     if (CPLTestBool(CSLFetchNameValueDef(papszOptions, "CREATE_GROUP", "NO")))
     {
         try
@@ -574,7 +564,6 @@ GDALDataset *OGRTileDBDataset::Create(const char *pszFilename,
         }
         poDS->m_osGroupName = poDS->GetDescription();
     }
-#endif
 
     return poDS.release();
 }
@@ -589,11 +578,11 @@ GDALDataset *OGRTileDBDataset::Create(const char *pszFilename,
 /*                         OGRTileDBLayer()                             */
 /************************************************************************/
 
-OGRTileDBLayer::OGRTileDBLayer(const char *pszFilename,
+OGRTileDBLayer::OGRTileDBLayer(GDALDataset *poDS, const char *pszFilename,
                                const char *pszLayerName,
                                const OGRwkbGeometryType eGType,
                                const OGRSpatialReference *poSRS)
-    : m_osFilename(pszFilename),
+    : m_poDS(poDS), m_osFilename(pszFilename),
       m_poFeatureDefn(new OGRFeatureDefn(pszLayerName)),
       m_pbLayerStillAlive(std::make_shared<bool>(true)),
       m_anFIDs(std::make_shared<std::vector<int64_t>>()),
@@ -712,8 +701,9 @@ bool OGRTileDBLayer::InitFromStorage(tiledb::Context *poCtx,
     }
 
     if (m_nTimestamp)
-        m_array.reset(
-            new tiledb::Array(*m_ctx, m_osFilename, TILEDB_READ, m_nTimestamp));
+        m_array.reset(new tiledb::Array(
+            *m_ctx, m_osFilename, TILEDB_READ,
+            tiledb::TemporalPolicy(tiledb::TimeTravel, m_nTimestamp)));
     else
         m_array.reset(new tiledb::Array(*m_ctx, m_osFilename, TILEDB_READ));
 
@@ -767,13 +757,11 @@ bool OGRTileDBLayer::InitFromStorage(tiledb::Context *poCtx,
                 eType = OFTString;
                 fieldValues.push_back(std::make_shared<std::string>());
                 break;
-#ifdef HAS_TILEDB_BOOL
             case TILEDB_BOOL:
                 eType = bIsSingle ? OFTInteger : OFTIntegerList;
                 eSubType = OFSTBoolean;
                 fieldValues.push_back(std::make_shared<VECTOR_OF_BOOL>());
                 break;
-#endif
             case TILEDB_DATETIME_DAY:
                 eType = OFTDate;
                 fieldValues.push_back(std::make_shared<std::vector<int64_t>>());
@@ -1233,7 +1221,7 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
     m_anFIDs->resize(m_nBatchSize);
     if (!m_osFIDColumn.empty())
     {
-        m_query->set_buffer(m_osFIDColumn, *(m_anFIDs));
+        m_query->set_data_buffer(m_osFIDColumn, *(m_anFIDs));
     }
 
     if (!m_poFeatureDefn->GetGeomFieldDefn(0)->IsIgnored())
@@ -1249,16 +1237,19 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
             const auto colType = m_schema->attribute(pszGeomColName).type();
             if (colType == TILEDB_UINT8)
             {
-                m_query->set_buffer(pszGeomColName, *m_anGeometryOffsets,
-                                    *m_abyGeometries);
+                m_query->set_data_buffer(pszGeomColName, *m_abyGeometries);
+                m_query->set_offsets_buffer(pszGeomColName,
+                                            *m_anGeometryOffsets);
             }
             else if (colType == TILEDB_BLOB)
             {
-                m_query->set_buffer(
-                    pszGeomColName, m_anGeometryOffsets->data(),
-                    m_anGeometryOffsets->size(),
+                m_query->set_data_buffer(
+                    pszGeomColName,
                     reinterpret_cast<std::byte *>(m_abyGeometries->data()),
                     m_abyGeometries->size());
+                m_query->set_offsets_buffer(pszGeomColName,
+                                            m_anGeometryOffsets->data(),
+                                            m_anGeometryOffsets->size());
             }
             else
             {
@@ -1268,15 +1259,15 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
         else
         {
             m_adfXs->resize(m_nBatchSize);
-            m_query->set_buffer(m_osXDim, *m_adfXs);
+            m_query->set_data_buffer(m_osXDim, *m_adfXs);
 
             m_adfYs->resize(m_nBatchSize);
-            m_query->set_buffer(m_osYDim, *m_adfYs);
+            m_query->set_data_buffer(m_osYDim, *m_adfYs);
 
             if (!m_osZDim.empty())
             {
                 m_adfZs->resize(m_nBatchSize);
-                m_query->set_buffer(m_osZDim, *m_adfZs);
+                m_query->set_data_buffer(m_osZDim, *m_adfZs);
             }
         }
     }
@@ -1301,40 +1292,37 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
         {
             case OFTInteger:
             {
-#ifdef HAS_TILEDB_BOOL
                 if (m_aeFieldTypes[i] == TILEDB_BOOL)
                 {
                     auto &v = *(
                         std::get<std::shared_ptr<VECTOR_OF_BOOL>>(fieldValues));
                     v.resize(m_nBatchSize);
 #ifdef VECTOR_OF_BOOL_IS_NOT_UINT8_T
-                    m_query->set_buffer(pszFieldName, v.data(), v.size());
+                    m_query->set_data_buffer(pszFieldName, v.data(), v.size());
 #else
-                    m_query->set_buffer(pszFieldName, v);
+                    m_query->set_data_buffer(pszFieldName, v);
 #endif
                 }
-                else
-#endif
-                    if (m_aeFieldTypes[i] == TILEDB_INT16)
+                else if (m_aeFieldTypes[i] == TILEDB_INT16)
                 {
                     auto &v = *(std::get<std::shared_ptr<std::vector<int16_t>>>(
                         fieldValues));
                     v.resize(m_nBatchSize);
-                    m_query->set_buffer(pszFieldName, v);
+                    m_query->set_data_buffer(pszFieldName, v);
                 }
                 else if (m_aeFieldTypes[i] == TILEDB_INT32)
                 {
                     auto &v = *(std::get<std::shared_ptr<std::vector<int32_t>>>(
                         fieldValues));
                     v.resize(m_nBatchSize);
-                    m_query->set_buffer(pszFieldName, v);
+                    m_query->set_data_buffer(pszFieldName, v);
                 }
                 else if (m_aeFieldTypes[i] == TILEDB_UINT8)
                 {
                     auto &v = *(std::get<std::shared_ptr<std::vector<uint8_t>>>(
                         fieldValues));
                     v.resize(m_nBatchSize);
-                    m_query->set_buffer(pszFieldName, v);
+                    m_query->set_data_buffer(pszFieldName, v);
                 }
                 else if (m_aeFieldTypes[i] == TILEDB_UINT16)
                 {
@@ -1342,7 +1330,7 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                         *(std::get<std::shared_ptr<std::vector<uint16_t>>>(
                             fieldValues));
                     v.resize(m_nBatchSize);
-                    m_query->set_buffer(pszFieldName, v);
+                    m_query->set_data_buffer(pszFieldName, v);
                 }
                 else
                 {
@@ -1359,7 +1347,6 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                         ? static_cast<int>(
                               std::min<uint64_t>(1000, iter->second))
                         : 8;
-#ifdef HAS_TILEDB_BOOL
                 if (m_aeFieldTypes[i] == TILEDB_BOOL)
                 {
                     auto &v = *(
@@ -1375,9 +1362,7 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                     m_query->set_data_buffer(pszFieldName, v);
 #endif
                 }
-                else
-#endif
-                    if (m_aeFieldTypes[i] == TILEDB_INT16)
+                else if (m_aeFieldTypes[i] == TILEDB_INT16)
                 {
                     auto &v = *(std::get<std::shared_ptr<std::vector<int16_t>>>(
                         fieldValues));
@@ -1385,7 +1370,8 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                         pszFieldName, m_anFieldValuesCapacity[i], nMulFactor));
                     m_anFieldValuesCapacity[i] = v.capacity();
                     anOffsets.resize(m_nBatchSize);
-                    m_query->set_buffer(pszFieldName, anOffsets, v);
+                    m_query->set_data_buffer(pszFieldName, v);
+                    m_query->set_offsets_buffer(pszFieldName, anOffsets);
                 }
                 else if (m_aeFieldTypes[i] == TILEDB_INT32)
                 {
@@ -1395,7 +1381,8 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                         pszFieldName, m_anFieldValuesCapacity[i], nMulFactor));
                     m_anFieldValuesCapacity[i] = v.capacity();
                     anOffsets.resize(m_nBatchSize);
-                    m_query->set_buffer(pszFieldName, anOffsets, v);
+                    m_query->set_data_buffer(pszFieldName, v);
+                    m_query->set_offsets_buffer(pszFieldName, anOffsets);
                 }
                 else if (m_aeFieldTypes[i] == TILEDB_UINT8)
                 {
@@ -1405,7 +1392,8 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                         pszFieldName, m_anFieldValuesCapacity[i], nMulFactor));
                     m_anFieldValuesCapacity[i] = v.capacity();
                     anOffsets.resize(m_nBatchSize);
-                    m_query->set_buffer(pszFieldName, anOffsets, v);
+                    m_query->set_data_buffer(pszFieldName, v);
+                    m_query->set_offsets_buffer(pszFieldName, anOffsets);
                 }
                 else if (m_aeFieldTypes[i] == TILEDB_UINT16)
                 {
@@ -1416,7 +1404,8 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                         pszFieldName, m_anFieldValuesCapacity[i], nMulFactor));
                     m_anFieldValuesCapacity[i] = v.capacity();
                     anOffsets.resize(m_nBatchSize);
-                    m_query->set_buffer(pszFieldName, anOffsets, v);
+                    m_query->set_data_buffer(pszFieldName, v);
+                    m_query->set_offsets_buffer(pszFieldName, anOffsets);
                 }
                 else
                 {
@@ -1433,7 +1422,7 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                 auto &v = *(std::get<std::shared_ptr<std::vector<int64_t>>>(
                     fieldValues));
                 v.resize(m_nBatchSize);
-                m_query->set_buffer(pszFieldName, v);
+                m_query->set_data_buffer(pszFieldName, v);
                 break;
             }
 
@@ -1451,7 +1440,8 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                                       nMulFactor));
                 m_anFieldValuesCapacity[i] = v.capacity();
                 anOffsets.resize(m_nBatchSize);
-                m_query->set_buffer(pszFieldName, anOffsets, v);
+                m_query->set_data_buffer(pszFieldName, v);
+                m_query->set_offsets_buffer(pszFieldName, anOffsets);
                 break;
             }
 
@@ -1462,14 +1452,14 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                     auto &v = *(std::get<std::shared_ptr<std::vector<float>>>(
                         fieldValues));
                     v.resize(m_nBatchSize);
-                    m_query->set_buffer(pszFieldName, v);
+                    m_query->set_data_buffer(pszFieldName, v);
                 }
                 else
                 {
                     auto &v = *(std::get<std::shared_ptr<std::vector<double>>>(
                         fieldValues));
                     v.resize(m_nBatchSize);
-                    m_query->set_buffer(pszFieldName, v);
+                    m_query->set_data_buffer(pszFieldName, v);
                 }
                 break;
             }
@@ -1490,7 +1480,8 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                     v.resize(GetValueSize(
                         pszFieldName, m_anFieldValuesCapacity[i], nMulFactor));
                     m_anFieldValuesCapacity[i] = v.capacity();
-                    m_query->set_buffer(pszFieldName, anOffsets, v);
+                    m_query->set_data_buffer(pszFieldName, v);
+                    m_query->set_offsets_buffer(pszFieldName, anOffsets);
                 }
                 else
                 {
@@ -1499,7 +1490,8 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                     v.resize(GetValueSize(
                         pszFieldName, m_anFieldValuesCapacity[i], nMulFactor));
                     m_anFieldValuesCapacity[i] = v.capacity();
-                    m_query->set_buffer(pszFieldName, anOffsets, v);
+                    m_query->set_data_buffer(pszFieldName, v);
+                    m_query->set_offsets_buffer(pszFieldName, anOffsets);
                 }
                 break;
             }
@@ -1515,7 +1507,8 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                                           : 8));
                 m_anFieldValuesCapacity[i] = v.capacity();
                 anOffsets.resize(m_nBatchSize);
-                m_query->set_buffer(pszFieldName, anOffsets, v);
+                m_query->set_data_buffer(pszFieldName, v);
+                m_query->set_offsets_buffer(pszFieldName, anOffsets);
                 break;
             }
 
@@ -1533,13 +1526,16 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                 anOffsets.resize(m_nBatchSize);
                 if (eType == TILEDB_UINT8)
                 {
-                    m_query->set_buffer(pszFieldName, anOffsets, v);
+                    m_query->set_data_buffer(pszFieldName, v);
+                    m_query->set_offsets_buffer(pszFieldName, anOffsets);
                 }
                 else if (eType == TILEDB_BLOB)
                 {
-                    m_query->set_buffer(
-                        pszFieldName, anOffsets.data(), anOffsets.size(),
-                        reinterpret_cast<std::byte *>(v.data()), v.size());
+                    m_query->set_data_buffer(
+                        pszFieldName, reinterpret_cast<std::byte *>(v.data()),
+                        v.size());
+                    m_query->set_offsets_buffer(pszFieldName, anOffsets.data(),
+                                                anOffsets.size());
                 }
                 else
                 {
@@ -1618,7 +1614,7 @@ bool OGRTileDBLayer::SetupQuery(tiledb::QueryCondition *queryCondition)
     {
         if (!m_query)
         {
-            m_query = cpl::make_unique<tiledb::Query>(*m_ctx, *m_array);
+            m_query = std::make_unique<tiledb::Query>(*m_ctx, *m_array);
             m_query->set_layout(TILEDB_UNORDERED);
             if (queryCondition)
                 m_query->set_condition(*queryCondition);
@@ -1901,16 +1897,13 @@ bool OGRTileDBLayer::SetupQuery(tiledb::QueryCondition *queryCondition)
             {
                 case OFTInteger:
                 {
-#ifdef HAS_TILEDB_BOOL
                     if (m_aeFieldTypes[i] == TILEDB_BOOL)
                     {
                         auto &v = *(std::get<std::shared_ptr<VECTOR_OF_BOOL>>(
                             fieldValues));
                         v.resize(result.second);
                     }
-                    else
-#endif
-                        if (m_aeFieldTypes[i] == TILEDB_INT16)
+                    else if (m_aeFieldTypes[i] == TILEDB_INT16)
                     {
                         auto &v =
                             *(std::get<std::shared_ptr<std::vector<int16_t>>>(
@@ -1947,7 +1940,6 @@ bool OGRTileDBLayer::SetupQuery(tiledb::QueryCondition *queryCondition)
 
                 case OFTIntegerList:
                 {
-#ifdef HAS_TILEDB_BOOL
                     if (m_aeFieldTypes[i] == TILEDB_BOOL)
                     {
                         auto &v = *(std::get<std::shared_ptr<VECTOR_OF_BOOL>>(
@@ -1961,9 +1953,7 @@ bool OGRTileDBLayer::SetupQuery(tiledb::QueryCondition *queryCondition)
                             v.resize(static_cast<size_t>(result.second));
                         }
                     }
-                    else
-#endif
-                        if (m_aeFieldTypes[i] == TILEDB_INT16)
+                    else if (m_aeFieldTypes[i] == TILEDB_INT16)
                     {
                         auto &v =
                             *(std::get<std::shared_ptr<std::vector<int16_t>>>(
@@ -2188,8 +2178,9 @@ void OGRTileDBLayer::SwitchToReadingMode()
         try
         {
             if (m_nTimestamp)
-                m_array.reset(new tiledb::Array(*m_ctx, m_osFilename,
-                                                TILEDB_READ, m_nTimestamp));
+                m_array.reset(new tiledb::Array(
+                    *m_ctx, m_osFilename, TILEDB_READ,
+                    tiledb::TemporalPolicy(tiledb::TimeTravel, m_nTimestamp)));
             else
                 m_array.reset(
                     new tiledb::Array(*m_ctx, m_osFilename, TILEDB_READ));
@@ -2336,7 +2327,7 @@ CreateQueryConditionForIntType(tiledb::Context &ctx,
     if (nVal >= static_cast<int>(std::numeric_limits<T>::min()) &&
         nVal <= static_cast<int>(std::numeric_limits<T>::max()))
     {
-        return cpl::make_unique<tiledb::QueryCondition>(
+        return std::make_unique<tiledb::QueryCondition>(
             tiledb::QueryCondition::create(ctx, poFieldDefn->GetNameRef(),
                                            static_cast<T>(nVal), tiledb_op));
     }
@@ -2448,12 +2439,12 @@ std::unique_ptr<tiledb::QueryCondition> OGRTileDBLayer::CreateQueryCondition(
                     CPLAssert(false);
                     return nullptr;
                 }
-#ifdef HAS_TILEDB_BOOL
+
                 if (m_aeFieldTypes[poColumn->field_index] == TILEDB_BOOL)
                 {
                     if (nVal == 0 || nVal == 1)
                     {
-                        return cpl::make_unique<tiledb::QueryCondition>(
+                        return std::make_unique<tiledb::QueryCondition>(
                             tiledb::QueryCondition::create(
                                 *(m_ctx.get()), poFieldDefn->GetNameRef(),
                                 static_cast<uint8_t>(nVal), tiledb_op));
@@ -2469,9 +2460,7 @@ std::unique_ptr<tiledb::QueryCondition> OGRTileDBLayer::CreateQueryCondition(
                         return nullptr;
                     }
                 }
-                else
-#endif
-                    if (m_aeFieldTypes[poColumn->field_index] == TILEDB_INT16)
+                else if (m_aeFieldTypes[poColumn->field_index] == TILEDB_INT16)
                 {
                     return CreateQueryConditionForIntType<int16_t>(
                         *(m_ctx.get()), poFieldDefn, nVal, tiledb_op,
@@ -2491,7 +2480,7 @@ std::unique_ptr<tiledb::QueryCondition> OGRTileDBLayer::CreateQueryCondition(
                 }
                 else
                 {
-                    return cpl::make_unique<tiledb::QueryCondition>(
+                    return std::make_unique<tiledb::QueryCondition>(
                         tiledb::QueryCondition::create(
                             *(m_ctx.get()), poFieldDefn->GetNameRef(), nVal,
                             tiledb_op));
@@ -2513,7 +2502,7 @@ std::unique_ptr<tiledb::QueryCondition> OGRTileDBLayer::CreateQueryCondition(
                     CPLAssert(false);
                     return nullptr;
                 }
-                return cpl::make_unique<tiledb::QueryCondition>(
+                return std::make_unique<tiledb::QueryCondition>(
                     tiledb::QueryCondition::create(*(m_ctx.get()),
                                                    poFieldDefn->GetNameRef(),
                                                    nVal, tiledb_op));
@@ -2530,13 +2519,13 @@ std::unique_ptr<tiledb::QueryCondition> OGRTileDBLayer::CreateQueryCondition(
                 }
                 if (poFieldDefn->GetSubType() == OFSTFloat32)
                 {
-                    return cpl::make_unique<tiledb::QueryCondition>(
+                    return std::make_unique<tiledb::QueryCondition>(
                         tiledb::QueryCondition::create(
                             *(m_ctx.get()), poFieldDefn->GetNameRef(),
                             static_cast<float>(poValue->float_value),
                             tiledb_op));
                 }
-                return cpl::make_unique<tiledb::QueryCondition>(
+                return std::make_unique<tiledb::QueryCondition>(
                     tiledb::QueryCondition::create(
                         *(m_ctx.get()), poFieldDefn->GetNameRef(),
                         poValue->float_value, tiledb_op));
@@ -2551,12 +2540,7 @@ std::unique_ptr<tiledb::QueryCondition> OGRTileDBLayer::CreateQueryCondition(
                     CPLAssert(false);
                     return nullptr;
                 }
-#if !defined(HAS_TILEDB_WORKING_UTF8_STRING_FILTER)
-                if (m_schema->attribute(poFieldDefn->GetNameRef()).type() !=
-                    TILEDB_STRING_ASCII)
-                    return nullptr;
-#endif
-                return cpl::make_unique<tiledb::QueryCondition>(
+                return std::make_unique<tiledb::QueryCondition>(
                     tiledb::QueryCondition::create(
                         *(m_ctx.get()), poFieldDefn->GetNameRef(),
                         std::string(poValue->string_value), tiledb_op));
@@ -2571,7 +2555,7 @@ std::unique_ptr<tiledb::QueryCondition> OGRTileDBLayer::CreateQueryCondition(
                     OGRField sField;
                     if (OGRParseDate(poValue->string_value, &sField, 0))
                     {
-                        return cpl::make_unique<tiledb::QueryCondition>(
+                        return std::make_unique<tiledb::QueryCondition>(
                             tiledb::QueryCondition::create(
                                 *(m_ctx.get()), poFieldDefn->GetNameRef(),
                                 OGRFieldToDateTimeMS(sField), tiledb_op));
@@ -2595,7 +2579,7 @@ std::unique_ptr<tiledb::QueryCondition> OGRTileDBLayer::CreateQueryCondition(
                     OGRField sField;
                     if (OGRParseDate(poValue->string_value, &sField, 0))
                     {
-                        return cpl::make_unique<tiledb::QueryCondition>(
+                        return std::make_unique<tiledb::QueryCondition>(
                             tiledb::QueryCondition::create(
                                 *(m_ctx.get()), poFieldDefn->GetNameRef(),
                                 OGRFieldToDateDay(sField), tiledb_op));
@@ -2622,7 +2606,7 @@ std::unique_ptr<tiledb::QueryCondition> OGRTileDBLayer::CreateQueryCondition(
                     OGRField sField;
                     if (OGRParseDate(poValue->string_value, &sField, 0))
                     {
-                        return cpl::make_unique<tiledb::QueryCondition>(
+                        return std::make_unique<tiledb::QueryCondition>(
                             tiledb::QueryCondition::create(
                                 *(m_ctx.get()), poFieldDefn->GetNameRef(),
                                 OGRFieldToTimeMS(sField), tiledb_op));
@@ -2680,7 +2664,7 @@ OGRTileDBLayer::CreateQueryCondition(const swq_expr_node *poNode,
         }
         if (left && right)
         {
-            return cpl::make_unique<tiledb::QueryCondition>(
+            return std::make_unique<tiledb::QueryCondition>(
                 left->combine(*(right.get()), TILEDB_AND));
         }
         // Returning only left or right member is OK for a AND
@@ -2690,7 +2674,6 @@ OGRTileDBLayer::CreateQueryCondition(const swq_expr_node *poNode,
         return right;
     }
 
-#ifdef HAS_TILEDB_WORKING_OR_FILTER
     // A OR B
     else if (poNode->eNodeType == SNT_OPERATION &&
              poNode->nOperation == SWQ_OR && poNode->nSubExprCount == 2)
@@ -2721,7 +2704,7 @@ OGRTileDBLayer::CreateQueryCondition(const swq_expr_node *poNode,
         }
         if (left && right)
         {
-            return cpl::make_unique<tiledb::QueryCondition>(
+            return std::make_unique<tiledb::QueryCondition>(
                 left->combine(*(right.get()), TILEDB_OR));
         }
         m_bAttributeFilterPartiallyTranslated = true;
@@ -2758,7 +2741,7 @@ OGRTileDBLayer::CreateQueryCondition(const swq_expr_node *poNode,
                 }
                 else
                 {
-                    cond = cpl::make_unique<tiledb::QueryCondition>(
+                    cond = std::make_unique<tiledb::QueryCondition>(
                         cond->combine(*(newCond.get()), TILEDB_OR));
                 }
             }
@@ -2772,7 +2755,6 @@ OGRTileDBLayer::CreateQueryCondition(const swq_expr_node *poNode,
             bAlwaysFalse = true;
         return cond;
     }
-#endif
 
     // field_name =/<>/</>/<=/>= constant (or the reverse)
     else if (poNode->eNodeType == SNT_OPERATION &&
@@ -2794,20 +2776,12 @@ OGRTileDBLayer::CreateQueryCondition(const swq_expr_node *poNode,
     {
         const OGRFieldDefn *poFieldDefn =
             m_poFeatureDefn->GetFieldDefn(poNode->papoSubExpr[0]->field_index);
-#if !defined(HAS_TILEDB_WORKING_UTF8_STRING_FILTER)
-        if (poFieldDefn->GetType() == OFTString &&
-            m_schema->attribute(poFieldDefn->GetNameRef()).type() !=
-                TILEDB_STRING_ASCII)
-        {
-            return nullptr;
-        }
-#endif
         if (!poFieldDefn->IsNullable())
         {
             bAlwaysFalse = true;
             return nullptr;
         }
-        auto qc = cpl::make_unique<tiledb::QueryCondition>(*(m_ctx.get()));
+        auto qc = std::make_unique<tiledb::QueryCondition>(*(m_ctx.get()));
         qc->init(poFieldDefn->GetNameRef(), nullptr, 0, TILEDB_EQ);
         return qc;
     }
@@ -2823,20 +2797,12 @@ OGRTileDBLayer::CreateQueryCondition(const swq_expr_node *poNode,
     {
         const OGRFieldDefn *poFieldDefn = m_poFeatureDefn->GetFieldDefn(
             poNode->papoSubExpr[0]->papoSubExpr[0]->field_index);
-#if !defined(HAS_TILEDB_WORKING_UTF8_STRING_FILTER)
-        if (poFieldDefn->GetType() == OFTString &&
-            m_schema->attribute(poFieldDefn->GetNameRef()).type() !=
-                TILEDB_STRING_ASCII)
-        {
-            return nullptr;
-        }
-#endif
         if (!poFieldDefn->IsNullable())
         {
             bAlwaysTrue = true;
             return nullptr;
         }
-        auto qc = cpl::make_unique<tiledb::QueryCondition>(*(m_ctx.get()));
+        auto qc = std::make_unique<tiledb::QueryCondition>(*(m_ctx.get()));
         qc->init(poFieldDefn->GetNameRef(), nullptr, 0, TILEDB_NE);
         return qc;
     }
@@ -3008,7 +2974,6 @@ OGRFeature *OGRTileDBLayer::TranslateCurrentFeature()
         {
             case OFTInteger:
             {
-#ifdef HAS_TILEDB_BOOL
                 if (m_aeFieldTypes[i] == TILEDB_BOOL)
                 {
                     const auto &v = *(
@@ -3016,9 +2981,7 @@ OGRFeature *OGRTileDBLayer::TranslateCurrentFeature()
                     poFeature->SetFieldSameTypeUnsafe(i,
                                                       v[m_nOffsetInResultSet]);
                 }
-                else
-#endif
-                    if (m_aeFieldTypes[i] == TILEDB_INT16)
+                else if (m_aeFieldTypes[i] == TILEDB_INT16)
                 {
                     const auto &v =
                         *(std::get<std::shared_ptr<std::vector<int16_t>>>(
@@ -3059,7 +3022,6 @@ OGRFeature *OGRTileDBLayer::TranslateCurrentFeature()
 
             case OFTIntegerList:
             {
-#ifdef HAS_TILEDB_BOOL
                 if (m_aeFieldTypes[i] == TILEDB_BOOL)
                 {
                     const auto &v = *(
@@ -3076,9 +3038,7 @@ OGRFeature *OGRTileDBLayer::TranslateCurrentFeature()
                     poFeature->SetField(i, static_cast<int>(nEltCount),
                                         tmp.data());
                 }
-                else
-#endif
-                    if (m_aeFieldTypes[i] == TILEDB_INT16)
+                else if (m_aeFieldTypes[i] == TILEDB_INT16)
                 {
                     const auto &v =
                         *(std::get<std::shared_ptr<std::vector<int16_t>>>(
@@ -3434,7 +3394,8 @@ void OGRTileDBLayer::ResetReading()
 /*                         CreateField()                                */
 /************************************************************************/
 
-OGRErr OGRTileDBLayer::CreateField(OGRFieldDefn *poField, int /* bApproxOK*/)
+OGRErr OGRTileDBLayer::CreateField(const OGRFieldDefn *poField,
+                                   int /* bApproxOK*/)
 {
     if (!m_bUpdatable)
         return OGRERR_FAILURE;
@@ -3576,16 +3537,13 @@ void OGRTileDBLayer::InitializeSchemaAndArray()
                 case OFTInteger:
                 case OFTIntegerList:
                 {
-#ifdef HAS_TILEDB_BOOL
                     if (poFieldDefn->GetSubType() == OFSTBoolean)
                     {
                         CreateAttr(TILEDB_BOOL, eType == OFTIntegerList);
                         aFieldValues.push_back(
                             std::make_shared<VECTOR_OF_BOOL>());
                     }
-                    else
-#endif
-                        if (poFieldDefn->GetSubType() == OFSTInt16)
+                    else if (poFieldDefn->GetSubType() == OFSTInt16)
                     {
                         CreateAttr(TILEDB_INT16, eType == OFTIntegerList);
                         aFieldValues.push_back(
@@ -3732,17 +3690,16 @@ void OGRTileDBLayer::InitializeSchemaAndArray()
 
         tiledb::Array::create(m_osFilename, *m_schema);
 
-#ifdef HAS_TILEDB_GROUP
         if (!m_osGroupName.empty())
         {
             tiledb::Group group(*m_ctx, m_osGroupName, TILEDB_WRITE);
             group.add_member(m_osFilename, false, GetDescription());
         }
-#endif
 
         if (m_nTimestamp)
-            m_array.reset(new tiledb::Array(*m_ctx, m_osFilename, TILEDB_WRITE,
-                                            m_nTimestamp));
+            m_array.reset(new tiledb::Array(
+                *m_ctx, m_osFilename, TILEDB_WRITE,
+                tiledb::TemporalPolicy(tiledb::TimeTravel, m_nTimestamp)));
         else
             m_array.reset(
                 new tiledb::Array(*m_ctx, m_osFilename, TILEDB_WRITE));
@@ -3760,6 +3717,10 @@ void OGRTileDBLayer::InitializeSchemaAndArray()
                                   static_cast<int>(strlen(pszGeomColName)),
                                   pszGeomColName);
         }
+
+        m_array->put_metadata("dataset_type", TILEDB_STRING_UTF8,
+                              static_cast<int>(strlen(GEOMETRY_DATASET_TYPE)),
+                              GEOMETRY_DATASET_TYPE);
 
         auto poSRS = GetSpatialRef();
         if (poSRS)
@@ -3854,8 +3815,9 @@ void OGRTileDBLayer::SwitchToWritingMode()
         try
         {
             if (m_nTimestamp)
-                m_array.reset(new tiledb::Array(*m_ctx, m_osFilename,
-                                                TILEDB_WRITE, m_nTimestamp));
+                m_array.reset(new tiledb::Array(
+                    *m_ctx, m_osFilename, TILEDB_WRITE,
+                    tiledb::TemporalPolicy(tiledb::TimeTravel, m_nTimestamp)));
             else
                 m_array.reset(
                     new tiledb::Array(*m_ctx, m_osFilename, TILEDB_WRITE));
@@ -3957,13 +3919,10 @@ OGRErr OGRTileDBLayer::ICreateFeature(OGRFeature *poFeature)
             {
                 const int nVal =
                     bFieldIsValid ? poFeature->GetFieldAsIntegerUnsafe(i) : 0;
-#ifdef HAS_TILEDB_BOOL
                 if (m_aeFieldTypes[i] == TILEDB_BOOL)
                     std::get<std::shared_ptr<VECTOR_OF_BOOL>>(fieldValues)
                         ->push_back(static_cast<uint8_t>(nVal));
-                else
-#endif
-                    if (m_aeFieldTypes[i] == TILEDB_INT16)
+                else if (m_aeFieldTypes[i] == TILEDB_INT16)
                     std::get<std::shared_ptr<std::vector<int16_t>>>(fieldValues)
                         ->push_back(static_cast<int16_t>(nVal));
                 else if (m_aeFieldTypes[i] == TILEDB_INT32)
@@ -3990,7 +3949,6 @@ OGRErr OGRTileDBLayer::ICreateFeature(OGRFeature *poFeature)
                     poFeature->GetFieldAsIntegerList(i, &nCount);
                 if (anOffsets.empty())
                     anOffsets.push_back(0);
-#ifdef HAS_TILEDB_BOOL
                 if (m_aeFieldTypes[i] == TILEDB_BOOL)
                 {
                     auto &v = *(
@@ -4000,9 +3958,7 @@ OGRErr OGRTileDBLayer::ICreateFeature(OGRFeature *poFeature)
                     anOffsets.push_back(anOffsets.back() +
                                         nCount * sizeof(v[0]));
                 }
-                else
-#endif
-                    if (m_aeFieldTypes[i] == TILEDB_INT16)
+                else if (m_aeFieldTypes[i] == TILEDB_INT16)
                 {
                     auto &v = *(std::get<std::shared_ptr<std::vector<int16_t>>>(
                         fieldValues));
@@ -4265,11 +4221,11 @@ void OGRTileDBLayer::FlushArrays()
         tiledb::Query query(*m_ctx, *m_array);
         query.set_layout(TILEDB_UNORDERED);
         if (!m_osFIDColumn.empty())
-            query.set_buffer(m_osFIDColumn, *m_anFIDs);
-        query.set_buffer(m_osXDim, *m_adfXs);
-        query.set_buffer(m_osYDim, *m_adfYs);
+            query.set_data_buffer(m_osFIDColumn, *m_anFIDs);
+        query.set_data_buffer(m_osXDim, *m_adfXs);
+        query.set_data_buffer(m_osYDim, *m_adfYs);
         if (!m_osZDim.empty())
-            query.set_buffer(m_osZDim, *m_adfZs);
+            query.set_data_buffer(m_osZDim, *m_adfZs);
 
         const char *pszGeomColName = GetDatabaseGeomColName();
         if (pszGeomColName)
@@ -4277,16 +4233,18 @@ void OGRTileDBLayer::FlushArrays()
             m_anGeometryOffsets->pop_back();
             if (m_schema->attribute(pszGeomColName).type() == TILEDB_UINT8)
             {
-                query.set_buffer(pszGeomColName, *m_anGeometryOffsets,
-                                 *m_abyGeometries);
+                query.set_data_buffer(pszGeomColName, *m_abyGeometries);
+                query.set_offsets_buffer(pszGeomColName, *m_anGeometryOffsets);
             }
             else if (m_schema->attribute(pszGeomColName).type() == TILEDB_BLOB)
             {
-                query.set_buffer(
-                    pszGeomColName, m_anGeometryOffsets->data(),
-                    m_anGeometryOffsets->size(),
+                query.set_data_buffer(
+                    pszGeomColName,
                     reinterpret_cast<std::byte *>(m_abyGeometries->data()),
                     m_abyGeometries->size());
+                query.set_offsets_buffer(pszGeomColName,
+                                         m_anGeometryOffsets->data(),
+                                         m_anGeometryOffsets->size());
             }
             else
             {
@@ -4316,20 +4274,17 @@ void OGRTileDBLayer::FlushArrays()
                         query.set_offsets_buffer(pszFieldName, anOffsets);
                     }
 
-#ifdef HAS_TILEDB_BOOL
                     if (m_aeFieldTypes[i] == TILEDB_BOOL)
                     {
                         auto &v = *(std::get<std::shared_ptr<VECTOR_OF_BOOL>>(
                             fieldValues));
 #ifdef VECTOR_OF_BOOL_IS_NOT_UINT8_T
-                        query.set_buffer(pszFieldName, v.data(), v.size());
+                        query.set_data_buffer(pszFieldName, v.data(), v.size());
 #else
-                        query.set_buffer(pszFieldName, v);
+                        query.set_data_buffer(pszFieldName, v);
 #endif
                     }
-                    else
-#endif
-                        if (m_aeFieldTypes[i] == TILEDB_INT16)
+                    else if (m_aeFieldTypes[i] == TILEDB_INT16)
                     {
                         auto &v =
                             *(std::get<std::shared_ptr<std::vector<int16_t>>>(
@@ -4362,7 +4317,7 @@ void OGRTileDBLayer::FlushArrays()
 
                 case OFTInteger64:
                 {
-                    query.set_buffer(
+                    query.set_data_buffer(
                         pszFieldName,
                         *std::get<std::shared_ptr<std::vector<int64_t>>>(
                             fieldValues));
@@ -4372,10 +4327,11 @@ void OGRTileDBLayer::FlushArrays()
                 case OFTInteger64List:
                 {
                     anOffsets.pop_back();
-                    query.set_buffer(
-                        pszFieldName, anOffsets,
+                    query.set_data_buffer(
+                        pszFieldName,
                         *std::get<std::shared_ptr<std::vector<int64_t>>>(
                             fieldValues));
+                    query.set_offsets_buffer(pszFieldName, anOffsets);
                     break;
                 }
 
@@ -4383,14 +4339,14 @@ void OGRTileDBLayer::FlushArrays()
                 {
                     if (poFieldDefn->GetSubType() == OFSTFloat32)
                     {
-                        query.set_buffer(
+                        query.set_data_buffer(
                             pszFieldName,
                             *std::get<std::shared_ptr<std::vector<float>>>(
                                 fieldValues));
                     }
                     else
                     {
-                        query.set_buffer(
+                        query.set_data_buffer(
                             pszFieldName,
                             *std::get<std::shared_ptr<std::vector<double>>>(
                                 fieldValues));
@@ -4403,17 +4359,19 @@ void OGRTileDBLayer::FlushArrays()
                     anOffsets.pop_back();
                     if (poFieldDefn->GetSubType() == OFSTFloat32)
                     {
-                        query.set_buffer(
-                            pszFieldName, anOffsets,
+                        query.set_data_buffer(
+                            pszFieldName,
                             *std::get<std::shared_ptr<std::vector<float>>>(
                                 fieldValues));
+                        query.set_offsets_buffer(pszFieldName, anOffsets);
                     }
                     else
                     {
-                        query.set_buffer(
-                            pszFieldName, anOffsets,
+                        query.set_data_buffer(
+                            pszFieldName,
                             *std::get<std::shared_ptr<std::vector<double>>>(
                                 fieldValues));
+                        query.set_offsets_buffer(pszFieldName, anOffsets);
                     }
                     break;
                 }
@@ -4421,9 +4379,10 @@ void OGRTileDBLayer::FlushArrays()
                 case OFTString:
                 {
                     anOffsets.pop_back();
-                    query.set_buffer(
-                        pszFieldName, anOffsets,
+                    query.set_data_buffer(
+                        pszFieldName,
                         *std::get<std::shared_ptr<std::string>>(fieldValues));
+                    query.set_offsets_buffer(pszFieldName, anOffsets);
                     break;
                 }
 
@@ -4434,13 +4393,16 @@ void OGRTileDBLayer::FlushArrays()
                         fieldValues));
                     if (m_aeFieldTypes[i] == TILEDB_UINT8)
                     {
-                        query.set_buffer(pszFieldName, anOffsets, v);
+                        query.set_data_buffer(pszFieldName, v);
+                        query.set_offsets_buffer(pszFieldName, anOffsets);
                     }
                     else if (m_aeFieldTypes[i] == TILEDB_BLOB)
                     {
-                        query.set_buffer(
-                            pszFieldName, anOffsets.data(), anOffsets.size(),
+                        query.set_data_buffer(
+                            pszFieldName,
                             reinterpret_cast<std::byte *>(v.data()), v.size());
+                        query.set_offsets_buffer(pszFieldName, anOffsets.data(),
+                                                 anOffsets.size());
                     }
                     else
                     {
@@ -4453,7 +4415,7 @@ void OGRTileDBLayer::FlushArrays()
                 case OFTDateTime:
                 case OFTTime:
                 {
-                    query.set_buffer(
+                    query.set_data_buffer(
                         pszFieldName,
                         *std::get<std::shared_ptr<std::vector<int64_t>>>(
                             fieldValues));
@@ -4596,12 +4558,9 @@ int OGRTileDBLayer::GetArrowSchema(struct ArrowArrayStream *out_stream,
                 eType == OFTInteger
                     ? out_schema->children[iSchemaChild]->format
                     : out_schema->children[iSchemaChild]->children[0]->format;
-#ifdef HAS_TILEDB_BOOL
             if (m_aeFieldTypes[i] == TILEDB_BOOL)
                 format = "b";
-            else
-#endif
-                if (m_aeFieldTypes[i] == TILEDB_INT16)
+            else if (m_aeFieldTypes[i] == TILEDB_INT16)
                 format = "s";
             else if (m_aeFieldTypes[i] == TILEDB_INT32)
                 format = "i";
@@ -5296,14 +5255,11 @@ int OGRTileDBLayer::GetNextArrowArray(struct ArrowArrayStream *stream,
             {
                 case OFTInteger:
                 {
-#ifdef HAS_TILEDB_BOOL
                     if (m_aeFieldTypes[i] == TILEDB_BOOL)
                     {
                         FillBoolArray(psChild, i, abyValidityFromFilters);
                     }
-                    else
-#endif
-                        if (m_aeFieldTypes[i] == TILEDB_INT16)
+                    else if (m_aeFieldTypes[i] == TILEDB_INT16)
                     {
                         FillPrimitiveArray<int16_t>(psChild, i,
                                                     abyValidityFromFilters);
@@ -5332,14 +5288,11 @@ int OGRTileDBLayer::GetNextArrowArray(struct ArrowArrayStream *stream,
 
                 case OFTIntegerList:
                 {
-#ifdef HAS_TILEDB_BOOL
                     if (m_aeFieldTypes[i] == TILEDB_BOOL)
                     {
                         FillBoolListArray(psChild, i, abyValidityFromFilters);
                     }
-                    else
-#endif
-                        if (m_aeFieldTypes[i] == TILEDB_INT16)
+                    else if (m_aeFieldTypes[i] == TILEDB_INT16)
                     {
                         FillPrimitiveListArray<int16_t>(psChild, i,
                                                         abyValidityFromFilters);

@@ -95,7 +95,7 @@ struct LimitationStruct
 };
 }  // namespace
 
-static CPLMutex *hMutex = nullptr;
+static CPLMutex *hOGRXercesMutex = nullptr;
 static int nCounter = 0;
 static bool bXercesWasAlreadyInitializedBeforeUs = false;
 static OGRXercesStandardMemoryManager *gpExceptionMemoryManager = nullptr;
@@ -165,7 +165,7 @@ void *OGRXercesInstrumentedMemoryManager::allocate(XMLSize_t size)
 
     LimitationStruct *pLimitation = nullptr;
     {
-        CPLMutexHolderD(&hMutex);
+        CPLMutexHolderD(&hOGRXercesMutex);
 
         if (gpoMapThreadTimeout)
         {
@@ -258,7 +258,7 @@ void OGRXercesInstrumentedMemoryManager::deallocate(void *p)
 
         LimitationStruct *pLimitation = nullptr;
         {
-            CPLMutexHolderD(&hMutex);
+            CPLMutexHolderD(&hOGRXercesMutex);
 
             if (gpoMapThreadTimeout)
             {
@@ -293,7 +293,7 @@ void OGRStartXercesLimitsForThisThread(size_t nMaxMemAlloc,
                                        double dfTimeoutSecond,
                                        const char *pszMsgTimeout)
 {
-    CPLMutexHolderD(&hMutex);
+    CPLMutexHolderD(&hOGRXercesMutex);
     if (gpoMapThreadTimeout == nullptr)
     {
         gpoMapThreadTimeout = new std::map<GIntBig, LimitationStruct>();
@@ -305,7 +305,7 @@ void OGRStartXercesLimitsForThisThread(size_t nMaxMemAlloc,
     limitation.timeOut = dfTimeoutSecond;
     if (pszMsgTimeout)
         limitation.osMsgTimeout = pszMsgTimeout;
-    (*gpoMapThreadTimeout)[CPLGetPID()] = limitation;
+    (*gpoMapThreadTimeout)[CPLGetPID()] = std::move(limitation);
 }
 
 /************************************************************************/
@@ -314,7 +314,7 @@ void OGRStartXercesLimitsForThisThread(size_t nMaxMemAlloc,
 
 void OGRStopXercesLimitsForThisThread()
 {
-    CPLMutexHolderD(&hMutex);
+    CPLMutexHolderD(&hOGRXercesMutex);
     (*gpoMapThreadTimeout).erase(CPLGetPID());
     if (gpoMapThreadTimeout->empty())
     {
@@ -342,6 +342,7 @@ class OGRXercesBinInputStream final : public BinInputStream
     XMLFilePos curPos() const override;
     XMLSize_t readBytes(XMLByte *const toFill,
                         const XMLSize_t maxToRead) override;
+
     const XMLCh *getContentType() const override
     {
         return &emptyString;
@@ -359,6 +360,7 @@ class OGRXercesNetAccessor final : public XMLNetAccessor
 
     BinInputStream *makeNew(const XMLURL &urlSource,
                             const XMLNetHTTPInfo *httpInfo) override;
+
     const XMLCh *getId() const override
     {
         return fgMyName;
@@ -394,7 +396,7 @@ OGRXercesNetAccessor::makeNew(const XMLURL &urlSource,
 
 bool OGRInitializeXerces()
 {
-    CPLMutexHolderD(&hMutex);
+    CPLMutexHolderD(&hOGRXercesMutex);
 
     if (nCounter > 0)
     {
@@ -451,7 +453,7 @@ bool OGRInitializeXerces()
 
 void OGRDeinitializeXerces()
 {
-    CPLMutexHolderD(&hMutex);
+    CPLMutexHolderD(&hOGRXercesMutex);
     if (nCounter == 0)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
@@ -481,9 +483,9 @@ void OGRDeinitializeXerces()
 
 void OGRCleanupXercesMutex()
 {
-    if (hMutex != nullptr)
-        CPLDestroyMutex(hMutex);
-    hMutex = nullptr;
+    if (hOGRXercesMutex != nullptr)
+        CPLDestroyMutex(hOGRXercesMutex);
+    hOGRXercesMutex = nullptr;
 }
 
 namespace OGR

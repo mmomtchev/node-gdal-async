@@ -64,7 +64,7 @@ OGRDXFWriterDS::~OGRDXFWriterDS()
          */
         CPLDebug("DXF", "Compose final DXF file from components.");
 
-        if (bSuppressOnClose && fpTemp != nullptr)
+        if (IsMarkedSuppressOnClose() && fpTemp != nullptr)
         {
             CPLDebug("DXF", "Do not copy final DXF when 'suppress on close'.");
             VSIFCloseL(fpTemp);
@@ -274,9 +274,10 @@ int OGRDXFWriterDS::Open(const char *pszFilename, char **papszOptions)
 /*                           ICreateLayer()                             */
 /************************************************************************/
 
-OGRLayer *OGRDXFWriterDS::ICreateLayer(const char *pszName,
-                                       const OGRSpatialReference *,
-                                       OGRwkbGeometryType, char **)
+OGRLayer *
+OGRDXFWriterDS::ICreateLayer(const char *pszName,
+                             const OGRGeomFieldDefn * /*poGeomFieldDefn*/,
+                             CSLConstList /*papszOptions*/)
 
 {
     if (EQUAL(pszName, "blocks") && poBlocksLayer == nullptr)
@@ -339,6 +340,7 @@ static bool WriteValue(VSILFILE *fp, int nCode, double dfValue)
 
     return true;
 }
+
 /************************************************************************/
 /*                        TransferUpdateHeader()                        */
 /************************************************************************/
@@ -729,7 +731,7 @@ bool OGRDXFWriterDS::WriteNewLineTypeRecords(VSILFILE *fpIn)
     if (poLayer == nullptr)
         return true;
 
-    std::map<CPLString, std::vector<double>> &oNewLineTypes =
+    const std::map<CPLString, std::vector<double>> &oNewLineTypes =
         poLayer->GetNewLineTypeMap();
 
     bool bRet = true;

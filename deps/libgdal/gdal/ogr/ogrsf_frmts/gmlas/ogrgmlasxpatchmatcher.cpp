@@ -31,22 +31,6 @@
 #include "ogr_gmlas.h"
 
 /************************************************************************/
-/*                          GMLASXPathMatcher()                         */
-/************************************************************************/
-
-GMLASXPathMatcher::GMLASXPathMatcher()
-{
-}
-
-/************************************************************************/
-/*                         ~GMLASXPathMatcher()                         */
-/************************************************************************/
-
-GMLASXPathMatcher::~GMLASXPathMatcher()
-{
-}
-
-/************************************************************************/
 /*                           SetRefXPaths()                             */
 /************************************************************************/
 
@@ -136,7 +120,7 @@ void GMLASXPathMatcher::SetDocumentMapURIToPrefix(
             }
 
             XPathComponent comp;
-            comp.m_osValue = osCurNode;
+            comp.m_osValue = std::move(osCurNode);
             comp.m_bDirectChild = bDirectChild;
             oVector.push_back(comp);
 

@@ -557,6 +557,22 @@ OGRErr OGRGeometryCollection::importFromWkbInternal(
             eErr = OGRGeometryFactory::createFromWkb(
                 pabySubData, nullptr, &poSubGeom, nSize, eWkbVariant,
                 nSubGeomBytesConsumed);
+
+            if (eErr == OGRERR_NONE)
+            {
+                // if this is a Z or M geom make sure the sub geoms are as well
+                if (Is3D() && !poSubGeom->Is3D())
+                {
+                    CPLDebug("OGR", "Promoting sub-geometry to 3D");
+                    poSubGeom->set3D(TRUE);
+                }
+
+                if (IsMeasured() && !poSubGeom->IsMeasured())
+                {
+                    CPLDebug("OGR", "Promoting sub-geometry to Measured");
+                    poSubGeom->setMeasured(TRUE);
+                }
+            }
         }
 
         if (eErr != OGRERR_NONE)
@@ -586,6 +602,7 @@ OGRErr OGRGeometryCollection::importFromWkbInternal(
 
     return OGRERR_NONE;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -611,24 +628,32 @@ OGRErr OGRGeometryCollection::importFromWkb(const unsigned char *pabyData,
 /*      Build a well known binary representation of this object.        */
 /************************************************************************/
 
-OGRErr OGRGeometryCollection::exportToWkb(OGRwkbByteOrder eByteOrder,
-                                          unsigned char *pabyData,
-                                          OGRwkbVariant eWkbVariant) const
+OGRErr
+OGRGeometryCollection::exportToWkb(unsigned char *pabyData,
+                                   const OGRwkbExportOptions *psOptions) const
 
 {
-    if (eWkbVariant == wkbVariantOldOgc &&
+    if (psOptions == nullptr)
+    {
+        static const OGRwkbExportOptions defaultOptions;
+        psOptions = &defaultOptions;
+    }
+
+    OGRwkbExportOptions sOptions(*psOptions);
+
+    if (sOptions.eWkbVariant == wkbVariantOldOgc &&
         (wkbFlatten(getGeometryType()) == wkbMultiCurve ||
          wkbFlatten(getGeometryType()) == wkbMultiSurface))
     {
         // Does not make sense for new geometries, so patch it.
-        eWkbVariant = wkbVariantIso;
+        sOptions.eWkbVariant = wkbVariantIso;
     }
 
     /* -------------------------------------------------------------------- */
     /*      Set the byte order.                                             */
     /* -------------------------------------------------------------------- */
-    pabyData[0] =
-        DB2_V72_UNFIX_BYTE_ORDER(static_cast<unsigned char>(eByteOrder));
+    pabyData[0] = DB2_V72_UNFIX_BYTE_ORDER(
+        static_cast<unsigned char>(sOptions.eByteOrder));
 
     /* -------------------------------------------------------------------- */
     /*      Set the geometry feature type, ensuring that 3D flag is         */
@@ -636,9 +661,9 @@ OGRErr OGRGeometryCollection::exportToWkb(OGRwkbByteOrder eByteOrder,
     /* -------------------------------------------------------------------- */
     GUInt32 nGType = getGeometryType();
 
-    if (eWkbVariant == wkbVariantIso)
+    if (sOptions.eWkbVariant == wkbVariantIso)
         nGType = getIsoGeometryType();
-    else if (eWkbVariant == wkbVariantPostGIS1)
+    else if (sOptions.eWkbVariant == wkbVariantPostGIS1)
     {
         const bool bIs3D = wkbHasZ(static_cast<OGRwkbGeometryType>(nGType));
         nGType = wkbFlatten(nGType);
@@ -652,7 +677,7 @@ OGRErr OGRGeometryCollection::exportToWkb(OGRwkbByteOrder eByteOrder,
                 static_cast<OGRwkbGeometryType>(nGType | wkb25DBitInternalUse);
     }
 
-    if (OGR_SWAP(eByteOrder))
+    if (OGR_SWAP(sOptions.eByteOrder))
     {
         nGType = CPL_SWAP32(nGType);
     }
@@ -662,7 +687,7 @@ OGRErr OGRGeometryCollection::exportToWkb(OGRwkbByteOrder eByteOrder,
     /* -------------------------------------------------------------------- */
     /*      Copy in the raw data.                                           */
     /* -------------------------------------------------------------------- */
-    if (OGR_SWAP(eByteOrder))
+    if (OGR_SWAP(sOptions.eByteOrder))
     {
         int nCount = CPL_SWAP32(nGeomCount);
         memcpy(pabyData + 5, &nCount, 4);
@@ -680,7 +705,7 @@ OGRErr OGRGeometryCollection::exportToWkb(OGRwkbByteOrder eByteOrder,
     int iGeom = 0;
     for (auto &&poSubGeom : *this)
     {
-        poSubGeom->exportToWkb(eByteOrder, pabyData + nOffset, eWkbVariant);
+        poSubGeom->exportToWkb(pabyData + nOffset, &sOptions);
         // Should normally not happen if everyone else does its job,
         // but has happened sometimes. (#6332)
         if (poSubGeom->getCoordinateDimension() != getCoordinateDimension())
@@ -894,6 +919,7 @@ std::string OGRGeometryCollection::exportToWktInternal(
         return std::string();
     }
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -1144,6 +1170,78 @@ double OGRGeometryCollection::get_Area() const
 }
 
 /************************************************************************/
+/*                        get_GeodesicArea()                            */
+/************************************************************************/
+
+/**
+ * \brief Compute area of geometry collection, considered as a surface on
+ * the underlying ellipsoid of the SRS attached to the geometry.
+ *
+ * The returned area will always be in square meters, and assumes that
+ * polygon edges describe geodesic lines on the ellipsoid.
+ *
+ * If the geometry' SRS is not a geographic one, geometries are reprojected to
+ * the underlying geographic SRS of the geometry' SRS.
+ * OGRSpatialReference::GetDataAxisToSRSAxisMapping() is honored.
+ *
+ * The area is computed as the sum of the areas of all members
+ * in this collection.
+ *
+ * @note No warning will be issued if a member of the collection does not
+ *       support the get_GeodesicArea method.
+ *
+ * @param poSRSOverride If not null, overrides OGRGeometry::getSpatialReference()
+ * @return the area of the geometry in square meters, or a negative value in case
+ * of error.
+ *
+ * @see get_Area() for an alternative method returning areas computed in
+ * 2D Cartesian space.
+ *
+ * @since GDAL 3.9
+ */
+double OGRGeometryCollection::get_GeodesicArea(
+    const OGRSpatialReference *poSRSOverride) const
+{
+    if (!poSRSOverride)
+        poSRSOverride = getSpatialReference();
+
+    double dfArea = 0.0;
+    for (auto &&poSubGeom : *this)
+    {
+        OGRwkbGeometryType eType = wkbFlatten(poSubGeom->getGeometryType());
+        if (OGR_GT_IsSurface(eType))
+        {
+            const OGRSurface *poSurface = poSubGeom->toSurface();
+            const double dfLocalArea =
+                poSurface->get_GeodesicArea(poSRSOverride);
+            if (dfLocalArea < 0)
+                return dfLocalArea;
+            dfArea += dfLocalArea;
+        }
+        else if (OGR_GT_IsCurve(eType))
+        {
+            const OGRCurve *poCurve = poSubGeom->toCurve();
+            const double dfLocalArea = poCurve->get_GeodesicArea(poSRSOverride);
+            if (dfLocalArea < 0)
+                return dfLocalArea;
+            dfArea += dfLocalArea;
+        }
+        else if (OGR_GT_IsSubClassOf(eType, wkbMultiSurface) ||
+                 eType == wkbGeometryCollection)
+        {
+            const double dfLocalArea =
+                poSubGeom->toGeometryCollection()->get_GeodesicArea(
+                    poSRSOverride);
+            if (dfLocalArea < 0)
+                return dfLocalArea;
+            dfArea += dfLocalArea;
+        }
+    }
+
+    return dfArea;
+}
+
+/************************************************************************/
 /*                               IsEmpty()                              */
 /************************************************************************/
 
@@ -1299,6 +1397,7 @@ OGRGeometryCollection::TransferMembersAndDestroy(OGRGeometryCollection *poSrc,
     delete poSrc;
     return poDst;
 }
+
 //! @endcond
 
 /************************************************************************/

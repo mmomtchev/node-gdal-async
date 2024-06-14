@@ -36,7 +36,7 @@ add_gdal_driver(
           gt_overview.cpp
           gt_wkt_srs.cpp
           tifvsi.cpp
-  BUILTIN CXX_WFLAGS_EFFCXX)
+  BUILTIN STRONG_CXX_WFLAGS)
 gdal_standard_includes(gdal_GTIFF)
 
 if (GDAL_ENABLE_DRIVER_JPEG)
@@ -68,6 +68,12 @@ endif ()
 if (GDAL_USE_GEOTIFF_INTERNAL)
   gdal_add_vendored_lib(gdal_GTIFF geotiff)
   target_compile_definitions(gdal_GTIFF PRIVATE -DINTERNAL_LIBGEOTIFF)
+endif ()
+
+if (GDAL_USE_LERC_INTERNAL)
+  # Just for the sake of reporting the liblerc version in internal metadata
+  target_compile_definitions(gdal_GTIFF PRIVATE -DLERC_SUPPORT)
+  gdal_add_vendored_lib(gdal_GTIFF lerc)
 endif ()
 
 # Now deal with external dependencies
@@ -136,11 +142,9 @@ if (GDAL_USE_WEBP)
   target_include_directories(gdal_GTIFF PRIVATE $<TARGET_PROPERTY:WEBP::WebP,INTERFACE_INCLUDE_DIRECTORIES>)
 endif ()
 
-if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.16)
-  set_property(SOURCE geotiff.cpp gt_wkt_srs.cpp PROPERTY SKIP_UNITY_BUILD_INCLUSION ON)
-  # These files has CPL_CVSID("$id$") which break ODR and UNITY_BUILD
-  set_property(SOURCE gt_citation.cpp gt_wkt_srs.cpp geotiff.cpp gt_jpeg_copy.cpp tifvsi.cpp gt_overview.cpp
-               PROPERTY SKIP_UNITY_BUILD_INCLUSION ON)
+if (NOT GDAL_USE_LERC_INTERNAL AND GDAL_USE_LERC)
+  target_compile_definitions(gdal_GTIFF PRIVATE -DLERC_SUPPORT)
+  target_include_directories(gdal_GTIFF PRIVATE $<TARGET_PROPERTY:LERC::LERC,INTERFACE_INCLUDE_DIRECTORIES>)
 endif ()
 
 if(GDAL_USE_JPEG OR GDAL_USE_JPEG_INTERNAL)

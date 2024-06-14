@@ -41,13 +41,24 @@ enum class OGRArrowGeomEncoding
 {
     WKB,
     WKT,
-    GEOARROW_GENERIC,  // only used by OGRArrowWriterLayer::m_eGeomEncoding
-    GEOARROW_POINT,
-    GEOARROW_LINESTRING,
-    GEOARROW_POLYGON,
-    GEOARROW_MULTIPOINT,
-    GEOARROW_MULTILINESTRING,
-    GEOARROW_MULTIPOLYGON,
+
+    // F(ixed) S(ize) L(ist) of (x,y[,z][,m]) values / Interleaved layout
+    GEOARROW_FSL_GENERIC,  // only used by OGRArrowWriterLayer::m_eGeomEncoding
+    GEOARROW_FSL_POINT,
+    GEOARROW_FSL_LINESTRING,
+    GEOARROW_FSL_POLYGON,
+    GEOARROW_FSL_MULTIPOINT,
+    GEOARROW_FSL_MULTILINESTRING,
+    GEOARROW_FSL_MULTIPOLYGON,
+
+    // Struct of (x,y,[,z][,m])
+    GEOARROW_STRUCT_GENERIC,  // only used by OGRArrowWriterLayer::m_eGeomEncoding
+    GEOARROW_STRUCT_POINT,
+    GEOARROW_STRUCT_LINESTRING,
+    GEOARROW_STRUCT_POLYGON,
+    GEOARROW_STRUCT_MULTIPOINT,
+    GEOARROW_STRUCT_MULTILINESTRING,
+    GEOARROW_STRUCT_MULTIPOLYGON,
 };
 
 /************************************************************************/
@@ -110,19 +121,35 @@ class OGRArrowLayer CPL_NON_FINAL
     std::vector<int> m_anMapGeomFieldIndexToArrowColumn{};
     std::vector<OGRArrowGeomEncoding> m_aeGeomEncoding{};
 
-    // OGR field indexes for bbox.minx/miny/maxx/maxy Real fields
-    int m_iBBOXMinXField = -1;
-    int m_iBBOXMinYField = -1;
-    int m_iBBOXMaxXField = -1;
-    int m_iBBOXMaxYField = -1;
+    //! Describe the bbox column of a geometry column
+    struct GeomColBBOX
+    {
+        bool bIsFloat = false;
+        int iArrowCol = -1;
+        int iArrayIdx = -1;  // only valid when m_bIgnoredFields == true
+        int iArrowSubfieldXMin = -1;
+        int iArrowSubfieldYMin = -1;
+        int iArrowSubfieldXMax = -1;
+        int iArrowSubfieldYMax = -1;
+    };
+
+    //! Map from OGR geometry field index to GeomColBBOX
+    std::map<int, GeomColBBOX> m_oMapGeomFieldIndexToGeomColBBOX{};
 
     const arrow::BinaryArray *m_poArrayWKB = nullptr;
     const arrow::LargeBinaryArray *m_poArrayWKBLarge = nullptr;
     const arrow::Array *m_poArrayBBOX = nullptr;
-    const arrow::DoubleArray *m_poArrayMinX = nullptr;
-    const arrow::DoubleArray *m_poArrayMinY = nullptr;
-    const arrow::DoubleArray *m_poArrayMaxX = nullptr;
-    const arrow::DoubleArray *m_poArrayMaxY = nullptr;
+    const arrow::DoubleArray *m_poArrayXMinDouble = nullptr;
+    const arrow::DoubleArray *m_poArrayYMinDouble = nullptr;
+    const arrow::DoubleArray *m_poArrayXMaxDouble = nullptr;
+    const arrow::DoubleArray *m_poArrayYMaxDouble = nullptr;
+    const arrow::FloatArray *m_poArrayXMinFloat = nullptr;
+    const arrow::FloatArray *m_poArrayYMinFloat = nullptr;
+    const arrow::FloatArray *m_poArrayXMaxFloat = nullptr;
+    const arrow::FloatArray *m_poArrayYMaxFloat = nullptr;
+
+    //! References values in range [0, m_poSchema->field_count()-1]
+    std::set<int> m_oSetBBoxArrowColumns{};
 
     bool m_bIgnoredFields = false;
     std::vector<int>
@@ -148,7 +175,9 @@ class OGRArrowLayer CPL_NON_FINAL
     std::vector<Constraint> m_asAttributeFilterConstraints{};
 
     std::map<std::string, std::unique_ptr<OGRFieldDefn>>
-    LoadGDALMetadata(const arrow::KeyValueMetadata *kv_metadata);
+    LoadGDALSchema(const arrow::KeyValueMetadata *kv_metadata);
+
+    void LoadGDALMetadata(const arrow::KeyValueMetadata *kv_metadata);
 
     OGRArrowLayer(OGRArrowDataset *poDS, const char *pszLayerName);
 
@@ -163,6 +192,7 @@ class OGRArrowLayer CPL_NON_FINAL
     static bool
     IsValidGeometryEncoding(const std::shared_ptr<arrow::Field> &field,
                             const std::string &osEncoding,
+                            bool bWarnIfUnknownEncoding,
                             OGRwkbGeometryType &eGeomTypeOut,
                             OGRArrowGeomEncoding &eGeomEncodingOut);
     static OGRwkbGeometryType
@@ -208,8 +238,9 @@ class OGRArrowLayer CPL_NON_FINAL
     void ComputeConstraintsArrayIdx();
 
     virtual bool FastGetExtent(int iGeomField, OGREnvelope *psExtent) const;
+    bool FastGetExtent3D(int iGeomField, OGREnvelope3D *psExtent) const;
     static OGRErr GetExtentFromMetadata(const CPLJSONObject &oJSONDef,
-                                        OGREnvelope *psExtent);
+                                        OGREnvelope3D *psExtent);
 
     int GetArrowSchema(struct ArrowArrayStream *,
                        struct ArrowSchema *out) override;
@@ -228,7 +259,9 @@ class OGRArrowLayer CPL_NON_FINAL
     {
         return m_poFeatureDefn;
     }
+
     void ResetReading() override;
+
     const char *GetFIDColumn() override
     {
         return m_osFIDColumn.c_str();
@@ -237,12 +270,15 @@ class OGRArrowLayer CPL_NON_FINAL
     OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
     OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                      int bForce = TRUE) override;
+    OGRErr GetExtent3D(int iGeomField, OGREnvelope3D *psExtent,
+                       int bForce = TRUE) override;
     OGRErr SetAttributeFilter(const char *pszFilter) override;
 
     void SetSpatialFilter(OGRGeometry *poGeom) override
     {
         SetSpatialFilter(0, poGeom);
     }
+
     void SetSpatialFilter(int iGeomField, OGRGeometry *poGeom) override;
 
     int TestCapability(const char *pszCap) override;
@@ -277,10 +313,12 @@ class OGRArrowDataset CPL_NON_FINAL : public GDALPamDataset
     {
         return m_poMemoryPool.get();
     }
+
     inline const std::shared_ptr<arrow::MemoryPool> &GetSharedMemoryPool() const
     {
         return m_poMemoryPool;
     }
+
     void SetLayer(std::unique_ptr<OGRArrowLayer> &&poLayer);
 
     void RegisterDomainName(const std::string &osDomainName, int iFieldIndex);
@@ -319,6 +357,29 @@ class OGRArrowWriterLayer CPL_NON_FINAL : public OGRLayer
     std::vector<OGRArrowGeomEncoding> m_aeGeomEncoding{};
     int m_nWKTCoordinatePrecision = -1;
 
+    //! Base struct data type for GeoArrow struct geometry columns.
+    // Constraint: if not empty, m_apoBaseStructGeomType.size() == m_poFeatureDefn->GetGeomFieldCount()
+    std::vector<std::shared_ptr<arrow::DataType>> m_apoBaseStructGeomType{};
+
+    //! Whether to use a struct field with the values of the bounding box
+    // of the geometries. Used by Parquet.
+    bool m_bWriteBBoxStruct = false;
+
+    //! Schema fields for bounding box of geometry columns.
+    // Constraint: if not empty, m_apoFieldsBBOX.size() == m_poFeatureDefn->GetGeomFieldCount()
+    std::vector<std::shared_ptr<arrow::Field>> m_apoFieldsBBOX{};
+
+    //! Array builers for bounding box of geometry columns.
+    // m_apoBuildersBBOXStruct is for the top-level field of type struct.
+    // m_apoBuildersBBOX{XMin|YMin|XMax|YMax} are for the floating-point values
+    // Constraint: if not empty, m_apoBuildersBBOX{Struct|XMin|YMin|XMax|YMax}.size() == m_poFeatureDefn->GetGeomFieldCount()
+    std::vector<std::shared_ptr<arrow::StructBuilder>>
+        m_apoBuildersBBOXStruct{};
+    std::vector<std::shared_ptr<arrow::FloatBuilder>> m_apoBuildersBBOXXMin{};
+    std::vector<std::shared_ptr<arrow::FloatBuilder>> m_apoBuildersBBOXYMin{};
+    std::vector<std::shared_ptr<arrow::FloatBuilder>> m_apoBuildersBBOXXMax{};
+    std::vector<std::shared_ptr<arrow::FloatBuilder>> m_apoBuildersBBOXYMax{};
+
     std::string m_osFIDColumn{};
     int64_t m_nFeatureCount = 0;
 
@@ -336,7 +397,8 @@ class OGRArrowWriterLayer CPL_NON_FINAL : public OGRLayer
         m_oSetWrittenGeometryTypes{};  // size: GetGeomFieldCount()
 
     static OGRArrowGeomEncoding
-    GetPreciseArrowGeomEncoding(OGRwkbGeometryType eGType);
+    GetPreciseArrowGeomEncoding(OGRArrowGeomEncoding eEncodingType,
+                                OGRwkbGeometryType eGType);
     static const char *
     GetGeomEncodingAsString(OGRArrowGeomEncoding eGeomEncoding,
                             bool bForParquetGeo);
@@ -347,18 +409,23 @@ class OGRArrowWriterLayer CPL_NON_FINAL : public OGRLayer
 
     virtual bool IsFileWriterCreated() const = 0;
     virtual void CreateWriter() = 0;
-    virtual void CloseFileWriter() = 0;
+    virtual bool CloseFileWriter() = 0;
 
     void CreateSchemaCommon();
     void FinalizeSchema();
     virtual void CreateSchema() = 0;
+
     virtual void PerformStepsBeforeFinalFlushGroup()
     {
     }
 
     void CreateArrayBuilders();
+
+    //! Clear array builders
+    void ClearArrayBuilers();
+
     virtual bool FlushGroup() = 0;
-    void FinalizeWriting();
+    bool FinalizeWriting();
     bool WriteArrays(std::function<bool(const std::shared_ptr<arrow::Field> &,
                                         const std::shared_ptr<arrow::Array> &)>
                          postProcessArray);
@@ -367,9 +434,11 @@ class OGRArrowWriterLayer CPL_NON_FINAL : public OGRLayer
                                                size_t /*nLen*/)
     {
     }
+
     virtual void FixupGeometryBeforeWriting(OGRGeometry * /* poGeom */)
     {
     }
+
     virtual bool IsSRSRequired() const = 0;
     bool WriteArrowBatchInternal(
         const struct ArrowSchema *schema, struct ArrowArray *array,
@@ -397,20 +466,25 @@ class OGRArrowWriterLayer CPL_NON_FINAL : public OGRLayer
     {
         return m_osFIDColumn.c_str();
     }
+
     OGRFeatureDefn *GetLayerDefn() override
     {
         return m_poFeatureDefn;
     }
+
     void ResetReading() override
     {
     }
+
     OGRFeature *GetNextFeature() override
     {
         return nullptr;
     }
+
     int TestCapability(const char *pszCap) override;
-    OGRErr CreateField(OGRFieldDefn *poField, int bApproxOK = TRUE) override;
-    OGRErr CreateGeomField(OGRGeomFieldDefn *poField,
+    OGRErr CreateField(const OGRFieldDefn *poField,
+                       int bApproxOK = TRUE) override;
+    OGRErr CreateGeomField(const OGRGeomFieldDefn *poField,
                            int bApproxOK = TRUE) override;
     GIntBig GetFeatureCount(int bForce) override;
 
@@ -420,6 +494,7 @@ class OGRArrowWriterLayer CPL_NON_FINAL : public OGRLayer
     {
         return true;
     }
+
     bool
     CreateFieldFromArrowSchema(const struct ArrowSchema *schema,
                                CSLConstList papszOptions = nullptr) override;
@@ -429,6 +504,8 @@ class OGRArrowWriterLayer CPL_NON_FINAL : public OGRLayer
 
   protected:
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
+
+    bool FlushFeatures();
 };
 
 #endif  // OGR_ARROW_H

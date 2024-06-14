@@ -56,6 +56,7 @@ class OGRJMLColumn
     CPLString osAttributeName;
     CPLString osAttributeValue;
     bool bIsBody; /* if false: attribute */
+
     OGRJMLColumn() : bIsBody(false)
     {
     }
@@ -67,6 +68,7 @@ class OGRJMLColumn
 
 class OGRJMLLayer final : public OGRLayer
 {
+    GDALDataset *m_poDS = nullptr;
     OGRFeatureDefn *poFeatureDefn;
 
     int nNextFID;
@@ -131,6 +133,11 @@ class OGRJMLLayer final : public OGRLayer
 
     int TestCapability(const char *) override;
 
+    GDALDataset *GetDataset() override
+    {
+        return m_poDS;
+    }
+
     void startElementCbk(const char *pszName, const char **ppszAttr);
     void endElementCbk(const char *pszName);
     void dataHandlerCbk(const char *data, int nLen);
@@ -170,13 +177,14 @@ class OGRJMLWriterLayer final : public OGRLayer
     void ResetReading() override
     {
     }
+
     OGRFeature *GetNextFeature() override
     {
         return nullptr;
     }
 
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
-    OGRErr CreateField(OGRFieldDefn *poField, int bApproxOK) override;
+    OGRErr CreateField(const OGRFieldDefn *poField, int bApproxOK) override;
 
     OGRFeatureDefn *GetLayerDefn() override
     {
@@ -184,6 +192,8 @@ class OGRJMLWriterLayer final : public OGRLayer
     }
 
     int TestCapability(const char *) override;
+
+    GDALDataset *GetDataset() override;
 };
 
 /************************************************************************/
@@ -205,12 +215,12 @@ class OGRJMLDataset final : public GDALDataset
     {
         return poLayer != nullptr ? 1 : 0;
     }
+
     OGRLayer *GetLayer(int) override;
 
-    OGRLayer *ICreateLayer(const char *pszLayerName,
-                           const OGRSpatialReference *poSRS,
-                           OGRwkbGeometryType eType,
-                           char **papszOptions) override;
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
 
     int TestCapability(const char *) override;
 

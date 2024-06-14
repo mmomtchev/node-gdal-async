@@ -55,6 +55,7 @@ class DWGBlockDefinition
     DWGBlockDefinition() : poGeometry(nullptr)
     {
     }
+
     ~DWGBlockDefinition();
 
     OGRGeometry *poGeometry;
@@ -91,6 +92,8 @@ class OGRDWGBlocksLayer final : public OGRLayer
     int TestCapability(const char *) override;
 
     OGRFeature *GetNextUnfilteredFeature();
+
+    GDALDataset *GetDataset() override;
 };
 
 /************************************************************************/
@@ -157,6 +160,8 @@ class OGRDWGLayer final : public OGRLayer
     // internal
     void SetBlockTable(OdDbBlockTableRecordPtr);
     static double AngleCorrect(double dfAngle, double dfRatio);
+
+    GDALDataset *GetDataset() override;
 };
 
 /************************************************************************/
@@ -165,14 +170,10 @@ class OGRDWGLayer final : public OGRLayer
 
 class OGRDWGDataSource final : public OGRDataSource
 {
-    VSILFILE *fp;
-
     CPLString m_osName;
     std::vector<OGRLayer *> apoLayers;
 
     std::set<CPLString> attributeFields;
-
-    int iEntitiesSectionOffset;
 
     std::map<CPLString, DWGBlockDefinition> oBlockMap;
     std::map<CPLString, CPLString> oHeaderVariables;
@@ -212,6 +213,7 @@ class OGRDWGDataSource final : public OGRDataSource
     {
         return static_cast<int>(apoLayers.size());
     }
+
     OGRLayer *GetLayer(int) override;
 
     int TestCapability(const char *) override;
@@ -222,14 +224,17 @@ class OGRDWGDataSource final : public OGRDataSource
     {
         return bInlineBlocks;
     }
+
     int Attributes()
     {
         return bAttributes;
     }
+
     int AllAttributes()
     {
         return bAllAttributes;
     }
+
     void AddStandardFields(OGRFeatureDefn *poDef);
 
     // Implemented in ogrdxf_blockmap.cpp
@@ -237,6 +242,7 @@ class OGRDWGDataSource final : public OGRDataSource
     void ReadAttDefinitions();
     static OGRGeometry *SimplifyBlockGeometry(OGRGeometryCollection *);
     DWGBlockDefinition *LookupBlock(const char *pszName);
+
     std::map<CPLString, DWGBlockDefinition> &GetBlockMap()
     {
         return oBlockMap;
@@ -246,6 +252,7 @@ class OGRDWGDataSource final : public OGRDataSource
     {
         return attributeFields;
     }
+
     // Layer and other Table Handling (ogrdatasource.cpp)
     void ReadLayerDefinitions();
     void ReadLineTypeDefinitions();
@@ -274,28 +281,6 @@ class OGRDWGServices : public ExSystemServices, public ExHostAppServices
 {
   protected:
     ODRX_USING_HEAP_OPERATORS(ExSystemServices);
-};
-
-/************************************************************************/
-/*                             OGRDWGDriver                             */
-/************************************************************************/
-
-class OGRDWGDriver final : public OGRSFDriver
-{
-    OGRDWGServices *poServices;
-
-  public:
-    OGRDWGDriver();
-    ~OGRDWGDriver();
-
-    OGRDWGServices *GetServices()
-    {
-        return poServices;
-    }
-
-    const char *GetName() override;
-    OGRDataSource *Open(const char *, int) override;
-    int TestCapability(const char *) override;
 };
 
 #endif /* ndef OGR_DWG_H_INCLUDED */

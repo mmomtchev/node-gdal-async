@@ -50,7 +50,7 @@
 
 #include <mutex>
 // c++17 or VS2017
-#if __cplusplus >= 201703L || _MSC_VER >= 1910
+#if defined(HAVE_SHARED_MUTEX) || _MSC_VER >= 1910
 #include <shared_mutex>
 #define CPL_SHARED_MUTEX_TYPE std::shared_mutex
 #define CPL_SHARED_LOCK std::shared_lock<std::shared_mutex>
@@ -154,6 +154,7 @@ class VSIMemHandle final : public VSIVirtualHandle
     {
         return true;
     }
+
     size_t PRead(void * /*pBuffer*/, size_t /* nSize */,
                  vsi_l_offset /*nOffset*/) const override;
 };
@@ -177,6 +178,7 @@ class VSIMemFilesystemHandler final : public VSIFilesystemHandler
         : m_osPrefix(pszPrefix)
     {
     }
+
     ~VSIMemFilesystemHandler() override;
 
     // TODO(schwehr): Fix VSIFileFromMemBuffer so that using is not needed.
@@ -764,6 +766,7 @@ int VSIMemFilesystemHandler::Mkdir(const char *pszPathname, long /* nMode */)
     CPLDebug("VSIMEM", "Mkdir on %s: ref_count=%d", pszPathname,
              static_cast<int>(poFile.use_count()));
 #endif
+    CPL_IGNORE_RET_VAL(poFile);
     return 0;
 }
 
@@ -1056,7 +1059,7 @@ VSILFILE *VSIFileFromMemBuffer(const char *pszFilename, GByte *pabyData,
     /* -------------------------------------------------------------------- */
     VSIMemHandle *poHandle = new VSIMemHandle;
 
-    poHandle->poFile = poFile;
+    poHandle->poFile = std::move(poFile);
     poHandle->bUpdate = true;
     return poHandle;
 }

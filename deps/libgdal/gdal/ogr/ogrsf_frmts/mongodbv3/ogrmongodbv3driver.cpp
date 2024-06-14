@@ -28,6 +28,7 @@
  ****************************************************************************/
 
 #include "mongocxxv3_headers.h"
+#include "ogrmongodbv3drivercore.h"
 
 #include "cpl_time.h"
 #include "gdal_priv.h"
@@ -61,6 +62,7 @@ struct _IntOrMap
 {
     // cppcheck-suppress unusedStructMember
     int bIsMap;
+
     union
     {
         // cppcheck-suppress unusedStructMember
@@ -98,6 +100,7 @@ class OGRMongoDBv3Dataset final : public GDALDataset
     {
         return static_cast<int>(m_apoLayers.size());
     }
+
     OGRLayer *GetLayer(int) override;
     OGRLayer *GetLayerByName(const char *pszLayerName) override;
 
@@ -107,9 +110,8 @@ class OGRMongoDBv3Dataset final : public GDALDataset
     void ReleaseResultSet(OGRLayer *poLayer) override;
 
     OGRLayer *ICreateLayer(const char *pszName,
-                           const OGRSpatialReference *poSpatialRef,
-                           OGRwkbGeometryType eGType,
-                           char **papszOptions) override;
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
     OGRErr DeleteLayer(int iLayer) override;
     int TestCapability(const char *pszCap) override;
 
@@ -194,15 +196,17 @@ class OGRMongoDBv3Layer final : public OGRLayer
     OGRErr DeleteFeature(GIntBig nFID) override;
     GIntBig GetFeatureCount(int bForce) override;
     OGRErr SetAttributeFilter(const char *pszFilter) override;
+
     void SetSpatialFilter(OGRGeometry *poGeom) override
     {
         SetSpatialFilter(0, poGeom);
     }
+
     void SetSpatialFilter(int iGeomField, OGRGeometry *poGeom) override;
     int TestCapability(const char *pszCap) override;
     OGRFeatureDefn *GetLayerDefn() override;
-    OGRErr CreateField(OGRFieldDefn *poFieldIn, int) override;
-    OGRErr CreateGeomField(OGRGeomFieldDefn *poFieldIn, int) override;
+    OGRErr CreateField(const OGRFieldDefn *poFieldIn, int) override;
+    OGRErr CreateGeomField(const OGRGeomFieldDefn *poFieldIn, int) override;
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
     OGRErr ISetFeature(OGRFeature *poFeature) override;
     OGRErr IUpsertFeature(OGRFeature *poFeature) override;
@@ -213,6 +217,11 @@ class OGRMongoDBv3Layer final : public OGRLayer
                           bool bUpdateStyleString) override;
 
     OGRErr SyncToDisk() override;
+
+    GDALDataset *GetDataset() override
+    {
+        return m_poDS;
+    }
 };
 
 /************************************************************************/
@@ -1242,7 +1251,7 @@ static void OGRMongoDBV3ReaderSetField(OGRFeature *poFeature,
 std::unique_ptr<OGRFeature>
 OGRMongoDBv3Layer::Translate(const bsoncxx::document::view &doc)
 {
-    auto poFeature = cpl::make_unique<OGRFeature>(m_poFeatureDefn);
+    auto poFeature = std::make_unique<OGRFeature>(m_poFeatureDefn);
     for (auto &&field : doc)
     {
         std::string fieldName(field.key());
@@ -1428,7 +1437,7 @@ OGRErr OGRMongoDBv3Layer::DeleteFeature(GIntBig nFID)
 /*                            CreateField()                             */
 /************************************************************************/
 
-OGRErr OGRMongoDBv3Layer::CreateField(OGRFieldDefn *poFieldIn, int)
+OGRErr OGRMongoDBv3Layer::CreateField(const OGRFieldDefn *poFieldIn, int)
 
 {
     if (m_poDS->GetAccess() != GA_Update)
@@ -1474,7 +1483,8 @@ OGRErr OGRMongoDBv3Layer::CreateField(OGRFieldDefn *poFieldIn, int)
 /*                           CreateGeomField()                          */
 /************************************************************************/
 
-OGRErr OGRMongoDBv3Layer::CreateGeomField(OGRGeomFieldDefn *poFieldIn, int)
+OGRErr OGRMongoDBv3Layer::CreateGeomField(const OGRGeomFieldDefn *poFieldIn,
+                                          int)
 
 {
     if (m_poDS->GetAccess() != GA_Update)
@@ -2510,9 +2520,10 @@ bool OGRMongoDBv3Dataset::Open(GDALOpenInfo *poOpenInfo)
 /*                            ICreateLayer()                            */
 /************************************************************************/
 
-OGRLayer *OGRMongoDBv3Dataset::ICreateLayer(
-    const char *pszName, const OGRSpatialReference *poSpatialRef,
-    OGRwkbGeometryType eGType, char **papszOptions)
+OGRLayer *
+OGRMongoDBv3Dataset::ICreateLayer(const char *pszName,
+                                  const OGRGeomFieldDefn *poGeomFieldDefn,
+                                  CSLConstList papszOptions)
 {
     if (m_osDatabase.empty())
     {
@@ -2575,17 +2586,12 @@ OGRLayer *OGRMongoDBv3Dataset::ICreateLayer(
     poLayer->m_bCreateSpatialIndex =
         CPLFetchBool(papszOptions, "SPATIAL_INDEX", true);
 
-    if (eGType != wkbNone)
+    if (poGeomFieldDefn && poGeomFieldDefn->GetType() != wkbNone)
     {
         const char *pszGeometryName =
             CSLFetchNameValueDef(papszOptions, "GEOMETRY_NAME", "geometry");
-        OGRGeomFieldDefn oFieldDefn(pszGeometryName, eGType);
-        OGRSpatialReference *poSRSClone = nullptr;
-        if (poSpatialRef)
-            poSRSClone = poSpatialRef->Clone();
-        oFieldDefn.SetSpatialRef(poSRSClone);
-        if (poSRSClone)
-            poSRSClone->Release();
+        OGRGeomFieldDefn oFieldDefn(poGeomFieldDefn);
+        oFieldDefn.SetName(pszGeometryName);
         poLayer->CreateGeomField(&oFieldDefn, FALSE);
     }
 
@@ -2666,19 +2672,24 @@ class OGRMongoDBv3SingleFeatureLayer final : public OGRLayer
 
   public:
     explicit OGRMongoDBv3SingleFeatureLayer(const char *pszVal);
+
     ~OGRMongoDBv3SingleFeatureLayer()
     {
         m_poFeatureDefn->Release();
     }
+
     void ResetReading() override
     {
         iNextShapeId = 0;
     }
+
     OGRFeature *GetNextFeature() override;
+
     OGRFeatureDefn *GetLayerDefn() override
     {
         return m_poFeatureDefn;
     }
+
     int TestCapability(const char *) override
     {
         return FALSE;
@@ -2820,19 +2831,6 @@ void OGRMongoDBv3Dataset::ReleaseResultSet(OGRLayer *poLayer)
 }
 
 /************************************************************************/
-/*                   OGRMongoDBv3DriverIdentify()                       */
-/************************************************************************/
-
-static int OGRMongoDBv3DriverIdentify(GDALOpenInfo *poOpenInfo)
-
-{
-    return STARTS_WITH_CI(poOpenInfo->pszFilename, "MongoDBv3:") ||
-           STARTS_WITH_CI(poOpenInfo->pszFilename, "mongodb+srv:") ||
-           (STARTS_WITH_CI(poOpenInfo->pszFilename, "mongodb:") &&
-            GDALGetDriverByName("MONGODB") == nullptr);
-}
-
-/************************************************************************/
 /*                     OGRMongoDBv3DriverOpen()                         */
 /************************************************************************/
 
@@ -2906,102 +2904,20 @@ static void OGRMongoDBv3DriverUnload(GDALDriver *)
         g_bCanInstantiateMongo = false;
     }
 }
+
 /************************************************************************/
 /*                       RegisterOGRMongoDBv3()                         */
 /************************************************************************/
 
 void RegisterOGRMongoDBv3()
 {
-    if (GDALGetDriverByName("MongoDBv3") != nullptr)
+    if (GDALGetDriverByName(DRIVER_NAME) != nullptr)
         return;
 
     GDALDriver *poDriver = new GDALDriver();
-
-    poDriver->SetDescription("MongoDBv3");
-    poDriver->SetMetadataItem(GDAL_DCAP_VECTOR, "YES");
-    poDriver->SetMetadataItem(GDAL_DCAP_CREATE_LAYER, "YES");
-    poDriver->SetMetadataItem(GDAL_DCAP_DELETE_LAYER, "YES");
-    poDriver->SetMetadataItem(GDAL_DCAP_CREATE_FIELD, "YES");
-    poDriver->SetMetadataItem(GDAL_DMD_LONGNAME,
-                              "MongoDB (using libmongocxx v3 client)");
-    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC,
-                              "drivers/vector/mongodbv3.html");
-    poDriver->SetMetadataItem(GDAL_DMD_SUPPORTED_SQL_DIALECTS,
-                              "OGRSQL SQLITE MongoDB");
-
-    poDriver->SetMetadataItem(GDAL_DMD_CONNECTION_PREFIX, "MongoDBv3:");
-
-    poDriver->SetMetadataItem(
-        GDAL_DS_LAYER_CREATIONOPTIONLIST,
-        "<LayerCreationOptionList>"
-        "  <Option name='OVERWRITE' type='boolean' description='Whether to "
-        "overwrite an existing collection with the layer name to be created' "
-        "default='NO'/>"
-        "  <Option name='GEOMETRY_NAME' type='string' description='Name of "
-        "geometry column.' default='geometry'/>"
-        "  <Option name='SPATIAL_INDEX' type='boolean' description='Whether to "
-        "create a spatial index' default='YES'/>"
-        "  <Option name='FID' type='string' description='Field name, with "
-        "integer values, to use as FID' default='ogc_fid'/>"
-        "  <Option name='WRITE_OGR_METADATA' type='boolean' "
-        "description='Whether to create a description of layer fields in the "
-        "_ogr_metadata collection' default='YES'/>"
-        "  <Option name='DOT_AS_NESTED_FIELD' type='boolean' "
-        "description='Whether to consider dot character in field name as "
-        "sub-document' default='YES'/>"
-        "  <Option name='IGNORE_SOURCE_ID' type='boolean' description='Whether "
-        "to ignore _id field in features passed to CreateFeature()' "
-        "default='NO'/>"
-        "</LayerCreationOptionList>");
-
-    poDriver->SetMetadataItem(
-        GDAL_DMD_OPENOPTIONLIST,
-        "<OpenOptionList>"
-        "  <Option name='URI' type='string' description='Connection URI' />"
-        "  <Option name='HOST' type='string' description='Server hostname' />"
-        "  <Option name='PORT' type='integer' description='Server port' />"
-        "  <Option name='DBNAME' type='string' description='Database name' />"
-        "  <Option name='USER' type='string' description='User name' />"
-        "  <Option name='PASSWORD' type='string' description='User password' />"
-        "  <Option name='SSL_PEM_KEY_FILE' type='string' description='SSL PEM "
-        "certificate/key filename' />"
-        "  <Option name='SSL_PEM_KEY_PASSWORD' type='string' description='SSL "
-        "PEM key password' />"
-        "  <Option name='SSL_CA_FILE' type='string' description='SSL "
-        "Certification Authority filename' />"
-        "  <Option name='SSL_CRL_FILE' type='string' description='SSL "
-        "Certification Revocation List filename' />"
-        "  <Option name='SSL_ALLOW_INVALID_CERTIFICATES' type='boolean' "
-        "description='Whether to allow connections to servers with invalid "
-        "certificates' default='NO'/>"
-        "  <Option name='BATCH_SIZE' type='integer' description='Number of "
-        "features to retrieve per batch'/>"
-        "  <Option name='FEATURE_COUNT_TO_ESTABLISH_FEATURE_DEFN' "
-        "type='integer' description='Number of features to retrieve to "
-        "establish feature definition. -1 = unlimited' default='100'/>"
-        "  <Option name='JSON_FIELD' type='boolean' description='Whether to "
-        "include a field with the full document as JSON' default='NO'/>"
-        "  <Option name='FLATTEN_NESTED_ATTRIBUTES' type='boolean' "
-        "description='Whether to recursively explore nested objects and "
-        "produce flatten OGR attributes' default='YES'/>"
-        "  <Option name='FID' type='string' description='Field name, with "
-        "integer values, to use as FID' default='ogc_fid'/>"
-        "  <Option name='USE_OGR_METADATA' type='boolean' description='Whether "
-        "to use the _ogr_metadata collection to read layer metadata' "
-        "default='YES'/>"
-        "  <Option name='BULK_INSERT' type='boolean' description='Whether to "
-        "use bulk insert for feature creation' default='YES'/>"
-        "</OpenOptionList>");
-
-    poDriver->SetMetadataItem(
-        GDAL_DMD_CREATIONFIELDDATATYPES,
-        "Integer Integer64 Real String Date DateTime Time IntegerList "
-        "Integer64List RealList StringList Binary");
-    poDriver->SetMetadataItem(GDAL_DMD_CREATIONFIELDDATASUBTYPES, "Boolean");
-    poDriver->SetMetadataItem(GDAL_DCAP_MULTIPLE_VECTOR_LAYERS, "YES");
+    OGRMongoDBv3DriverSetCommonMetadata(poDriver);
 
     poDriver->pfnOpen = OGRMongoDBv3DriverOpen;
-    poDriver->pfnIdentify = OGRMongoDBv3DriverIdentify;
     poDriver->pfnUnloadDriver = OGRMongoDBv3DriverUnload;
 
     GetGDALDriverManager()->RegisterDriver(poDriver);

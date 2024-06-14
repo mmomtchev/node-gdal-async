@@ -25,7 +25,8 @@
 				"../gdal/frmts/wms/minidriver_wms.cpp",
 				"../gdal/frmts/wms/gdalwmsrasterband.cpp",
 				"../gdal/frmts/wms/gdalhttp.cpp",
-				"../gdal/frmts/wms/minidriver_virtualearth.cpp"
+				"../gdal/frmts/wms/minidriver_virtualearth.cpp",
+        "../gdal/frmts/wms/wmsdrivercore.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/wms"

@@ -33,6 +33,7 @@
 #include "gdal_pam.h"
 #include "ogr_spatialref.h"
 #include "../vrt/gdal_vrt.h"
+#include "wmtsdrivercore.h"
 
 #include <algorithm>
 #include <cmath>
@@ -166,7 +167,6 @@ class WMTSDataset final : public GDALPamDataset
                                         const char *pszDomain) override;
 
     static GDALDataset *Open(GDALOpenInfo *);
-    static int Identify(GDALOpenInfo *);
     static GDALDataset *CreateCopy(const char *pszFilename,
                                    GDALDataset *poSrcDS, CPL_UNUSED int bStrict,
                                    CPL_UNUSED char **papszOptions,
@@ -539,32 +539,6 @@ const char *WMTSDataset::GetMetadataItem(const char *pszName,
 }
 
 /************************************************************************/
-/*                             Identify()                               */
-/************************************************************************/
-
-int WMTSDataset::Identify(GDALOpenInfo *poOpenInfo)
-{
-    if (STARTS_WITH_CI(poOpenInfo->pszFilename, "WMTS:"))
-        return TRUE;
-
-    if (STARTS_WITH_CI(poOpenInfo->pszFilename, "<GDAL_WMTS"))
-        return TRUE;
-
-    if (poOpenInfo->nHeaderBytes == 0)
-        return FALSE;
-
-    if (strstr((const char *)poOpenInfo->pabyHeader, "<GDAL_WMTS"))
-        return TRUE;
-
-    return (strstr((const char *)poOpenInfo->pabyHeader, "<Capabilities") !=
-                nullptr ||
-            strstr((const char *)poOpenInfo->pabyHeader,
-                   "<wmts:Capabilities") != nullptr) &&
-           strstr((const char *)poOpenInfo->pabyHeader,
-                  "http://www.opengis.net/wmts/1.0") != nullptr;
-}
-
-/************************************************************************/
 /*                          QuoteIfNecessary()                          */
 /************************************************************************/
 
@@ -883,7 +857,7 @@ int WMTSDataset::ReadTMLimits(
         oTMLimits.nMaxTileRow = atoi(pszMaxTileRow);
         oTMLimits.nMinTileCol = atoi(pszMinTileCol);
         oTMLimits.nMaxTileCol = atoi(pszMaxTileCol);
-        aoMapTileMatrixLimits[pszTileMatrix] = oTMLimits;
+        aoMapTileMatrixLimits[pszTileMatrix] = std::move(oTMLimits);
     }
     return TRUE;
 }
@@ -1035,7 +1009,7 @@ char **WMTSDataset::BuildHTTPRequestOpts(CPLString osOtherXML)
 
 GDALDataset *WMTSDataset::Open(GDALOpenInfo *poOpenInfo)
 {
-    if (!Identify(poOpenInfo))
+    if (!WMTSDriverIdentify(poOpenInfo))
         return nullptr;
 
     CPLXMLNode *psXML = nullptr;
@@ -1680,8 +1654,10 @@ GDALDataset *WMTSDataset::Open(GDALOpenInfo *poOpenInfo)
                         oWGS84.SetFromUserInput(SRS_WKT_WGS84_LAT_LONG);
                         oWGS84.SetAxisMappingStrategy(
                             OAMS_TRADITIONAL_GIS_ORDER);
-                        OGRCoordinateTransformation *poCT =
-                            OGRCreateCoordinateTransformation(&oSRS, &oWGS84);
+                        auto poCT =
+                            std::unique_ptr<OGRCoordinateTransformation>(
+                                OGRCreateCoordinateTransformation(&oSRS,
+                                                                  &oWGS84));
                         double dfX1 = oIter->second.MinX;
                         double dfY1 = oIter->second.MinY;
                         double dfX2 = oIter->second.MaxX;
@@ -1690,7 +1666,6 @@ GDALDataset *WMTSDataset::Open(GDALOpenInfo *poOpenInfo)
                             poCT->Transform(1, &dfX1, &dfY1) &&
                             poCT->Transform(1, &dfX2, &dfY2) && dfX2 < dfX1)
                         {
-                            delete poCT;
                             dfX2 += 360;
                             OGRSpatialReference oWGS84_with_over;
                             oWGS84_with_over.SetFromUserInput(
@@ -1700,8 +1675,8 @@ GDALDataset *WMTSDataset::Open(GDALOpenInfo *poOpenInfo)
                             oSRS.SetFromUserInput(
                                 CPLSPrintf("%s +over +wktext", pszProj4));
                             CPLFree(pszProj4);
-                            poCT = OGRCreateCoordinateTransformation(
-                                &oWGS84_with_over, &oSRS);
+                            poCT.reset(OGRCreateCoordinateTransformation(
+                                &oWGS84_with_over, &oSRS));
                             if (poCT && poCT->Transform(1, &dfX1, &dfY1) &&
                                 poCT->Transform(1, &dfX2, &dfY2))
                             {
@@ -1715,10 +1690,8 @@ GDALDataset *WMTSDataset::Open(GDALOpenInfo *poOpenInfo)
                                          "bounding box",
                                          oIter->first.c_str());
                             }
-                            delete poCT;
                             break;
                         }
-                        delete poCT;
                     }
                 }
             }
@@ -2186,6 +2159,7 @@ GDALDataset *WMTSDataset::Open(GDALOpenInfo *poOpenInfo)
         if (!osURLFeatureInfoTemplate.empty())
             osURLFeatureInfoTemplate += osExtraQueryParameters;
         poDS->osURLFeatureInfoTemplate = osURLFeatureInfoTemplate;
+        CPL_IGNORE_RET_VAL(osURLFeatureInfoTemplate);
 
         // Build all TMS datasets, wrapped in VRT datasets
         for (int i = static_cast<int>(oTMS.aoTM.size() - 1); i >= 0; i--)
@@ -2459,6 +2433,7 @@ GDALDataset *WMTSDataset::Open(GDALOpenInfo *poOpenInfo)
     poDS->SetPamFlags(poDS->GetPamFlags() & ~GPF_DIRTY);
     return poDS;
 }
+
 /************************************************************************/
 /*                             CreateCopy()                             */
 /************************************************************************/
@@ -2507,55 +2482,13 @@ void GDALRegister_WMTS()
     if (!GDAL_CHECK_VERSION("WMTS driver"))
         return;
 
-    if (GDALGetDriverByName("WMTS") != nullptr)
+    if (GDALGetDriverByName(DRIVER_NAME) != nullptr)
         return;
 
     GDALDriver *poDriver = new GDALDriver();
-
-    poDriver->SetDescription("WMTS");
-    poDriver->SetMetadataItem(GDAL_DCAP_RASTER, "YES");
-    poDriver->SetMetadataItem(GDAL_DMD_LONGNAME, "OGC Web Map Tile Service");
-    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "drivers/raster/wmts.html");
-
-    poDriver->SetMetadataItem(GDAL_DMD_CONNECTION_PREFIX, "WMTS:");
-
-    poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");
-
-    poDriver->SetMetadataItem(
-        GDAL_DMD_OPENOPTIONLIST,
-        "<OpenOptionList>"
-        "  <Option name='URL' type='string' description='URL that points to "
-        "GetCapabilities response' required='YES'/>"
-        "  <Option name='LAYER' type='string' description='Layer identifier'/>"
-        "  <Option name='TILEMATRIXSET' alias='TMS' type='string' "
-        "description='Tile matrix set identifier'/>"
-        "  <Option name='TILEMATRIX' type='string' description='Tile matrix "
-        "identifier of maximum zoom level. Exclusive with ZOOM_LEVEL.'/>"
-        "  <Option name='ZOOM_LEVEL' alias='ZOOMLEVEL' type='int' "
-        "description='Maximum zoom level. Exclusive with TILEMATRIX.'/>"
-        "  <Option name='STYLE' type='string' description='Style identifier'/>"
-        "  <Option name='EXTENDBEYONDDATELINE' type='boolean' "
-        "description='Whether to enable extend-beyond-dateline behaviour' "
-        "default='NO'/>"
-        "  <Option name='EXTENT_METHOD' type='string-select' description='How "
-        "the raster extent is computed' default='AUTO'>"
-        "       <Value>AUTO</Value>"
-        "       <Value>LAYER_BBOX</Value>"
-        "       <Value>TILE_MATRIX_SET</Value>"
-        "       <Value>MOST_PRECISE_TILE_MATRIX</Value>"
-        "  </Option>"
-        "  <Option name='CLIP_EXTENT_WITH_MOST_PRECISE_TILE_MATRIX' "
-        "type='boolean' description='Whether to use the implied bounds of the "
-        "most precise tile matrix to clip the layer extent (defaults to NO if "
-        "layer bounding box is used, YES otherwise)'/>"
-        "  <Option name='CLIP_EXTENT_WITH_MOST_PRECISE_TILE_MATRIX_LIMITS' "
-        "type='boolean' description='Whether to use the implied bounds of the "
-        "most precise tile matrix limits to clip the layer extent (defaults to "
-        "NO if layer bounding box is used, YES otherwise)'/>"
-        "</OpenOptionList>");
+    WMTSDriverSetCommonMetadata(poDriver);
 
     poDriver->pfnOpen = WMTSDataset::Open;
-    poDriver->pfnIdentify = WMTSDataset::Identify;
     poDriver->pfnCreateCopy = WMTSDataset::CreateCopy;
 
     GetGDALDriverManager()->RegisterDriver(poDriver);

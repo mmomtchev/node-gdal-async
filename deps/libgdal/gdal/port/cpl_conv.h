@@ -113,6 +113,7 @@ const char CPL_DLL *CPLReadLine3L(VSILFILE *, int, int *, CSLConstList);
 double CPL_DLL CPLAtof(const char *);
 double CPL_DLL CPLAtofDelim(const char *, char);
 double CPL_DLL CPLStrtod(const char *, char **);
+double CPL_DLL CPLStrtodM(const char *, char **);
 double CPL_DLL CPLStrtodDelim(const char *, char **, char);
 float CPL_DLL CPLStrtof(const char *, char **);
 float CPL_DLL CPLStrtofDelim(const char *, char **, char);
@@ -298,6 +299,9 @@ void CPL_DLL *CPLZLibDeflate(const void *ptr, size_t nBytes, int nLevel,
                              size_t *pnOutBytes);
 void CPL_DLL *CPLZLibInflate(const void *ptr, size_t nBytes, void *outptr,
                              size_t nOutAvailableBytes, size_t *pnOutBytes);
+void CPL_DLL *CPLZLibInflateEx(const void *ptr, size_t nBytes, void *outptr,
+                               size_t nOutAvailableBytes,
+                               bool bAllowResizeOutptr, size_t *pnOutBytes);
 
 /* -------------------------------------------------------------------- */
 /*      XML validation.                                                 */
@@ -348,6 +352,7 @@ extern "C++"
     // setlocale(LC_NUMERIC, NULL) returning "C", such as current proj.4
     // versions, will not work depending on the actual implementation
     class CPLThreadLocaleCPrivate;
+
     class CPL_DLL CPLThreadLocaleC
     {
         CPL_DISALLOW_COPY_ASSIGN(CPLThreadLocaleC)
@@ -419,24 +424,6 @@ extern "C++"
             "target type not derived from source type");
         CPLAssert(f == nullptr || dynamic_cast<To>(f) != nullptr);
         return static_cast<To>(f);
-    }
-    }  // namespace cpl
-}  // extern "C++"
-
-#endif /* def __cplusplus */
-
-#if defined(__cplusplus) && defined(GDAL_COMPILATION)
-
-extern "C++"
-{
-#include <memory>  // for std::unique_ptr
-    namespace cpl
-    {
-    /** std::make_unique<> implementation borrowed from C++14 */
-    template <typename T, typename... Args>
-    std::unique_ptr<T> make_unique(Args &&...args)
-    {
-        return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
     }
     }  // namespace cpl
 }  // extern "C++"

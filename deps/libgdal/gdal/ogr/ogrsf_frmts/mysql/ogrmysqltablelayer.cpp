@@ -39,11 +39,10 @@
 OGRMySQLTableLayer::OGRMySQLTableLayer(OGRMySQLDataSource *poDSIn,
                                        CPL_UNUSED const char *pszTableName,
                                        int bUpdate, int nSRSIdIn)
-    : bUpdateAccess(bUpdate), pszQuery(nullptr), pszWHERE(CPLStrdup("")),
-      bLaunderColumnNames(TRUE), bPreservePrecision(FALSE)
+    : OGRMySQLLayer(poDSIn), bUpdateAccess(bUpdate), pszQuery(nullptr),
+      pszWHERE(CPLStrdup("")), bLaunderColumnNames(TRUE),
+      bPreservePrecision(FALSE)
 {
-    poDS = poDSIn;
-
     pszQueryStatement = nullptr;
 
     iNextShapeId = 0;
@@ -374,7 +373,7 @@ OGRFeatureDefn *OGRMySQLTableLayer::ReadTableDefinition(const char *pszTable)
         char *pszType = nullptr;
 
         auto poGeomFieldDefn =
-            cpl::make_unique<OGRMySQLGeomFieldDefn>(poDS, pszGeomColumn);
+            std::make_unique<OGRMySQLGeomFieldDefn>(poDS, pszGeomColumn);
 
         if (poDS->GetMajorVersion() < 8 || poDS->IsMariaDB())
             osCommand.Printf("SELECT type, coord_dimension FROM "
@@ -988,7 +987,8 @@ OGRErr OGRMySQLTableLayer::ICreateFeature(OGRFeature *poFeature)
 /*                            CreateField()                             */
 /************************************************************************/
 
-OGRErr OGRMySQLTableLayer::CreateField(OGRFieldDefn *poFieldIn, int bApproxOK)
+OGRErr OGRMySQLTableLayer::CreateField(const OGRFieldDefn *poFieldIn,
+                                       int bApproxOK)
 
 {
 

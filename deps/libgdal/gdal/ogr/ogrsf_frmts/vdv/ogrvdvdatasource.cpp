@@ -246,16 +246,19 @@ void OGRIDFDataSource::Parse()
     m_poTmpDS->StartTransaction();
 
     OGRLayer *poCurLayer = nullptr;
+
     struct Point
     {
         double x;
         double y;
         double z;
+
         explicit Point(double xIn = 0, double yIn = 0, double zIn = 0)
             : x(xIn), y(yIn), z(zIn)
         {
         }
     };
+
     std::map<GIntBig, Point> oMapNode;  // map from NODE_ID to Point
     std::map<GIntBig, OGRLineString *>
         oMapLinkCoordinate;  // map from LINK_ID to OGRLineString*
@@ -755,7 +758,7 @@ void OGRVDVDataSource::DetectLayers()
                 if (szBuffer[i] == '\r' || szBuffer[i] == '\n')
                 {
                     bInTableName = false;
-                    poLayer = new OGRVDVLayer(osTableName, m_fpL, false,
+                    poLayer = new OGRVDVLayer(this, osTableName, m_fpL, false,
                                               bRecodeFromLatin1, nStartOffset);
                     m_papoLayers = static_cast<OGRLayer **>(
                         CPLRealloc(m_papoLayers,
@@ -857,12 +860,13 @@ void OGRVDVDataSource::DetectLayers()
 /*                           OGRVDVLayer()                              */
 /************************************************************************/
 
-OGRVDVLayer::OGRVDVLayer(const CPLString &osTableName, VSILFILE *fpL,
-                         bool bOwnFP, bool bRecodeFromLatin1,
+OGRVDVLayer::OGRVDVLayer(GDALDataset *poDS, const CPLString &osTableName,
+                         VSILFILE *fpL, bool bOwnFP, bool bRecodeFromLatin1,
                          vsi_l_offset nStartOffset)
-    : m_fpL(fpL), m_bOwnFP(bOwnFP), m_bRecodeFromLatin1(bRecodeFromLatin1),
-      m_nStartOffset(nStartOffset), m_nCurOffset(0), m_nTotalFeatureCount(0),
-      m_nFID(0), m_bEOF(false), m_iLongitudeVDV452(-1), m_iLatitudeVDV452(-1)
+    : m_poDS(poDS), m_fpL(fpL), m_bOwnFP(bOwnFP),
+      m_bRecodeFromLatin1(bRecodeFromLatin1), m_nStartOffset(nStartOffset),
+      m_nCurOffset(0), m_nTotalFeatureCount(0), m_nFID(0), m_bEOF(false),
+      m_iLongitudeVDV452(-1), m_iLatitudeVDV452(-1)
 {
     m_poFeatureDefn = new OGRFeatureDefn(osTableName);
     m_poFeatureDefn->SetGeomType(wkbNone);
@@ -1193,7 +1197,7 @@ GDALDataset *OGRVDVDataSource::Open(GDALOpenInfo *poOpenInfo)
             if (EQUAL(*papszIter, ".") || EQUAL(*papszIter, ".."))
                 continue;
             nFiles++;
-            CPLString osExtension(CPLGetExtension(*papszIter));
+            const std::string osExtension(CPLGetExtension(*papszIter));
             int nCount = ++oMapOtherExtensions[osExtension];
             if (osMajorityExtension == "" ||
                 nCount > oMapOtherExtensions[osMajorityExtension])
@@ -1243,8 +1247,8 @@ GDALDataset *OGRVDVDataSource::Open(GDALOpenInfo *poOpenInfo)
             poDS->m_papoLayers = static_cast<OGRLayer **>(
                 CPLRealloc(poDS->m_papoLayers,
                            sizeof(OGRLayer *) * (poDS->m_nLayerCount + 1)));
-            poDS->m_papoLayers[poDS->m_nLayerCount] =
-                new OGRVDVLayer(CPLGetBasename(*papszIter), fp, true, false, 0);
+            poDS->m_papoLayers[poDS->m_nLayerCount] = new OGRVDVLayer(
+                poDS, CPLGetBasename(*papszIter), fp, true, false, 0);
             poDS->m_nLayerCount++;
         }
         CSLDestroy(papszFiles);
@@ -1527,7 +1531,7 @@ GIntBig OGRVDVWriterLayer::GetFeatureCount(int)
 /*                          CreateField()                               */
 /************************************************************************/
 
-OGRErr OGRVDVWriterLayer::CreateField(OGRFieldDefn *poFieldDefn,
+OGRErr OGRVDVWriterLayer::CreateField(const OGRFieldDefn *poFieldDefn,
                                       int /* bApprox */)
 {
     if (m_nFeatureCount >= 0)
@@ -1615,10 +1619,19 @@ void OGRVDVWriterLayer::StopAsCurrentLayer()
 }
 
 /************************************************************************/
+/*                             GetDataset()                             */
+/************************************************************************/
+
+GDALDataset *OGRVDVWriterLayer::GetDataset()
+{
+    return m_poDS;
+}
+
+/************************************************************************/
 /*                         OGRVDVWriteHeader()                          */
 /************************************************************************/
 
-static bool OGRVDVWriteHeader(VSILFILE *fpL, char **papszOptions)
+static bool OGRVDVWriteHeader(VSILFILE *fpL, CSLConstList papszOptions)
 {
     bool bRet = true;
     const bool bStandardHeader =
@@ -1673,7 +1686,7 @@ static bool OGRVDVWriteHeader(VSILFILE *fpL, char **papszOptions)
                             OGRVDVEscapeString(pszFft).c_str()) > 0;
     }
 
-    for (char **papszIter = papszOptions;
+    for (CSLConstList papszIter = papszOptions;
          papszIter != nullptr && *papszIter != nullptr; papszIter++)
     {
         if (STARTS_WITH_CI(*papszIter, "HEADER_") &&
@@ -1758,8 +1771,8 @@ static bool OGRVDVLoadVDV452Tables(OGRVDV452Tables &oTables)
 
 OGRLayer *
 OGRVDVDataSource::ICreateLayer(const char *pszLayerName,
-                               const OGRSpatialReference * /*poSpatialRef*/,
-                               OGRwkbGeometryType eGType, char **papszOptions)
+                               const OGRGeomFieldDefn *poGeomFieldDefn,
+                               CSLConstList papszOptions)
 {
     if (!m_bUpdate)
         return nullptr;
@@ -1925,6 +1938,7 @@ OGRVDVDataSource::ICreateLayer(const char *pszLayerName,
     m_papoLayers[m_nLayerCount] = poLayer;
     m_nLayerCount++;
 
+    const auto eGType = poGeomFieldDefn ? poGeomFieldDefn->GetType() : wkbNone;
     if (eGType == wkbPoint && poVDV452Table != nullptr &&
         (EQUAL(pszLayerName, "STOP") || EQUAL(pszLayerName, "REC_ORT")))
     {

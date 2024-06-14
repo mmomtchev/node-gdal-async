@@ -41,6 +41,7 @@
 class OGRGmtLayer final : public OGRLayer,
                           public OGRGetNextFeatureThroughRaw<OGRGmtLayer>
 {
+    GDALDataset *m_poDS = nullptr;
     OGRSpatialReference *m_poSRS = nullptr;
     OGRFeatureDefn *poFeatureDefn;
 
@@ -70,7 +71,7 @@ class OGRGmtLayer final : public OGRLayer,
   public:
     bool bValidFile;
 
-    OGRGmtLayer(const char *pszFilename, VSILFILE *fp,
+    OGRGmtLayer(GDALDataset *poDS, const char *pszFilename, VSILFILE *fp,
                 const OGRSpatialReference *poSRS, int bUpdate);
     virtual ~OGRGmtLayer();
 
@@ -83,6 +84,7 @@ class OGRGmtLayer final : public OGRLayer,
     }
 
     OGRErr GetExtent(OGREnvelope *psExtent, int bForce) override;
+
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce) override
     {
@@ -91,10 +93,15 @@ class OGRGmtLayer final : public OGRLayer,
 
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
 
-    virtual OGRErr CreateField(OGRFieldDefn *poField,
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
 
     int TestCapability(const char *) override;
+
+    GDALDataset *GetDataset() override
+    {
+        return m_poDS;
+    }
 };
 
 /************************************************************************/
@@ -122,16 +129,17 @@ class OGRGmtDataSource final : public OGRDataSource
     {
         return pszName;
     }
+
     int GetLayerCount() override
     {
         return nLayers;
     }
+
     OGRLayer *GetLayer(int) override;
 
-    virtual OGRLayer *ICreateLayer(const char *,
-                                   const OGRSpatialReference * = nullptr,
-                                   OGRwkbGeometryType = wkbUnknown,
-                                   char ** = nullptr) override;
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
     int TestCapability(const char *) override;
 };
 

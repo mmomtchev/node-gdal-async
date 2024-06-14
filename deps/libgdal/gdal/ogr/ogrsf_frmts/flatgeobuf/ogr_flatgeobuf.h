@@ -110,7 +110,8 @@ class OGRFlatGeobufLayer final : public OGRLayer,
     bool m_bCreateSpatialIndexAtClose = true;
     bool m_bVerifyBuffers = true;
     VSILFILE *m_poFpWrite = nullptr;
-    uint64_t m_writeOffset = 0;  // current write offset
+    CPLStringList m_aosCreationOption{};  // layer creation options
+    uint64_t m_writeOffset = 0;           // current write offset
     uint64_t m_offsetAfterHeader =
         0;  // offset after dummy header writing (when creating a file without
             // spatial index)
@@ -148,7 +149,7 @@ class OGRFlatGeobufLayer final : public OGRLayer,
                        const OGRSpatialReference *poSpatialRef,
                        OGRwkbGeometryType eGType,
                        bool bCreateSpatialIndexAtClose, VSILFILE *poFpWrite,
-                       std::string &osTempFile);
+                       std::string &osTempFile, CSLConstList papszOptions);
 
   protected:
     virtual int GetNextArrowArray(struct ArrowArrayStream *,
@@ -167,22 +168,25 @@ class OGRFlatGeobufLayer final : public OGRLayer,
     static OGRFlatGeobufLayer *
     Create(GDALDataset *poDS, const char *pszLayerName, const char *pszFilename,
            const OGRSpatialReference *poSpatialRef, OGRwkbGeometryType eGType,
-           bool bCreateSpatialIndexAtClose, char **papszOptions);
+           bool bCreateSpatialIndexAtClose, CSLConstList papszOptions);
 
     virtual OGRFeature *GetFeature(GIntBig nFeatureId) override;
     virtual OGRFeature *GetNextFeature() override;
-    virtual OGRErr CreateField(OGRFieldDefn *poField,
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = true) override;
     virtual OGRErr ICreateFeature(OGRFeature *poFeature) override;
     virtual int TestCapability(const char *) override;
 
     virtual void ResetReading() override;
+
     virtual OGRFeatureDefn *GetLayerDefn() override
     {
         return m_poFeatureDefn;
     }
+
     virtual GIntBig GetFeatureCount(int bForce) override;
     virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce) override;
+
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce) override
     {
@@ -203,6 +207,7 @@ class OGRFlatGeobufLayer final : public OGRLayer,
     {
         return m_osFilename;
     }
+
     OGRLayer *GetLayer() override
     {
         return this;
@@ -217,6 +222,7 @@ class OGRFlatGeobufLayer final : public OGRLayer,
     {
         return m_indexNodeSize;
     }
+
     OGRwkbGeometryType getOGRwkbGeometryType();
 };
 
@@ -234,10 +240,12 @@ class OGRFlatGeobufEditableLayer final : public OGREditableLayer,
         return static_cast<OGRFlatGeobufLayer *>(m_poDecoratedLayer)
             ->GetFilename();
     }
+
     OGRLayer *GetLayer() override
     {
         return this;
     }
+
     int TestCapability(const char *pszCap) override;
 
     CPLErr Close() override
@@ -270,16 +278,16 @@ class OGRFlatGeobufDataset final : public GDALDataset
                                char **papszOptions);
     virtual OGRLayer *GetLayer(int) override;
     int TestCapability(const char *pszCap) override;
-    virtual OGRLayer *
-    ICreateLayer(const char *pszName,
-                 const OGRSpatialReference *poSpatialRef = nullptr,
-                 OGRwkbGeometryType eGType = wkbUnknown,
-                 char **papszOptions = nullptr) override;
+
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
 
     virtual int GetLayerCount() override
     {
         return static_cast<int>(m_apoLayers.size());
     }
+
     char **GetFileList() override;
 };
 

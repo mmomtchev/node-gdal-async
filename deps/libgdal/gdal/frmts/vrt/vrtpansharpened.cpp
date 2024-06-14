@@ -271,14 +271,14 @@ char **VRTPansharpenedDataset::GetFileList()
 /*                              XMLInit()                               */
 /************************************************************************/
 
-CPLErr VRTPansharpenedDataset::XMLInit(CPLXMLNode *psTree,
+CPLErr VRTPansharpenedDataset::XMLInit(const CPLXMLNode *psTree,
                                        const char *pszVRTPathIn)
 
 {
     return XMLInit(psTree, pszVRTPathIn, nullptr, 0, nullptr);
 }
 
-CPLErr VRTPansharpenedDataset::XMLInit(CPLXMLNode *psTree,
+CPLErr VRTPansharpenedDataset::XMLInit(const CPLXMLNode *psTree,
                                        const char *pszVRTPathIn,
                                        GDALRasterBandH hPanchroBandIn,
                                        int nInputSpectralBandsIn,
@@ -299,7 +299,7 @@ CPLErr VRTPansharpenedDataset::XMLInit(CPLXMLNode *psTree,
     /*      Parse PansharpeningOptions                                      */
     /* -------------------------------------------------------------------- */
 
-    CPLXMLNode *psOptions = CPLGetXMLNode(psTree, "PansharpeningOptions");
+    const CPLXMLNode *psOptions = CPLGetXMLNode(psTree, "PansharpeningOptions");
     if (psOptions == nullptr)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "Missing PansharpeningOptions");
@@ -325,7 +325,8 @@ CPLErr VRTPansharpenedDataset::XMLInit(CPLXMLNode *psTree,
 
     if (hPanchroBandIn == nullptr)
     {
-        CPLXMLNode *psPanchroBand = CPLGetXMLNode(psOptions, "PanchroBand");
+        const CPLXMLNode *psPanchroBand =
+            CPLGetXMLNode(psOptions, "PanchroBand");
         if (psPanchroBand == nullptr)
         {
             CPLError(CE_Failure, CPLE_AppDefined, "PanchroBand missing");
@@ -437,8 +438,8 @@ CPLErr VRTPansharpenedDataset::XMLInit(CPLXMLNode *psTree,
     }
 
     std::vector<double> adfWeights;
-    CPLXMLNode *psAlgOptions = CPLGetXMLNode(psOptions, "AlgorithmOptions");
-    if (psAlgOptions != nullptr)
+    if (const CPLXMLNode *psAlgOptions =
+            CPLGetXMLNode(psOptions, "AlgorithmOptions"))
     {
         const char *pszWeights =
             CPLGetXMLValue(psAlgOptions, "Weights", nullptr);
@@ -503,7 +504,7 @@ CPLErr VRTPansharpenedDataset::XMLInit(CPLXMLNode *psTree,
     /*      First pass on spectral datasets to check their georeferencing.  */
     /* -------------------------------------------------------------------- */
     int iSpectralBand = 0;
-    for (CPLXMLNode *psIter = psOptions->psChild; psIter;
+    for (const CPLXMLNode *psIter = psOptions->psChild; psIter;
          psIter = psIter->psNext)
     {
         GDALDataset *poDataset;
@@ -1570,7 +1571,8 @@ CPLErr VRTPansharpenedRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
     INIT_RASTERIO_EXTRA_ARG(sExtraArg);
     if (IRasterIO(GF_Read, nReqXOff, nReqYOff, nReqXSize, nReqYSize, pImage,
                   nReqXSize, nReqYSize, eDataType, nDataTypeSize,
-                  nDataTypeSize * nReqXSize, &sExtraArg) != CE_None)
+                  static_cast<GSpacing>(nDataTypeSize) * nReqXSize,
+                  &sExtraArg) != CE_None)
     {
         return CE_Failure;
     }
@@ -1579,20 +1581,26 @@ CPLErr VRTPansharpenedRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
     {
         for (int j = nReqYSize - 1; j >= 0; j--)
         {
-            memmove(
-                static_cast<GByte *>(pImage) + j * nDataTypeSize * nBlockXSize,
-                static_cast<GByte *>(pImage) + j * nDataTypeSize * nReqXSize,
-                nReqXSize * nDataTypeSize);
+            memmove(static_cast<GByte *>(pImage) +
+                        static_cast<size_t>(j) * nDataTypeSize * nBlockXSize,
+                    static_cast<GByte *>(pImage) +
+                        static_cast<size_t>(j) * nDataTypeSize * nReqXSize,
+                    static_cast<size_t>(nReqXSize) * nDataTypeSize);
             memset(static_cast<GByte *>(pImage) +
-                       (j * nBlockXSize + nReqXSize) * nDataTypeSize,
-                   0, (nBlockXSize - nReqXSize) * nDataTypeSize);
+                       (static_cast<size_t>(j) * nBlockXSize + nReqXSize) *
+                           nDataTypeSize,
+                   0,
+                   static_cast<size_t>(nBlockXSize - nReqXSize) *
+                       nDataTypeSize);
         }
     }
     if (nReqYSize < nBlockYSize)
     {
         memset(static_cast<GByte *>(pImage) +
-                   nReqYSize * nBlockXSize * nDataTypeSize,
-               0, (nBlockYSize - nReqYSize) * nBlockXSize * nDataTypeSize);
+                   static_cast<size_t>(nReqYSize) * nBlockXSize * nDataTypeSize,
+               0,
+               static_cast<size_t>(nBlockYSize - nReqYSize) * nBlockXSize *
+                   nDataTypeSize);
     }
 
     // Cache other bands
@@ -1752,10 +1760,14 @@ CPLErr VRTPansharpenedRasterBand::IRasterIO(
 /*                           SerializeToXML()                           */
 /************************************************************************/
 
-CPLXMLNode *VRTPansharpenedRasterBand::SerializeToXML(const char *pszVRTPathIn)
+CPLXMLNode *
+VRTPansharpenedRasterBand::SerializeToXML(const char *pszVRTPathIn,
+                                          bool &bHasWarnedAboutRAMUsage,
+                                          size_t &nAccRAMUsage)
 
 {
-    CPLXMLNode *psTree = VRTRasterBand::SerializeToXML(pszVRTPathIn);
+    CPLXMLNode *psTree = VRTRasterBand::SerializeToXML(
+        pszVRTPathIn, bHasWarnedAboutRAMUsage, nAccRAMUsage);
 
     /* -------------------------------------------------------------------- */
     /*      Set subclass.                                                   */

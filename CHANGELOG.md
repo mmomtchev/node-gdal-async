@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.9]
+## [3.9.0]
+
+### Added
+ - GDAL 3.9.0
 
 ### Changed
  - All shared library symbols are now hidden on Linux, allowing to load the binary addon in a process that has loaded a different version of GDAL (on Windows this has always been possible and on maOS, while possible in theory, this particular linking mode is not supported by `node-gyp`)

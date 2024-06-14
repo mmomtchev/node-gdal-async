@@ -49,7 +49,9 @@
 #endif
 
 // For atoll (at least for NetBSD)
+#ifndef _ISOC99_SOURCE
 #define _ISOC99_SOURCE
+#endif
 
 #ifdef MSVC_USE_VLD
 #include <vld.h>
@@ -80,6 +82,10 @@
 #include <set>
 #endif
 #include <string>
+
+#if __cplusplus >= 202002L
+#include <type_traits>  // For std::endian
+#endif
 
 #include "cpl_config.h"
 #include "cpl_multiproc.h"
@@ -183,8 +189,6 @@ void *CPLMalloc(size_t nSize)
 {
     if (nSize == 0)
         return nullptr;
-
-    CPLVerifyConfiguration();
 
     if ((nSize >> (8 * sizeof(nSize) - 1)) != 0)
     {
@@ -323,7 +327,7 @@ char *CPLStrdup(const char *pszString)
  * Convert each characters of the string to lower case.
  *
  * For example, "ABcdE" will be converted to "abcde".
- * This function is locale dependent.
+ * Starting with GDAL 3.9, this function is no longer locale dependent.
  *
  * @param pszString input string to be converted.
  * @return pointer to the same string, pszString.
@@ -339,7 +343,8 @@ char *CPLStrlwr(char *pszString)
 
     while (*pszTemp)
     {
-        *pszTemp = static_cast<char>(tolower(*pszTemp));
+        *pszTemp =
+            static_cast<char>(CPLTolower(static_cast<unsigned char>(*pszTemp)));
         pszTemp++;
     }
 
@@ -1124,7 +1129,7 @@ void *CPLScanPointer(const char *pszString, int nMaxLength)
     {
         void *pResult = nullptr;
 
-#if defined(__MSVCRT__) || (defined(WIN32) && defined(_MSC_VER))
+#if defined(__MSVCRT__) || (defined(_WIN32) && defined(_MSC_VER))
         // cppcheck-suppress invalidscanf
         sscanf(szTemp + 2, "%p", &pResult);
 #else
@@ -1358,7 +1363,7 @@ int CPLPrintUIntBig(char *pszBuffer, GUIntBig iValue, int nMaxLen)
 
     char szTemp[64] = {};
 
-#if defined(__MSVCRT__) || (defined(WIN32) && defined(_MSC_VER))
+#if defined(__MSVCRT__) || (defined(_WIN32) && defined(_MSC_VER))
 /* x86_64-w64-mingw32-g++ (GCC) 4.8.2 annoyingly warns */
 #ifdef HAVE_GCC_DIAGNOSTIC_PUSH
 #pragma GCC diagnostic push
@@ -1561,33 +1566,36 @@ int CPLPrintTime(char *pszBuffer, int nMaxLen, const char *pszFormat,
 void CPLVerifyConfiguration()
 
 {
-    static bool verified = false;
-    if (verified)
-    {
-        return;
-    }
-    verified = true;
-
     /* -------------------------------------------------------------------- */
     /*      Verify data types.                                              */
     /* -------------------------------------------------------------------- */
-    CPL_STATIC_ASSERT(sizeof(GInt32) == 4);
-    CPL_STATIC_ASSERT(sizeof(GInt16) == 2);
-    CPL_STATIC_ASSERT(sizeof(GByte) == 1);
+    static_assert(sizeof(short) == 2);   // We unfortunately rely on this
+    static_assert(sizeof(int) == 4);     // We unfortunately rely on this
+    static_assert(sizeof(float) == 4);   // We unfortunately rely on this
+    static_assert(sizeof(double) == 8);  // We unfortunately rely on this
+    static_assert(sizeof(GInt64) == 8);
+    static_assert(sizeof(GInt32) == 4);
+    static_assert(sizeof(GInt16) == 2);
+    static_assert(sizeof(GByte) == 1);
 
     /* -------------------------------------------------------------------- */
     /*      Verify byte order                                               */
     /* -------------------------------------------------------------------- */
-    GInt32 nTest = 1;
-
 #ifdef CPL_LSB
-    if (reinterpret_cast<GByte *>(&nTest)[0] != 1)
+#if __cplusplus >= 202002L
+    static_assert(std::endian::native == std::endian::little);
+#elif defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
+    static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__);
 #endif
-#ifdef CPL_MSB
-        if (reinterpret_cast<GByte *>(&nTest)[3] != 1)
+#elif defined(CPL_MSB)
+#if __cplusplus >= 202002L
+    static_assert(std::endian::native == std::endian::big);
+#elif defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__)
+    static_assert(__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 #endif
-            CPLError(CE_Fatal, CPLE_AppDefined,
-                     "CPLVerifyConfiguration(): byte order set wrong.");
+#else
+#error "CPL_LSB or CPL_MSB must be defined"
+#endif
 }
 
 #ifdef DEBUG_CONFIG_OPTIONS
@@ -2174,7 +2182,7 @@ void CPLLoadConfigOptionsFromFile(const char *pszFilename, int bOverrideEnvVars)
     {
         for (; *pszStr; ++pszStr)
         {
-            if (!isspace(*pszStr))
+            if (!isspace(static_cast<unsigned char>(*pszStr)))
                 return false;
         }
         return true;
@@ -2362,7 +2370,7 @@ void CPLLoadConfigOptionsFromPredefinedFiles()
         CPLLoadConfigOptionsFromFile(pszFile, false);
 #endif
 
-#ifdef WIN32
+#ifdef _WIN32
         const char *pszHome = CPLGetConfigOption("USERPROFILE", nullptr);
 #else
         const char *pszHome = CPLGetConfigOption("HOME", nullptr);
@@ -2459,7 +2467,7 @@ double CPLDMSToDec(const char *is)
     double v = 0.0;
     for (; nl < 3; nl = n + 1)
     {
-        if (!(isdigit(*s) || *s == '.'))
+        if (!(isdigit(static_cast<unsigned char>(*s)) || *s == '.'))
             break;
         const double tv = proj_strtod(s, &s);
         if (tv == HUGE_VAL)
@@ -3125,7 +3133,7 @@ int CPLMoveFile(const char *pszNewPath, const char *pszOldPath)
 /************************************************************************/
 
 /** Create a symbolic link */
-#ifdef WIN32
+#ifdef _WIN32
 int CPLSymlink(const char *, const char *, CSLConstList)
 {
     return -1;
@@ -3291,6 +3299,7 @@ CPLThreadLocaleC::~CPLThreadLocaleC()
 {
     delete m_private;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -3498,4 +3507,5 @@ CPLConfigOptionSetter::~CPLConfigOptionSetter()
     }
     CPLFree(m_pszKey);
 }
+
 //! @endcond

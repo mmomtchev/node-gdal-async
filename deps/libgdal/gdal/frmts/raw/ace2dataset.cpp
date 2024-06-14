@@ -97,6 +97,7 @@ class ACE2Dataset final : public GDALPamDataset
     {
         return &m_oSRS;
     }
+
     CPLErr GetGeoTransform(double *) override;
 
     static GDALDataset *Open(GDALOpenInfo *);
@@ -330,7 +331,7 @@ GDALDataset *ACE2Dataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Create the dataset.                                             */
     /* -------------------------------------------------------------------- */
-    auto poDS = cpl::make_unique<ACE2Dataset>();
+    auto poDS = std::make_unique<ACE2Dataset>();
 
     poDS->nRasterXSize = nXSize;
     poDS->nRasterYSize = nYSize;
@@ -346,7 +347,7 @@ GDALDataset *ACE2Dataset::Open(GDALOpenInfo *poOpenInfo)
     /*      Create band information objects                                 */
     /* -------------------------------------------------------------------- */
     auto poBand =
-        cpl::make_unique<ACE2RasterBand>(fpImage, eDT, nXSize, nYSize);
+        std::make_unique<ACE2RasterBand>(fpImage, eDT, nXSize, nYSize);
     if (!poBand->IsValid())
         return nullptr;
     poDS->SetBand(1, std::move(poBand));

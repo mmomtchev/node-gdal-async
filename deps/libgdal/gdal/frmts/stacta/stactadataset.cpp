@@ -240,8 +240,8 @@ CPLErr STACTARawRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
     INIT_RASTERIO_EXTRA_ARG(sExtraArgs);
     const int nDTSize = GDALGetDataTypeSizeBytes(eDataType);
     return IRasterIO(GF_Read, nXOff, nYOff, nXSize, nYSize, pImage, nBlockXSize,
-                     nBlockYSize, eDataType, nDTSize, nDTSize * nBlockXSize,
-                     &sExtraArgs);
+                     nBlockYSize, eDataType, nDTSize,
+                     static_cast<GSpacing>(nDTSize) * nBlockXSize, &sExtraArgs);
 }
 
 /************************************************************************/
@@ -355,12 +355,16 @@ CPLErr STACTARawDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
             // approach.
             GDALRasterIOExtraArg sExtraArgs;
             INIT_RASTERIO_EXTRA_ARG(sExtraArgs);
-            std::vector<GByte> abyBuf(nXSizeMod * nYSizeMod * nBandCount *
-                                      nDTSize);
+            const size_t nXSizeModeMulYSizeModMulDTSize =
+                static_cast<size_t>(nXSizeMod) * nYSizeMod * nDTSize;
+            std::vector<GByte> abyBuf(nXSizeModeMulYSizeModMulDTSize *
+                                      nBandCount);
             if (IRasterIO(GF_Read, nXOffMod, nYOffMod, nXSizeMod, nYSizeMod,
                           &abyBuf[0], nXSizeMod, nYSizeMod, eBandDT, nBandCount,
-                          panBandMap, nDTSize, nDTSize * nXSizeMod,
-                          nDTSize * nXSizeMod * nYSizeMod,
+                          panBandMap, nDTSize,
+                          static_cast<GSpacing>(nDTSize) * nXSizeMod,
+                          static_cast<GSpacing>(nDTSize) * nXSizeMod *
+                              nYSizeMod,
                           &sExtraArgs) != CE_None)
             {
                 return CE_Failure;
@@ -372,8 +376,8 @@ CPLErr STACTARawDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
             {
                 auto hBand = MEMCreateRasterBandEx(
                     poMEMDS.get(), i + 1,
-                    &abyBuf[0] + i * nDTSize * nXSizeMod * nYSizeMod, eBandDT,
-                    0, 0, false);
+                    &abyBuf[0] + i * nXSizeModeMulYSizeModMulDTSize, eBandDT, 0,
+                    0, false);
                 poMEMDS->AddMEMBand(hBand);
             }
 
@@ -884,7 +888,7 @@ bool STACTADataset::Open(GDALOpenInfo *poOpenInfo)
             }
         }
     }
-    const auto tmsList = poTMS->tileMatrixList();
+    const auto &tmsList = poTMS->tileMatrixList();
     if (tmsList.empty())
         return false;
 
@@ -918,6 +922,7 @@ bool STACTADataset::Open(GDALOpenInfo *poOpenInfo)
         else
         {
             nExpectedBandCount = oRasterBands.Size();
+
             const struct
             {
                 const char *pszStacDataType;
@@ -939,6 +944,7 @@ bool STACTADataset::Open(GDALOpenInfo *poOpenInfo)
                 {"cfloat32", GDT_CFloat32},
                 {"cfloat64", GDT_CFloat64},
             };
+
             for (int i = 0; i < nExpectedBandCount; ++i)
             {
                 if (oRasterBands[i].GetType() != CPLJSONObject::Type::Object)
@@ -1098,7 +1104,7 @@ bool STACTADataset::Open(GDALOpenInfo *poOpenInfo)
         {
             continue;
         }
-        auto poRawDS = cpl::make_unique<STACTARawDataset>();
+        auto poRawDS = std::make_unique<STACTARawDataset>();
         if (!poRawDS->InitRaster(poProtoDS.get(), aeDT, abSetNoData, adfNoData,
                                  poTMS.get(), tmsList[i].mId, oTM, oMapLimits))
         {
@@ -1389,7 +1395,7 @@ GDALDataset *STACTADataset::OpenStatic(GDALOpenInfo *poOpenInfo)
 {
     if (!Identify(poOpenInfo))
         return nullptr;
-    auto poDS = cpl::make_unique<STACTADataset>();
+    auto poDS = std::make_unique<STACTADataset>();
     if (!poDS->Open(poOpenInfo))
         return nullptr;
     return poDS.release();

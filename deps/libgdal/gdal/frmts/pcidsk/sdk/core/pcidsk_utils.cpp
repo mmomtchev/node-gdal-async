@@ -40,6 +40,12 @@
 #include <cstdarg>
 #include <iostream>
 
+extern "C"
+{
+int CPL_DLL CPLToupper(int c);
+int CPL_DLL CPLTolower(int c);
+}
+
 #if !defined(va_copy) && defined(__va_copy)
 #define va_copy __va_copy
 #endif
@@ -104,8 +110,7 @@ std::string &PCIDSK::UCaseStr( std::string &target )
 {
     for( unsigned int i = 0; i < target.size(); i++ )
     {
-        if( islower(target[i]) )
-            target[i] = (char) toupper(target[i]);
+        target[i] = (char) CPLToupper(static_cast<unsigned char>(target[i]));
     }
 
     return target;
@@ -327,12 +332,13 @@ bool PCIDSK::BigEndianSystem()
 /*      _DBLayout metadata.                                             */
 /************************************************************************/
 
-void PCIDSK::ParseTileFormat(std::string oOptions,
+void PCIDSK::ParseTileFormat(const std::string& oOptionsIn,
                              int & nTileSize, std::string & oCompress)
 {
     nTileSize = PCIDSK_DEFAULT_TILE_SIZE;
     oCompress = "NONE";
 
+    std::string oOptions(oOptionsIn);
     UCaseStr(oOptions);
 
     std::string::size_type nStart = oOptions.find_first_not_of(" ");
@@ -340,7 +346,7 @@ void PCIDSK::ParseTileFormat(std::string oOptions,
 
     while (nStart != std::string::npos || nEnd != std::string::npos)
     {
-        std::string oToken = oOptions.substr(nStart, nEnd - nStart);
+        const std::string oToken = oOptions.substr(nStart, nEnd - nStart);
 
         if (oToken.size() > 5 && STARTS_WITH(oToken.c_str(), "TILED"))
         {
@@ -408,10 +414,8 @@ int PCIDSK::pci_strcasecmp( const char *string1, const char *string2 )
         char c1 = string1[i];
         char c2 = string2[i];
 
-        if( islower(c1) )
-            c1 = (char) toupper(c1);
-        if( islower(c2) )
-            c2 = (char) toupper(c2);
+        c1 = (char) CPLToupper(static_cast<unsigned char>(c1));
+        c2 = (char) CPLToupper(static_cast<unsigned char>(c2));
 
         if( c1 < c2 )
             return -1;
@@ -446,10 +450,8 @@ int PCIDSK::pci_strncasecmp( const char *string1, const char *string2, size_t le
         char c1 = string1[i];
         char c2 = string2[i];
 
-        if( islower(c1) )
-            c1 = (char) toupper(c1);
-        if( islower(c2) )
-            c2 = (char) toupper(c2);
+        c1 = (char) CPLToupper(static_cast<unsigned char>(c1));
+        c2 = (char) CPLToupper(static_cast<unsigned char>(c2));
 
         if( c1 < c2 )
             return -1;
@@ -610,13 +612,11 @@ std::string PCIDSK::DefaultMergeRelativePath(const PCIDSK::IOInterfaces *io_inte
 /* -------------------------------------------------------------------- */
 /*      Merge paths.                                                    */
 /* -------------------------------------------------------------------- */
-    std::string base_path = ExtractPath( base );
-    std::string result;
+    std::string result = ExtractPath( base );
 
-    if( base_path == "" )
+    if( result.empty() )
         return src_filename;
 
-    result = base_path;
     result += path_split;
     result += src_filename;
 

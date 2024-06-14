@@ -798,8 +798,7 @@ int ISGDataset::ParseHeader(const char *pszHeader, const char *)
         {
             CPLString osLeft(aosTokens[0]);
             osLeft.Trim();
-            CPLString osRight(aosTokens[1]);
-            osRight.Trim();
+            const CPLString osRight(CPLString(aosTokens[1]).Trim());
             if (osLeft == "lat min")
                 osLatMin = osRight;
             else if (osLeft == "lat max")
@@ -1135,11 +1134,16 @@ GDALDataset *AAIGDataset::CommonOpen(GDALOpenInfo *poOpenInfo,
                 poOpenInfo->pabyHeader[i - 1] == '\r' ||
                 poOpenInfo->pabyHeader[i - 2] == '\r')
             {
-                if ((!isalpha(poOpenInfo->pabyHeader[i]) ||
+                if ((!isalpha(static_cast<unsigned char>(
+                         poOpenInfo->pabyHeader[i])) ||
                      // null seems to be specific of D12 software
                      // See https://github.com/OSGeo/gdal/issues/5095
                      (i + 5 < poOpenInfo->nHeaderBytes &&
-                      memcmp(poOpenInfo->pabyHeader + i, "null ", 5) == 0)) &&
+                      memcmp(poOpenInfo->pabyHeader + i, "null ", 5) == 0) ||
+                     (i + 4 < poOpenInfo->nHeaderBytes &&
+                      EQUALN(reinterpret_cast<const char *>(
+                                 poOpenInfo->pabyHeader + i),
+                             "nan ", 4))) &&
                     poOpenInfo->pabyHeader[i] != '\n' &&
                     poOpenInfo->pabyHeader[i] != '\r')
                 {
@@ -1251,7 +1255,7 @@ GDALDataset *AAIGDataset::CommonOpen(GDALOpenInfo *poOpenInfo,
                 poDS->adfGeoTransform[5] /= 3600.0;
             }
 
-            poDS->m_oSRS = oSRS;
+            poDS->m_oSRS = std::move(oSRS);
         }
     }
 
@@ -1439,14 +1443,12 @@ GDALDataset *AAIGDataset::CreateCopy(const char *pszFilename,
 
     // Write scanlines to output file
     int *panScanline = bReadAsInt
-                           ? static_cast<int *>(CPLMalloc(
-                                 nXSize * GDALGetDataTypeSizeBytes(GDT_Int32)))
+                           ? static_cast<int *>(CPLMalloc(sizeof(int) * nXSize))
                            : nullptr;
 
     double *padfScanline =
         bReadAsInt ? nullptr
-                   : static_cast<double *>(CPLMalloc(
-                         nXSize * GDALGetDataTypeSizeBytes(GDT_Float64)));
+                   : static_cast<double *>(CPLMalloc(sizeof(double) * nXSize));
 
     CPLErr eErr = CE_None;
 

@@ -34,7 +34,7 @@
 
 #ifdef __cplusplus
 
-#if defined(WIN32) && (defined(_MSC_VER) || defined(SUPPORTS_WMAIN))
+#if defined(_WIN32) && (defined(_MSC_VER) || defined(SUPPORTS_WMAIN))
 
 #include <wchar.h>
 #include <stdlib.h>
@@ -51,6 +51,7 @@ class ARGVDestroyer
     explicit ARGVDestroyer(char **papszList) : m_papszList(papszList)
     {
     }
+
     ~ARGVDestroyer()
     {
         CSLDestroy(m_papszList);
@@ -69,17 +70,29 @@ extern "C" int wmain(int argc, wchar_t **argv_w, wchar_t ** /* envp */);
             argv[i] =                                                          \
                 CPLRecodeFromWChar(argv_w[i], CPL_ENC_UCS2, CPL_ENC_UTF8);     \
         }                                                                      \
-        ARGVDestroyer argvDestroyer(argv);
+        ARGVDestroyer argvDestroyer(argv);                                     \
+        try                                                                    \
+        {
 
-#define MAIN_END }
+#else  // defined(_WIN32)
 
-#else  // defined(WIN32)
+#define MAIN_START(argc, argv)                                                 \
+    int main(int argc, char **argv)                                            \
+    {                                                                          \
+        try                                                                    \
+        {
 
-#define MAIN_START(argc, argv) int main(int argc, char **argv)
+#endif  // defined(_WIN32)
 
-#define MAIN_END
+#define MAIN_END                                                               \
+    }                                                                          \
+    catch (const std::exception &e)                                            \
+    {                                                                          \
+        fprintf(stderr, "Unexpected exception: %s", e.what());                 \
+        return -1;                                                             \
+    }                                                                          \
+    }
 
-#endif  // defined(WIN32)
 #endif  // defined(__cplusplus)
 
 CPL_C_START
@@ -93,11 +106,19 @@ CPL_C_END
 #include "cpl_string.h"
 #include <vector>
 
-std::vector<CPLString> CPL_DLL GetOutputDriversFor(const char *pszDestFilename,
-                                                   int nFlagRasterVector);
+std::vector<std::string> CPL_DLL
+GetOutputDriversFor(const char *pszDestFilename, int nFlagRasterVector);
 CPLString CPL_DLL GetOutputDriverForRaster(const char *pszDestFilename);
 void GDALRemoveBOM(GByte *pabyData);
 std::string GDALRemoveSQLComments(const std::string &osInput);
+
+int ArgIsNumeric(const char *pszArg);
+
+// those values shouldn't be changed, because overview levels >= 0 are meant
+// to be overview indices, and ovr_level < OVR_LEVEL_AUTO mean overview level
+// automatically selected minus (OVR_LEVEL_AUTO - ovr_level)
+constexpr int OVR_LEVEL_AUTO = -2;
+constexpr int OVR_LEVEL_NONE = -1;
 
 #endif /* __cplusplus */
 

@@ -55,8 +55,6 @@
 #include "ogr_api.h"
 #include "ogr_core.h"
 
-CPL_CVSID("$Id$")
-
 struct _GDALWarpChunk
 {
     int dx, dy, dsx, dsy;
@@ -639,10 +637,12 @@ CPLErr GDALWarpOperation::Initialize(const GDALWarpOptions *psNewOptions)
         for (double dfY : {-89.9999, 89.9999})
         {
             double dfX = 0;
-            if ((psOptions->pfnTransformer == GDALApproxTransform &&
+            if ((GDALIsTransformer(psOptions->pTransformerArg,
+                                   GDAL_APPROX_TRANSFORMER_CLASS_NAME) &&
                  GDALTransformLonLatToDestApproxTransformer(
                      psOptions->pTransformerArg, &dfX, &dfY)) ||
-                (psOptions->pfnTransformer == GDALGenImgProjTransform &&
+                (GDALIsTransformer(psOptions->pTransformerArg,
+                                   GDAL_GEN_IMG_TRANSFORMER_CLASS_NAME) &&
                  GDALTransformLonLatToDestGenImgProjTransformer(
                      psOptions->pTransformerArg, &dfX, &dfY)))
             {
@@ -691,8 +691,9 @@ void *GDALWarpOperation::CreateDestinationBuffer(int nDstXSize, int nDstYSize,
     /* -------------------------------------------------------------------- */
     const int nWordSize = GDALGetDataTypeSizeBytes(psOptions->eWorkingDataType);
 
-    void *pDstBuffer = VSI_MALLOC3_VERBOSE(nWordSize * psOptions->nBandCount,
-                                           nDstXSize, nDstYSize);
+    void *pDstBuffer = VSI_MALLOC3_VERBOSE(
+        cpl::fits_on<int>(nWordSize * psOptions->nBandCount), nDstXSize,
+        nDstYSize);
     if (pDstBuffer == nullptr)
     {
         return nullptr;
@@ -1260,46 +1261,18 @@ void GDALWarpOperation::WipeChunkList()
 }
 
 /************************************************************************/
-/*                       CollectChunkListInternal()                     */
+/*                       GetWorkingMemoryForWindow()                    */
 /************************************************************************/
 
-CPLErr GDALWarpOperation::CollectChunkListInternal(int nDstXOff, int nDstYOff,
-                                                   int nDstXSize, int nDstYSize)
-
+/** Retrurns the amount of working memory, in bytes, required to process
+ * a warped window of source dimensions nSrcXSize x nSrcYSize and target
+ * dimensions nDstXSize x nDstYSize.
+ */
+double GDALWarpOperation::GetWorkingMemoryForWindow(int nSrcXSize,
+                                                    int nSrcYSize,
+                                                    int nDstXSize,
+                                                    int nDstYSize) const
 {
-    /* -------------------------------------------------------------------- */
-    /*      Compute the bounds of the input area corresponding to the       */
-    /*      output area.                                                    */
-    /* -------------------------------------------------------------------- */
-    int nSrcXOff = 0;
-    int nSrcYOff = 0;
-    int nSrcXSize = 0;
-    int nSrcYSize = 0;
-    double dfSrcXExtraSize = 0.0;
-    double dfSrcYExtraSize = 0.0;
-    double dfSrcFillRatio = 0.0;
-    CPLErr eErr =
-        ComputeSourceWindow(nDstXOff, nDstYOff, nDstXSize, nDstYSize, &nSrcXOff,
-                            &nSrcYOff, &nSrcXSize, &nSrcYSize, &dfSrcXExtraSize,
-                            &dfSrcYExtraSize, &dfSrcFillRatio);
-
-    if (eErr != CE_None)
-    {
-        CPLError(CE_Warning, CPLE_AppDefined,
-                 "Unable to compute source region for "
-                 "output window %d,%d,%d,%d, skipping.",
-                 nDstXOff, nDstYOff, nDstXSize, nDstYSize);
-        return eErr;
-    }
-
-    /* -------------------------------------------------------------------- */
-    /*      If we are allowed to drop no-source regions, do so now if       */
-    /*      appropriate.                                                    */
-    /* -------------------------------------------------------------------- */
-    if ((nSrcXSize == 0 || nSrcYSize == 0) &&
-        CPLFetchBool(psOptions->papszWarpOptions, "SKIP_NOSOURCE", false))
-        return CE_None;
-
     /* -------------------------------------------------------------------- */
     /*      Based on the types of masks in use, how many bits will each     */
     /*      source pixel cost us?                                           */
@@ -1344,23 +1317,61 @@ CPLErr GDALWarpOperation::CollectChunkListInternal(int nDstXOff, int nDstYOff,
     if (psOptions->nDstAlphaBand > 0)
         nDstPixelCostInBits += 32;  // DstDensity float mask.
 
+    const double dfTotalMemoryUse =
+        (static_cast<double>(nSrcPixelCostInBits) * nSrcXSize * nSrcYSize +
+         static_cast<double>(nDstPixelCostInBits) * nDstXSize * nDstYSize) /
+        8.0;
+    return dfTotalMemoryUse;
+}
+
+/************************************************************************/
+/*                       CollectChunkListInternal()                     */
+/************************************************************************/
+
+CPLErr GDALWarpOperation::CollectChunkListInternal(int nDstXOff, int nDstYOff,
+                                                   int nDstXSize, int nDstYSize)
+
+{
+    /* -------------------------------------------------------------------- */
+    /*      Compute the bounds of the input area corresponding to the       */
+    /*      output area.                                                    */
+    /* -------------------------------------------------------------------- */
+    int nSrcXOff = 0;
+    int nSrcYOff = 0;
+    int nSrcXSize = 0;
+    int nSrcYSize = 0;
+    double dfSrcXExtraSize = 0.0;
+    double dfSrcYExtraSize = 0.0;
+    double dfSrcFillRatio = 0.0;
+    CPLErr eErr =
+        ComputeSourceWindow(nDstXOff, nDstYOff, nDstXSize, nDstYSize, &nSrcXOff,
+                            &nSrcYOff, &nSrcXSize, &nSrcYSize, &dfSrcXExtraSize,
+                            &dfSrcYExtraSize, &dfSrcFillRatio);
+
+    if (eErr != CE_None)
+    {
+        CPLError(CE_Warning, CPLE_AppDefined,
+                 "Unable to compute source region for "
+                 "output window %d,%d,%d,%d, skipping.",
+                 nDstXOff, nDstYOff, nDstXSize, nDstYSize);
+        return eErr;
+    }
+
+    /* -------------------------------------------------------------------- */
+    /*      If we are allowed to drop no-source regions, do so now if       */
+    /*      appropriate.                                                    */
+    /* -------------------------------------------------------------------- */
+    if ((nSrcXSize == 0 || nSrcYSize == 0) &&
+        CPLFetchBool(psOptions->papszWarpOptions, "SKIP_NOSOURCE", false))
+        return CE_None;
+
     /* -------------------------------------------------------------------- */
     /*      Does the cost of the current rectangle exceed our memory        */
     /*      limit? If so, split the destination along the longest           */
     /*      dimension and recurse.                                          */
     /* -------------------------------------------------------------------- */
-    double dfTotalMemoryUse =
-        (static_cast<double>(nSrcPixelCostInBits) * nSrcXSize * nSrcYSize +
-         static_cast<double>(nDstPixelCostInBits) * nDstXSize * nDstYSize) /
-        8.0;
-
-    int nBlockXSize = 1;
-    int nBlockYSize = 1;
-    if (psOptions->hDstDS)
-    {
-        GDALGetBlockSize(GDALGetRasterBand(psOptions->hDstDS, 1), &nBlockXSize,
-                         &nBlockYSize);
-    }
+    const double dfTotalMemoryUse =
+        GetWorkingMemoryForWindow(nSrcXSize, nSrcYSize, nDstXSize, nDstYSize);
 
     // If size of working buffers need exceed the allow limit, then divide
     // the target area
@@ -1383,6 +1394,14 @@ CPLErr GDALWarpOperation::CollectChunkListInternal(int nDstXOff, int nDstYOff,
          CPLFetchBool(psOptions->papszWarpOptions, "SRC_FILL_RATIO_HEURISTICS",
                       true)))
     {
+        int nBlockXSize = 1;
+        int nBlockYSize = 1;
+        if (psOptions->hDstDS)
+        {
+            GDALGetBlockSize(GDALGetRasterBand(psOptions->hDstDS, 1),
+                             &nBlockXSize, &nBlockYSize);
+        }
+
         int bStreamableOutput = CPLFetchBool(psOptions->papszWarpOptions,
                                              "STREAMABLE_OUTPUT", false);
         const char *pszOptimizeSize =
@@ -2579,73 +2598,21 @@ void GDALWarpOperation::ComputeSourceWindowStartingFromSource(
 }
 
 /************************************************************************/
-/*                        ComputeSourceWindow()                         */
+/*                    ComputeSourceWindowTransformPoints()              */
 /************************************************************************/
 
-CPLErr GDALWarpOperation::ComputeSourceWindow(
-    int nDstXOff, int nDstYOff, int nDstXSize, int nDstYSize, int *pnSrcXOff,
-    int *pnSrcYOff, int *pnSrcXSize, int *pnSrcYSize, double *pdfSrcXExtraSize,
-    double *pdfSrcYExtraSize, double *pdfSrcFillRatio)
-
+bool GDALWarpOperation::ComputeSourceWindowTransformPoints(
+    int nDstXOff, int nDstYOff, int nDstXSize, int nDstYSize, bool bUseGrid,
+    bool bAll, int nStepCount, bool bTryWithCheckWithInvertProj,
+    double &dfMinXOut, double &dfMinYOut, double &dfMaxXOut, double &dfMaxYOut,
+    int &nSamplePoints, int &nFailedCount)
 {
-    /* -------------------------------------------------------------------- */
-    /*      Figure out whether we just want to do the usual "along the      */
-    /*      edge" sampling, or using a grid.  The grid usage is             */
-    /*      important in some weird "inside out" cases like WGS84 to        */
-    /*      polar stereographic around the pole.   Also figure out the      */
-    /*      sampling rate.                                                  */
-    /* -------------------------------------------------------------------- */
-    int nSampleMax = 0;
-    int nStepCount = DEFAULT_STEP_COUNT;
-    int *pabSuccess = nullptr;
-    double *padfX = nullptr;
-    double *padfY = nullptr;
-    double *padfZ = nullptr;
-    int nSamplePoints = 0;
-    bool bAll = false;
-
-    const char *pszSampleSteps =
-        CSLFetchNameValue(psOptions->papszWarpOptions, "SAMPLE_STEPS");
-    if (pszSampleSteps)
-    {
-        if (EQUAL(pszSampleSteps, "ALL"))
-        {
-            bAll = true;
-        }
-        else
-        {
-            nStepCount = atoi(pszSampleSteps);
-            nStepCount = std::max(2, nStepCount);
-        }
-    }
-
-    bool bUseGrid =
-        CPLFetchBool(psOptions->papszWarpOptions, "SAMPLE_GRID", false);
-
-    // Use grid sampling as soon as a special point falls into the extent of
-    // the target raster.
-    if (!bUseGrid && psOptions->hDstDS)
-    {
-        for (const auto &xy : aDstXYSpecialPoints)
-        {
-            if (0 <= xy.first &&
-                GDALGetRasterXSize(psOptions->hDstDS) >= xy.first &&
-                0 <= xy.second &&
-                GDALGetRasterYSize(psOptions->hDstDS) >= xy.second)
-            {
-                bAll = false;
-                bUseGrid = true;
-                break;
-            }
-        }
-    }
-
-    bool bTryWithCheckWithInvertProj = false;
-
-TryAgain:
-    const double dfStepSize = bAll ? 0 : 1.0 / (nStepCount - 1);
     nSamplePoints = 0;
+    nFailedCount = 0;
+
+    const double dfStepSize = bAll ? 0 : 1.0 / (nStepCount - 1);
     constexpr int knIntMax = std::numeric_limits<int>::max();
+    int nSampleMax = 0;
     if (bUseGrid)
     {
         if (bAll)
@@ -2653,7 +2620,7 @@ TryAgain:
             if (nDstYSize > knIntMax / (nDstXSize + 1) - 1)
             {
                 CPLError(CE_Failure, CPLE_AppDefined, "Too many steps");
-                return CE_Failure;
+                return false;
             }
             nSampleMax = (nDstXSize + 1) * (nDstYSize + 1);
         }
@@ -2664,7 +2631,7 @@ TryAgain:
             {
                 CPLError(CE_Failure, CPLE_AppDefined, "Too many steps : %d",
                          nStepCount);
-                return CE_Failure;
+                return false;
             }
             nSampleMax = (nStepCount + 2) * (nStepCount + 2);
         }
@@ -2677,7 +2644,7 @@ TryAgain:
             {
                 // Extremely unlikely !
                 CPLError(CE_Failure, CPLE_AppDefined, "Too many steps");
-                return CE_Failure;
+                return false;
             }
             nSampleMax = 2 * (nDstXSize + nDstYSize);
         }
@@ -2687,24 +2654,24 @@ TryAgain:
             {
                 CPLError(CE_Failure, CPLE_AppDefined, "Too many steps : %d * 4",
                          nStepCount);
-                return CE_Failure;
+                return false;
             }
             nSampleMax = nStepCount * 4;
         }
     }
 
-    pabSuccess =
+    int *pabSuccess =
         static_cast<int *>(VSI_MALLOC2_VERBOSE(sizeof(int), nSampleMax));
-    padfX = static_cast<double *>(
+    double *padfX = static_cast<double *>(
         VSI_MALLOC2_VERBOSE(sizeof(double) * 3, nSampleMax));
     if (pabSuccess == nullptr || padfX == nullptr)
     {
         CPLFree(padfX);
         CPLFree(pabSuccess);
-        return CE_Failure;
+        return false;
     }
-    padfY = padfX + nSampleMax;
-    padfZ = padfX + nSampleMax * 2;
+    double *padfY = padfX + nSampleMax;
+    double *padfZ = padfX + nSampleMax * 2;
 
     /* -------------------------------------------------------------------- */
     /*      Setup sample points on a grid pattern throughout the area.      */
@@ -2810,17 +2777,25 @@ TryAgain:
     /* -------------------------------------------------------------------- */
     /*      Transform them to the input pixel coordinate space              */
     /* -------------------------------------------------------------------- */
-    if (bTryWithCheckWithInvertProj)
+
+    const auto RefreshTransformer = [this]()
     {
-        CPLSetThreadLocalConfigOption("CHECK_WITH_INVERT_PROJ", "YES");
-        if (psOptions->pfnTransformer == GDALGenImgProjTransform)
+        if (GDALIsTransformer(psOptions->pTransformerArg,
+                              GDAL_GEN_IMG_TRANSFORMER_CLASS_NAME))
         {
             GDALRefreshGenImgProjTransformer(psOptions->pTransformerArg);
         }
-        else if (psOptions->pfnTransformer == GDALApproxTransform)
+        else if (GDALIsTransformer(psOptions->pTransformerArg,
+                                   GDAL_APPROX_TRANSFORMER_CLASS_NAME))
         {
             GDALRefreshApproxTransformer(psOptions->pTransformerArg);
         }
+    };
+
+    if (bTryWithCheckWithInvertProj)
+    {
+        CPLSetThreadLocalConfigOption("CHECK_WITH_INVERT_PROJ", "YES");
+        RefreshTransformer();
     }
     int ret = psOptions->pfnTransformer(psOptions->pTransformerArg, TRUE,
                                         nSamplePoints, padfX, padfY, padfZ,
@@ -2828,14 +2803,7 @@ TryAgain:
     if (bTryWithCheckWithInvertProj)
     {
         CPLSetThreadLocalConfigOption("CHECK_WITH_INVERT_PROJ", nullptr);
-        if (psOptions->pfnTransformer == GDALGenImgProjTransform)
-        {
-            GDALRefreshGenImgProjTransformer(psOptions->pTransformerArg);
-        }
-        else if (psOptions->pfnTransformer == GDALApproxTransform)
-        {
-            GDALRefreshApproxTransformer(psOptions->pTransformerArg);
-        }
+        RefreshTransformer();
     }
 
     if (!ret)
@@ -2846,18 +2814,12 @@ TryAgain:
         CPLError(CE_Failure, CPLE_AppDefined,
                  "GDALWarperOperation::ComputeSourceWindow() failed because "
                  "the pfnTransformer failed.");
-        return CE_Failure;
+        return false;
     }
 
     /* -------------------------------------------------------------------- */
     /*      Collect the bounds, ignoring any failed points.                 */
     /* -------------------------------------------------------------------- */
-    double dfMinXOut = std::numeric_limits<double>::infinity();
-    double dfMinYOut = std::numeric_limits<double>::infinity();
-    double dfMaxXOut = -std::numeric_limits<double>::infinity();
-    double dfMaxYOut = -std::numeric_limits<double>::infinity();
-    int nFailedCount = 0;
-
     for (int i = 0; i < nSamplePoints; i++)
     {
         if (!pabSuccess[i])
@@ -2890,6 +2852,129 @@ TryAgain:
 
     CPLFree(padfX);
     CPLFree(pabSuccess);
+    return true;
+}
+
+/************************************************************************/
+/*                        ComputeSourceWindow()                         */
+/************************************************************************/
+
+/** Given a target window starting at pixel (nDstOff, nDstYOff) and of
+ * dimension (nDstXSize, nDstYSize), compute the corresponding window in
+ * the source raster, and return the source position in (*pnSrcXOff, *pnSrcYOff),
+ * the source dimension in (*pnSrcXSize, *pnSrcYSize).
+ * If pdfSrcXExtraSize is not null, its pointed value will be filled with the
+ * number of extra source pixels in X dimension to acquire to take into account
+ * the size of the resampling kernel. Similarly for pdfSrcYExtraSize for the
+ * Y dimension.
+ * If pdfSrcFillRatio is not null, its pointed value will be filled with the
+ * the ratio of the clamped source raster window size over the unclamped source
+ * raster window size. When this ratio is too low, this might be an indication
+ * that it might be beneficial to split the target window to avoid requesting
+ * too many source pixels.
+ */
+CPLErr GDALWarpOperation::ComputeSourceWindow(
+    int nDstXOff, int nDstYOff, int nDstXSize, int nDstYSize, int *pnSrcXOff,
+    int *pnSrcYOff, int *pnSrcXSize, int *pnSrcYSize, double *pdfSrcXExtraSize,
+    double *pdfSrcYExtraSize, double *pdfSrcFillRatio)
+
+{
+    /* -------------------------------------------------------------------- */
+    /*      Figure out whether we just want to do the usual "along the      */
+    /*      edge" sampling, or using a grid.  The grid usage is             */
+    /*      important in some weird "inside out" cases like WGS84 to        */
+    /*      polar stereographic around the pole.   Also figure out the      */
+    /*      sampling rate.                                                  */
+    /* -------------------------------------------------------------------- */
+    int nStepCount = DEFAULT_STEP_COUNT;
+    bool bAll = false;
+
+    bool bUseGrid =
+        CPLFetchBool(psOptions->papszWarpOptions, "SAMPLE_GRID", false);
+
+    const char *pszSampleSteps =
+        CSLFetchNameValue(psOptions->papszWarpOptions, "SAMPLE_STEPS");
+    if (pszSampleSteps)
+    {
+        if (EQUAL(pszSampleSteps, "ALL"))
+        {
+            bAll = true;
+        }
+        else
+        {
+            nStepCount = atoi(pszSampleSteps);
+            nStepCount = std::max(2, nStepCount);
+        }
+    }
+    else if (!bUseGrid)
+    {
+        // Detect if at least one of the 4 corner in destination raster fails
+        // to project back to source.
+        // Helps for long-lat to orthographic on areas that are partly in
+        // space / partly on Earth. Cf https://github.com/OSGeo/gdal/issues/9056
+        double adfCornerX[4];
+        double adfCornerY[4];
+        double adfCornerZ[4] = {0, 0, 0, 0};
+        int anCornerSuccess[4] = {FALSE, FALSE, FALSE, FALSE};
+        adfCornerX[0] = nDstXOff;
+        adfCornerY[0] = nDstYOff;
+        adfCornerX[1] = nDstXOff + nDstXSize;
+        adfCornerY[1] = nDstYOff;
+        adfCornerX[2] = nDstXOff;
+        adfCornerY[2] = nDstYOff + nDstYSize;
+        adfCornerX[3] = nDstXOff + nDstXSize;
+        adfCornerY[3] = nDstYOff + nDstYSize;
+        if (!psOptions->pfnTransformer(psOptions->pTransformerArg, TRUE, 4,
+                                       adfCornerX, adfCornerY, adfCornerZ,
+                                       anCornerSuccess) ||
+            !anCornerSuccess[0] || !anCornerSuccess[1] || !anCornerSuccess[2] ||
+            !anCornerSuccess[3])
+        {
+            bAll = true;
+        }
+    }
+
+    bool bTryWithCheckWithInvertProj = false;
+    double dfMinXOut = std::numeric_limits<double>::infinity();
+    double dfMinYOut = std::numeric_limits<double>::infinity();
+    double dfMaxXOut = -std::numeric_limits<double>::infinity();
+    double dfMaxYOut = -std::numeric_limits<double>::infinity();
+
+    int nSamplePoints = 0;
+    int nFailedCount = 0;
+    if (!ComputeSourceWindowTransformPoints(
+            nDstXOff, nDstYOff, nDstXSize, nDstYSize, bUseGrid, bAll,
+            nStepCount, bTryWithCheckWithInvertProj, dfMinXOut, dfMinYOut,
+            dfMaxXOut, dfMaxYOut, nSamplePoints, nFailedCount))
+    {
+        return CE_Failure;
+    }
+
+    // Use grid sampling as soon as a special point falls into the extent of
+    // the target raster.
+    if (!bUseGrid && psOptions->hDstDS)
+    {
+        for (const auto &xy : aDstXYSpecialPoints)
+        {
+            if (0 <= xy.first &&
+                GDALGetRasterXSize(psOptions->hDstDS) >= xy.first &&
+                0 <= xy.second &&
+                GDALGetRasterYSize(psOptions->hDstDS) >= xy.second)
+            {
+                bUseGrid = true;
+                bAll = false;
+                if (!ComputeSourceWindowTransformPoints(
+                        nDstXOff, nDstYOff, nDstXSize, nDstYSize, bUseGrid,
+                        bAll, nStepCount, bTryWithCheckWithInvertProj,
+                        dfMinXOut, dfMinYOut, dfMaxXOut, dfMaxYOut,
+                        nSamplePoints, nFailedCount))
+                {
+                    return CE_Failure;
+                }
+                break;
+            }
+        }
+    }
 
     const int nRasterXSize = GDALGetRasterXSize(psOptions->hSrcDS);
     const int nRasterYSize = GDALGetRasterYSize(psOptions->hSrcDS);
@@ -2912,7 +2997,13 @@ TryAgain:
 
         // We should probably perform the coordinate transformation in the
         // warp kernel under CHECK_WITH_INVERT_PROJ too...
-        goto TryAgain;
+        if (!ComputeSourceWindowTransformPoints(
+                nDstXOff, nDstYOff, nDstXSize, nDstYSize, bUseGrid, bAll,
+                nStepCount, bTryWithCheckWithInvertProj, dfMinXOut, dfMinYOut,
+                dfMaxXOut, dfMaxYOut, nSamplePoints, nFailedCount))
+        {
+            return CE_Failure;
+        }
     }
 
     /* -------------------------------------------------------------------- */
@@ -2924,7 +3015,13 @@ TryAgain:
     {
         bUseGrid = true;
         bAll = false;
-        goto TryAgain;
+        if (!ComputeSourceWindowTransformPoints(
+                nDstXOff, nDstYOff, nDstXSize, nDstYSize, bUseGrid, bAll,
+                nStepCount, bTryWithCheckWithInvertProj, dfMinXOut, dfMinYOut,
+                dfMaxXOut, dfMaxYOut, nSamplePoints, nFailedCount))
+        {
+            return CE_Failure;
+        }
     }
 
     /* -------------------------------------------------------------------- */

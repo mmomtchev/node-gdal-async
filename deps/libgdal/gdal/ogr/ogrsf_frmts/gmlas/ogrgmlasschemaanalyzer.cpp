@@ -105,10 +105,10 @@ void GMLASPrefixMappingHander::startElement(const XMLCh *const uri,
     if (osURI == szXS_URI && osLocalname == "schema")
     {
         bool bIsGML = false;
-        CPLString osVersion;
+        std::string osVersion;
         for (unsigned int i = 0; i < attrs.getLength(); i++)
         {
-            CPLString osAttrLocalName(transcode(attrs.getLocalName(i)));
+            const std::string osAttrLocalName(transcode(attrs.getLocalName(i)));
             if (osAttrLocalName == "targetNamespace")
             {
                 bIsGML = transcode(attrs.getValue(i)) == szGML_URI;
@@ -120,7 +120,7 @@ void GMLASPrefixMappingHander::startElement(const XMLCh *const uri,
         }
         if (bIsGML && !osVersion.empty())
         {
-            m_osGMLVersionFound = osVersion;
+            m_osGMLVersionFound = std::move(osVersion);
         }
     }
 }
@@ -165,12 +165,12 @@ void GMLASPrefixMappingHander::startPrefixMapping(const XMLCh *const prefix,
 /************************************************************************/
 
 static void CollectNamespacePrefixes(
-    const char *pszXSDFilename, VSILFILE *fpXSD,
+    const char *pszXSDFilename, const std::shared_ptr<VSIVirtualHandle> &fpXSD,
     std::map<CPLString, CPLString> &oMapURIToPrefix,
     const std::map<CPLString, CPLString> &oMapDocNSURIToPrefix,
     CPLString &osGMLVersionFound)
 {
-    GMLASInputSource oSource(pszXSDFilename, fpXSD, false);
+    GMLASInputSource oSource(pszXSDFilename, fpXSD);
     // This is a bit silly but the startPrefixMapping() callback only gets
     // called when using SAX2XMLReader::parse(), and not when using
     // loadGrammar(), so we have to parse the doc twice.
@@ -182,6 +182,8 @@ static void CollectNamespacePrefixes(
 
     GMLASErrorHandler oErrorHandler;
     poReader->setErrorHandler(&oErrorHandler);
+
+    poReader->setFeature(XMLUni::fgXercesDisableDefaultEntityResolution, true);
 
     std::string osErrorMsg;
     try
@@ -235,8 +237,9 @@ class GMLASAnalyzerEntityResolver final : public GMLASBaseEntityResolver
     {
     }
 
-    virtual void DoExtraSchemaProcessing(const CPLString &osFilename,
-                                         VSILFILE *fp) override;
+    virtual void DoExtraSchemaProcessing(
+        const CPLString &osFilename,
+        const std::shared_ptr<VSIVirtualHandle> &fp) override;
 };
 
 /************************************************************************/
@@ -244,11 +247,11 @@ class GMLASAnalyzerEntityResolver final : public GMLASBaseEntityResolver
 /************************************************************************/
 
 void GMLASAnalyzerEntityResolver::DoExtraSchemaProcessing(
-    const CPLString &osFilename, VSILFILE *fp)
+    const CPLString &osFilename, const std::shared_ptr<VSIVirtualHandle> &fp)
 {
     CollectNamespacePrefixes(osFilename, fp, m_oMapURIToPrefix,
                              m_oMapDocNSURIToPrefix, m_osGMLVersionFound);
-    VSIFSeekL(fp, 0, SEEK_SET);
+    fp->Seek(0, SEEK_SET);
 }
 
 /************************************************************************/
@@ -304,7 +307,7 @@ CPLString GMLASSchemaAnalyzer::GetPrefix(const CPLString &osNamespaceURI)
             osPrefix = osNamespaceURI;
         for (size_t i = 0; i < osPrefix.size(); i++)
         {
-            if (!isalnum(osPrefix[i]))
+            if (!isalnum(static_cast<unsigned char>(osPrefix[i])))
                 osPrefix[i] = '_';
         }
         m_oMapURIToPrefix[osNamespaceURI] = osPrefix;
@@ -546,7 +549,7 @@ bool GMLASSchemaAnalyzer::LaunderFieldNames(GMLASFeatureClass &oClass)
         for (size_t i = 0; i < aoFields.size(); i++)
         {
             char *pszLaundered =
-                OGRPGCommonLaunderName(aoFields[i].GetName(), "GMLAS");
+                OGRPGCommonLaunderName(aoFields[i].GetName(), "GMLAS", false);
             aoFields[i].SetName(pszLaundered);
             CPLFree(pszLaundered);
         }
@@ -637,7 +640,7 @@ void GMLASSchemaAnalyzer::LaunderClassNames()
         for (size_t i = 0; i < aoClasses.size(); i++)
         {
             char *pszLaundered =
-                OGRPGCommonLaunderName(aoClasses[i]->GetName(), "GMLAS");
+                OGRPGCommonLaunderName(aoClasses[i]->GetName(), "GMLAS", false);
             aoClasses[i]->SetName(pszLaundered);
             CPLFree(pszLaundered);
         }
@@ -690,6 +693,7 @@ template <class T> class GMLASUniquePtr
     explicit GMLASUniquePtr(T *p) : m_p(p)
     {
     }
+
     ~GMLASUniquePtr()
     {
         delete m_p;
@@ -705,6 +709,7 @@ template <class T> class GMLASUniquePtr
     {
         return m_p;
     }
+
     T *release()
     {
         T *ret = m_p;
@@ -880,6 +885,9 @@ bool GMLASSchemaAnalyzer::Analyze(GMLASXSDCache &oCache,
         // xsi:schemaLocation attributes).
         //
         poParser->setFeature(XMLUni::fgXercesLoadSchema, false);
+
+        poParser->setFeature(XMLUni::fgXercesDisableDefaultEntityResolution,
+                             true);
 
         Grammar *poGrammar = nullptr;
         if (!GMLASReader::LoadXSDInParser(
@@ -1280,7 +1288,7 @@ static CPLString GetAnnotationDoc(const XSElementDeclaration *poEltDecl)
             break;
         poTypeDef = poNewTypeDef;
     }
-    CPLString osDoc2 = GetAnnotationDoc(list);
+    const CPLString osDoc2 = GetAnnotationDoc(list);
     if (!osDoc.empty() && !osDoc2.empty())
     {
         osDoc += "\n";
@@ -2129,7 +2137,7 @@ bool GMLASSchemaAnalyzer::FindElementsWithMustBeToLevel(
             {
                 if (!apoChildrenElements.empty())
                 {
-                    apoImplEltList = apoChildrenElements;
+                    apoImplEltList = std::move(apoChildrenElements);
                 }
                 else if (!poElt->getAbstract())
                 {

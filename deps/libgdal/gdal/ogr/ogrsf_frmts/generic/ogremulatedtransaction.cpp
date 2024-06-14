@@ -52,9 +52,10 @@ class OGRLayerWithTransaction final : public OGRLayerDecorator
     {
         return GetDescription();
     }
+
     virtual OGRFeatureDefn *GetLayerDefn() override;
 
-    virtual OGRErr CreateField(OGRFieldDefn *poField,
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
     virtual OGRErr DeleteField(int iField) override;
     virtual OGRErr ReorderFields(int *panMap) override;
@@ -64,7 +65,7 @@ class OGRLayerWithTransaction final : public OGRLayerDecorator
     AlterGeomFieldDefn(int iField, const OGRGeomFieldDefn *poNewGeomFieldDefn,
                        int nFlags) override;
 
-    virtual OGRErr CreateGeomField(OGRGeomFieldDefn *poField,
+    virtual OGRErr CreateGeomField(const OGRGeomFieldDefn *poField,
                                    int bApproxOK = TRUE) override;
 
     virtual OGRFeature *GetNextFeature() override;
@@ -117,11 +118,10 @@ class OGRDataSourceWithTransaction final : public OGRDataSource
 
     virtual int TestCapability(const char *) override;
 
-    virtual OGRLayer *
-    ICreateLayer(const char *pszName,
-                 const OGRSpatialReference *poSpatialRef = nullptr,
-                 OGRwkbGeometryType eGType = wkbUnknown,
-                 char **papszOptions = nullptr) override;
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
+
     virtual OGRLayer *CopyLayer(OGRLayer *poSrcLayer, const char *pszNewName,
                                 char **papszOptions = nullptr) override;
 
@@ -325,13 +325,13 @@ int OGRDataSourceWithTransaction::TestCapability(const char *pszCap)
 }
 
 OGRLayer *OGRDataSourceWithTransaction::ICreateLayer(
-    const char *pszName, const OGRSpatialReference *poSpatialRef,
-    OGRwkbGeometryType eGType, char **papszOptions)
+    const char *pszName, const OGRGeomFieldDefn *poGeomFieldDefn,
+    CSLConstList papszOptions)
 {
     if (!m_poBaseDataSource)
         return nullptr;
-    return WrapLayer(m_poBaseDataSource->CreateLayer(pszName, poSpatialRef,
-                                                     eGType, papszOptions));
+    return WrapLayer(m_poBaseDataSource->CreateLayer(pszName, poGeomFieldDefn,
+                                                     papszOptions));
 }
 
 OGRLayer *OGRDataSourceWithTransaction::CopyLayer(OGRLayer *poSrcLayer,
@@ -610,7 +610,7 @@ OGRFeatureDefn *OGRLayerWithTransaction::GetLayerDefn()
     return m_poFeatureDefn;
 }
 
-OGRErr OGRLayerWithTransaction::CreateField(OGRFieldDefn *poField,
+OGRErr OGRLayerWithTransaction::CreateField(const OGRFieldDefn *poField,
                                             int bApproxOK)
 {
     if (!m_poDecoratedLayer)
@@ -626,7 +626,7 @@ OGRErr OGRLayerWithTransaction::CreateField(OGRFieldDefn *poField,
     return eErr;
 }
 
-OGRErr OGRLayerWithTransaction::CreateGeomField(OGRGeomFieldDefn *poField,
+OGRErr OGRLayerWithTransaction::CreateGeomField(const OGRGeomFieldDefn *poField,
                                                 int bApproxOK)
 {
     if (!m_poDecoratedLayer)
@@ -708,6 +708,7 @@ OGRErr OGRLayerWithTransaction::AlterGeomFieldDefn(
     }
     return eErr;
 }
+
 OGRFeature *OGRLayerWithTransaction::GetNextFeature()
 {
     if (!m_poDecoratedLayer)

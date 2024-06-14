@@ -168,9 +168,9 @@ OGRErr OGRCircularString::importFromWkb(const unsigned char *pabyData,
 /*      Build a well known binary representation of this object.        */
 /************************************************************************/
 
-OGRErr OGRCircularString::exportToWkb(OGRwkbByteOrder eByteOrder,
-                                      unsigned char *pabyData,
-                                      OGRwkbVariant eWkbVariant) const
+OGRErr
+OGRCircularString::exportToWkb(unsigned char *pabyData,
+                               const OGRwkbExportOptions *psOptions) const
 
 {
     if (!IsValidFast())
@@ -178,10 +178,13 @@ OGRErr OGRCircularString::exportToWkb(OGRwkbByteOrder eByteOrder,
         return OGRERR_FAILURE;
     }
 
+    OGRwkbExportOptions sOptions(psOptions ? *psOptions
+                                           : OGRwkbExportOptions());
+
     // Does not make sense for new geometries, so patch it.
-    if (eWkbVariant == wkbVariantOldOgc)
-        eWkbVariant = wkbVariantIso;
-    return OGRSimpleCurve::exportToWkb(eByteOrder, pabyData, eWkbVariant);
+    if (sOptions.eWkbVariant == wkbVariantOldOgc)
+        sOptions.eWkbVariant = wkbVariantIso;
+    return OGRSimpleCurve::exportToWkb(pabyData, &sOptions);
 }
 
 /************************************************************************/
@@ -765,6 +768,7 @@ OGRCurveCasterToLinearRing OGRCircularString::GetCasterToLinearRing() const
 {
     return ::CasterToLinearRing;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -855,6 +859,7 @@ double OGRCircularString::get_AreaOfCurveSegments() const
     }
     return dfArea;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -889,6 +894,32 @@ double OGRCircularString::get_Area() const
 
     OGRLineString *poLS = CurveToLine();
     const double dfArea = poLS->get_Area();
+    delete poLS;
+
+    return dfArea;
+}
+
+/************************************************************************/
+/*                        get_GeodesicArea()                            */
+/************************************************************************/
+
+double OGRCircularString::get_GeodesicArea(
+    const OGRSpatialReference *poSRSOverride) const
+{
+    if (IsEmpty())
+        return 0;
+
+    if (!get_IsClosed())
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "Non-closed geometry");
+        return -1;
+    }
+
+    if (!poSRSOverride)
+        poSRSOverride = getSpatialReference();
+
+    OGRLineString *poLS = CurveToLine();
+    const double dfArea = poLS->get_GeodesicArea(poSRSOverride);
     delete poLS;
 
     return dfArea;

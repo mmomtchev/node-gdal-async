@@ -537,7 +537,7 @@ static void DumpArrayRec(std::shared_ptr<GDALMDArray> array,
         auto arrayContext(serializer.MakeArrayContext());
         if (nCurDim + 1 == dimSizes.size())
         {
-            const auto dt(array->GetDataType());
+            const auto &dt(array->GetDataType());
             const auto nDTSize(dt.GetSize());
             const auto lambdaDumpValue =
                 [&serializer, &dt, nDTSize](std::vector<GByte> &abyTmp,
@@ -715,21 +715,20 @@ static void DumpStructuralInfo(CSLConstList papszStructuralInfo,
                                CPLJSonStreamingWriter &serializer)
 {
     auto objectContext(serializer.MakeObjectContext());
-    for (int i = 0; papszStructuralInfo && papszStructuralInfo[i]; ++i)
+    int i = 1;
+    for (const auto &[pszKey, pszValue] : cpl::IterateNameValue(
+             papszStructuralInfo, /* bReturnNullKeyIfNotNameValue = */ true))
     {
-        char *pszKey = nullptr;
-        const char *pszValue =
-            CPLParseNameValue(papszStructuralInfo[i], &pszKey);
         if (pszKey)
         {
             serializer.AddObjKey(pszKey);
         }
         else
         {
-            serializer.AddObjKey(CPLSPrintf("metadata_%d", i + 1));
+            serializer.AddObjKey(CPLSPrintf("metadata_%d", i));
+            ++i;
         }
         serializer.Add(pszValue);
-        CPLFree(pszKey);
     }
 }
 
@@ -757,7 +756,7 @@ static void DumpArray(const std::shared_ptr<GDALGroup> &rootGroup,
     }
 
     serializer.AddObjKey("datatype");
-    const auto dt(array->GetDataType());
+    const auto &dt(array->GetDataType());
     DumpDataType(dt, serializer);
 
     auto dims = array->GetDimensions();
@@ -805,7 +804,7 @@ static void DumpArray(const std::shared_ptr<GDALGroup> &rootGroup,
         DumpAttrs(attrs, serializer, psOptions);
     }
 
-    auto unit = array->GetUnit();
+    const auto &unit = array->GetUnit();
     if (!unit.empty())
     {
         serializer.AddObjKey("unit");
@@ -1128,7 +1127,7 @@ char *GDALMultiDimInfo(GDALDatasetH hDataset,
                              "Cannot find group %s", aosTokens[i]);
                     return nullptr;
                 }
-                curGroup = curGroupNew;
+                curGroup = std::move(curGroupNew);
             }
             const char *pszArrayName = aosTokens[aosTokens.size() - 1];
             auto array(curGroup->OpenMDArray(pszArrayName));

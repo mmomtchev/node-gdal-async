@@ -68,11 +68,13 @@ typedef struct
     GSpacing nLineSpace;
     GSpacing nBandSpace;
     GDALDataType eBurnValueType;
+
     union
     {
         const std::int64_t *int64_values;
         const double *double_values;
     } burnValues;
+
     GDALBurnValueSrc eBurnValueSource;
     GDALRasterMergeAlg eMergeAlg;
     bool bFillSetVisitedPoints;
@@ -167,6 +169,13 @@ struct IntEqualityTest
 typedef GDALRasterPolygonEnumeratorT<std::int64_t, IntEqualityTest>
     GDALRasterPolygonEnumerator;
 
+constexpr const char *GDAL_APPROX_TRANSFORMER_CLASS_NAME =
+    "GDALApproxTransformer";
+constexpr const char *GDAL_GEN_IMG_TRANSFORMER_CLASS_NAME =
+    "GDALGenImgProjTransformer";
+
+bool GDALIsTransformer(void *hTransformerArg, const char *pszClassName);
+
 typedef void *(*GDALTransformDeserializeFunc)(CPLXMLNode *psTree);
 
 void CPL_DLL *GDALRegisterTransformDeserializer(
@@ -250,6 +259,68 @@ typedef struct
     char **papszGeolocationInfo;
 
 } GDALGeoLocTransformInfo;
+
+/************************************************************************/
+/* ==================================================================== */
+/*                       GDALReprojectionTransformer                    */
+/* ==================================================================== */
+/************************************************************************/
+
+struct GDALReprojectionTransformInfo
+{
+    GDALTransformerInfo sTI;
+    char **papszOptions = nullptr;
+    double dfTime = 0.0;
+
+    OGRCoordinateTransformation *poForwardTransform = nullptr;
+    OGRCoordinateTransformation *poReverseTransform = nullptr;
+
+    GDALReprojectionTransformInfo() : sTI()
+    {
+        memset(&sTI, 0, sizeof(sTI));
+    }
+
+    GDALReprojectionTransformInfo(const GDALReprojectionTransformInfo &) =
+        delete;
+    GDALReprojectionTransformInfo &
+    operator=(const GDALReprojectionTransformInfo &) = delete;
+};
+
+/************************************************************************/
+/* ==================================================================== */
+/*                       GDALGenImgProjTransformer                      */
+/* ==================================================================== */
+/************************************************************************/
+
+typedef struct
+{
+
+    GDALTransformerInfo sTI;
+
+    double adfSrcGeoTransform[6];
+    double adfSrcInvGeoTransform[6];
+
+    void *pSrcTransformArg;
+    GDALTransformerFunc pSrcTransformer;
+
+    void *pReprojectArg;
+    GDALTransformerFunc pReproject;
+
+    double adfDstGeoTransform[6];
+    double adfDstInvGeoTransform[6];
+
+    void *pDstTransformArg;
+    GDALTransformerFunc pDstTransformer;
+
+    // Memorize the value of the CHECK_WITH_INVERT_PROJ at the time we
+    // instantiated the object, to be able to decide if
+    // GDALRefreshGenImgProjTransformer() must do something or not.
+    bool bCheckWithInvertPROJ;
+
+    // Set to TRUE when the transformation pipline is a custom one.
+    bool bHasCustomTransformationPipeline;
+
+} GDALGenImgProjTransformInfo;
 
 /************************************************************************/
 /*      Color table related                                             */

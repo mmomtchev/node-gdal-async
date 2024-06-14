@@ -33,6 +33,7 @@
 #include <mutex>
 
 #include "openexr_headers.h"
+#include "exrdrivercore.h"
 
 using namespace OPENEXR_IMF_NAMESPACE;
 using namespace IMATH_NAMESPACE;
@@ -81,7 +82,6 @@ class GDALEXRDataset final : public GDALPamDataset
     const OGRSpatialReference *GetSpatialRef() const override;
     CPLErr GetGeoTransform(double *adfGT) override;
 
-    static int Identify(GDALOpenInfo *poOpenInfo);
     static GDALDataset *Open(GDALOpenInfo *poOpenInfo);
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
                                int nBandsIn, GDALDataType eType,
@@ -116,6 +116,7 @@ class GDALEXRRasterBand final : public GDALPamRasterBand
     {
         return m_eInterp;
     }
+
     int GetOverviewCount() override;
     GDALRasterBand *GetOverview(int) override;
 };
@@ -226,6 +227,7 @@ class GDALEXRPreviewRasterBand final : public GDALPamRasterBand
 
   protected:
     CPLErr IReadBlock(int, int, void *) override;
+
     GDALColorInterp GetColorInterpretation() override
     {
         return static_cast<GDALColorInterp>(GCI_RedBand + nBand - 1);
@@ -286,6 +288,7 @@ class GDALEXRRGBARasterBand final : public GDALPamRasterBand
 
   protected:
     CPLErr IReadBlock(int, int, void *) override;
+
     GDALColorInterp GetColorInterpretation() override
     {
         return static_cast<GDALColorInterp>(GCI_RedBand + nBand - 1);
@@ -413,23 +416,6 @@ CPLErr GDALEXRDataset::GetGeoTransform(double *adfGT)
 }
 
 /************************************************************************/
-/*                            Identify()                                */
-/************************************************************************/
-
-int GDALEXRDataset::Identify(GDALOpenInfo *poOpenInfo)
-{
-    if (STARTS_WITH_CI(poOpenInfo->pszFilename, "EXR:"))
-        return true;
-
-    // Check magic number
-    return poOpenInfo->fpL != nullptr && poOpenInfo->nHeaderBytes >= 4 &&
-           poOpenInfo->pabyHeader[0] == 0x76 &&
-           poOpenInfo->pabyHeader[1] == 0x2f &&
-           poOpenInfo->pabyHeader[2] == 0x31 &&
-           poOpenInfo->pabyHeader[3] == 0x01;
-}
-
-/************************************************************************/
 /*                           GDALEXRIOStream                            */
 /************************************************************************/
 
@@ -441,6 +427,7 @@ class GDALEXRIOStreamException final : public std::exception
     explicit GDALEXRIOStreamException(const std::string &msg) : m_msg(msg)
     {
     }
+
     const char *what() const noexcept override
     {
         return m_msg.c_str();
@@ -460,6 +447,7 @@ class GDALEXRIOStream final : public IStream, public OStream
         : IStream(filename), OStream(filename), m_fp(fp)
     {
     }
+
     ~GDALEXRIOStream()
     {
         VSIFCloseL(m_fp);
@@ -468,11 +456,14 @@ class GDALEXRIOStream final : public IStream, public OStream
     virtual bool read(char c[/*n*/], int n) override;
     virtual void write(const char c[/*n*/], int n) override;
     virtual IoInt64Type tellg() override;
+
     virtual IoInt64Type tellp() override
     {
         return tellg();
     }
+
     virtual void seekg(IoInt64Type pos) override;
+
     virtual void seekp(IoInt64Type pos) override
     {
         return seekg(pos);
@@ -540,7 +531,7 @@ static void setNumThreads()
 
 GDALDataset *GDALEXRDataset::Open(GDALOpenInfo *poOpenInfo)
 {
-    if (!Identify(poOpenInfo))
+    if (!EXRDriverIdentify(poOpenInfo))
         return nullptr;
     if (poOpenInfo->eAccess == GA_Update)
     {
@@ -578,7 +569,7 @@ GDALDataset *GDALEXRDataset::Open(GDALOpenInfo *poOpenInfo)
 
     try
     {
-        auto poDS = cpl::make_unique<GDALEXRDataset>();
+        auto poDS = std::make_unique<GDALEXRDataset>();
         poDS->m_pIStream.reset(new GDALEXRIOStream(fp, osFilename));
         poDS->m_pMPIF.reset(new MultiPartInputFile(*poDS->m_pIStream));
         if (iPart > 0 && iPart > poDS->m_pMPIF->parts())
@@ -742,7 +733,7 @@ GDALDataset *GDALEXRDataset::Open(GDALOpenInfo *poOpenInfo)
                     {
                         break;
                     }
-                    auto poOvrDS = cpl::make_unique<GDALEXRDataset>();
+                    auto poOvrDS = std::make_unique<GDALEXRDataset>();
                     // coverity[escape]
                     poOvrDS->m_poParent = poDS.get();
                     poOvrDS->m_iLevel = iLevel;
@@ -1129,15 +1120,18 @@ GDALDataset *GDALEXRDataset::CreateCopy(const char *pszFilename,
         char *sliceBuffer;
         if (pixelType == UINT)
         {
-            bufferUInt.resize(nBands * nChunkXSize * nChunkYSize);
+            bufferUInt.resize(static_cast<size_t>(nBands) * nChunkXSize *
+                              nChunkYSize);
             sliceBuffer = reinterpret_cast<char *>(bufferUInt.data());
         }
         else
         {
-            bufferFloat.resize(nBands * nChunkXSize * nChunkYSize);
+            bufferFloat.resize(static_cast<size_t>(nBands) * nChunkXSize *
+                               nChunkYSize);
             if (pixelType == HALF)
             {
-                bufferHalf.resize(nBands * nChunkXSize * nChunkYSize);
+                bufferHalf.resize(static_cast<size_t>(nBands) * nChunkXSize *
+                                  nChunkYSize);
                 sliceBuffer = reinterpret_cast<char *>(bufferHalf.data());
             }
             else
@@ -1469,6 +1463,7 @@ class GDALEXRWritableDataset final : public GDALPamDataset
         nRasterXSize = nXSize;
         nRasterYSize = nYSize;
     }
+
     ~GDALEXRWritableDataset() override;
 
     CPLErr SetGeoTransform(double *adfGT) override;
@@ -1740,6 +1735,7 @@ class GDALEXRWritableRasterBand final : public GDALPamRasterBand
         m_eInterp = eInterp;
         return CE_None;
     }
+
     GDALColorInterp GetColorInterpretation() override
     {
         return m_eInterp;
@@ -2049,59 +2045,13 @@ void GDALRegister_EXR()
     if (!GDAL_CHECK_VERSION("EXR driver"))
         return;
 
-    if (GDALGetDriverByName("EXR") != nullptr)
+    if (GDALGetDriverByName(DRIVER_NAME) != nullptr)
         return;
 
     GDALDriver *poDriver = new GDALDriver();
-
-    poDriver->SetDescription("EXR");
-    poDriver->SetMetadataItem(GDAL_DCAP_RASTER, "YES");
-    poDriver->SetMetadataItem(GDAL_DMD_LONGNAME,
-                              "Extended Dynamic Range Image File Format");
-    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "drivers/raster/exr.html");
-    poDriver->SetMetadataItem(GDAL_DMD_EXTENSION, "exr");
-    poDriver->SetMetadataItem(
-        GDAL_DMD_CREATIONOPTIONLIST,
-        "<CreationOptionList>"
-        "   <Option name='COMPRESS' type='string-select' default='ZIP'>"
-        "     <Value>NONE</Value>"
-        "     <Value>RLE</Value>"
-        "     <Value>ZIPS</Value>"
-        "     <Value>ZIP</Value>"
-        "     <Value>PIZ</Value>"
-        "     <Value>PXR24</Value>"
-        "     <Value>B44</Value>"
-        "     <Value>B44A</Value>"
-        "     <Value>DWAA</Value>"
-        "     <Value>DWAB</Value>"
-        "   </Option>"
-        "   <Option name='PIXEL_TYPE' type='string-select'>"
-        "     <Value>HALF</Value>"
-        "     <Value>FLOAT</Value>"
-        "     <Value>UINT</Value>"
-        "   </Option>"
-        "   <Option name='TILED' type='boolean' description='Use tiling' "
-        "default='YES'/>"
-        "   <Option name='BLOCKXSIZE' type='int' description='Tile width' "
-        "default='256'/>"
-        "   <Option name='BLOCKYSIZE' type='int' description='Tile height' "
-        "default='256'/>"
-        "   <Option name='OVERVIEWS' type='boolean' description='Whether to "
-        "create overviews' default='NO'/>"
-        "   <Option name='OVERVIEW_RESAMPLING' type='string' "
-        "description='Resampling method' default='CUBIC'/>"
-        "   <Option name='PREVIEW' type='boolean' description='Create a "
-        "preview' default='NO'/>"
-        "   <Option name='AUTO_RESCALE' type='boolean' description='Whether to "
-        "rescale Byte RGB(A) values to 0-1' default='YES'/>"
-        "   <Option name='DWA_COMPRESSION_LEVEL' type='int' description='DWA "
-        "compression level'/>"
-        "</CreationOptionList>");
-    poDriver->SetMetadataItem(GDAL_DMD_SUBDATASETS, "YES");
-    poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");
+    EXRDriverSetCommonMetadata(poDriver);
 
     poDriver->pfnOpen = GDALEXRDataset::Open;
-    poDriver->pfnIdentify = GDALEXRDataset::Identify;
     poDriver->pfnCreateCopy = GDALEXRDataset::CreateCopy;
     poDriver->pfnCreate = GDALEXRDataset::Create;
 

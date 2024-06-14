@@ -165,12 +165,12 @@ class FGdbLayer final : public FGdbBaseLayer
                     const std::wstring &wstrTablePath,
                     const std::wstring &wstrType);
     bool Create(FGdbDataSource *pParentDataSource, const char *pszLayerName,
-                const OGRSpatialReference *poSRS, OGRwkbGeometryType eType,
-                char **papszOptions);
+                const OGRGeomFieldDefn *poSrcGeomFieldDefn,
+                CSLConstList papszOptions);
     static bool CreateFeatureDataset(FGdbDataSource *pParentDataSource,
                                      const std::string &feature_dataset_name,
-                                     const OGRSpatialReference *poSRS,
-                                     char **papszOptions);
+                                     const OGRGeomFieldDefn *poSrcGeomFieldDefn,
+                                     CSLConstList papszOptions);
 
     // virtual const char *GetName();
     virtual const char *GetFIDColumn() override
@@ -191,12 +191,14 @@ class FGdbLayer final : public FGdbBaseLayer
     {
         return m_wstrTablePath;
     }
+
     std::wstring GetType() const
     {
         return m_wstrType;
     }
 
-    virtual OGRErr CreateField(OGRFieldDefn *poField, int bApproxOK) override;
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
+                               int bApproxOK) override;
     virtual OGRErr DeleteField(int iFieldToDelete) override;
 #ifdef AlterFieldDefn_implemented_but_not_working
     virtual OGRErr AlterFieldDefn(int iFieldToAlter,
@@ -208,6 +210,7 @@ class FGdbLayer final : public FGdbBaseLayer
     virtual OGRErr DeleteFeature(GIntBig nFID) override;
 
     virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce) override;
+
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce) override
     {
@@ -218,6 +221,7 @@ class FGdbLayer final : public FGdbBaseLayer
     virtual OGRErr SetAttributeFilter(const char *pszQuery) override;
 
     virtual void SetSpatialFilter(OGRGeometry *) override;
+
     virtual void SetSpatialFilter(int iGeomField, OGRGeometry *poGeom) override
     {
         OGRLayer::SetSpatialFilter(iGeomField, poGeom);
@@ -249,11 +253,13 @@ class FGdbLayer final : public FGdbBaseLayer
 
     virtual OGRErr Rename(const char *pszNewName) override;
 
+    GDALDataset *GetDataset() override;
+
   protected:
     bool GDBToOGRFields(CPLXMLNode *psFields);
-    bool ParseGeometryDef(CPLXMLNode *psGeometryDef);
+    bool ParseGeometryDef(const CPLXMLNode *psGeometryDef);
 
-    static bool ParseSpatialReference(CPLXMLNode *psSpatialRefNode,
+    static bool ParseSpatialReference(const CPLXMLNode *psSpatialRefNode,
                                       std::string *pOutWkt,
                                       std::string *pOutWKID,
                                       std::string *pOutLatestWKID);
@@ -324,7 +330,8 @@ class FGdbDataSource final : public OGRDataSource
     int bPerLayerCopyingForTransaction;
 
   public:
-    FGdbDataSource(bool bUseDriverMutex, FGdbDatabaseConnection *pConnection);
+    FGdbDataSource(bool bUseDriverMutex, FGdbDatabaseConnection *pConnection,
+                   bool bUseOpenFileGDB);
     virtual ~FGdbDataSource();
 
     int Open(const char *pszFSName, int bUpdate, const char *pszPublicName);
@@ -333,6 +340,7 @@ class FGdbDataSource final : public OGRDataSource
     {
         return m_osPublicName.c_str();
     }
+
     const char *GetFSName()
     {
         return m_osFSName.c_str();
@@ -345,10 +353,9 @@ class FGdbDataSource final : public OGRDataSource
 
     OGRLayer *GetLayer(int) override;
 
-    virtual OGRLayer *ICreateLayer(const char *,
-                                   const OGRSpatialReference * = nullptr,
-                                   OGRwkbGeometryType = wkbUnknown,
-                                   char ** = nullptr) override;
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
 
     virtual OGRErr DeleteLayer(int) override;
 
@@ -388,10 +395,12 @@ class FGdbDataSource final : public OGRDataSource
     {
         return m_pGeodatabase;
     }
+
     bool GetUpdate()
     {
         return m_bUpdate;
     }
+
     FGdbDatabaseConnection *GetConnection()
     {
         return m_pConnection;
@@ -401,6 +410,7 @@ class FGdbDataSource final : public OGRDataSource
     {
         return m_poOpenFileGDBDrv;
     }
+
     int HasSelectLayers()
     {
         return !m_oSetSelectLayers.empty();
@@ -410,11 +420,18 @@ class FGdbDataSource final : public OGRDataSource
     int ReOpen();
 
     int HasPerLayerCopyingForTransaction();
+
     void SetPerLayerCopyingForTransaction(int bFlag)
     {
         bPerLayerCopyingForTransaction = bFlag;
     }
+
     void SetSymlinkFlagOnAllLayers();
+
+    bool UseOpenFileGDB() const
+    {
+        return m_bUseOpenFileGDB;
+    }
 
     /*
     protected:
@@ -434,6 +451,7 @@ class FGdbDataSource final : public OGRDataSource
     bool m_bUpdate;
     GDALDriver *m_poOpenFileGDBDrv;
     std::unique_ptr<GDALDataset> m_poOpenFileGDBDS;
+    bool m_bUseOpenFileGDB = false;
 };
 
 /************************************************************************/
@@ -459,14 +477,17 @@ class FGdbDatabaseConnection
     {
         return m_pGeodatabase;
     }
+
     void SetLocked(int bLockedIn)
     {
         m_bLocked = bLockedIn;
     }
+
     int GetRefCount() const
     {
         return m_nRefCount;
     }
+
     int IsLocked() const
     {
         return m_bLocked;
@@ -476,10 +497,12 @@ class FGdbDatabaseConnection
     {
         return m_bFIDHackInProgress;
     }
+
     void SetFIDHackInProgress(int bFlag)
     {
         m_bFIDHackInProgress = bFlag;
     }
+
     int OpenGeodatabase(const char *pszOverriddenName);
     void CloseGeodatabase();
 };

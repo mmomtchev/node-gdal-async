@@ -177,14 +177,12 @@ void OGRCoordinateTransformationOptions::Private::RefreshCheckWithInvertProj()
 }
 
 /************************************************************************/
-/*                          GetWktOrProjString()                        */
+/*                       GetAsAProjRecognizableString()                 */
 /************************************************************************/
 
-static char *GetWktOrProjString(const OGRSpatialReference *poSRS)
+static char *GetAsAProjRecognizableString(const OGRSpatialReference *poSRS)
 {
-    CPLErrorStateBackuper oErrorStateBackuper;
-    CPLErrorHandlerPusher oErrorHandler(CPLQuietErrorHandler);
-    const char *const apszOptionsWKT2_2018[] = {"FORMAT=WKT2_2018", nullptr};
+    CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
     // If there's a PROJ4 EXTENSION node in WKT1, then use
     // it. For example when dealing with "+proj=longlat +lon_wrap=180"
     char *pszText = nullptr;
@@ -198,8 +196,20 @@ static char *GetWktOrProjString(const OGRSpatialReference *poSRS)
             pszText = CPLStrdup(tmpText.c_str());
         }
     }
+    else if (poSRS->IsEmpty())
+    {
+        pszText = CPLStrdup("");
+    }
     else
-        poSRS->exportToWkt(&pszText, apszOptionsWKT2_2018);
+    {
+        // We export to PROJJSON rather than WKT2:2019 because PROJJSON
+        // is a bit more verbose, which helps in situations like
+        // https://github.com/OSGeo/gdal/issues/9732 /
+        // https://github.com/OSGeo/PROJ/pull/4124 where we want to export
+        // a DerivedProjectedCRS whose base ProjectedCRS has non-metre axis.
+        poSRS->exportToPROJJSON(&pszText, nullptr);
+    }
+
     return pszText;
 }
 
@@ -270,7 +280,7 @@ static char *GetTextRepresentation(const OGRSpatialReference *poSRS)
     }
     if (pszText == nullptr)
     {
-        pszText = GetWktOrProjString(poSRS);
+        pszText = GetAsAProjRecognizableString(poSRS);
     }
     return pszText;
 }
@@ -477,6 +487,7 @@ void OGRCoordinateTransformationOptions::SetSourceCenterLong(
     d->dfSourceCenterLong = dfCenterLong;
     d->bHasSourceCenterLong = true;
 }
+
 /*! @endcond */
 
 /************************************************************************/
@@ -490,6 +501,7 @@ void OGRCoordinateTransformationOptions::SetTargetCenterLong(
     d->dfTargetCenterLong = dfCenterLong;
     d->bHasTargetCenterLong = true;
 }
+
 /*! @endcond */
 
 /************************************************************************/
@@ -660,6 +672,7 @@ class OGRProjCT : public OGRCoordinateTransformation
     class PjPtr
     {
         PJ *m_pj = nullptr;
+
         void reset()
         {
             if (m_pj)
@@ -673,23 +686,28 @@ class OGRProjCT : public OGRCoordinateTransformation
         PjPtr() : m_pj(nullptr)
         {
         }
+
         explicit PjPtr(PJ *pjIn) : m_pj(pjIn)
         {
         }
+
         ~PjPtr()
         {
             reset();
         }
+
         PjPtr(const PjPtr &other)
             : m_pj((other.m_pj != nullptr)
                        ? (proj_clone(OSRGetProjTLSContext(), other.m_pj))
                        : (nullptr))
         {
         }
+
         PjPtr(PjPtr &&other) : m_pj(other.m_pj)
         {
             other.m_pj = nullptr;
         }
+
         PjPtr &operator=(const PjPtr &other)
         {
             if (this != &other)
@@ -701,6 +719,7 @@ class OGRProjCT : public OGRCoordinateTransformation
             }
             return *this;
         }
+
         PjPtr &operator=(PJ *pjIn)
         {
             if (m_pj != pjIn)
@@ -710,10 +729,12 @@ class OGRProjCT : public OGRCoordinateTransformation
             }
             return *this;
         }
+
         operator PJ *()
         {
             return m_pj;
         }
+
         operator const PJ *() const
         {
             return m_pj;
@@ -740,7 +761,7 @@ class OGRProjCT : public OGRCoordinateTransformation
 
     bool bWebMercatorToWGS84LongLat = false;
 
-    int nErrorCount = 0;
+    size_t nErrorCount = 0;
 
     double dfThreshold = 0.0;
 
@@ -757,15 +778,12 @@ class OGRProjCT : public OGRCoordinateTransformation
         BEST_ACCURACY,
         FIRST_MATCHING
     };
-#if PROJ_VERSION_MAJOR > 6 || PROJ_VERSION_MINOR >= 3
     Strategy m_eStrategy = Strategy::PROJ;
-#else
-    Strategy m_eStrategy = Strategy::BEST_ACCURACY;
-#endif
 
     bool
     ListCoordinateOperations(const char *pszSrcSRS, const char *pszTargetSRS,
                              const OGRCoordinateTransformationOptions &options);
+
     struct Transformation
     {
         double minx = 0.0;
@@ -786,6 +804,7 @@ class OGRProjCT : public OGRCoordinateTransformation
         {
         }
     };
+
     std::vector<Transformation> m_oTransformations{};
     int m_iCurTransformation = -1;
     OGRCoordinateTransformationOptions m_options{};
@@ -819,10 +838,10 @@ class OGRProjCT : public OGRCoordinateTransformation
     const OGRSpatialReference *GetSourceCS() const override;
     const OGRSpatialReference *GetTargetCS() const override;
 
-    int Transform(int nCount, double *x, double *y, double *z, double *t,
+    int Transform(size_t nCount, double *x, double *y, double *z, double *t,
                   int *pabSuccess) override;
 
-    int TransformWithErrorCodes(int nCount, double *x, double *y, double *z,
+    int TransformWithErrorCodes(size_t nCount, double *x, double *y, double *z,
                                 double *t, int *panErrorCodes) override;
 
     int TransformBounds(const double xmin, const double ymin, const double xmax,
@@ -834,6 +853,7 @@ class OGRProjCT : public OGRCoordinateTransformation
     {
         return m_bEmitErrors;
     }
+
     void SetEmitErrors(bool bEmitErrors) override
     {
         m_bEmitErrors = bEmitErrors;
@@ -850,6 +870,7 @@ class OGRProjCT : public OGRCoordinateTransformation
                   const OGRSpatialReference *poTarget, const char *pszTargetSRS,
                   const OGRCoordinateTransformationOptions &options);
 };
+
 //! @endcond
 
 /************************************************************************/
@@ -1525,8 +1546,7 @@ int OGRProjCT::Initialize(const OGRSpatialReference *poSourceIn,
 
     const char *pszCENTER_LONG;
     {
-        CPLErrorStateBackuper oErrorStateBackuper;
-        CPLErrorHandlerPusher oErrorHandler(CPLQuietErrorHandler);
+        CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
         pszCENTER_LONG =
             poSRSSource ? poSRSSource->GetExtension("GEOGCS", "CENTER_LONG")
                         : nullptr;
@@ -1545,8 +1565,7 @@ int OGRProjCT::Initialize(const OGRSpatialReference *poSourceIn,
     }
 
     {
-        CPLErrorStateBackuper oErrorStateBackuper;
-        CPLErrorHandlerPusher oErrorHandler(CPLQuietErrorHandler);
+        CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
         pszCENTER_LONG =
             poSRSTarget ? poSRSTarget->GetExtension("GEOGCS", "CENTER_LONG")
                         : nullptr;
@@ -2174,18 +2193,21 @@ const OGRSpatialReference *OGRProjCT::GetTargetCS() const
 /*                             Transform()                              */
 /************************************************************************/
 
-int OGRCoordinateTransformation::Transform(int nCount, double *x, double *y,
+int OGRCoordinateTransformation::Transform(size_t nCount, double *x, double *y,
                                            double *z, int *pabSuccessIn)
 
 {
-    int *pabSuccess = pabSuccessIn
-                          ? pabSuccessIn
-                          : static_cast<int *>(CPLMalloc(sizeof(int) * nCount));
+    int *pabSuccess =
+        pabSuccessIn
+            ? pabSuccessIn
+            : static_cast<int *>(VSI_MALLOC2_VERBOSE(sizeof(int), nCount));
+    if (!pabSuccess)
+        return FALSE;
 
     bool bOverallSuccess =
         CPL_TO_BOOL(Transform(nCount, x, y, z, nullptr, pabSuccess));
 
-    for (int i = 0; i < nCount; i++)
+    for (size_t i = 0; i < nCount; i++)
     {
         if (!pabSuccess[i])
         {
@@ -2204,20 +2226,30 @@ int OGRCoordinateTransformation::Transform(int nCount, double *x, double *y,
 /*                      TransformWithErrorCodes()                       */
 /************************************************************************/
 
-int OGRCoordinateTransformation::TransformWithErrorCodes(int nCount, double *x,
-                                                         double *y, double *z,
-                                                         double *t,
+int OGRCoordinateTransformation::TransformWithErrorCodes(size_t nCount,
+                                                         double *x, double *y,
+                                                         double *z, double *t,
                                                          int *panErrorCodes)
 
 {
-    std::vector<int> abSuccess(nCount + 1);
+    std::vector<int> abSuccess;
+    try
+    {
+        abSuccess.resize(nCount);
+    }
+    catch (const std::bad_alloc &)
+    {
+        CPLError(CE_Failure, CPLE_OutOfMemory,
+                 "Cannot allocate abSuccess[] temporary array");
+        return FALSE;
+    }
 
-    bool bOverallSuccess =
-        CPL_TO_BOOL(Transform(nCount, x, y, z, t, &abSuccess[0]));
+    const bool bOverallSuccess =
+        CPL_TO_BOOL(Transform(nCount, x, y, z, t, abSuccess.data()));
 
     if (panErrorCodes)
     {
-        for (int i = 0; i < nCount; i++)
+        for (size_t i = 0; i < nCount; i++)
         {
             panErrorCodes[i] = abSuccess[i] ? 0 : -1;
         }
@@ -2230,8 +2262,8 @@ int OGRCoordinateTransformation::TransformWithErrorCodes(int nCount, double *x,
 /*                             Transform()                             */
 /************************************************************************/
 
-int OGRProjCT::Transform(int nCount, double *x, double *y, double *z, double *t,
-                         int *pabSuccess)
+int OGRProjCT::Transform(size_t nCount, double *x, double *y, double *z,
+                         double *t, int *pabSuccess)
 
 {
     bool bOverallSuccess =
@@ -2239,7 +2271,7 @@ int OGRProjCT::Transform(int nCount, double *x, double *y, double *z, double *t,
 
     if (pabSuccess)
     {
-        for (int i = 0; i < nCount; i++)
+        for (size_t i = 0; i < nCount; i++)
         {
             pabSuccess[i] = (pabSuccess[i] == 0);
         }
@@ -2258,7 +2290,7 @@ int OGRProjCT::Transform(int nCount, double *x, double *y, double *z, double *t,
 #define PROJ_ERR_COORD_TRANSFM_NO_OPERATION 2051
 #endif
 
-int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
+int OGRProjCT::TransformWithErrorCodes(size_t nCount, double *x, double *y,
                                        double *z, double *t, int *panErrorCodes)
 
 {
@@ -2270,7 +2302,7 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
     {
         if (panErrorCodes)
         {
-            for (int i = 0; i < nCount; i++)
+            for (size_t i = 0; i < nCount; i++)
             {
                 panErrorCodes[i] = 0;
             }
@@ -2283,10 +2315,10 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
     if (bDebugCT)
     {
         CPLDebug("OGRCT", "count = %d", nCount);
-        for (int i = 0; i < nCount; ++i)
+        for (size_t i = 0; i < nCount; ++i)
         {
-            CPLDebug("OGRCT", "  x[%d] = %.16g y[%d] = %.16g", i, x[i], i,
-                     y[i]);
+            CPLDebug("OGRCT", "  x[%d] = %.16g y[%d] = %.16g", int(i), x[i],
+                     int(i), y[i]);
         }
     }
 #endif
@@ -2299,25 +2331,43 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
     /* -------------------------------------------------------------------- */
     /*      Apply data axis to source CRS mapping.                          */
     /* -------------------------------------------------------------------- */
+
+    // Since we may swap the x and y pointers, but cannot tell the caller about this swap,
+    // we save the original pointer. The same axis swap code is executed for poSRSTarget.
+    // If this nullifies, we save the swap of both axes
+    const auto xOriginal = x;
+
     if (poSRSSource)
     {
         const auto &mapping = poSRSSource->GetDataAxisToSRSAxisMapping();
-        if (mapping.size() >= 2 && (mapping[0] != 1 || mapping[1] != 2))
+        if (mapping.size() >= 2)
         {
-            for (int i = 0; i < nCount; i++)
+            if (std::abs(mapping[0]) == 2 && std::abs(mapping[1]) == 1)
             {
-                double newX = (mapping[0] == 1)    ? x[i]
-                              : (mapping[0] == -1) ? -x[i]
-                              : (mapping[0] == 2)  ? y[i]
-                                                   : -y[i];
-                double newY = (mapping[1] == 2)    ? y[i]
-                              : (mapping[1] == -2) ? -y[i]
-                              : (mapping[1] == 1)  ? x[i]
-                                                   : -x[i];
-                x[i] = newX;
-                y[i] = newY;
-                if (z && mapping.size() >= 3 && mapping[2] == -3)
+                std::swap(x, y);
+            }
+            const bool bNegateX = mapping[0] < 0;
+            if (bNegateX)
+            {
+                for (size_t i = 0; i < nCount; i++)
+                {
+                    x[i] = -x[i];
+                }
+            }
+            const bool bNegateY = mapping[1] < 0;
+            if (bNegateY)
+            {
+                for (size_t i = 0; i < nCount; i++)
+                {
+                    y[i] = -y[i];
+                }
+            }
+            if (z && mapping.size() >= 3 && mapping[2] == -3)
+            {
+                for (size_t i = 0; i < nCount; i++)
+                {
                     z[i] = -z[i];
+                }
             }
         }
     }
@@ -2329,7 +2379,7 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
     {
         if (m_eSourceFirstAxisOrient == OAO_East)
         {
-            for (int i = 0; i < nCount; i++)
+            for (size_t i = 0; i < nCount; i++)
             {
                 if (x[i] != HUGE_VAL && y[i] != HUGE_VAL)
                 {
@@ -2342,7 +2392,7 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
         }
         else
         {
-            for (int i = 0; i < nCount; i++)
+            for (size_t i = 0; i < nCount; i++)
             {
                 if (x[i] != HUGE_VAL && y[i] != HUGE_VAL)
                 {
@@ -2365,14 +2415,11 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
 
         if (m_eSourceFirstAxisOrient != OAO_East)
         {
-            for (int i = 0; i < nCount; i++)
-            {
-                std::swap(x[i], y[i]);
-            }
+            std::swap(x, y);
         }
 
         double y0 = y[0];
-        for (int i = 0; i < nCount; i++)
+        for (size_t i = 0; i < nCount; i++)
         {
             if (x[i] != HUGE_VAL)
             {
@@ -2437,7 +2484,7 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
 
         if (panErrorCodes)
         {
-            for (int i = 0; i < nCount; i++)
+            for (size_t i = 0; i < nCount; i++)
             {
                 if (x[i] != HUGE_VAL)
                     panErrorCodes[i] = 0;
@@ -2449,10 +2496,7 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
 
         if (m_eTargetFirstAxisOrient != OAO_East)
         {
-            for (int i = 0; i < nCount; i++)
-            {
-                std::swap(x[i], y[i]);
-            }
+            std::swap(x, y);
         }
 
         bTransformDone = true;
@@ -2494,8 +2538,8 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
     {
         double avgX = 0.0;
         double avgY = 0.0;
-        int nCountValid = 0;
-        for (int i = 0; i < nCount; i++)
+        size_t nCountValid = 0;
+        for (size_t i = 0; i < nCount; i++)
         {
             if (x[i] != HUGE_VAL && y[i] != HUGE_VAL)
             {
@@ -2506,8 +2550,8 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
         }
         if (nCountValid != 0)
         {
-            avgX /= nCountValid;
-            avgY /= nCountValid;
+            avgX /= static_cast<double>(nCountValid);
+            avgY /= static_cast<double>(nCountValid);
         }
 
         constexpr int N_MAX_RETRY = 2;
@@ -2619,7 +2663,7 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
                          "suppressed on the transform object.");
             }
 
-            for (int i = 0; i < nCount; i++)
+            for (size_t i = 0; i < nCount; i++)
             {
                 x[i] = HUGE_VAL;
                 y[i] = HUGE_VAL;
@@ -2642,7 +2686,7 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
     {
         const auto nLastErrorCounter = CPLGetErrorCounter();
 
-        for (int i = 0; i < nCount; i++)
+        for (size_t i = 0; i < nCount; i++)
         {
             PJ_COORD coord;
             const double xIn = x[i];
@@ -2735,7 +2779,11 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
 #else
                     const char *pszError = proj_errno_string(err);
 #endif
-                    if (m_bEmitErrors)
+                    if (m_bEmitErrors
+#ifdef PROJ_ERR_OTHER_NO_INVERSE_OP
+                        || (i == 0 && err == PROJ_ERR_OTHER_NO_INVERSE_OP)
+#endif
+                    )
                     {
                         if (nLastErrorCounter != CPLGetErrorCounter() &&
                             CPLGetLastErrorType() == CE_Failure &&
@@ -2789,7 +2837,7 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
     {
         if (m_eTargetFirstAxisOrient == OAO_East)
         {
-            for (int i = 0; i < nCount; i++)
+            for (size_t i = 0; i < nCount; i++)
             {
                 if (x[i] != HUGE_VAL && y[i] != HUGE_VAL)
                 {
@@ -2802,7 +2850,7 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
         }
         else
         {
-            for (int i = 0; i < nCount; i++)
+            for (size_t i = 0; i < nCount; i++)
             {
                 if (x[i] != HUGE_VAL && y[i] != HUGE_VAL)
                 {
@@ -2821,34 +2869,53 @@ int OGRProjCT::TransformWithErrorCodes(int nCount, double *x, double *y,
     if (poSRSTarget)
     {
         const auto &mapping = poSRSTarget->GetDataAxisToSRSAxisMapping();
-        if (mapping.size() >= 2 && (mapping[0] != 1 || mapping[1] != 2))
+        if (mapping.size() >= 2)
         {
-            for (int i = 0; i < nCount; i++)
+            const bool bNegateX = mapping[0] < 0;
+            if (bNegateX)
             {
-                double newX = (mapping[0] == 1)    ? x[i]
-                              : (mapping[0] == -1) ? -x[i]
-                              : (mapping[0] == 2)  ? y[i]
-                                                   : -y[i];
-                double newY = (mapping[1] == 2)    ? y[i]
-                              : (mapping[1] == -2) ? -y[i]
-                              : (mapping[1] == 1)  ? x[i]
-                                                   : -x[i];
-                x[i] = newX;
-                y[i] = newY;
-                if (z && mapping.size() >= 3 && mapping[2] == -3)
+                for (size_t i = 0; i < nCount; i++)
+                {
+                    x[i] = -x[i];
+                }
+            }
+            const bool bNegateY = mapping[1] < 0;
+            if (bNegateY)
+            {
+                for (size_t i = 0; i < nCount; i++)
+                {
+                    y[i] = -y[i];
+                }
+            }
+            if (z && mapping.size() >= 3 && mapping[2] == -3)
+            {
+                for (size_t i = 0; i < nCount; i++)
+                {
                     z[i] = -z[i];
+                }
+            }
+
+            if (std::abs(mapping[0]) == 2 && std::abs(mapping[1]) == 1)
+            {
+                std::swap(x, y);
             }
         }
+    }
+
+    // Check whether final "genuine" axis swap is really necessary
+    if (x != xOriginal)
+    {
+        std::swap_ranges(x, x + nCount, y);
     }
 
 #ifdef DEBUG_VERBOSE
     if (bDebugCT)
     {
         CPLDebug("OGRCT", "Out:");
-        for (int i = 0; i < nCount; ++i)
+        for (size_t i = 0; i < nCount; ++i)
         {
-            CPLDebug("OGRCT", "  x[%d] = %.16g y[%d] = %.16g", i, x[i], i,
-                     y[i]);
+            CPLDebug("OGRCT", "  x[%d] = %.16g y[%d] = %.16g", int(i), x[i],
+                     int(i), y[i]);
         }
     }
 #endif
@@ -3299,8 +3366,7 @@ int OGRProjCT::TransformBounds(const double xmin, const double ymin,
 
         if (poSRSTarget->IsProjected())
         {
-            CPLErrorHandlerPusher oErrorHandlerPusher(CPLQuietErrorHandler);
-            CPLErrorStateBackuper oBackuper;
+            CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
 
             auto poBaseTarget = std::unique_ptr<OGRSpatialReference>(
                 poSRSTarget->CloneGeogCS());
@@ -3351,11 +3417,8 @@ int OGRProjCT::TransformBounds(const double xmin, const double ymin,
                         bIncludesPole = true;
                         *out_xmin = std::min(*out_xmin, dfX);
                         *out_ymin = std::min(*out_ymin, dfY);
-                        if (dfX != HUGE_VAL && dfY != HUGE_VAL)
-                        {
-                            *out_xmax = std::max(*out_xmax, dfX);
-                            *out_ymax = std::max(*out_ymax, dfY);
-                        }
+                        *out_xmax = std::max(*out_xmax, dfX);
+                        *out_ymax = std::max(*out_ymax, dfY);
                     }
                 }
 
@@ -3379,11 +3442,8 @@ int OGRProjCT::TransformBounds(const double xmin, const double ymin,
                         {
                             *out_xmin = std::min(*out_xmin, dfX);
                             *out_ymin = std::min(*out_ymin, dfY);
-                            if (dfX != HUGE_VAL && dfY != HUGE_VAL)
-                            {
-                                *out_xmax = std::max(*out_xmax, dfX);
-                                *out_ymax = std::max(*out_ymax, dfY);
-                            }
+                            *out_xmax = std::max(*out_xmax, dfX);
+                            *out_ymax = std::max(*out_ymax, dfY);
                         }
                     }
                 };
@@ -3658,7 +3718,8 @@ OGRProjCT *OGRProjCT::FindFromCache(
  * @param x Array of nCount x values.
  * @param y Array of nCount y values.
  * @param z Array of nCount z values.
- * @return TRUE or FALSE
+ * @return TRUE if a transformation could be found (but not all points may
+ * have necessarily succeed to transform), otherwise FALSE.
  */
 int CPL_STDCALL OCTTransform(OGRCoordinateTransformationH hTransform,
                              int nCount, double *x, double *y, double *z)
@@ -3682,7 +3743,8 @@ int CPL_STDCALL OCTTransform(OGRCoordinateTransformationH hTransform,
  * @param y Array of nCount y values.
  * @param z Array of nCount z values.
  * @param pabSuccess Output array of nCount value that will be set to TRUE/FALSE
- * @return TRUE or FALSE
+ * @return TRUE if a transformation could be found (but not all points may
+ * have necessarily succeed to transform), otherwise FALSE.
  */
 int CPL_STDCALL OCTTransformEx(OGRCoordinateTransformationH hTransform,
                                int nCount, double *x, double *y, double *z,
@@ -3710,7 +3772,8 @@ int CPL_STDCALL OCTTransformEx(OGRCoordinateTransformationH hTransform,
  * @param pabSuccess Output array of nCount value that will be set to
  * TRUE/FALSE. Might be NULL.
  * @since GDAL 3.0
- * @return TRUE or FALSE
+ * @return TRUE if a transformation could be found (but not all points may
+ * have necessarily succeed to transform), otherwise FALSE.
  */
 int OCTTransform4D(OGRCoordinateTransformationH hTransform, int nCount,
                    double *x, double *y, double *z, double *t, int *pabSuccess)
@@ -3738,7 +3801,8 @@ int OCTTransform4D(OGRCoordinateTransformationH hTransform, int nCount,
  *                      success, or a non-zero value for failure. Refer to
  *                      PROJ 8 public error codes. Might be NULL
  * @since GDAL 3.3, and PROJ 8 to be able to use PROJ public error codes
- * @return TRUE or FALSE
+ * @return TRUE if a transformation could be found (but not all points may
+ * have necessarily succeed to transform), otherwise FALSE.
  */
 int OCTTransform4DWithErrorCodes(OGRCoordinateTransformationH hTransform,
                                  int nCount, double *x, double *y, double *z,
@@ -3752,7 +3816,7 @@ int OCTTransform4DWithErrorCodes(OGRCoordinateTransformationH hTransform,
 }
 
 /************************************************************************/
-/*                           OCTTransformBounds()                           */
+/*                           OCTTransformBounds()                       */
 /************************************************************************/
 /** \brief Transform boundary.
  *

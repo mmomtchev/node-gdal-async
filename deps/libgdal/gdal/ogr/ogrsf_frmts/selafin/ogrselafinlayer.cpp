@@ -59,12 +59,13 @@ static void MoveOverwrite(VSILFILE *fpDest, VSILFILE *fpSource)
 /*       Note that no operation on OGRSelafinLayer is thread-safe       */
 /************************************************************************/
 
-OGRSelafinLayer::OGRSelafinLayer(const char *pszLayerNameP, int bUpdateP,
+OGRSelafinLayer::OGRSelafinLayer(GDALDataset *poDS, const char *pszLayerNameP,
+                                 int bUpdateP,
                                  const OGRSpatialReference *poSpatialRefP,
                                  Selafin::Header *poHeaderP, int nStepNumberP,
                                  SelafinTypeDef eTypeP)
-    : eType(eTypeP), bUpdate(CPL_TO_BOOL(bUpdateP)), nStepNumber(nStepNumberP),
-      poHeader(poHeaderP),
+    : m_poDS(poDS), eType(eTypeP), bUpdate(CPL_TO_BOOL(bUpdateP)),
+      nStepNumber(nStepNumberP), poHeader(poHeaderP),
       poFeatureDefn(new OGRFeatureDefn(CPLGetBasename(pszLayerNameP))),
       poSpatialRef(nullptr), nCurrentId(-1)
 {
@@ -531,11 +532,18 @@ OGRErr OGRSelafinLayer::ICreateFeature(OGRFeature *poFeature)
             poHeader->nPointsPerElement = nNum - 1;
             if (poHeader->nElements > 0)
             {
-                poHeader->panConnectivity = (int *)CPLRealloc(
-                    poHeader->panConnectivity,
-                    poHeader->nElements * poHeader->nPointsPerElement);
-                if (poHeader->panConnectivity == nullptr)
+                int *panConnectivity =
+                    reinterpret_cast<int *>(VSI_REALLOC_VERBOSE(
+                        poHeader->panConnectivity,
+                        static_cast<size_t>(poHeader->nElements) *
+                            poHeader->nPointsPerElement));
+                if (panConnectivity == nullptr)
+                {
+                    VSIFree(poHeader->panConnectivity);
+                    poHeader->panConnectivity = nullptr;
                     return OGRERR_FAILURE;
+                }
+                poHeader->panConnectivity = panConnectivity;
             }
         }
         else
@@ -679,7 +687,7 @@ OGRErr OGRSelafinLayer::ICreateFeature(OGRFeature *poFeature)
 /************************************************************************/
 /*                           CreateField()                              */
 /************************************************************************/
-OGRErr OGRSelafinLayer::CreateField(OGRFieldDefn *poField,
+OGRErr OGRSelafinLayer::CreateField(const OGRFieldDefn *poField,
                                     CPL_UNUSED int bApproxOK)
 {
     CPLDebug("Selafin", "CreateField(%s,%s)", poField->GetNameRef(),

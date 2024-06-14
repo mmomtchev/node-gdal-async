@@ -50,6 +50,7 @@
 /************************************************************************/
 
 class PLLinkedDataset;
+
 class PLLinkedDataset
 {
   public:
@@ -108,9 +109,9 @@ class PLMosaicDataset final : public GDALPamDataset
     std::vector<CPLString> ListSubdatasets();
 
     static CPLString formatTileName(int tile_x, int tile_y);
-    void InsertNewDataset(CPLString osKey, GDALDataset *poDS);
-    GDALDataset *OpenAndInsertNewDataset(CPLString osTmpFilename,
-                                         CPLString osTilename);
+    void InsertNewDataset(const CPLString &osKey, GDALDataset *poDS);
+    GDALDataset *OpenAndInsertNewDataset(const CPLString &osTmpFilename,
+                                         const CPLString &osTilename);
 
   public:
     PLMosaicDataset();
@@ -219,8 +220,8 @@ CPLErr PLMosaicRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
     if (poMetaTileDS == nullptr)
     {
         memset(pImage, 0,
-               nBlockXSize * nBlockYSize *
-                   (GDALGetDataTypeSize(eDataType) / 8));
+               static_cast<size_t>(nBlockXSize) * nBlockYSize *
+                   GDALGetDataTypeSizeBytes(eDataType));
         return CE_None;
     }
 
@@ -1196,7 +1197,8 @@ CPLString PLMosaicDataset::formatTileName(int tile_x, int tile_y)
 /*                          InsertNewDataset()                          */
 /************************************************************************/
 
-void PLMosaicDataset::InsertNewDataset(CPLString osKey, GDALDataset *poDS)
+void PLMosaicDataset::InsertNewDataset(const CPLString &osKey,
+                                       GDALDataset *poDS)
 {
     if (static_cast<int>(oMapLinkedDatasets.size()) == nCacheMaxSize)
     {
@@ -1227,8 +1229,9 @@ void PLMosaicDataset::InsertNewDataset(CPLString osKey, GDALDataset *poDS)
 /*                         OpenAndInsertNewDataset()                    */
 /************************************************************************/
 
-GDALDataset *PLMosaicDataset::OpenAndInsertNewDataset(CPLString osTmpFilename,
-                                                      CPLString osTilename)
+GDALDataset *
+PLMosaicDataset::OpenAndInsertNewDataset(const CPLString &osTmpFilename,
+                                         const CPLString &osTilename)
 {
     const char *const apszAllowedDrivers[2] = {"GTiff", nullptr};
     GDALDataset *poDS = GDALDataset::FromHandle(

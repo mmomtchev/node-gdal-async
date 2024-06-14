@@ -36,6 +36,7 @@
 #include "gtiffsplitbitmapband.h"
 
 #include <algorithm>
+#include <cassert>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -346,11 +347,12 @@ CPLErr GTiffDataset::ReadCompressedData(const char *pszFormat, int nXOff,
     return CE_Failure;
 }
 
-#ifdef SUPPORTS_GET_OFFSET_BYTECOUNT
-
 struct GTiffDecompressContext
 {
-    std::mutex oMutex{};
+    // The mutex must be recursive because ThreadDecompressionFuncErrorHandler()
+    // which acquires the mutex can be called from a section where the mutex is
+    // already acquired.
+    std::recursive_mutex oMutex{};
     bool bSuccess = true;
 
     std::vector<CPLErrorHandlerAccumulatorStruct> aoErrors{};
@@ -417,7 +419,7 @@ static void CPL_STDCALL ThreadDecompressionFuncErrorHandler(
 {
     GTiffDecompressContext *psContext =
         static_cast<GTiffDecompressContext *>(CPLGetErrorHandlerUserData());
-    std::lock_guard<std::mutex> oLock(psContext->oMutex);
+    std::lock_guard<std::recursive_mutex> oLock(psContext->oMutex);
     psContext->aoErrors.emplace_back(eErr, eErrorNum, pszMsg);
 }
 
@@ -496,7 +498,7 @@ static void CPL_STDCALL ThreadDecompressionFuncErrorHandler(
     if (psJob->nSize == 0)
     {
         {
-            std::lock_guard<std::mutex> oLock(psContext->oMutex);
+            std::lock_guard<std::recursive_mutex> oLock(psContext->oMutex);
             if (!psContext->bSuccess)
                 return;
         }
@@ -537,6 +539,7 @@ static void CPL_STDCALL ThreadDecompressionFuncErrorHandler(
             : m_apoBlocks(apoBlocksIn)
         {
         }
+
         ~FreeBlocks()
         {
             for (auto *poBlock : m_apoBlocks)
@@ -546,6 +549,7 @@ static void CPL_STDCALL ThreadDecompressionFuncErrorHandler(
             }
         }
     };
+
     FreeBlocks oFreeBlocks(apoBlocks);
 
     const auto LoadBlocks = [&]()
@@ -615,7 +619,7 @@ static void CPL_STDCALL ThreadDecompressionFuncErrorHandler(
     if (psContext->bHasPRead)
     {
         {
-            std::lock_guard<std::mutex> oLock(psContext->oMutex);
+            std::lock_guard<std::recursive_mutex> oLock(psContext->oMutex);
             if (!psContext->bSuccess)
                 return;
 
@@ -633,7 +637,7 @@ static void CPL_STDCALL ThreadDecompressionFuncErrorHandler(
         {
             if (!AllocInputBuffer())
             {
-                std::lock_guard<std::mutex> oLock(psContext->oMutex);
+                std::lock_guard<std::recursive_mutex> oLock(psContext->oMutex);
                 psContext->bSuccess = false;
                 return;
             }
@@ -646,7 +650,7 @@ static void CPL_STDCALL ThreadDecompressionFuncErrorHandler(
                          static_cast<GUIntBig>(psJob->nSize),
                          static_cast<GUIntBig>(psJob->nOffset));
 
-                std::lock_guard<std::mutex> oLock(psContext->oMutex);
+                std::lock_guard<std::recursive_mutex> oLock(psContext->oMutex);
                 psContext->bSuccess = false;
                 return;
             }
@@ -654,7 +658,7 @@ static void CPL_STDCALL ThreadDecompressionFuncErrorHandler(
     }
     else
     {
-        std::lock_guard<std::mutex> oLock(psContext->oMutex);
+        std::lock_guard<std::recursive_mutex> oLock(psContext->oMutex);
         if (!psContext->bSuccess)
             return;
 
@@ -807,7 +811,7 @@ static void CPL_STDCALL ThreadDecompressionFuncErrorHandler(
 
         if (!bRet)
         {
-            std::lock_guard<std::mutex> oLock(psContext->oMutex);
+            std::lock_guard<std::recursive_mutex> oLock(psContext->oMutex);
             psContext->bSuccess = false;
             return;
         }
@@ -855,8 +859,8 @@ static void CPL_STDCALL ThreadDecompressionFuncErrorHandler(
             (static_cast<size_t>(nYOffsetInBlock) * poDS->m_nBlockXSize +
              nXOffsetInBlock) *
                 nDTSize * nBandsPerStrile;
-        const size_t nSrcLineInc =
-            poDS->m_nBlockXSize * nDTSize * nBandsPerStrile;
+        const size_t nSrcLineInc = static_cast<size_t>(poDS->m_nBlockXSize) *
+                                   nDTSize * nBandsPerStrile;
 
         // Optimization when writing to BIP buffer.
         if (psContext->bUseBIPOptim)
@@ -937,6 +941,7 @@ static void CPL_STDCALL ThreadDecompressionFuncErrorHandler(
             psContext->bCacheAllBands ? psContext->panBandMap[i] - 1
             : poDS->m_nPlanarConfig == PLANARCONFIG_CONTIG ? i
                                                            : 0;
+        assert(iSrcBandIdx >= 0);
         const int iDstBandIdx = poDS->m_nPlanarConfig == PLANARCONFIG_CONTIG
                                     ? i
                                     : psJob->iDstBandIdxSeparate;
@@ -1212,6 +1217,7 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
 
         // Make sure that all blocks that we are going to read and that are
         // being written by a worker thread are completed.
+        // cppcheck-suppress constVariableReference
         auto &oQueue =
             m_poBaseDS ? m_poBaseDS->m_asQueueJobIdx : m_asQueueJobIdx;
         if (!oQueue.empty())
@@ -1268,6 +1274,9 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
     std::vector<size_t> anSizes(nBlocks);
     int iJob = 0;
     int nAdviseReadRanges = 0;
+    const size_t nAdviseReadTotalBytesLimit =
+        sContext.poHandle->GetAdviseReadTotalBytesLimit();
+    size_t nAdviseReadAccBytes = 0;
     for (int y = 0; y < nYBlocks; ++y)
     {
         for (int x = 0; x < nXBlocks; ++x)
@@ -1295,7 +1304,8 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
                     // false since we could have concurrent uses of the handle,
                     // when when reading the TIFF TileOffsets / TileByteCounts
                     // array
-                    std::lock_guard<std::mutex> oLock(sContext.oMutex);
+                    std::lock_guard<std::recursive_mutex> oLock(
+                        sContext.oMutex);
 
                     IsBlockAvailable(nBlockId, &asJobs[iJob].nOffset,
                                      &asJobs[iJob].nSize);
@@ -1311,7 +1321,8 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
                 {
                     if (nFileSize == 0)
                     {
-                        std::lock_guard<std::mutex> oLock(sContext.oMutex);
+                        std::lock_guard<std::recursive_mutex> oLock(
+                            sContext.oMutex);
                         sContext.poHandle->Seek(0, SEEK_END);
                         nFileSize = sContext.poHandle->Tell();
                     }
@@ -1323,7 +1334,8 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
                                  static_cast<GUIntBig>(asJobs[iJob].nSize),
                                  static_cast<GUIntBig>(asJobs[iJob].nOffset));
 
-                        std::lock_guard<std::mutex> oLock(sContext.oMutex);
+                        std::lock_guard<std::recursive_mutex> oLock(
+                            sContext.oMutex);
                         sContext.bSuccess = false;
                         break;
                     }
@@ -1374,6 +1386,48 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
                         static_cast<size_t>(std::min<vsi_l_offset>(
                             std::numeric_limits<size_t>::max(),
                             asJobs[iJob].nSize));
+
+                    // If the total number of bytes we must read excess the
+                    // capacity of AdviseRead(), then split the RasterIO()
+                    // request in 2 halves.
+                    if (nAdviseReadTotalBytesLimit > 0 &&
+                        anSizes[nAdviseReadRanges] <
+                            nAdviseReadTotalBytesLimit &&
+                        anSizes[nAdviseReadRanges] >
+                            nAdviseReadTotalBytesLimit - nAdviseReadAccBytes &&
+                        nYBlocks >= 2)
+                    {
+                        const int nYOff2 =
+                            (nBlockYStart + nYBlocks / 2) * m_nBlockYSize;
+                        CPLDebugOnly("GTiff",
+                                     "Splitting request (%d,%d,%dx%d) into "
+                                     "(%d,%d,%dx%d) and (%d,%d,%dx%d)",
+                                     nXOff, nYOff, nXSize, nYSize, nXOff, nYOff,
+                                     nXSize, nYOff2 - nYOff, nXOff, nYOff2,
+                                     nXSize, nYOff + nYSize - nYOff2);
+
+                        asJobs.clear();
+                        anOffsets.clear();
+                        anSizes.clear();
+                        poQueue.reset();
+
+                        CPLErr eErr = MultiThreadedRead(
+                            nXOff, nYOff, nXSize, nYOff2 - nYOff, pData,
+                            eBufType, nBandCount, panBandMap, nPixelSpace,
+                            nLineSpace, nBandSpace);
+                        if (eErr == CE_None)
+                        {
+                            eErr = MultiThreadedRead(
+                                nXOff, nYOff2, nXSize, nYOff + nYSize - nYOff2,
+                                static_cast<GByte *>(pData) +
+                                    (nYOff2 - nYOff) * nLineSpace,
+                                eBufType, nBandCount, panBandMap, nPixelSpace,
+                                nLineSpace, nBandSpace);
+                        }
+                        return eErr;
+                    }
+                    nAdviseReadAccBytes += anSizes[nAdviseReadRanges];
+
                     ++nAdviseReadRanges;
                 }
 
@@ -1416,8 +1470,6 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
     return sContext.bSuccess ? CE_None : CE_Failure;
 }
 
-#endif  // SUPPORTS_GET_OFFSET_BYTECOUNT
-
 /************************************************************************/
 /*                        FetchBufferVirtualMemIO                       */
 /************************************************************************/
@@ -1439,7 +1491,7 @@ class FetchBufferVirtualMemIO final
     const GByte *FetchBytes(vsi_l_offset nOffset, int nPixels, int nDTSize,
                             bool bIsByteSwapped, bool bIsComplex, int nBlockId)
     {
-        if (nOffset + nPixels * nDTSize > nMappingSize)
+        if (nOffset + static_cast<size_t>(nPixels) * nDTSize > nMappingSize)
         {
             CPLError(CE_Failure, CPLE_FileIO, "Missing data for block %d",
                      nBlockId);
@@ -1447,7 +1499,8 @@ class FetchBufferVirtualMemIO final
         }
         if (!bIsByteSwapped)
             return pabySrcData + nOffset;
-        memcpy(pTempBuffer, pabySrcData + nOffset, nPixels * nDTSize);
+        memcpy(pTempBuffer, pabySrcData + nOffset,
+               static_cast<size_t>(nPixels) * nDTSize);
         if (bIsComplex)
             GDALSwapWords(pTempBuffer, nDTSize / 2, 2 * nPixels, nDTSize / 2);
         else
@@ -1459,13 +1512,14 @@ class FetchBufferVirtualMemIO final
                     int nDTSize, bool bIsByteSwapped, bool bIsComplex,
                     int nBlockId)
     {
-        if (nOffset + nPixels * nDTSize > nMappingSize)
+        if (nOffset + static_cast<size_t>(nPixels) * nDTSize > nMappingSize)
         {
             CPLError(CE_Failure, CPLE_FileIO, "Missing data for block %d",
                      nBlockId);
             return false;
         }
-        memcpy(pabyDstBuffer, pabySrcData + nOffset, nPixels * nDTSize);
+        memcpy(pabyDstBuffer, pabySrcData + nOffset,
+               static_cast<size_t>(nPixels) * nDTSize);
         if (bIsByteSwapped)
         {
             if (bIsComplex)
@@ -3011,7 +3065,7 @@ int GTiffDataset::DirectIO(GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSize,
             (nXOff +
              static_cast<vsi_l_offset>(nYOffsetInBlock) * m_nBlockXSize) *
             nSrcPixelSize;
-        panSizes[iLine] = nReqXSize * nSrcPixelSize;
+        panSizes[iLine] = static_cast<size_t>(nReqXSize) * nSrcPixelSize;
     }
 
     // Extract data from the file.
@@ -3138,7 +3192,6 @@ int GTiffDataset::DirectIO(GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSize,
 bool GTiffDataset::ReadStrile(int nBlockId, void *pOutputBuffer,
                               GPtrDiff_t nBlockReqSize)
 {
-#ifdef SUPPORTS_GET_OFFSET_BYTECOUNT
     // Optimization by which we can save some libtiff buffer copy
     std::pair<vsi_l_offset, vsi_l_offset> oPair;
     if (
@@ -3168,7 +3221,6 @@ bool GTiffDataset::ReadStrile(int nBlockId, void *pOutputBuffer,
             return true;
         }
     }
-#endif
 
     // For debugging
     if (m_poBaseDS)
@@ -4300,23 +4352,14 @@ void GTiffDataset::ApplyPamInfo()
     int nPamGCPCount;
     if (m_nPAMGeorefSrcIndex >= 0 && !oMDMD.GetMetadata("xml:ESRI") &&
         (nPamGCPCount = GDALPamDataset::GetGCPCount()) > 0 &&
-        ((m_nGCPCount > 0 &&
+        ((!m_aoGCPs.empty() &&
           m_nPAMGeorefSrcIndex < m_nGeoTransformGeorefSrcIndex) ||
-         m_nGeoTransformGeorefSrcIndex < 0 || m_nGCPCount == 0))
+         m_nGeoTransformGeorefSrcIndex < 0 || m_aoGCPs.empty()))
     {
-        if (m_nGCPCount > 0)
-        {
-            GDALDeinitGCPs(m_nGCPCount, m_pasGCPList);
-            CPLFree(m_pasGCPList);
-            m_pasGCPList = nullptr;
-        }
-
-        m_nGCPCount = nPamGCPCount;
-        m_pasGCPList =
-            GDALDuplicateGCPs(m_nGCPCount, GDALPamDataset::GetGCPs());
+        m_aoGCPs = gdal::GCP::fromC(GDALPamDataset::GetGCPs(), nPamGCPCount);
 
         // Invalidate Geotransorm got from less prioritary sources
-        if (m_nGCPCount > 0 && m_bGeoTransformValid && !bGotGTFromPAM &&
+        if (!m_aoGCPs.empty() && m_bGeoTransformValid && !bGotGTFromPAM &&
             m_nPAMGeorefSrcIndex == 0)
         {
             m_bGeoTransformValid = false;
@@ -4395,35 +4438,26 @@ void GTiffDataset::ApplyPamInfo()
                         }
                     }
 
-                    if (m_nGCPCount > 0)
+                    m_aoGCPs.clear();
+                    const size_t nNewGCPCount = adfSourceGCPs.size() / 2;
+                    for (size_t i = 0; i < nNewGCPCount; ++i)
                     {
-                        GDALDeinitGCPs(m_nGCPCount, m_pasGCPList);
-                        CPLFree(m_pasGCPList);
-                        m_pasGCPList = nullptr;
-                        m_nGCPCount = 0;
-                    }
-
-                    m_nGCPCount = static_cast<int>(adfSourceGCPs.size() / 2);
-                    m_pasGCPList = static_cast<GDAL_GCP *>(
-                        CPLCalloc(sizeof(GDAL_GCP), m_nGCPCount));
-                    for (int i = 0; i < m_nGCPCount; ++i)
-                    {
-                        m_pasGCPList[i].pszId = CPLStrdup("");
-                        m_pasGCPList[i].pszInfo = CPLStrdup("");
-                        // The origin used is the bottom left corner,
-                        // and raw values to be multiplied by the
-                        // TIFFTAG_XRESOLUTION/TIFFTAG_YRESOLUTION
-                        m_pasGCPList[i].dfGCPPixel =
-                            adfSourceGCPs[2 * i] * CPLAtof(pszTIFFTagXRes);
-                        m_pasGCPList[i].dfGCPLine =
-                            nRasterYSize -
-                            adfSourceGCPs[2 * i + 1] * CPLAtof(pszTIFFTagYRes);
-                        m_pasGCPList[i].dfGCPX = adfTargetGCPs[2 * i];
-                        m_pasGCPList[i].dfGCPY = adfTargetGCPs[2 * i + 1];
+                        m_aoGCPs.emplace_back(
+                            "", "",
+                            // The origin used is the bottom left corner,
+                            // and raw values to be multiplied by the
+                            // TIFFTAG_XRESOLUTION/TIFFTAG_YRESOLUTION
+                            /* pixel  = */
+                            adfSourceGCPs[2 * i] * CPLAtof(pszTIFFTagXRes),
+                            /* line = */
+                            nRasterYSize - adfSourceGCPs[2 * i + 1] *
+                                               CPLAtof(pszTIFFTagYRes),
+                            /* X = */ adfTargetGCPs[2 * i],
+                            /* Y = */ adfTargetGCPs[2 * i + 1]);
                     }
 
                     // Invalidate Geotransform got from less prioritary sources
-                    if (m_nGCPCount > 0 && m_bGeoTransformValid &&
+                    if (!m_aoGCPs.empty() && m_bGeoTransformValid &&
                         !bGotGTFromPAM && m_nPAMGeorefSrcIndex == 0)
                     {
                         m_bGeoTransformValid = false;
@@ -4440,7 +4474,7 @@ void GTiffDataset::ApplyPamInfo()
     /*      Copy any PAM metadata into our GeoTIFF context, and with        */
     /*      the PAM info overriding the GeoTIFF context.                    */
     /* -------------------------------------------------------------------- */
-    char **papszPamDomains = oMDMD.GetDomainList();
+    CSLConstList papszPamDomains = oMDMD.GetDomainList();
 
     for (int iDomain = 0;
          papszPamDomains && papszPamDomains[iDomain] != nullptr; ++iDomain)
@@ -5042,22 +5076,7 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
         m_nBlockYSize == nRasterYSize && nRasterYSize > 2000 && !bTreatAsRGBA &&
         CPLTestBool(CPLGetConfigOption("GDAL_ENABLE_TIFF_SPLIT", "YES")))
     {
-        // libtiff 4.0.0beta5 (also
-        // 20091104) and older will crash when trying to open a
-        // all-in-one-strip YCbCr JPEG compressed TIFF (see #3259).
-#if (TIFFLIB_VERSION <= 20091104)
-        if (m_nPhotometric == PHOTOMETRIC_YCBCR &&
-            m_nCompression == COMPRESSION_JPEG)
-        {
-            CPLDebug("GTiff",
-                     "Avoid using split band to open all-in-one-strip "
-                     "YCbCr JPEG compressed TIFF because of older libtiff");
-        }
-        else
-#endif
-        {
-            m_bTreatAsSplit = true;
-        }
+        m_bTreatAsSplit = true;
     }
 
     /* -------------------------------------------------------------------- */
@@ -5986,9 +6005,11 @@ void GTiffDataset::LoadGeoreferencingAndPamIfNeeded()
                 char **papszSiblingFiles = GetSiblingFiles();
 
                 // Begin with .tab since it can also have projection info.
+                int nGCPCount = 0;
+                GDAL_GCP *pasGCPList = nullptr;
                 const int bTabFileOK = GDALReadTabFile2(
-                    m_pszFilename, m_adfGeoTransform, &pszTabWKT, &m_nGCPCount,
-                    &m_pasGCPList, papszSiblingFiles, &pszGeorefFilename);
+                    m_pszFilename, m_adfGeoTransform, &pszTabWKT, &nGCPCount,
+                    &pasGCPList, papszSiblingFiles, &pszGeorefFilename);
 
                 if (bTabFileOK)
                 {
@@ -5997,10 +6018,17 @@ void GTiffDataset::LoadGeoreferencingAndPamIfNeeded()
                     // {
                     //     m_nProjectionGeorefSrcIndex = nIndex;
                     // }
-                    if (m_nGCPCount == 0)
+                    m_aoGCPs = gdal::GCP::fromC(pasGCPList, nGCPCount);
+                    if (m_aoGCPs.empty())
                     {
                         m_bGeoTransformValid = true;
                     }
+                }
+
+                if (nGCPCount)
+                {
+                    GDALDeinitGCPs(nGCPCount, pasGCPList);
+                    CPLFree(pasGCPList);
                 }
 
                 if (pszGeorefFilename)
@@ -6053,32 +6081,21 @@ void GTiffDataset::LoadGeoreferencingAndPamIfNeeded()
                          &padfTiePoints) &&
             !m_bGeoTransformValid)
         {
-            if (m_nGCPCount > 0)
+            m_aoGCPs.clear();
+            const int nNewGCPCount = nCount / 6;
+            for (int iGCP = 0; iGCP < nNewGCPCount; ++iGCP)
             {
-                GDALDeinitGCPs(m_nGCPCount, m_pasGCPList);
-                CPLFree(m_pasGCPList);
-            }
-            m_nGCPCount = nCount / 6;
-            m_pasGCPList = static_cast<GDAL_GCP *>(
-                CPLCalloc(sizeof(GDAL_GCP), m_nGCPCount));
-
-            for (int iGCP = 0; iGCP < m_nGCPCount; ++iGCP)
-            {
-                char szID[32] = {};
-
-                snprintf(szID, sizeof(szID), "%d", iGCP + 1);
-                m_pasGCPList[iGCP].pszId = CPLStrdup(szID);
-                m_pasGCPList[iGCP].pszInfo = CPLStrdup("");
-                m_pasGCPList[iGCP].dfGCPPixel = padfTiePoints[iGCP * 6 + 0];
-                m_pasGCPList[iGCP].dfGCPLine = padfTiePoints[iGCP * 6 + 1];
-                m_pasGCPList[iGCP].dfGCPX = padfTiePoints[iGCP * 6 + 3];
-                m_pasGCPList[iGCP].dfGCPY = padfTiePoints[iGCP * 6 + 4];
-                m_pasGCPList[iGCP].dfGCPZ = padfTiePoints[iGCP * 6 + 5];
+                m_aoGCPs.emplace_back(CPLSPrintf("%d", iGCP + 1), "",
+                                      /* pixel = */ padfTiePoints[iGCP * 6 + 0],
+                                      /* line = */ padfTiePoints[iGCP * 6 + 1],
+                                      /* X = */ padfTiePoints[iGCP * 6 + 3],
+                                      /* Y = */ padfTiePoints[iGCP * 6 + 4],
+                                      /* Z = */ padfTiePoints[iGCP * 6 + 5]);
 
                 if (bPixelIsPoint && !bPointGeoIgnore)
                 {
-                    m_pasGCPList[iGCP].dfGCPPixel += 0.5;
-                    m_pasGCPList[iGCP].dfGCPLine += 0.5;
+                    m_aoGCPs.back().Pixel() += 0.5;
+                    m_aoGCPs.back().Line() += 0.5;
                 }
             }
             m_nGeoTransformGeorefSrcIndex = m_nINTERNALGeorefSrcIndex;
@@ -6135,12 +6152,12 @@ const OGRSpatialReference *GTiffDataset::GetSpatialRef() const
 
 {
     const_cast<GTiffDataset *>(this)->LoadGeoreferencingAndPamIfNeeded();
-    if (m_nGCPCount == 0)
+    if (m_aoGCPs.empty())
     {
         const_cast<GTiffDataset *>(this)->LookForProjection();
     }
 
-    return m_nGCPCount == 0 && !m_oSRS.IsEmpty() ? &m_oSRS : nullptr;
+    return m_aoGCPs.empty() && !m_oSRS.IsEmpty() ? &m_oSRS : nullptr;
 }
 
 /************************************************************************/
@@ -6180,7 +6197,7 @@ int GTiffDataset::GetGCPCount()
 {
     LoadGeoreferencingAndPamIfNeeded();
 
-    return m_nGCPCount;
+    return static_cast<int>(m_aoGCPs.size());
 }
 
 /************************************************************************/
@@ -6192,11 +6209,11 @@ const OGRSpatialReference *GTiffDataset::GetGCPSpatialRef() const
 {
     const_cast<GTiffDataset *>(this)->LoadGeoreferencingAndPamIfNeeded();
 
-    if (m_nGCPCount > 0)
+    if (!m_aoGCPs.empty())
     {
         const_cast<GTiffDataset *>(this)->LookForProjection();
     }
-    return m_nGCPCount > 0 && !m_oSRS.IsEmpty() ? &m_oSRS : nullptr;
+    return !m_aoGCPs.empty() && !m_oSRS.IsEmpty() ? &m_oSRS : nullptr;
 }
 
 /************************************************************************/
@@ -6208,7 +6225,7 @@ const GDAL_GCP *GTiffDataset::GetGCPs()
 {
     LoadGeoreferencingAndPamIfNeeded();
 
-    return m_pasGCPList;
+    return gdal::GCP::c_ptr(m_aoGCPs);
 }
 
 /************************************************************************/
@@ -6597,4 +6614,20 @@ void GTiffDataset::LoadMetadata()
             CSLDestroy(papszRPCMD);
         }
     }
+}
+
+/************************************************************************/
+/*                     HasOptimizedReadMultiRange()                     */
+/************************************************************************/
+
+bool GTiffDataset::HasOptimizedReadMultiRange()
+{
+    if (m_nHasOptimizedReadMultiRange >= 0)
+        return m_nHasOptimizedReadMultiRange != 0;
+    m_nHasOptimizedReadMultiRange = static_cast<signed char>(
+        VSIHasOptimizedReadMultiRange(m_pszFilename)
+        // Config option for debug and testing purposes only
+        || CPLTestBool(CPLGetConfigOption(
+               "GTIFF_HAS_OPTIMIZED_READ_MULTI_RANGE", "NO")));
+    return m_nHasOptimizedReadMultiRange != 0;
 }

@@ -430,13 +430,14 @@ CPLXMLNode *PDS4TableBaseLayer::RefreshFileAreaObservationalBeginningCommon(
     {
         // Make a valid NCName
         osLocalIdentifier = GetName();
-        if (isdigit(osLocalIdentifier[0]))
+        if (isdigit(static_cast<unsigned char>(osLocalIdentifier[0])))
         {
             osLocalIdentifier = '_' + osLocalIdentifier;
         }
         for (char &ch : osLocalIdentifier)
         {
-            if (!isalnum(ch) && static_cast<unsigned>(ch) <= 127)
+            if (!isalnum(static_cast<unsigned char>(ch)) &&
+                static_cast<unsigned>(ch) <= 127)
                 ch = '_';
         }
     }
@@ -473,6 +474,15 @@ void PDS4TableBaseLayer::ParseLineEndingOption(CSLConstList papszOptions)
         CPLError(CE_Warning, CPLE_AppDefined,
                  "Unhandled value for LINE_ENDING");
     }
+}
+
+/************************************************************************/
+/*                             GetDataset()                             */
+/************************************************************************/
+
+GDALDataset *PDS4TableBaseLayer::GetDataset()
+{
+    return m_poDS;
 }
 
 /************************************************************************/
@@ -1462,7 +1472,7 @@ void PDS4FixedWidthTable::RefreshFileAreaObservational(CPLXMLNode *psFAO)
 /*                            CreateField()                             */
 /************************************************************************/
 
-OGRErr PDS4FixedWidthTable::CreateField(OGRFieldDefn *poFieldIn, int)
+OGRErr PDS4FixedWidthTable::CreateField(const OGRFieldDefn *poFieldIn, int)
 
 {
     if (m_poDS->GetAccess() != GA_Update)
@@ -2104,7 +2114,7 @@ OGRErr PDS4DelimitedTable::ICreateFeature(OGRFeature *poFeature)
 /*                            CreateField()                             */
 /************************************************************************/
 
-OGRErr PDS4DelimitedTable::CreateField(OGRFieldDefn *poFieldIn, int)
+OGRErr PDS4DelimitedTable::CreateField(const OGRFieldDefn *poFieldIn, int)
 
 {
     if (m_poDS->GetAccess() != GA_Update)

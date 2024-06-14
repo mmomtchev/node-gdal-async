@@ -75,7 +75,8 @@ class OGRGeoJSONWriteOptions
   public:
     bool bWriteBBOX = false;
     bool bBBOXRFC7946 = false;
-    int nCoordPrecision = -1;
+    int nXYCoordPrecision = -1;
+    int nZCoordPrecision = -1;
     int nSignificantFigures = -1;
     bool bPolygonRightHandRule = false;
     bool bCanPatchCoordinatesWithNativeData = true;
@@ -90,6 +91,7 @@ class OGRGeoJSONWriteOptions
     void SetRFC7946Settings();
     void SetIDOptions(CSLConstList papszOptions);
 };
+
 /*! @endcond */
 
 OGREnvelope3D OGRGeoJSONGetBBox(const OGRGeometry *poGeometry,
@@ -102,9 +104,6 @@ void OGRGeoJSONWriteId(const OGRFeature *poFeature, json_object *poObj,
 json_object *OGRGeoJSONWriteAttributes(
     OGRFeature *poFeature, bool bWriteIdIfFoundInAttributes = true,
     const OGRGeoJSONWriteOptions &oOptions = OGRGeoJSONWriteOptions());
-json_object *OGRGeoJSONWriteGeometry(const OGRGeometry *poGeometry,
-                                     int nCoordPrecision,
-                                     int nSignificantFigures);
 json_object CPL_DLL *
 OGRGeoJSONWriteGeometry(const OGRGeometry *poGeometry,
                         const OGRGeoJSONWriteOptions &oOptions);

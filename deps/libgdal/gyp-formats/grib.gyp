@@ -55,7 +55,8 @@
 				"../gdal/frmts/grib/degrib/degrib/hazard.c",
 				"../gdal/frmts/grib/degrib/degrib/metaname.cpp",
 				"../gdal/frmts/grib/gribdataset.cpp",
-				"../gdal/frmts/grib/gribcreatecopy.cpp"
+				"../gdal/frmts/grib/gribcreatecopy.cpp",
+        "../gdal/frmts/grib/gribdrivercore.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/grib",

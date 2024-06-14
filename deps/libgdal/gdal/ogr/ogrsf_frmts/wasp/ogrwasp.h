@@ -60,6 +60,7 @@ class OGRWAsPLayer final : public OGRLayer,
         double dfRight;
     };
 
+    GDALDataset *m_poDS = nullptr;
     const bool bMerge;
     std::vector<Zone> oZones;
     std::vector<Boundary> oBoundaries;
@@ -96,6 +97,7 @@ class OGRWAsPLayer final : public OGRLayer,
         READ_ONLY,
         WRITE_ONLY
     };
+
     OpenMode eMode;
 
     std::unique_ptr<double> pdfTolerance;
@@ -136,7 +138,7 @@ class OGRWAsPLayer final : public OGRLayer,
   public:
     /* For writing */
     /* Takes ownership of poTolerance */
-    OGRWAsPLayer(const char *pszName, VSILFILE *hFile,
+    OGRWAsPLayer(GDALDataset *poDS, const char *pszName, VSILFILE *hFile,
                  OGRSpatialReference *poSpatialRef,
                  const CPLString &sFirstField, const CPLString &sSecondField,
                  const CPLString &sGeomField, bool bMerge, double *pdfTolerance,
@@ -144,7 +146,7 @@ class OGRWAsPLayer final : public OGRLayer,
                  double *pdfPointToCircleRadius);
 
     /* For reading */
-    OGRWAsPLayer(const char *pszName, VSILFILE *hFile,
+    OGRWAsPLayer(GDALDataset *poDS, const char *pszName, VSILFILE *hFile,
                  OGRSpatialReference *poSpatialRef);
 
     virtual ~OGRWAsPLayer();
@@ -157,17 +159,23 @@ class OGRWAsPLayer final : public OGRLayer,
     virtual void ResetReading() override;
     virtual int TestCapability(const char *) override;
 
-    virtual OGRErr CreateField(OGRFieldDefn *poField,
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
-    virtual OGRErr CreateGeomField(OGRGeomFieldDefn *poGeomField,
+    virtual OGRErr CreateGeomField(const OGRGeomFieldDefn *poGeomField,
                                    int bApproxOK = TRUE) override;
 
     virtual OGRErr ICreateFeature(OGRFeature *poFeature) override;
 
     DEFINE_GET_NEXT_FEATURE_THROUGH_RAW(OGRWAsPLayer)
+
     virtual const char *GetName() override
     {
         return sName.c_str();
+    }
+
+    GDALDataset *GetDataset() override
+    {
+        return m_poDS;
     }
 };
 
@@ -193,18 +201,18 @@ class OGRWAsPDataSource final : public OGRDataSource
     {
         return sFilename.c_str();
     }
+
     virtual int GetLayerCount() override
     {
         return oLayer.get() ? 1 : 0;
     }
+
     virtual OGRLayer *GetLayer(int) override;
     virtual OGRLayer *GetLayerByName(const char *) override;
 
-    virtual OGRLayer *
-    ICreateLayer(const char *pszName,
-                 const OGRSpatialReference *poSpatialRef = nullptr,
-                 OGRwkbGeometryType eGType = wkbUnknown,
-                 char **papszOptions = nullptr) override;
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
 
     virtual int TestCapability(const char *) override;
     OGRErr Load(bool bSilent = false);
@@ -226,6 +234,7 @@ class OGRWAsPDriver final : public OGRSFDriver
     {
         return "WAsP";
     }
+
     virtual OGRDataSource *Open(const char *, int) override;
 
     virtual OGRDataSource *CreateDataSource(const char *pszName,

@@ -26,6 +26,9 @@
  * DEALINGS IN THE SOFTWARE.
  ****************************************************************************/
 
+#ifndef OGARROWWRITERLAYER_HPP_INCLUDED
+#define OGARROWWRITERLAYER_HPP_INCLUDED
+
 #include "ogr_arrow.h"
 
 #include "cpl_json.h"
@@ -34,6 +37,7 @@
 #include "ogrlayerarrow.h"
 #include "ogr_wkb.h"
 
+#include <array>
 #include <cinttypes>
 #include <limits>
 
@@ -55,6 +59,13 @@ static constexpr int TZFLAG_UNINITIALIZED = -1;
 
 #define OGR_ARROW_RETURN_OGRERR_NOT_OK(status)                                 \
     OGR_ARROW_RETURN_NOT_OK(status, OGRERR_FAILURE)
+
+#define OGR_ARROW_PROPAGATE_OGRERR(ret_value)                                  \
+    do                                                                         \
+    {                                                                          \
+        if ((ret_value) != OGRERR_NONE)                                        \
+            return OGRERR_FAILURE;                                             \
+    } while (0)
 
 /************************************************************************/
 /*                      OGRArrowWriterLayer()                           */
@@ -90,8 +101,10 @@ inline OGRArrowWriterLayer::~OGRArrowWriterLayer()
 /*                         FinalizeWriting()                            */
 /************************************************************************/
 
-inline void OGRArrowWriterLayer::FinalizeWriting()
+inline bool OGRArrowWriterLayer::FinalizeWriting()
 {
+    bool ret = true;
+
     if (!IsFileWriterCreated())
     {
         CreateWriter();
@@ -101,10 +114,13 @@ inline void OGRArrowWriterLayer::FinalizeWriting()
         PerformStepsBeforeFinalFlushGroup();
 
         if (!m_apoBuilders.empty() && m_apoFieldsFromArrowSchema.empty())
-            FlushGroup();
+            ret = FlushGroup();
 
-        CloseFileWriter();
+        if (!CloseFileWriter())
+            ret = false;
     }
+
+    return ret;
 }
 
 /************************************************************************/
@@ -249,7 +265,8 @@ inline void OGRArrowWriterLayer::CreateSchemaCommon()
                 break;
             }
         }
-        fields.emplace_back(arrow::field(poFieldDefn->GetNameRef(), dt,
+        fields.emplace_back(arrow::field(poFieldDefn->GetNameRef(),
+                                         std::move(dt),
                                          poFieldDefn->IsNullable()));
         if (poFieldDefn->GetAlternativeNameRef()[0])
             bNeedGDALSchema = true;
@@ -265,6 +282,8 @@ inline void OGRArrowWriterLayer::CreateSchemaCommon()
             2 + (OGR_GT_HasZ(eGType) ? 1 : 0) + (OGR_GT_HasM(eGType) ? 1 : 0);
 
         const bool pointFieldNullable = GetDriverUCName() == "PARQUET";
+
+        // Fixed Size List GeoArrow encoding
         std::shared_ptr<arrow::Field> pointField;
         if (nDim == 2)
             pointField =
@@ -279,6 +298,20 @@ inline void OGRArrowWriterLayer::CreateSchemaCommon()
             pointField =
                 arrow::field("xyzm", arrow::float64(), pointFieldNullable);
 
+        // Struct GeoArrow encoding
+        auto xField(arrow::field("x", arrow::float64(), false));
+        auto yField(arrow::field("y", arrow::float64(), false));
+        std::vector<std::shared_ptr<arrow::Field>> pointFields{
+            arrow::field("x", arrow::float64(), false),
+            arrow::field("y", arrow::float64(), false)};
+        if (OGR_GT_HasZ(eGType))
+            pointFields.emplace_back(
+                arrow::field("z", arrow::float64(), false));
+        if (OGR_GT_HasM(eGType))
+            pointFields.emplace_back(
+                arrow::field("m", arrow::float64(), false));
+        auto pointStructType(arrow::struct_(std::move(pointFields)));
+
         std::shared_ptr<arrow::DataType> dt;
         switch (m_aeGeomEncoding[i])
         {
@@ -290,40 +323,66 @@ inline void OGRArrowWriterLayer::CreateSchemaCommon()
                 dt = arrow::utf8();
                 break;
 
-            case OGRArrowGeomEncoding::GEOARROW_GENERIC:
+            case OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC:
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_GENERIC:
                 CPLAssert(false);
                 break;
 
-            case OGRArrowGeomEncoding::GEOARROW_POINT:
+            case OGRArrowGeomEncoding::GEOARROW_FSL_POINT:
                 dt = arrow::fixed_size_list(pointField, nDim);
                 break;
 
-            case OGRArrowGeomEncoding::GEOARROW_LINESTRING:
+            case OGRArrowGeomEncoding::GEOARROW_FSL_LINESTRING:
                 dt = arrow::list(arrow::fixed_size_list(pointField, nDim));
                 break;
 
-            case OGRArrowGeomEncoding::GEOARROW_POLYGON:
+            case OGRArrowGeomEncoding::GEOARROW_FSL_POLYGON:
                 dt = arrow::list(
                     arrow::list(arrow::fixed_size_list(pointField, nDim)));
                 break;
 
-            case OGRArrowGeomEncoding::GEOARROW_MULTIPOINT:
+            case OGRArrowGeomEncoding::GEOARROW_FSL_MULTIPOINT:
                 dt = arrow::list(arrow::fixed_size_list(pointField, nDim));
                 break;
 
-            case OGRArrowGeomEncoding::GEOARROW_MULTILINESTRING:
+            case OGRArrowGeomEncoding::GEOARROW_FSL_MULTILINESTRING:
                 dt = arrow::list(
                     arrow::list(arrow::fixed_size_list(pointField, nDim)));
                 break;
 
-            case OGRArrowGeomEncoding::GEOARROW_MULTIPOLYGON:
+            case OGRArrowGeomEncoding::GEOARROW_FSL_MULTIPOLYGON:
                 dt = arrow::list(arrow::list(
                     arrow::list(arrow::fixed_size_list(pointField, nDim))));
                 break;
+
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_POINT:
+                dt = pointStructType;
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_LINESTRING:
+                dt = arrow::list(pointStructType);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_POLYGON:
+                dt = arrow::list(arrow::list(pointStructType));
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTIPOINT:
+                dt = arrow::list(pointStructType);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTILINESTRING:
+                dt = arrow::list(arrow::list(pointStructType));
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTIPOLYGON:
+                dt = arrow::list(arrow::list(arrow::list(pointStructType)));
+                break;
         }
 
-        auto field = arrow::field(poGeomFieldDefn->GetNameRef(), dt,
-                                  poGeomFieldDefn->IsNullable());
+        std::shared_ptr<arrow::Field> field(
+            arrow::field(poGeomFieldDefn->GetNameRef(), std::move(dt),
+                         poGeomFieldDefn->IsNullable()));
         if (m_bWriteFieldArrowExtensionName)
         {
             auto kvMetadata = field->metadata()
@@ -335,13 +394,38 @@ inline void OGRArrowWriterLayer::CreateSchemaCommon()
             field = field->WithMetadata(kvMetadata);
         }
 
-        fields.emplace_back(field);
+        m_apoBaseStructGeomType.emplace_back(std::move(pointStructType));
+
+        fields.emplace_back(std::move(field));
+    }
+
+    if (m_bWriteBBoxStruct)
+    {
+        for (int i = 0; i < m_poFeatureDefn->GetGeomFieldCount(); ++i)
+        {
+            const auto poGeomFieldDefn = m_poFeatureDefn->GetGeomFieldDefn(i);
+            auto bbox_field_xmin(arrow::field("xmin", arrow::float32(), false));
+            auto bbox_field_ymin(arrow::field("ymin", arrow::float32(), false));
+            auto bbox_field_xmax(arrow::field("xmax", arrow::float32(), false));
+            auto bbox_field_ymax(arrow::field("ymax", arrow::float32(), false));
+            auto bbox_field(arrow::field(
+                CPLGetConfigOption("OGR_PARQUET_COVERING_BBOX_NAME",
+                                   std::string(poGeomFieldDefn->GetNameRef())
+                                       .append("_bbox")
+                                       .c_str()),
+                arrow::struct_(
+                    {std::move(bbox_field_xmin), std::move(bbox_field_ymin),
+                     std::move(bbox_field_xmax), std::move(bbox_field_ymax)}),
+                poGeomFieldDefn->IsNullable()));
+            fields.emplace_back(bbox_field);
+            m_apoFieldsBBOX.emplace_back(bbox_field);
+        }
     }
 
     m_aoEnvelopes.resize(m_poFeatureDefn->GetGeomFieldCount());
     m_oSetWrittenGeometryTypes.resize(m_poFeatureDefn->GetGeomFieldCount());
 
-    m_poSchema = arrow::schema(fields);
+    m_poSchema = arrow::schema(std::move(fields));
     CPLAssert(m_poSchema);
     if (bNeedGDALSchema &&
         CPLTestBool(CPLGetConfigOption(
@@ -386,6 +470,7 @@ inline void OGRArrowWriterLayer::CreateSchemaCommon()
         CPLAssert(m_poSchema);
     }
 }
+
 /************************************************************************/
 /*                         FinalizeSchema()                             */
 /************************************************************************/
@@ -486,7 +571,7 @@ OGRArrowWriterLayer::AddFieldDomain(std::unique_ptr<OGRFieldDomain> &&domain,
         return false;
     }
 
-    m_oMapFieldDomainToStringArray[domain->GetName()] = stringArray;
+    m_oMapFieldDomainToStringArray[domain->GetName()] = std::move(stringArray);
     m_oMapFieldDomains[domain->GetName()] = std::move(domain);
     return true;
 }
@@ -523,7 +608,7 @@ OGRArrowWriterLayer::GetFieldDomain(const std::string &name) const
 /*                          CreateField()                               */
 /************************************************************************/
 
-inline OGRErr OGRArrowWriterLayer::CreateField(OGRFieldDefn *poField,
+inline OGRErr OGRArrowWriterLayer::CreateField(const OGRFieldDefn *poField,
                                                int /* bApproxOK */)
 {
     if (m_poSchema)
@@ -612,43 +697,57 @@ inline bool OGRArrowWriterLayer::CreateFieldFromArrowSchema(
 }
 
 /************************************************************************/
-/*                   GetPreciseArrowGeomEncoding()                    */
+/*                   GetPreciseArrowGeomEncoding()                      */
 /************************************************************************/
 
-inline OGRArrowGeomEncoding
-OGRArrowWriterLayer::GetPreciseArrowGeomEncoding(OGRwkbGeometryType eGType)
+inline OGRArrowGeomEncoding OGRArrowWriterLayer::GetPreciseArrowGeomEncoding(
+    OGRArrowGeomEncoding eEncodingType, OGRwkbGeometryType eGType)
 {
+    CPLAssert(eEncodingType == OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC ||
+              eEncodingType == OGRArrowGeomEncoding::GEOARROW_STRUCT_GENERIC);
     const auto eFlatType = wkbFlatten(eGType);
     if (eFlatType == wkbPoint)
     {
-        return OGRArrowGeomEncoding::GEOARROW_POINT;
+        return eEncodingType == OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC
+                   ? OGRArrowGeomEncoding::GEOARROW_FSL_POINT
+                   : OGRArrowGeomEncoding::GEOARROW_STRUCT_POINT;
     }
     else if (eFlatType == wkbLineString)
     {
-        return OGRArrowGeomEncoding::GEOARROW_LINESTRING;
+        return eEncodingType == OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC
+                   ? OGRArrowGeomEncoding::GEOARROW_FSL_LINESTRING
+                   : OGRArrowGeomEncoding::GEOARROW_STRUCT_LINESTRING;
     }
     else if (eFlatType == wkbPolygon)
     {
-        return OGRArrowGeomEncoding::GEOARROW_POLYGON;
+        return eEncodingType == OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC
+                   ? OGRArrowGeomEncoding::GEOARROW_FSL_POLYGON
+                   : OGRArrowGeomEncoding::GEOARROW_STRUCT_POLYGON;
     }
     else if (eFlatType == wkbMultiPoint)
     {
-        return OGRArrowGeomEncoding::GEOARROW_MULTIPOINT;
+        return eEncodingType == OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC
+                   ? OGRArrowGeomEncoding::GEOARROW_FSL_MULTIPOINT
+                   : OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTIPOINT;
     }
     else if (eFlatType == wkbMultiLineString)
     {
-        return OGRArrowGeomEncoding::GEOARROW_MULTILINESTRING;
+        return eEncodingType == OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC
+                   ? OGRArrowGeomEncoding::GEOARROW_FSL_MULTILINESTRING
+                   : OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTILINESTRING;
     }
     else if (eFlatType == wkbMultiPolygon)
     {
-        return OGRArrowGeomEncoding::GEOARROW_MULTIPOLYGON;
+        return eEncodingType == OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC
+                   ? OGRArrowGeomEncoding::GEOARROW_FSL_MULTIPOLYGON
+                   : OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTIPOLYGON;
     }
     else
     {
         CPLError(CE_Failure, CPLE_NotSupported,
-                 "GEOMETRY_FORMAT=GEOARROW is currently not supported for %s",
+                 "GeoArrow encoding is currently not supported for %s",
                  OGRGeometryTypeToName(eGType));
-        return OGRArrowGeomEncoding::GEOARROW_GENERIC;
+        return eEncodingType;
     }
 }
 
@@ -663,24 +762,38 @@ OGRArrowWriterLayer::GetGeomEncodingAsString(OGRArrowGeomEncoding eGeomEncoding,
     switch (eGeomEncoding)
     {
         case OGRArrowGeomEncoding::WKB:
-            return bForParquetGeo ? "WKB" : "ogc.wkb";
+            return bForParquetGeo ? "WKB" : "geoarrow.wkb";
         case OGRArrowGeomEncoding::WKT:
-            return bForParquetGeo ? "WKT" : "ogc.wkt";
-        case OGRArrowGeomEncoding::GEOARROW_GENERIC:
+            return bForParquetGeo ? "WKT" : "geoarrow.wkt";
+        case OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC:
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_GENERIC:
             CPLAssert(false);
             break;
-        case OGRArrowGeomEncoding::GEOARROW_POINT:
+        case OGRArrowGeomEncoding::GEOARROW_FSL_POINT:
             return "geoarrow.point";
-        case OGRArrowGeomEncoding::GEOARROW_LINESTRING:
+        case OGRArrowGeomEncoding::GEOARROW_FSL_LINESTRING:
             return "geoarrow.linestring";
-        case OGRArrowGeomEncoding::GEOARROW_POLYGON:
+        case OGRArrowGeomEncoding::GEOARROW_FSL_POLYGON:
             return "geoarrow.polygon";
-        case OGRArrowGeomEncoding::GEOARROW_MULTIPOINT:
+        case OGRArrowGeomEncoding::GEOARROW_FSL_MULTIPOINT:
             return "geoarrow.multipoint";
-        case OGRArrowGeomEncoding::GEOARROW_MULTILINESTRING:
+        case OGRArrowGeomEncoding::GEOARROW_FSL_MULTILINESTRING:
             return "geoarrow.multilinestring";
-        case OGRArrowGeomEncoding::GEOARROW_MULTIPOLYGON:
+        case OGRArrowGeomEncoding::GEOARROW_FSL_MULTIPOLYGON:
             return "geoarrow.multipolygon";
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_POINT:
+            return bForParquetGeo ? "point" : "geoarrow.point";
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_LINESTRING:
+            return bForParquetGeo ? "linestring" : "geoarrow.linestring";
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_POLYGON:
+            return bForParquetGeo ? "polygon" : "geoarrow.polygon";
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTIPOINT:
+            return bForParquetGeo ? "multipoint" : "geoarrow.multipoint";
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTILINESTRING:
+            return bForParquetGeo ? "multilinestring"
+                                  : "geoarrow.multilinestring";
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTIPOLYGON:
+            return bForParquetGeo ? "multipolygon" : "geoarrow.multipolygon";
     }
     return nullptr;
 }
@@ -689,8 +802,9 @@ OGRArrowWriterLayer::GetGeomEncodingAsString(OGRArrowGeomEncoding eGeomEncoding,
 /*                          CreateGeomField()                           */
 /************************************************************************/
 
-inline OGRErr OGRArrowWriterLayer::CreateGeomField(OGRGeomFieldDefn *poField,
-                                                   int /* bApproxOK */)
+inline OGRErr
+OGRArrowWriterLayer::CreateGeomField(const OGRGeomFieldDefn *poField,
+                                     int /* bApproxOK */)
 {
     if (m_poSchema)
     {
@@ -710,10 +824,12 @@ inline OGRErr OGRArrowWriterLayer::CreateGeomField(OGRGeomFieldDefn *poField,
                  "Geometry column should have an associated CRS");
     }
     auto eGeomEncoding = m_eGeomEncoding;
-    if (eGeomEncoding == OGRArrowGeomEncoding::GEOARROW_GENERIC)
+    if (eGeomEncoding == OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC ||
+        eGeomEncoding == OGRArrowGeomEncoding::GEOARROW_STRUCT_GENERIC)
     {
-        eGeomEncoding = GetPreciseArrowGeomEncoding(eGType);
-        if (eGeomEncoding == OGRArrowGeomEncoding::GEOARROW_GENERIC)
+        const auto eEncodingType = eGeomEncoding;
+        eGeomEncoding = GetPreciseArrowGeomEncoding(eEncodingType, eGType);
+        if (eGeomEncoding == eEncodingType)
             return OGRERR_FAILURE;
     }
     m_aeGeomEncoding.push_back(eGeomEncoding);
@@ -735,6 +851,43 @@ MakeGeoArrowBuilder(arrow::MemoryPool *poMemoryPool, int nDim, int nDepth)
     else
         return std::make_shared<arrow::ListBuilder>(
             poMemoryPool, MakeGeoArrowBuilder(poMemoryPool, nDim, nDepth - 1));
+}
+
+/************************************************************************/
+/*                      MakeGeoArrowStructBuilder()                     */
+/************************************************************************/
+
+static std::shared_ptr<arrow::ArrayBuilder>
+MakeGeoArrowStructBuilder(arrow::MemoryPool *poMemoryPool, int nDim, int nDepth,
+                          const std::shared_ptr<arrow::DataType> &eBaseType)
+{
+    if (nDepth == 0)
+    {
+        std::vector<std::shared_ptr<arrow::ArrayBuilder>> builders;
+        for (int i = 0; i < nDim; ++i)
+            builders.emplace_back(
+                std::make_shared<arrow::DoubleBuilder>(poMemoryPool));
+        return std::make_shared<arrow::StructBuilder>(eBaseType, poMemoryPool,
+                                                      std::move(builders));
+    }
+    else
+        return std::make_shared<arrow::ListBuilder>(
+            poMemoryPool, MakeGeoArrowStructBuilder(poMemoryPool, nDim,
+                                                    nDepth - 1, eBaseType));
+}
+
+/************************************************************************/
+/*                         ClearArrayBuilers()                          */
+/************************************************************************/
+
+inline void OGRArrowWriterLayer::ClearArrayBuilers()
+{
+    m_apoBuilders.clear();
+    m_apoBuildersBBOXStruct.clear();
+    m_apoBuildersBBOXXMin.clear();
+    m_apoBuildersBBOXYMin.clear();
+    m_apoBuildersBBOXXMax.clear();
+    m_apoBuildersBBOXYMax.clear();
 }
 
 /************************************************************************/
@@ -879,44 +1032,160 @@ inline void OGRArrowWriterLayer::CreateArrayBuilders()
         const int nDim =
             2 + (OGR_GT_HasZ(eGType) ? 1 : 0) + (OGR_GT_HasM(eGType) ? 1 : 0);
 
-        if (m_aeGeomEncoding[i] == OGRArrowGeomEncoding::WKB)
-            builder = std::make_shared<arrow::BinaryBuilder>(m_poMemoryPool);
-        else if (m_aeGeomEncoding[i] == OGRArrowGeomEncoding::WKT)
-            builder = std::make_shared<arrow::StringBuilder>(m_poMemoryPool);
-        else if (m_aeGeomEncoding[i] == OGRArrowGeomEncoding::GEOARROW_POINT)
+        switch (m_aeGeomEncoding[i])
         {
-            builder = MakeGeoArrowBuilder(m_poMemoryPool, nDim, 0);
+            case OGRArrowGeomEncoding::WKB:
+                builder =
+                    std::make_shared<arrow::BinaryBuilder>(m_poMemoryPool);
+                break;
+
+            case OGRArrowGeomEncoding::WKT:
+                builder =
+                    std::make_shared<arrow::StringBuilder>(m_poMemoryPool);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_FSL_POINT:
+                builder = MakeGeoArrowBuilder(m_poMemoryPool, nDim, 0);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_FSL_LINESTRING:
+                builder = MakeGeoArrowBuilder(m_poMemoryPool, nDim, 1);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_FSL_POLYGON:
+                builder = MakeGeoArrowBuilder(m_poMemoryPool, nDim, 2);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_FSL_MULTIPOINT:
+                builder = MakeGeoArrowBuilder(m_poMemoryPool, nDim, 1);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_FSL_MULTILINESTRING:
+                builder = MakeGeoArrowBuilder(m_poMemoryPool, nDim, 2);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_FSL_MULTIPOLYGON:
+                builder = MakeGeoArrowBuilder(m_poMemoryPool, nDim, 3);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_POINT:
+                builder = MakeGeoArrowStructBuilder(m_poMemoryPool, nDim, 0,
+                                                    m_apoBaseStructGeomType[i]);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_LINESTRING:
+                builder = MakeGeoArrowStructBuilder(m_poMemoryPool, nDim, 1,
+                                                    m_apoBaseStructGeomType[i]);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_POLYGON:
+                builder = MakeGeoArrowStructBuilder(m_poMemoryPool, nDim, 2,
+                                                    m_apoBaseStructGeomType[i]);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTIPOINT:
+                builder = MakeGeoArrowStructBuilder(m_poMemoryPool, nDim, 1,
+                                                    m_apoBaseStructGeomType[i]);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTILINESTRING:
+                builder = MakeGeoArrowStructBuilder(m_poMemoryPool, nDim, 2,
+                                                    m_apoBaseStructGeomType[i]);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTIPOLYGON:
+                builder = MakeGeoArrowStructBuilder(m_poMemoryPool, nDim, 3,
+                                                    m_apoBaseStructGeomType[i]);
+                break;
+
+            case OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC:
+            case OGRArrowGeomEncoding::GEOARROW_STRUCT_GENERIC:
+                CPLAssert(false);
+                break;
         }
-        else if (m_aeGeomEncoding[i] ==
-                 OGRArrowGeomEncoding::GEOARROW_LINESTRING)
-        {
-            builder = MakeGeoArrowBuilder(m_poMemoryPool, nDim, 1);
-        }
-        else if (m_aeGeomEncoding[i] == OGRArrowGeomEncoding::GEOARROW_POLYGON)
-        {
-            builder = MakeGeoArrowBuilder(m_poMemoryPool, nDim, 2);
-        }
-        else if (m_aeGeomEncoding[i] ==
-                 OGRArrowGeomEncoding::GEOARROW_MULTIPOINT)
-        {
-            builder = MakeGeoArrowBuilder(m_poMemoryPool, nDim, 1);
-        }
-        else if (m_aeGeomEncoding[i] ==
-                 OGRArrowGeomEncoding::GEOARROW_MULTILINESTRING)
-        {
-            builder = MakeGeoArrowBuilder(m_poMemoryPool, nDim, 2);
-        }
-        else if (m_aeGeomEncoding[i] ==
-                 OGRArrowGeomEncoding::GEOARROW_MULTIPOLYGON)
-        {
-            builder = MakeGeoArrowBuilder(m_poMemoryPool, nDim, 3);
-        }
-        else
-        {
-            CPLAssert(false);
-        }
+
         m_apoBuilders.emplace_back(builder);
+
+        if (m_bWriteBBoxStruct)
+        {
+            m_apoBuildersBBOXXMin.emplace_back(
+                std::make_shared<arrow::FloatBuilder>(m_poMemoryPool));
+            m_apoBuildersBBOXYMin.emplace_back(
+                std::make_shared<arrow::FloatBuilder>(m_poMemoryPool));
+            m_apoBuildersBBOXXMax.emplace_back(
+                std::make_shared<arrow::FloatBuilder>(m_poMemoryPool));
+            m_apoBuildersBBOXYMax.emplace_back(
+                std::make_shared<arrow::FloatBuilder>(m_poMemoryPool));
+            m_apoBuildersBBOXStruct.emplace_back(
+                std::make_shared<arrow::StructBuilder>(
+                    m_apoFieldsBBOX[i]->type(), m_poMemoryPool,
+                    std::vector<std::shared_ptr<arrow::ArrayBuilder>>{
+                        m_apoBuildersBBOXXMin.back(),
+                        m_apoBuildersBBOXYMin.back(),
+                        m_apoBuildersBBOXXMax.back(),
+                        m_apoBuildersBBOXYMax.back()}));
+        }
     }
+}
+
+/************************************************************************/
+/*                          castToFloatDown()                            */
+/************************************************************************/
+
+// Cf https://github.com/sqlite/sqlite/blob/90e4a3b7fcdf63035d6f35eb44d11ff58ff4b068/ext/rtree/rtree.c#L2993C1-L2995C3
+/*
+** Rounding constants for float->double conversion.
+*/
+#define RNDTOWARDS (1.0 - 1.0 / 8388608.0) /* Round towards zero */
+#define RNDAWAY (1.0 + 1.0 / 8388608.0)    /* Round away from zero */
+
+/*
+** Convert an sqlite3_value into an RtreeValue (presumably a float)
+** while taking care to round toward negative or positive, respectively.
+*/
+static float castToFloatDown(double d)
+{
+    float f = static_cast<float>(d);
+    if (f > d)
+    {
+        f = static_cast<float>(d * (d < 0 ? RNDAWAY : RNDTOWARDS));
+    }
+    return f;
+}
+
+static float castToFloatUp(double d)
+{
+    float f = static_cast<float>(d);
+    if (f < d)
+    {
+        f = static_cast<float>(d * (d < 0 ? RNDTOWARDS : RNDAWAY));
+    }
+    return f;
+}
+
+/************************************************************************/
+/*                         GeoArrowLineBuilder()                        */
+/************************************************************************/
+
+template <class PointBuilderType>
+static OGRErr GeoArrowLineBuilder(const OGRLineString *poLS,
+                                  PointBuilderType *poPointBuilder,
+                                  arrow::DoubleBuilder *poXBuilder,
+                                  arrow::DoubleBuilder *poYBuilder,
+                                  arrow::DoubleBuilder *poZBuilder,
+                                  arrow::DoubleBuilder *poMBuilder)
+{
+    for (int j = 0; j < poLS->getNumPoints(); ++j)
+    {
+        OGR_ARROW_RETURN_OGRERR_NOT_OK(poPointBuilder->Append());
+        OGR_ARROW_RETURN_OGRERR_NOT_OK(poXBuilder->Append(poLS->getX(j)));
+        OGR_ARROW_RETURN_OGRERR_NOT_OK(poYBuilder->Append(poLS->getY(j)));
+        if (poZBuilder)
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poZBuilder->Append(poLS->getZ(j)));
+        if (poMBuilder)
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poMBuilder->Append(poLS->getM(j)));
+    }
+    return OGRERR_NONE;
 }
 
 /************************************************************************/
@@ -930,28 +1199,55 @@ inline OGRErr OGRArrowWriterLayer::BuildGeometry(OGRGeometry *poGeom,
     const auto eGType = poGeom ? poGeom->getGeometryType() : wkbNone;
     const auto eColumnGType =
         m_poFeatureDefn->GetGeomFieldDefn(iGeomField)->GetType();
+    const bool bHasZ = CPL_TO_BOOL(OGR_GT_HasZ(eColumnGType));
+    const bool bHasM = CPL_TO_BOOL(OGR_GT_HasM(eColumnGType));
     const bool bIsEmpty = poGeom != nullptr && poGeom->IsEmpty();
+    OGREnvelope3D oEnvelope;
     if (poGeom != nullptr && !bIsEmpty)
     {
         if (poGeom->Is3D())
         {
-            OGREnvelope3D oEnvelope;
             poGeom->getEnvelope(&oEnvelope);
             m_aoEnvelopes[iGeomField].Merge(oEnvelope);
         }
         else
         {
-            OGREnvelope oEnvelope;
-            poGeom->getEnvelope(&oEnvelope);
+            poGeom->getEnvelope(static_cast<OGREnvelope *>(&oEnvelope));
             m_aoEnvelopes[iGeomField].Merge(oEnvelope);
         }
         m_oSetWrittenGeometryTypes[iGeomField].insert(eGType);
     }
 
+    if (m_bWriteBBoxStruct)
+    {
+        if (poGeom && !bIsEmpty)
+        {
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                m_apoBuildersBBOXXMin[iGeomField]->Append(
+                    castToFloatDown(oEnvelope.MinX)));
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                m_apoBuildersBBOXYMin[iGeomField]->Append(
+                    castToFloatDown(oEnvelope.MinY)));
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                m_apoBuildersBBOXXMax[iGeomField]->Append(
+                    castToFloatUp(oEnvelope.MaxX)));
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                m_apoBuildersBBOXYMax[iGeomField]->Append(
+                    castToFloatUp(oEnvelope.MaxY)));
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                m_apoBuildersBBOXStruct[iGeomField]->Append());
+        }
+        else
+        {
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                m_apoBuildersBBOXStruct[iGeomField]->AppendNull());
+        }
+    }
+
     if (poGeom == nullptr)
     {
         if (m_aeGeomEncoding[iGeomField] ==
-                OGRArrowGeomEncoding::GEOARROW_POINT &&
+                OGRArrowGeomEncoding::GEOARROW_FSL_POINT &&
             GetDriverUCName() == "PARQUET")
         {
             // For some reason, Parquet doesn't support a NULL FixedSizeList
@@ -965,10 +1261,10 @@ inline OGRErr OGRArrowWriterLayer::BuildGeometry(OGRGeometry *poGeom,
                 std::numeric_limits<double>::quiet_NaN()));
             OGR_ARROW_RETURN_OGRERR_NOT_OK(poValueBuilder->Append(
                 std::numeric_limits<double>::quiet_NaN()));
-            if (OGR_GT_HasZ(eGType))
+            if (bHasZ)
                 OGR_ARROW_RETURN_OGRERR_NOT_OK(poValueBuilder->Append(
                     std::numeric_limits<double>::quiet_NaN()));
-            if (OGR_GT_HasM(eGType))
+            if (bHasM)
                 OGR_ARROW_RETURN_OGRERR_NOT_OK(poValueBuilder->Append(
                     std::numeric_limits<double>::quiet_NaN()));
         }
@@ -976,263 +1272,414 @@ inline OGRErr OGRArrowWriterLayer::BuildGeometry(OGRGeometry *poGeom,
         {
             OGR_ARROW_RETURN_OGRERR_NOT_OK(poBuilder->AppendNull());
         }
+
+        return OGRERR_NONE;
     }
-    else if (m_aeGeomEncoding[iGeomField] == OGRArrowGeomEncoding::WKB)
+
+    // The following checks are only valid for GeoArrow encoding
+    if (m_aeGeomEncoding[iGeomField] != OGRArrowGeomEncoding::WKB &&
+        m_aeGeomEncoding[iGeomField] != OGRArrowGeomEncoding::WKT)
     {
-        std::unique_ptr<OGRGeometry> poGeomModified;
-        if (OGR_GT_HasM(eGType) && !OGR_GT_HasM(eColumnGType))
-        {
-            static bool bHasWarned = false;
-            if (!bHasWarned)
-            {
-                CPLError(CE_Warning, CPLE_AppDefined,
-                         "Removing M component from geometry");
-                bHasWarned = true;
-            }
-            poGeomModified.reset(poGeom->clone());
-            poGeomModified->setMeasured(false);
-            poGeom = poGeomModified.get();
-        }
-        FixupGeometryBeforeWriting(poGeom);
-        const auto nSize = poGeom->WkbSize();
-        if (nSize < INT_MAX)
-        {
-            m_abyBuffer.resize(nSize);
-            poGeom->exportToWkb(wkbNDR, &m_abyBuffer[0], wkbVariantIso);
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                static_cast<arrow::BinaryBuilder *>(poBuilder)->Append(
-                    m_abyBuffer.data(), static_cast<int>(m_abyBuffer.size())));
-        }
-        else
+        if ((!bIsEmpty && eGType != eColumnGType) ||
+            (bIsEmpty && wkbFlatten(eGType) != wkbFlatten(eColumnGType)))
         {
             CPLError(CE_Warning, CPLE_AppDefined,
-                     "Too big geometry. "
-                     "Writing null geometry");
+                     "Geometry of type %s found, whereas %s is expected. "
+                     "Writing null geometry",
+                     OGRGeometryTypeToName(eGType),
+                     OGRGeometryTypeToName(eColumnGType));
             OGR_ARROW_RETURN_OGRERR_NOT_OK(poBuilder->AppendNull());
+
+            return OGRERR_NONE;
         }
     }
-    else if (m_aeGeomEncoding[iGeomField] == OGRArrowGeomEncoding::WKT)
+
+    switch (m_aeGeomEncoding[iGeomField])
     {
-        OGRWktOptions options;
-        options.variant = wkbVariantIso;
-        if (m_nWKTCoordinatePrecision >= 0)
+        case OGRArrowGeomEncoding::WKB:
         {
-            options.format = OGRWktFormat::F;
-            options.precision = m_nWKTCoordinatePrecision;
-        }
-        OGR_ARROW_RETURN_OGRERR_NOT_OK(
-            static_cast<arrow::StringBuilder *>(poBuilder)->Append(
-                poGeom->exportToWkt(options)));
-    }
-    // The following checks are only valid for GeoArrow encoding
-    else if ((!bIsEmpty && eGType != eColumnGType) ||
-             (bIsEmpty && wkbFlatten(eGType) != wkbFlatten(eColumnGType)))
-    {
-        CPLError(CE_Warning, CPLE_AppDefined,
-                 "Geometry of type %s found, whereas %s is expected. "
-                 "Writing null geometry",
-                 OGRGeometryTypeToName(eGType),
-                 OGRGeometryTypeToName(eColumnGType));
-        OGR_ARROW_RETURN_OGRERR_NOT_OK(poBuilder->AppendNull());
-    }
-    else if (!bIsEmpty && poGeom->Is3D() != OGR_GT_HasZ(eColumnGType))
-    {
-        CPLError(CE_Warning, CPLE_AppDefined,
-                 "Geometry Z flag (%d) != column geometry type Z flag (%d)d. "
-                 "Writing null geometry",
-                 poGeom->Is3D(), OGR_GT_HasZ(eColumnGType));
-        OGR_ARROW_RETURN_OGRERR_NOT_OK(poBuilder->AppendNull());
-    }
-    else if (!bIsEmpty && poGeom->IsMeasured() != OGR_GT_HasM(eColumnGType))
-    {
-        CPLError(CE_Warning, CPLE_AppDefined,
-                 "Geometry M flag (%d) != column geometry type M flag (%d)d. "
-                 "Writing null geometry",
-                 poGeom->IsMeasured(), OGR_GT_HasM(eColumnGType));
-        OGR_ARROW_RETURN_OGRERR_NOT_OK(poBuilder->AppendNull());
-    }
-    else if (m_aeGeomEncoding[iGeomField] ==
-             OGRArrowGeomEncoding::GEOARROW_POINT)
-    {
-        const auto poPoint = poGeom->toPoint();
-        auto poPointBuilder =
-            static_cast<arrow::FixedSizeListBuilder *>(poBuilder);
-        OGR_ARROW_RETURN_OGRERR_NOT_OK(poPointBuilder->Append());
-        auto poValueBuilder = static_cast<arrow::DoubleBuilder *>(
-            poPointBuilder->value_builder());
-        if (bIsEmpty)
-        {
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(poValueBuilder->Append(
-                std::numeric_limits<double>::quiet_NaN()));
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(poValueBuilder->Append(
-                std::numeric_limits<double>::quiet_NaN()));
-        }
-        else
-        {
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                poValueBuilder->Append(poPoint->getX()));
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                poValueBuilder->Append(poPoint->getY()));
-        }
-        if (OGR_GT_HasZ(eColumnGType))
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                poValueBuilder->Append(poPoint->getZ()));
-        if (OGR_GT_HasM(eColumnGType))
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                poValueBuilder->Append(poPoint->getM()));
-    }
-    else if (m_aeGeomEncoding[iGeomField] ==
-             OGRArrowGeomEncoding::GEOARROW_LINESTRING)
-    {
-        const auto poLS = poGeom->toLineString();
-        auto poListBuilder = static_cast<arrow::ListBuilder *>(poBuilder);
-        auto poPointBuilder = static_cast<arrow::FixedSizeListBuilder *>(
-            poListBuilder->value_builder());
-        auto poValueBuilder = static_cast<arrow::DoubleBuilder *>(
-            poPointBuilder->value_builder());
-        OGR_ARROW_RETURN_OGRERR_NOT_OK(poListBuilder->Append());
-        for (int j = 0; j < poLS->getNumPoints(); ++j)
-        {
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(poPointBuilder->Append());
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                poValueBuilder->Append(poLS->getX(j)));
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                poValueBuilder->Append(poLS->getY(j)));
-            if (poGeom->Is3D())
-                OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                    poValueBuilder->Append(poLS->getZ(j)));
-            if (poGeom->IsMeasured())
-                OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                    poValueBuilder->Append(poLS->getM(j)));
-        }
-    }
-    else if (m_aeGeomEncoding[iGeomField] ==
-             OGRArrowGeomEncoding::GEOARROW_POLYGON)
-    {
-        const auto poPolygon = poGeom->toPolygon();
-        auto poPolygonBuilder = static_cast<arrow::ListBuilder *>(poBuilder);
-        auto poRingBuilder = static_cast<arrow::ListBuilder *>(
-            poPolygonBuilder->value_builder());
-        auto poPointBuilder = static_cast<arrow::FixedSizeListBuilder *>(
-            poRingBuilder->value_builder());
-        auto poValueBuilder = static_cast<arrow::DoubleBuilder *>(
-            poPointBuilder->value_builder());
-        OGR_ARROW_RETURN_OGRERR_NOT_OK(poPolygonBuilder->Append());
-        for (const auto *poRing : *poPolygon)
-        {
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(poRingBuilder->Append());
-            for (int j = 0; j < poRing->getNumPoints(); ++j)
+            std::unique_ptr<OGRGeometry> poGeomModified;
+            if (OGR_GT_HasM(eGType) && !OGR_GT_HasM(eColumnGType))
             {
-                OGR_ARROW_RETURN_OGRERR_NOT_OK(poPointBuilder->Append());
-                OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                    poValueBuilder->Append(poRing->getX(j)));
-                OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                    poValueBuilder->Append(poRing->getY(j)));
-                if (poGeom->Is3D())
-                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                        poValueBuilder->Append(poRing->getZ(j)));
-                if (poGeom->IsMeasured())
-                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                        poValueBuilder->Append(poRing->getM(j)));
+                static bool bHasWarned = false;
+                if (!bHasWarned)
+                {
+                    CPLError(CE_Warning, CPLE_AppDefined,
+                             "Removing M component from geometry");
+                    bHasWarned = true;
+                }
+                poGeomModified.reset(poGeom->clone());
+                poGeomModified->setMeasured(false);
+                poGeom = poGeomModified.get();
             }
-        }
-    }
-    else if (m_aeGeomEncoding[iGeomField] ==
-             OGRArrowGeomEncoding::GEOARROW_MULTIPOINT)
-    {
-        const auto poMultiPoint = poGeom->toMultiPoint();
-        auto poListBuilder = static_cast<arrow::ListBuilder *>(poBuilder);
-        auto poPointBuilder = static_cast<arrow::FixedSizeListBuilder *>(
-            poListBuilder->value_builder());
-        auto poValueBuilder = static_cast<arrow::DoubleBuilder *>(
-            poPointBuilder->value_builder());
-        OGR_ARROW_RETURN_OGRERR_NOT_OK(poListBuilder->Append());
-        for (const auto *poPoint : *poMultiPoint)
-        {
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(poPointBuilder->Append());
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                poValueBuilder->Append(poPoint->getX()));
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                poValueBuilder->Append(poPoint->getY()));
-            if (poGeom->Is3D())
-                OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                    poValueBuilder->Append(poPoint->getZ()));
-            if (poGeom->IsMeasured())
-                OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                    poValueBuilder->Append(poPoint->getM()));
-        }
-    }
-    else if (m_aeGeomEncoding[iGeomField] ==
-             OGRArrowGeomEncoding::GEOARROW_MULTILINESTRING)
-    {
-        const auto poMLS = poGeom->toMultiLineString();
-        auto poMLSBuilder = static_cast<arrow::ListBuilder *>(poBuilder);
-        auto poLSBuilder =
-            static_cast<arrow::ListBuilder *>(poMLSBuilder->value_builder());
-        auto poPointBuilder = static_cast<arrow::FixedSizeListBuilder *>(
-            poLSBuilder->value_builder());
-        auto poValueBuilder = static_cast<arrow::DoubleBuilder *>(
-            poPointBuilder->value_builder());
-        OGR_ARROW_RETURN_OGRERR_NOT_OK(poMLSBuilder->Append());
-        for (const auto *poLS : *poMLS)
-        {
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(poLSBuilder->Append());
-            for (int j = 0; j < poLS->getNumPoints(); ++j)
+            FixupGeometryBeforeWriting(poGeom);
+            const auto nSize = poGeom->WkbSize();
+            if (nSize < INT_MAX)
             {
-                OGR_ARROW_RETURN_OGRERR_NOT_OK(poPointBuilder->Append());
+                m_abyBuffer.resize(nSize);
+                poGeom->exportToWkb(wkbNDR, &m_abyBuffer[0], wkbVariantIso);
                 OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                    poValueBuilder->Append(poLS->getX(j)));
-                OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                    poValueBuilder->Append(poLS->getY(j)));
-                if (poGeom->Is3D())
-                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                        poValueBuilder->Append(poLS->getZ(j)));
-                if (poGeom->IsMeasured())
-                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                        poValueBuilder->Append(poLS->getM(j)));
+                    static_cast<arrow::BinaryBuilder *>(poBuilder)->Append(
+                        m_abyBuffer.data(),
+                        static_cast<int>(m_abyBuffer.size())));
             }
+            else
+            {
+                CPLError(CE_Warning, CPLE_AppDefined,
+                         "Too big geometry. "
+                         "Writing null geometry");
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poBuilder->AppendNull());
+            }
+            break;
         }
-    }
-    else if (m_aeGeomEncoding[iGeomField] ==
-             OGRArrowGeomEncoding::GEOARROW_MULTIPOLYGON)
-    {
-        const auto poMPoly = poGeom->toMultiPolygon();
-        auto poMPolyBuilder = static_cast<arrow::ListBuilder *>(poBuilder);
-        auto poPolyBuilder =
-            static_cast<arrow::ListBuilder *>(poMPolyBuilder->value_builder());
-        auto poRingBuilder =
-            static_cast<arrow::ListBuilder *>(poPolyBuilder->value_builder());
-        auto poPointBuilder = static_cast<arrow::FixedSizeListBuilder *>(
-            poRingBuilder->value_builder());
-        auto poValueBuilder = static_cast<arrow::DoubleBuilder *>(
-            poPointBuilder->value_builder());
-        OGR_ARROW_RETURN_OGRERR_NOT_OK(poMPolyBuilder->Append());
-        for (const auto *poPolygon : *poMPoly)
+
+        case OGRArrowGeomEncoding::WKT:
         {
-            OGR_ARROW_RETURN_OGRERR_NOT_OK(poPolyBuilder->Append());
+            OGRWktOptions options;
+            options.variant = wkbVariantIso;
+            if (m_nWKTCoordinatePrecision >= 0)
+            {
+                options.format = OGRWktFormat::F;
+                options.xyPrecision = m_nWKTCoordinatePrecision;
+                options.zPrecision = m_nWKTCoordinatePrecision;
+                options.mPrecision = m_nWKTCoordinatePrecision;
+            }
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                static_cast<arrow::StringBuilder *>(poBuilder)->Append(
+                    poGeom->exportToWkt(options)));
+            break;
+        }
+
+        case OGRArrowGeomEncoding::GEOARROW_FSL_POINT:
+        {
+            const auto poPoint = poGeom->toPoint();
+            auto poPointBuilder =
+                static_cast<arrow::FixedSizeListBuilder *>(poBuilder);
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poPointBuilder->Append());
+            auto poValueBuilder = static_cast<arrow::DoubleBuilder *>(
+                poPointBuilder->value_builder());
+            if (bIsEmpty)
+            {
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poValueBuilder->Append(
+                    std::numeric_limits<double>::quiet_NaN()));
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poValueBuilder->Append(
+                    std::numeric_limits<double>::quiet_NaN()));
+                if (bHasZ)
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(poValueBuilder->Append(
+                        std::numeric_limits<double>::quiet_NaN()));
+                if (bHasM)
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(poValueBuilder->Append(
+                        std::numeric_limits<double>::quiet_NaN()));
+            }
+            else
+            {
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                    poValueBuilder->Append(poPoint->getX()));
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                    poValueBuilder->Append(poPoint->getY()));
+                if (bHasZ)
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                        poValueBuilder->Append(poPoint->getZ()));
+                if (bHasM)
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                        poValueBuilder->Append(poPoint->getM()));
+            }
+            break;
+        }
+
+#define GET_XYZM_STRUCT_FIELD_BUILDERS_FROM(poPointBuilder)                    \
+    auto poXBuilder =                                                          \
+        static_cast<arrow::DoubleBuilder *>(poPointBuilder->field_builder(0)); \
+    auto poYBuilder =                                                          \
+        static_cast<arrow::DoubleBuilder *>(poPointBuilder->field_builder(1)); \
+    int iSubField = 2;                                                         \
+    arrow::DoubleBuilder *poZBuilder = nullptr;                                \
+    if (bHasZ)                                                                 \
+    {                                                                          \
+        poZBuilder = static_cast<arrow::DoubleBuilder *>(                      \
+            poPointBuilder->field_builder(iSubField));                         \
+        ++iSubField;                                                           \
+    }                                                                          \
+    arrow::DoubleBuilder *poMBuilder = nullptr;                                \
+    if (bHasM)                                                                 \
+    {                                                                          \
+        poMBuilder = static_cast<arrow::DoubleBuilder *>(                      \
+            poPointBuilder->field_builder(iSubField));                         \
+    }                                                                          \
+    do                                                                         \
+    {                                                                          \
+    } while (0)
+
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_POINT:
+        {
+            const auto poPoint = poGeom->toPoint();
+            auto poPointBuilder =
+                static_cast<arrow::StructBuilder *>(poBuilder);
+            GET_XYZM_STRUCT_FIELD_BUILDERS_FROM(poPointBuilder);
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poPointBuilder->Append());
+
+            if (bIsEmpty)
+            {
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poXBuilder->Append(
+                    std::numeric_limits<double>::quiet_NaN()));
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poYBuilder->Append(
+                    std::numeric_limits<double>::quiet_NaN()));
+            }
+            else
+            {
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                    poXBuilder->Append(poPoint->getX()));
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                    poYBuilder->Append(poPoint->getY()));
+            }
+            if (poZBuilder)
+            {
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poZBuilder->Append(
+                    bIsEmpty ? std::numeric_limits<double>::quiet_NaN()
+                             : poPoint->getZ()));
+            }
+            if (poMBuilder)
+            {
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poMBuilder->Append(
+                    bIsEmpty ? std::numeric_limits<double>::quiet_NaN()
+                             : poPoint->getM()));
+            }
+            break;
+        }
+
+        case OGRArrowGeomEncoding::GEOARROW_FSL_LINESTRING:
+        {
+            const auto poLS = poGeom->toLineString();
+            auto poListBuilder = static_cast<arrow::ListBuilder *>(poBuilder);
+            auto poPointBuilder = static_cast<arrow::FixedSizeListBuilder *>(
+                poListBuilder->value_builder());
+            auto poValueBuilder = static_cast<arrow::DoubleBuilder *>(
+                poPointBuilder->value_builder());
+
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poListBuilder->Append());
+            OGR_ARROW_PROPAGATE_OGRERR(GeoArrowLineBuilder(
+                poLS, poPointBuilder, poValueBuilder, poValueBuilder,
+                bHasZ ? poValueBuilder : nullptr,
+                bHasM ? poValueBuilder : nullptr));
+            break;
+        }
+
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_LINESTRING:
+        {
+            const auto poLS = poGeom->toLineString();
+            auto poListBuilder = static_cast<arrow::ListBuilder *>(poBuilder);
+            auto poPointBuilder = static_cast<arrow::StructBuilder *>(
+                poListBuilder->value_builder());
+            GET_XYZM_STRUCT_FIELD_BUILDERS_FROM(poPointBuilder);
+
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poListBuilder->Append());
+            OGR_ARROW_PROPAGATE_OGRERR(
+                GeoArrowLineBuilder(poLS, poPointBuilder, poXBuilder,
+                                    poYBuilder, poZBuilder, poMBuilder));
+            break;
+        }
+
+        case OGRArrowGeomEncoding::GEOARROW_FSL_POLYGON:
+        {
+            const auto poPolygon = poGeom->toPolygon();
+            auto poPolygonBuilder =
+                static_cast<arrow::ListBuilder *>(poBuilder);
+            auto poRingBuilder = static_cast<arrow::ListBuilder *>(
+                poPolygonBuilder->value_builder());
+            auto poPointBuilder = static_cast<arrow::FixedSizeListBuilder *>(
+                poRingBuilder->value_builder());
+            auto poValueBuilder = static_cast<arrow::DoubleBuilder *>(
+                poPointBuilder->value_builder());
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poPolygonBuilder->Append());
             for (const auto *poRing : *poPolygon)
             {
                 OGR_ARROW_RETURN_OGRERR_NOT_OK(poRingBuilder->Append());
-                for (int j = 0; j < poRing->getNumPoints(); ++j)
+                OGR_ARROW_PROPAGATE_OGRERR(GeoArrowLineBuilder(
+                    poRing, poPointBuilder, poValueBuilder, poValueBuilder,
+                    bHasZ ? poValueBuilder : nullptr,
+                    bHasM ? poValueBuilder : nullptr));
+            }
+            break;
+        }
+
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_POLYGON:
+        {
+            const auto poPolygon = poGeom->toPolygon();
+            auto poPolygonBuilder =
+                static_cast<arrow::ListBuilder *>(poBuilder);
+            auto poRingBuilder = static_cast<arrow::ListBuilder *>(
+                poPolygonBuilder->value_builder());
+            auto poPointBuilder = static_cast<arrow::StructBuilder *>(
+                poRingBuilder->value_builder());
+            GET_XYZM_STRUCT_FIELD_BUILDERS_FROM(poPointBuilder);
+
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poPolygonBuilder->Append());
+            for (const auto *poRing : *poPolygon)
+            {
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poRingBuilder->Append());
+                OGR_ARROW_PROPAGATE_OGRERR(
+                    GeoArrowLineBuilder(poRing, poPointBuilder, poXBuilder,
+                                        poYBuilder, poZBuilder, poMBuilder));
+            }
+            break;
+        }
+
+        case OGRArrowGeomEncoding::GEOARROW_FSL_MULTIPOINT:
+        {
+            const auto poMultiPoint = poGeom->toMultiPoint();
+            auto poListBuilder = static_cast<arrow::ListBuilder *>(poBuilder);
+            auto poPointBuilder = static_cast<arrow::FixedSizeListBuilder *>(
+                poListBuilder->value_builder());
+            auto poValueBuilder = static_cast<arrow::DoubleBuilder *>(
+                poPointBuilder->value_builder());
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poListBuilder->Append());
+            for (const auto *poPoint : *poMultiPoint)
+            {
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poPointBuilder->Append());
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                    poValueBuilder->Append(poPoint->getX()));
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                    poValueBuilder->Append(poPoint->getY()));
+                if (bHasZ)
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                        poValueBuilder->Append(poPoint->getZ()));
+                if (bHasM)
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                        poValueBuilder->Append(poPoint->getM()));
+            }
+            break;
+        }
+
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTIPOINT:
+        {
+            const auto poMultiPoint = poGeom->toMultiPoint();
+            auto poListBuilder = static_cast<arrow::ListBuilder *>(poBuilder);
+            auto poPointBuilder = static_cast<arrow::StructBuilder *>(
+                poListBuilder->value_builder());
+            GET_XYZM_STRUCT_FIELD_BUILDERS_FROM(poPointBuilder);
+
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poListBuilder->Append());
+            for (const auto *poPoint : *poMultiPoint)
+            {
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poPointBuilder->Append());
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                    poXBuilder->Append(poPoint->getX()));
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                    poYBuilder->Append(poPoint->getY()));
+                if (poZBuilder)
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                        poZBuilder->Append(poPoint->getZ()));
+                if (poMBuilder)
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                        poMBuilder->Append(poPoint->getM()));
+            }
+            break;
+        }
+
+        case OGRArrowGeomEncoding::GEOARROW_FSL_MULTILINESTRING:
+        {
+            const auto poMLS = poGeom->toMultiLineString();
+            auto poMLSBuilder = static_cast<arrow::ListBuilder *>(poBuilder);
+            auto poLSBuilder = static_cast<arrow::ListBuilder *>(
+                poMLSBuilder->value_builder());
+            auto poPointBuilder = static_cast<arrow::FixedSizeListBuilder *>(
+                poLSBuilder->value_builder());
+            auto poValueBuilder = static_cast<arrow::DoubleBuilder *>(
+                poPointBuilder->value_builder());
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poMLSBuilder->Append());
+            for (const auto *poLS : *poMLS)
+            {
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poLSBuilder->Append());
+                OGR_ARROW_PROPAGATE_OGRERR(GeoArrowLineBuilder(
+                    poLS, poPointBuilder, poValueBuilder, poValueBuilder,
+                    bHasZ ? poValueBuilder : nullptr,
+                    bHasM ? poValueBuilder : nullptr));
+            }
+            break;
+        }
+
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTILINESTRING:
+        {
+            const auto poMLS = poGeom->toMultiLineString();
+            auto poMLSBuilder = static_cast<arrow::ListBuilder *>(poBuilder);
+            auto poLSBuilder = static_cast<arrow::ListBuilder *>(
+                poMLSBuilder->value_builder());
+            auto poPointBuilder = static_cast<arrow::StructBuilder *>(
+                poLSBuilder->value_builder());
+            GET_XYZM_STRUCT_FIELD_BUILDERS_FROM(poPointBuilder);
+
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poMLSBuilder->Append());
+            for (const auto *poLS : *poMLS)
+            {
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poLSBuilder->Append());
+                OGR_ARROW_PROPAGATE_OGRERR(
+                    GeoArrowLineBuilder(poLS, poPointBuilder, poXBuilder,
+                                        poYBuilder, poZBuilder, poMBuilder));
+            }
+            break;
+        }
+
+        case OGRArrowGeomEncoding::GEOARROW_FSL_MULTIPOLYGON:
+        {
+            const auto poMPoly = poGeom->toMultiPolygon();
+            auto poMPolyBuilder = static_cast<arrow::ListBuilder *>(poBuilder);
+            auto poPolyBuilder = static_cast<arrow::ListBuilder *>(
+                poMPolyBuilder->value_builder());
+            auto poRingBuilder = static_cast<arrow::ListBuilder *>(
+                poPolyBuilder->value_builder());
+            auto poPointBuilder = static_cast<arrow::FixedSizeListBuilder *>(
+                poRingBuilder->value_builder());
+            auto poValueBuilder = static_cast<arrow::DoubleBuilder *>(
+                poPointBuilder->value_builder());
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poMPolyBuilder->Append());
+            for (const auto *poPolygon : *poMPoly)
+            {
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poPolyBuilder->Append());
+                for (const auto *poRing : *poPolygon)
                 {
-                    OGR_ARROW_RETURN_OGRERR_NOT_OK(poPointBuilder->Append());
-                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                        poValueBuilder->Append(poRing->getX(j)));
-                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                        poValueBuilder->Append(poRing->getY(j)));
-                    if (poGeom->Is3D())
-                        OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                            poValueBuilder->Append(poRing->getZ(j)));
-                    if (poGeom->IsMeasured())
-                        OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                            poValueBuilder->Append(poRing->getM(j)));
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(poRingBuilder->Append());
+                    OGR_ARROW_PROPAGATE_OGRERR(GeoArrowLineBuilder(
+                        poRing, poPointBuilder, poValueBuilder, poValueBuilder,
+                        bHasZ ? poValueBuilder : nullptr,
+                        bHasM ? poValueBuilder : nullptr));
                 }
             }
+            break;
         }
-    }
-    else
-    {
-        CPLAssert(false);
+
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTIPOLYGON:
+        {
+            const auto poMPoly = poGeom->toMultiPolygon();
+            auto poMPolyBuilder = static_cast<arrow::ListBuilder *>(poBuilder);
+            auto poPolyBuilder = static_cast<arrow::ListBuilder *>(
+                poMPolyBuilder->value_builder());
+            auto poRingBuilder = static_cast<arrow::ListBuilder *>(
+                poPolyBuilder->value_builder());
+            auto poPointBuilder = static_cast<arrow::StructBuilder *>(
+                poRingBuilder->value_builder());
+            GET_XYZM_STRUCT_FIELD_BUILDERS_FROM(poPointBuilder);
+
+            OGR_ARROW_RETURN_OGRERR_NOT_OK(poMPolyBuilder->Append());
+            for (const auto *poPolygon : *poMPoly)
+            {
+                OGR_ARROW_RETURN_OGRERR_NOT_OK(poPolyBuilder->Append());
+                for (const auto *poRing : *poPolygon)
+                {
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(poRingBuilder->Append());
+                    OGR_ARROW_PROPAGATE_OGRERR(GeoArrowLineBuilder(
+                        poRing, poPointBuilder, poXBuilder, poYBuilder,
+                        poZBuilder, poMBuilder));
+                }
+            }
+            break;
+        }
+
+        case OGRArrowGeomEncoding::GEOARROW_FSL_GENERIC:
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_GENERIC:
+        {
+            CPLAssert(false);
+            break;
+        }
     }
 
     return OGRERR_NONE;
@@ -1621,7 +2068,8 @@ inline OGRErr OGRArrowWriterLayer::ICreateFeature(OGRFeature *poFeature)
                 }
                 if (nTZFlag > OGR_TZFLAG_MIXED_TZ)
                 {
-                    nVal -= (nTZFlag - OGR_TZFLAG_UTC) * 15 * 60;
+                    const int nOffsetSec = (nTZFlag - OGR_TZFLAG_UTC) * 15 * 60;
+                    nVal -= nOffsetSec;
                 }
                 OGR_ARROW_RETURN_OGRERR_NOT_OK(
                     static_cast<arrow::TimestampBuilder *>(poBuilder)->Append(
@@ -1646,18 +2094,30 @@ inline OGRErr OGRArrowWriterLayer::ICreateFeature(OGRFeature *poFeature)
     // Flush the current row group if reaching the limit of rows per group.
     if (!m_apoBuilders.empty() && m_apoBuilders[0]->length() == m_nRowGroupSize)
     {
-        if (!IsFileWriterCreated())
-        {
-            CreateWriter();
-            if (!IsFileWriterCreated())
-                return OGRERR_FAILURE;
-        }
-
-        if (!FlushGroup())
+        if (!FlushFeatures())
             return OGRERR_FAILURE;
     }
 
     return OGRERR_NONE;
+}
+
+/************************************************************************/
+/*                         FlushFeatures()                              */
+/************************************************************************/
+
+inline bool OGRArrowWriterLayer::FlushFeatures()
+{
+    if (m_apoBuilders.empty() || m_apoBuilders[0]->length() == 0)
+        return true;
+
+    if (!IsFileWriterCreated())
+    {
+        CreateWriter();
+        if (!IsFileWriterCreated())
+            return false;
+    }
+
+    return FlushGroup();
 }
 
 /************************************************************************/
@@ -1759,6 +2219,30 @@ inline bool OGRArrowWriterLayer::WriteArrays(
 
         nArrowIdx++;
     }
+
+    if (m_bWriteBBoxStruct)
+    {
+        const int nGeomFieldCount = m_poFeatureDefn->GetGeomFieldCount();
+        for (int i = 0; i < nGeomFieldCount; ++i)
+        {
+            const auto &field = m_apoFieldsBBOX[i];
+            std::shared_ptr<arrow::Array> array;
+            auto status = m_apoBuildersBBOXStruct[i]->Finish(&array);
+            if (!status.ok())
+            {
+                CPLError(CE_Failure, CPLE_AppDefined,
+                         "builder::Finish() for field %s failed with %s",
+                         field->name().c_str(), status.message().c_str());
+                return false;
+            }
+
+            if (!postProcessArray(field, array))
+            {
+                return false;
+            }
+        }
+    }
+
     return true;
 }
 
@@ -1796,6 +2280,10 @@ inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
     {
         CreateArrayBuilders();
     }
+
+    const int nGeomFieldCount = m_poFeatureDefn->GetGeomFieldCount();
+    const int nGeomFieldCountBBoxFields =
+        m_bWriteBBoxStruct ? nGeomFieldCount : 0;
 
     const char *pszFIDName = CSLFetchNameValueDef(
         papszOptions, "FID", OGRLayer::DEFAULT_ARROW_FID_NAME);
@@ -1839,15 +2327,17 @@ inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
     struct ArrowSchema fidSchema;
     memset(&fidArray, 0, sizeof(fidArray));
     memset(&fidSchema, 0, sizeof(fidSchema));
-    std::vector<void *> apBuffers;
+    std::vector<void *> apBuffersFid;
     std::vector<int64_t> fids;
+
     std::set<int> oSetReferencedFieldsInArraySchema;
     const auto DummyFreeArray = [](struct ArrowArray *ptrArray)
     { ptrArray->release = nullptr; };
     const auto DummyFreeSchema = [](struct ArrowSchema *ptrSchema)
     { ptrSchema->release = nullptr; };
     bool bRebuildBatch = false;
-    for (int i = 0; i < m_poSchema->num_fields(); ++i)
+    for (int i = 0; i < m_poSchema->num_fields() - nGeomFieldCountBBoxFields;
+         ++i)
     {
         auto oIter =
             oMapSchemaChildrenNameToIdx.find(m_poSchema->field(i)->name());
@@ -1862,9 +2352,9 @@ inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
                     // the output file requires it, creates a default FID column
                     fidArray.release = DummyFreeArray;
                     fidArray.n_buffers = 2;
-                    apBuffers.resize(2);
+                    apBuffersFid.resize(2);
                     fidArray.buffers =
-                        const_cast<const void **>(apBuffers.data());
+                        const_cast<const void **>(apBuffersFid.data());
                     fids.reserve(static_cast<size_t>(array->length));
                     for (size_t iRow = 0;
                          iRow < static_cast<size_t>(array->length); ++iRow)
@@ -1877,7 +2367,7 @@ inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
                     continue;
                 }
             }
-            else if (m_poFeatureDefn->GetGeomFieldCount() == 1 &&
+            else if (nGeomFieldCount == 1 &&
                      m_poFeatureDefn->GetGeomFieldIndex(
                          m_poSchema->field(i)->name().c_str()) == 0)
             {
@@ -1899,23 +2389,177 @@ inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
         oSetReferencedFieldsInArraySchema.insert(oIter->second);
     }
 
-    std::vector<struct ArrowSchema *> newSchemaChildren(
-        m_poSchema->num_fields());
-    std::vector<struct ArrowArray *> newArrayChildren(m_poSchema->num_fields());
-    for (int i = 0; i < m_poSchema->num_fields(); ++i)
+    // Note: we cheat a bit by declaring a single instance of the minx/miny/
+    // maxx/maxy sub-field ArrowSchema*, and make all struct ArrowSchema point
+    // to them. That's OK because we use DummyFreeSchema to release, which does
+    // nothing.
+    struct ArrowSchema bboxStructSchemaXMin;
+    struct ArrowSchema bboxStructSchemaYMin;
+    struct ArrowSchema bboxStructSchemaXMax;
+    struct ArrowSchema bboxStructSchemaYMax;
+    constexpr int BBOX_SUBFIELD_COUNT = 4;
+    std::array<struct ArrowSchema *, BBOX_SUBFIELD_COUNT>
+        bboxStructSchemaChildren;
+    constexpr int BBOX_STRUCT_BUFFER_COUNT = 1;  // validity bitmap array
+    // cppcheck-suppress constStatement
+    std::vector<std::array<const void *, BBOX_STRUCT_BUFFER_COUNT>>
+        bboxStructBuffersPtr;
+    std::vector<std::vector<GByte>> aabyBboxStructValidity;
+    std::vector<std::vector<float>> aadfMinX, aadfMinY, aadfMaxX, aadfMaxY;
+    // cppcheck-suppress constStatement
+    std::vector<std::array<struct ArrowArray, BBOX_SUBFIELD_COUNT>> bboxArrays;
+    // cppcheck-suppress constStatement
+    std::vector<std::array<struct ArrowArray *, BBOX_SUBFIELD_COUNT>>
+        bboxArraysPtr;
+    constexpr int BBOX_SUBFIELD_BUFFER_COUNT =
+        2;  // validity bitmap array and float array
+    std::vector<std::array<std::array<const void *, BBOX_SUBFIELD_BUFFER_COUNT>,
+                           BBOX_SUBFIELD_COUNT>>
+        bboxBuffersPtr;
+
+    // Temporary arrays to hold the geometry bounding boxes.
+    std::vector<struct ArrowArray> bboxStructArray;
+    std::vector<struct ArrowSchema> bboxStructSchema;
+
+    std::vector<struct ArrowSchema *> newSchemaChildren;
+    std::vector<struct ArrowArray *> newArrayChildren;
+    newSchemaChildren.reserve(m_poSchema->num_fields());
+    newArrayChildren.reserve(m_poSchema->num_fields());
+    for (int i = 0; i < m_poSchema->num_fields() - nGeomFieldCountBBoxFields;
+         ++i)
     {
         if (anMapLayerSchemaToArraySchema[i] < 0)
         {
             CPLAssert(m_poSchema->field(i)->name() == m_osFIDColumn);
-            newSchemaChildren[i] = &fidSchema;
-            newArrayChildren[i] = &fidArray;
+            newSchemaChildren.emplace_back(&fidSchema);
+            newArrayChildren.emplace_back(&fidArray);
         }
         else
         {
-            newSchemaChildren[i] =
-                schema->children[anMapLayerSchemaToArraySchema[i]];
-            newArrayChildren[i] =
-                array->children[anMapLayerSchemaToArraySchema[i]];
+            newSchemaChildren.emplace_back(
+                schema->children[anMapLayerSchemaToArraySchema[i]]);
+            newArrayChildren.emplace_back(
+                array->children[anMapLayerSchemaToArraySchema[i]]);
+        }
+    }
+
+    if (m_bWriteBBoxStruct)
+    {
+        memset(&bboxStructSchemaXMin, 0, sizeof(bboxStructSchemaXMin));
+        memset(&bboxStructSchemaYMin, 0, sizeof(bboxStructSchemaYMin));
+        memset(&bboxStructSchemaXMax, 0, sizeof(bboxStructSchemaXMax));
+        memset(&bboxStructSchemaYMax, 0, sizeof(bboxStructSchemaYMax));
+
+        bboxStructSchemaXMin.release = DummyFreeSchema;
+        bboxStructSchemaXMin.name = "xmin";
+        bboxStructSchemaXMin.format = "f";  // float32
+
+        bboxStructSchemaYMin.release = DummyFreeSchema;
+        bboxStructSchemaYMin.name = "ymin";
+        bboxStructSchemaYMin.format = "f";  // float32
+
+        bboxStructSchemaXMax.release = DummyFreeSchema;
+        bboxStructSchemaXMax.name = "xmax";
+        bboxStructSchemaXMax.format = "f";  // float32
+
+        bboxStructSchemaYMax.release = DummyFreeSchema;
+        bboxStructSchemaYMax.name = "ymax";
+        bboxStructSchemaYMax.format = "f";  // float32
+
+        try
+        {
+            constexpr int XMIN_IDX = 0;
+            constexpr int YMIN_IDX = 1;
+            constexpr int XMAX_IDX = 2;
+            constexpr int YMAX_IDX = 3;
+            bboxStructSchemaChildren[XMIN_IDX] = &bboxStructSchemaXMin;
+            // cppcheck-suppress objectIndex
+            bboxStructSchemaChildren[YMIN_IDX] = &bboxStructSchemaYMin;
+            // cppcheck-suppress objectIndex
+            bboxStructSchemaChildren[XMAX_IDX] = &bboxStructSchemaXMax;
+            // cppcheck-suppress objectIndex
+            bboxStructSchemaChildren[YMAX_IDX] = &bboxStructSchemaYMax;
+
+            bboxStructArray.resize(nGeomFieldCount);
+            bboxStructSchema.resize(nGeomFieldCount);
+            bboxArrays.resize(nGeomFieldCount);
+            bboxArraysPtr.resize(nGeomFieldCount);
+            bboxBuffersPtr.resize(nGeomFieldCount);
+            bboxStructBuffersPtr.resize(nGeomFieldCount);
+            aabyBboxStructValidity.resize(nGeomFieldCount);
+            memset(bboxStructArray.data(), 0,
+                   nGeomFieldCount * sizeof(bboxStructArray[0]));
+            memset(bboxStructSchema.data(), 0,
+                   nGeomFieldCount * sizeof(bboxStructSchema[0]));
+            memset(bboxArrays.data(), 0,
+                   nGeomFieldCount * sizeof(bboxArrays[0]));
+            aadfMinX.resize(nGeomFieldCount);
+            aadfMinY.resize(nGeomFieldCount);
+            aadfMaxX.resize(nGeomFieldCount);
+            aadfMaxY.resize(nGeomFieldCount);
+            for (int i = 0; i < nGeomFieldCount; ++i)
+            {
+                const bool bIsNullable = CPL_TO_BOOL(
+                    m_poFeatureDefn->GetGeomFieldDefn(i)->IsNullable());
+                aadfMinX[i].reserve(static_cast<size_t>(array->length));
+                aadfMinY[i].reserve(static_cast<size_t>(array->length));
+                aadfMaxX[i].reserve(static_cast<size_t>(array->length));
+                aadfMaxY[i].reserve(static_cast<size_t>(array->length));
+                aabyBboxStructValidity[i].resize(
+                    static_cast<size_t>(array->length + 7) / 8, 0xFF);
+
+                bboxStructSchema[i].release = DummyFreeSchema;
+                bboxStructSchema[i].name = m_apoFieldsBBOX[i]->name().c_str();
+                bboxStructSchema[i].format = "+s";  // structure
+                bboxStructSchema[i].flags =
+                    bIsNullable ? ARROW_FLAG_NULLABLE : 0;
+                bboxStructSchema[i].n_children = BBOX_SUBFIELD_COUNT;
+                bboxStructSchema[i].children = bboxStructSchemaChildren.data();
+
+                constexpr int VALIDITY_ARRAY_IDX = 0;
+                constexpr int BBOX_SUBFIELD_FLOAT_VALUE_IDX = 1;
+                bboxBuffersPtr[i][XMIN_IDX][BBOX_SUBFIELD_FLOAT_VALUE_IDX] =
+                    aadfMinX[i].data();
+                bboxBuffersPtr[i][YMIN_IDX][BBOX_SUBFIELD_FLOAT_VALUE_IDX] =
+                    aadfMinY[i].data();
+                bboxBuffersPtr[i][XMAX_IDX][BBOX_SUBFIELD_FLOAT_VALUE_IDX] =
+                    aadfMaxX[i].data();
+                bboxBuffersPtr[i][YMAX_IDX][BBOX_SUBFIELD_FLOAT_VALUE_IDX] =
+                    aadfMaxY[i].data();
+
+                for (int j = 0; j < BBOX_SUBFIELD_COUNT; ++j)
+                {
+                    bboxBuffersPtr[i][j][VALIDITY_ARRAY_IDX] = nullptr;
+
+                    bboxArrays[i][j].release = DummyFreeArray;
+                    bboxArrays[i][j].length = array->length;
+                    bboxArrays[i][j].n_buffers = BBOX_SUBFIELD_BUFFER_COUNT;
+                    bboxArrays[i][j].buffers = bboxBuffersPtr[i][j].data();
+
+                    bboxArraysPtr[i][j] = &bboxArrays[i][j];
+                }
+
+                bboxStructArray[i].release = DummyFreeArray;
+                bboxStructArray[i].n_children = BBOX_SUBFIELD_COUNT;
+                // coverity[escape]
+                bboxStructArray[i].children = bboxArraysPtr[i].data();
+                bboxStructArray[i].length = array->length;
+                bboxStructArray[i].n_buffers = BBOX_STRUCT_BUFFER_COUNT;
+                bboxStructBuffersPtr[i][VALIDITY_ARRAY_IDX] =
+                    bIsNullable ? aabyBboxStructValidity[i].data() : nullptr;
+                // coverity[escape]
+                bboxStructArray[i].buffers = bboxStructBuffersPtr[i].data();
+
+                newSchemaChildren.emplace_back(&bboxStructSchema[i]);
+                newArrayChildren.emplace_back(&bboxStructArray[i]);
+            }
+        }
+        catch (const std::bad_alloc &)
+        {
+            CPLError(CE_Failure, CPLE_OutOfMemory,
+                     "Out of memory in "
+                     "OGRArrowWriterLayer::WriteArrowBatchInternal()");
+            return false;
         }
     }
 
@@ -2010,15 +2654,14 @@ inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
     }
     std::map<std::string, std::shared_ptr<arrow::Array>>
         oMapGeomFieldNameToArray;
-    for (int i = 0; i < m_poFeatureDefn->GetGeomFieldCount();
-         ++i, ++nBuilderIdx)
+    for (int i = 0; i < nGeomFieldCount; ++i, ++nBuilderIdx)
     {
         const char *pszThisGeomFieldName =
             m_poFeatureDefn->GetGeomFieldDefn(i)->GetNameRef();
         int nIdx = poSchema->GetFieldIndex(pszThisGeomFieldName);
         if (nIdx < 0)
         {
-            if (m_poFeatureDefn->GetGeomFieldCount() == 1)
+            if (nGeomFieldCount == 1)
                 nIdx = poSchema->GetFieldIndex(pszSingleGeomFieldName);
             if (nIdx < 0)
             {
@@ -2059,6 +2702,8 @@ inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
         for (size_t iRow = 0; iRow < static_cast<size_t>(psGeomArray->length);
              ++iRow)
         {
+            bool bValidGeom = false;
+
             if (!pabyValidity ||
                 TestBit(pabyValidity, iRow + psGeomArray->offset))
             {
@@ -2083,7 +2728,20 @@ inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
                             static_cast<OGRwkbGeometryType>(nType));
                         if (OGRWKBGetBoundingBox(pabyWkb, nLen, sEnvelope))
                         {
+                            bValidGeom = true;
                             m_aoEnvelopes[i].Merge(sEnvelope);
+
+                            if (m_bWriteBBoxStruct)
+                            {
+                                aadfMinX[i].push_back(
+                                    castToFloatDown(sEnvelope.MinX));
+                                aadfMinY[i].push_back(
+                                    castToFloatDown(sEnvelope.MinY));
+                                aadfMaxX[i].push_back(
+                                    castToFloatUp(sEnvelope.MaxX));
+                                aadfMaxY[i].push_back(
+                                    castToFloatUp(sEnvelope.MaxY));
+                            }
                         }
                     }
                 }
@@ -2099,13 +2757,39 @@ inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
                         delete poGeometry;
                         return false;
                     }
+                    bValidGeom = true;
+                    if (m_bWriteBBoxStruct)
+                    {
+                        poGeometry->getEnvelope(&sEnvelope);
+                        aadfMinX[i].push_back(castToFloatDown(sEnvelope.MinX));
+                        aadfMinY[i].push_back(castToFloatDown(sEnvelope.MinY));
+                        aadfMaxX[i].push_back(castToFloatUp(sEnvelope.MaxX));
+                        aadfMaxY[i].push_back(castToFloatUp(sEnvelope.MaxY));
+                    }
                     delete poGeometry;
                 }
             }
-            else if (m_aeGeomEncoding[i] != OGRArrowGeomEncoding::WKB)
+            else
             {
-                if (BuildGeometry(nullptr, i, poBuilder) != OGRERR_NONE)
-                    return false;
+                if (m_aeGeomEncoding[i] != OGRArrowGeomEncoding::WKB)
+                {
+                    if (BuildGeometry(nullptr, i, poBuilder) != OGRERR_NONE)
+                        return false;
+                }
+            }
+
+            if (!bValidGeom && m_bWriteBBoxStruct)
+            {
+                if ((bboxStructSchema[i].flags & ARROW_FLAG_NULLABLE))
+                {
+                    bboxStructArray[i].null_count++;
+                    aabyBboxStructValidity[i][iRow / 8] &=
+                        ~(1 << static_cast<int>(iRow % 8));
+                }
+                aadfMinX[i].push_back(0.0f);
+                aadfMinY[i].push_back(0.0f);
+                aadfMaxX[i].push_back(0.0f);
+                aadfMaxY[i].push_back(0.0f);
             }
         }
 
@@ -2125,7 +2809,8 @@ inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
         }
     }
 
-    auto poRecordBatchResult = arrow::ImportRecordBatch(array, poSchema);
+    auto poRecordBatchResult =
+        arrow::ImportRecordBatch(array, std::move(poSchema));
     if (!poRecordBatchResult.ok())
     {
         CPLError(CE_Failure, CPLE_AppDefined,
@@ -2162,7 +2847,7 @@ inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
             }
         }
         poRecordBatchResult = arrow::RecordBatch::Make(
-            m_poSchema, poRecordBatch->num_rows(), apoArrays);
+            m_poSchema, poRecordBatch->num_rows(), std::move(apoArrays));
         if (!poRecordBatchResult.ok())
         {
             CPLError(CE_Failure, CPLE_AppDefined,
@@ -2180,3 +2865,5 @@ inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
     }
     return false;
 }
+
+#endif /* OGARROWWRITERLAYER_HPP_INCLUDED */

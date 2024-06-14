@@ -42,6 +42,7 @@
 
 class OGRCADLayer final : public OGRLayer
 {
+    GDALDataset *m_poDS = nullptr;
     OGRFeatureDefn *poFeatureDefn;
     OGRSpatialReference *poSpatialRef;
     GIntBig nNextFID;
@@ -49,23 +50,32 @@ class OGRCADLayer final : public OGRLayer
     int nDWGEncoding;
 
   public:
-    OGRCADLayer(CADLayer &poCADLayer, OGRSpatialReference *poSR, int nEncoding);
+    OGRCADLayer(GDALDataset *poDS, CADLayer &poCADLayer,
+                OGRSpatialReference *poSR, int nEncoding);
     ~OGRCADLayer();
 
     void ResetReading() override;
     OGRFeature *GetNextFeature() override;
     OGRFeature *GetFeature(GIntBig nFID) override;
     GIntBig GetFeatureCount(int /* bForce */) override;
+
     OGRSpatialReference *GetSpatialRef() override
     {
         return poSpatialRef;
     }
+
     OGRFeatureDefn *GetLayerDefn() override
     {
         return poFeatureDefn;
     }
+
     std::set<CPLString> asFeaturesAttributes;
     int TestCapability(const char *) override;
+
+    GDALDataset *GetDataset() override
+    {
+        return m_poDS;
+    }
 };
 
 class GDALCADDataset final : public GDALDataset
@@ -86,10 +96,12 @@ class GDALCADDataset final : public GDALDataset
 
     int Open(GDALOpenInfo *poOpenInfo, CADFileIO *pFileIO,
              long nSubRasterLayer = -1, long nSubRasterFID = -1);
+
     int GetLayerCount() override
     {
         return nLayers;
     }
+
     OGRLayer *GetLayer(int) override;
     int TestCapability(const char *) override;
     virtual char **GetFileList() override;

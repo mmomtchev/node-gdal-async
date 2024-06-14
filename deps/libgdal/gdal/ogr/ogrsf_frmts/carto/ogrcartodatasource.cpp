@@ -410,8 +410,8 @@ int OGRCARTODataSource::FetchSRSId(const OGRSpatialReference *poSRS)
 
 OGRLayer *
 OGRCARTODataSource::ICreateLayer(const char *pszNameIn,
-                                 const OGRSpatialReference *poSpatialRef,
-                                 OGRwkbGeometryType eGType, char **papszOptions)
+                                 const OGRGeomFieldDefn *poGeomFieldDefn,
+                                 CSLConstList papszOptions)
 {
     if (!bReadWrite)
     {
@@ -419,6 +419,10 @@ OGRCARTODataSource::ICreateLayer(const char *pszNameIn,
                  "Operation not available in read-only mode");
         return nullptr;
     }
+
+    const auto eGType = poGeomFieldDefn ? poGeomFieldDefn->GetType() : wkbNone;
+    const auto poSpatialRef =
+        poGeomFieldDefn ? poGeomFieldDefn->GetSpatialRef() : nullptr;
 
     /* -------------------------------------------------------------------- */
     /*      Do we already have this layer?  If so, set it up for overwrite  */
@@ -454,7 +458,7 @@ OGRCARTODataSource::ICreateLayer(const char *pszNameIn,
     CPLString osName(pszNameIn);
     if (CPLFetchBool(papszOptions, "LAUNDER", true))
     {
-        char *pszTmp = OGRPGCommonLaunderName(pszNameIn);
+        char *pszTmp = OGRPGCommonLaunderName(pszNameIn, "CARTO", false);
         osName = pszTmp;
         CPLFree(pszTmp);
     }

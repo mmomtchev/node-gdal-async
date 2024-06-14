@@ -370,6 +370,7 @@ int HFARasterAttributeTable::GetColOfUsage(GDALRATFieldUsage eUsage) const
 
     return -1;
 }
+
 /************************************************************************/
 /*                          GetRowCount()                               */
 /************************************************************************/
@@ -1402,6 +1403,7 @@ int HFARasterAttributeTable::GetRowOfValue(double dfValue) const
     }
     return -1;
 }
+
 /************************************************************************/
 /*                          GetRowOfValue()                             */
 /*                                                                      */
@@ -1651,7 +1653,7 @@ void HFARasterAttributeTable::RemoveStatistics()
                 }
         }
     }
-    aoFields = aoNewFields;
+    aoFields = std::move(aoNewFields);
 }
 
 /************************************************************************/
@@ -3064,7 +3066,6 @@ HFADataset::HFADataset()
 {
     m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
-    memset(asGCPList, 0, sizeof(asGCPList));
     memset(adfGeoTransform, 0, sizeof(adfGeoTransform));
 }
 
@@ -3098,9 +3099,6 @@ HFADataset::~HFADataset()
         }
         hHFA = nullptr;
     }
-
-    if (nGCPCount > 0)
-        GDALDeinitGCPs(36, asGCPList);
 }
 
 /************************************************************************/
@@ -4218,7 +4216,7 @@ CPLErr HFADataset::ReadProjection()
                          "configuration option to NO.",
                          pszProjName);
             }
-            m_oSRS = oSRSFromPE;
+            m_oSRS = std::move(oSRSFromPE);
         }
         CPLFree(pszPE_COORDSYS);
         return m_oSRS.IsEmpty() ? CE_Failure : CE_None;
@@ -4245,7 +4243,7 @@ CPLErr HFADataset::ReadProjection()
         CPLTestBool(CPLGetConfigOption("HFA_USE_ESRI_PE_STRING", "YES")) &&
         oSRSFromPE.importFromWkt(pszPE_COORDSYS) == OGRERR_NONE)
     {
-        m_oSRS = oSRSFromPE;
+        m_oSRS = std::move(oSRSFromPE);
 
         // Copy TOWGS84 clause from HFA SRS to PE SRS.
         if (poSRS != nullptr)
@@ -4618,28 +4616,21 @@ void HFADataset::UseXFormStack(int nStepCount, Efga_Polynomial *pasPLForward,
 
 {
     // Generate GCPs using the transform.
-    nGCPCount = 0;
-    GDALInitGCPs(36, asGCPList);
-
     for (double dfYRatio = 0.0; dfYRatio < 1.001; dfYRatio += 0.2)
     {
         for (double dfXRatio = 0.0; dfXRatio < 1.001; dfXRatio += 0.2)
         {
             const double dfLine = 0.5 + (GetRasterYSize() - 1) * dfYRatio;
             const double dfPixel = 0.5 + (GetRasterXSize() - 1) * dfXRatio;
-            const int iGCP = nGCPCount;
 
-            asGCPList[iGCP].dfGCPPixel = dfPixel;
-            asGCPList[iGCP].dfGCPLine = dfLine;
-
-            asGCPList[iGCP].dfGCPX = dfPixel;
-            asGCPList[iGCP].dfGCPY = dfLine;
-            asGCPList[iGCP].dfGCPZ = 0.0;
-
+            gdal::GCP gcp("", "", dfPixel, dfLine,
+                          /* X = */ dfPixel,
+                          /* Y = */ dfLine);
             if (HFAEvaluateXFormStack(nStepCount, FALSE, pasPLReverse,
-                                      &(asGCPList[iGCP].dfGCPX),
-                                      &(asGCPList[iGCP].dfGCPY)))
-                nGCPCount++;
+                                      &(gcp.X()), &(gcp.Y())))
+            {
+                m_aoGCPs.emplace_back(std::move(gcp));
+            }
         }
     }
 
@@ -4715,7 +4706,7 @@ void HFADataset::UseXFormStack(int nStepCount, Efga_Polynomial *pasPLForward,
 int HFADataset::GetGCPCount()
 {
     const int nPAMCount = GDALPamDataset::GetGCPCount();
-    return nPAMCount > 0 ? nPAMCount : nGCPCount;
+    return nPAMCount > 0 ? nPAMCount : static_cast<int>(m_aoGCPs.size());
 }
 
 /************************************************************************/
@@ -4728,7 +4719,7 @@ const OGRSpatialReference *HFADataset::GetGCPSpatialRef() const
     const OGRSpatialReference *poSRS = GDALPamDataset::GetGCPSpatialRef();
     if (poSRS)
         return poSRS;
-    return nGCPCount > 0 && !m_oSRS.IsEmpty() ? &m_oSRS : nullptr;
+    return !m_aoGCPs.empty() && !m_oSRS.IsEmpty() ? &m_oSRS : nullptr;
 }
 
 /************************************************************************/
@@ -4740,7 +4731,7 @@ const GDAL_GCP *HFADataset::GetGCPs()
     const GDAL_GCP *psPAMGCPs = GDALPamDataset::GetGCPs();
     if (psPAMGCPs)
         return psPAMGCPs;
-    return asGCPList;
+    return gdal::GCP::c_ptr(m_aoGCPs);
 }
 
 /************************************************************************/

@@ -70,7 +70,6 @@ class ZarrDataset final : public GDALDataset
 
     CPLErr FlushCache(bool bAtClosing = false) override;
 
-    static int Identify(GDALOpenInfo *poOpenInfo);
     static GDALDataset *Open(GDALOpenInfo *poOpenInfo);
     static GDALDataset *
     CreateMultiDimensional(const char *pszFilename,
@@ -252,6 +251,7 @@ class ZarrSharedResource
     std::shared_ptr<GDALPamMultiDim> m_poPAM{};
     CPLStringList m_aosOpenOptions{};
     std::weak_ptr<ZarrGroupBase> m_poWeakRootGroup{};
+    std::set<std::string> m_oSetArrayInLoading{};
 
     explicit ZarrSharedResource(const std::string &osRootDirectoryName,
                                 bool bUpdatable);
@@ -314,6 +314,35 @@ class ZarrSharedResource
     {
         m_poWeakRootGroup = poRootGroup;
     }
+
+    bool AddArrayInLoading(const std::string &osZarrayFilename);
+    void RemoveArrayInLoading(const std::string &osZarrayFilename);
+
+    struct SetFilenameAdder
+    {
+        std::shared_ptr<ZarrSharedResource> m_poSharedResource;
+        const std::string m_osFilename;
+        const bool m_bOK;
+
+        SetFilenameAdder(
+            const std::shared_ptr<ZarrSharedResource> &poSharedResource,
+            const std::string &osFilename)
+            : m_poSharedResource(poSharedResource), m_osFilename(osFilename),
+              m_bOK(m_poSharedResource->AddArrayInLoading(m_osFilename))
+        {
+        }
+
+        ~SetFilenameAdder()
+        {
+            if (m_bOK)
+                m_poSharedResource->RemoveArrayInLoading(m_osFilename);
+        }
+
+        bool ok() const
+        {
+            return m_bOK;
+        }
+    };
 };
 
 /************************************************************************/
@@ -519,8 +548,8 @@ class ZarrV2Group final : public ZarrGroupBase
     std::shared_ptr<ZarrArray>
     LoadArray(const std::string &osArrayName,
               const std::string &osZarrayFilename, const CPLJSONObject &oRoot,
-              bool bLoadedFromZMetadata, const CPLJSONObject &oAttributes,
-              std::set<std::string> &oSetFilenamesInLoading) const;
+              bool bLoadedFromZMetadata,
+              const CPLJSONObject &oAttributes) const;
 
     std::shared_ptr<GDALMDArray> CreateMDArray(
         const std::string &osName,
@@ -570,10 +599,9 @@ class ZarrV3Group final : public ZarrGroupBase
     CreateGroup(const std::string &osName,
                 CSLConstList papszOptions = nullptr) override;
 
-    std::shared_ptr<ZarrArray>
-    LoadArray(const std::string &osArrayName,
-              const std::string &osZarrayFilename, const CPLJSONObject &oRoot,
-              std::set<std::string> &oSetFilenamesInLoading) const;
+    std::shared_ptr<ZarrArray> LoadArray(const std::string &osArrayName,
+                                         const std::string &osZarrayFilename,
+                                         const CPLJSONObject &oRoot) const;
 
     std::shared_ptr<GDALMDArray> CreateMDArray(
         const std::string &osName,
@@ -690,28 +718,34 @@ class ZarrByteVectorQuickResize
     {
         return m_nSize == 0;
     }
+
     inline size_t size() const
     {
         return m_nSize;
     }
+
     inline size_t capacity() const
     {
         // Not a typo: the capacity of this object is the size
         // of the underlying std::vector
         return m_oVec.size();
     }
+
     inline GByte *data()
     {
         return m_oVec.data();
     }
+
     inline const GByte *data() const
     {
         return m_oVec.data();
     }
+
     inline GByte operator[](size_t idx) const
     {
         return m_oVec[idx];
     }
+
     inline GByte &operator[](size_t idx)
     {
         return m_oVec[idx];
@@ -763,10 +797,12 @@ class ZarrArray CPL_NON_FINAL : public GDALPamMDArray
     mutable bool m_bHasTriedCacheTilePresenceArray = false;
     mutable std::shared_ptr<GDALMDArray> m_poCacheTilePresenceArray{};
     mutable std::mutex m_oMutex{};
+
     struct CachedTile
     {
         ZarrByteVectorQuickResize abyDecoded{};
     };
+
     mutable std::map<uint64_t, CachedTile> m_oMapTileIndexToCachedTile{};
 
     static uint64_t
@@ -943,7 +979,8 @@ class ZarrArray CPL_NON_FINAL : public GDALPamMDArray
         m_osDimSeparator = osDimSeparator;
     }
 
-    void ParseSpecialAttributes(CPLJSONObject &oAttributes);
+    void ParseSpecialAttributes(const std::shared_ptr<GDALGroup> &poGroup,
+                                CPLJSONObject &oAttributes);
 
     void SetAttributes(const CPLJSONObject &attrs)
     {
@@ -1178,6 +1215,7 @@ class ZarrV3Codec CPL_NON_FINAL
     {
         return m_osName;
     }
+
     const CPLJSONObject &GetConfiguration() const
     {
         return m_oConfiguration;
@@ -1208,6 +1246,7 @@ class ZarrV3CodecGZip final : public ZarrV3Codec
     {
         return IOType::BYTES;
     }
+
     IOType GetOutputType() const override
     {
         return IOType::BYTES;
@@ -1252,6 +1291,7 @@ class ZarrV3CodecBlosc final : public ZarrV3Codec
     {
         return IOType::BYTES;
     }
+
     IOType GetOutputType() const override
     {
         return IOType::BYTES;
@@ -1293,6 +1333,7 @@ class ZarrV3CodecEndian final : public ZarrV3Codec
     {
         return IOType::ARRAY;
     }
+
     IOType GetOutputType() const override
     {
         return IOType::BYTES;
@@ -1355,6 +1396,7 @@ class ZarrV3CodecTranspose final : public ZarrV3Codec
     {
         return IOType::ARRAY;
     }
+
     IOType GetOutputType() const override
     {
         return IOType::ARRAY;

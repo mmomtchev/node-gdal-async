@@ -36,9 +36,11 @@
 /*                            OGRGmtLayer()                             */
 /************************************************************************/
 
-OGRGmtLayer::OGRGmtLayer(const char *pszFilename, VSILFILE *fp,
-                         const OGRSpatialReference *poSRS, int bUpdateIn)
-    : poFeatureDefn(nullptr), iNextFID(0), bUpdate(CPL_TO_BOOL(bUpdateIn)),
+OGRGmtLayer::OGRGmtLayer(GDALDataset *poDS, const char *pszFilename,
+                         VSILFILE *fp, const OGRSpatialReference *poSRS,
+                         int bUpdateIn)
+    : m_poDS(poDS), poFeatureDefn(nullptr), iNextFID(0),
+      bUpdate(CPL_TO_BOOL(bUpdateIn)),
       // Assume header complete in readonly mode.
       bHeaderComplete(CPL_TO_BOOL(!bUpdate)), bRegionComplete(false),
       nRegionOffset(0),
@@ -99,23 +101,23 @@ OGRGmtLayer::OGRGmtLayer(const char *pszFilename, VSILFILE *fp,
                     papszKeyedValues[iKey][1] != 0 &&
                     papszKeyedValues[iKey][2] != 0)
                 {
-                    CPLString osArg = papszKeyedValues[iKey] + 2;
+                    std::string osArg = papszKeyedValues[iKey] + 2;
                     if (osArg[0] == '"' && osArg.size() >= 2 &&
                         osArg.back() == '"')
                     {
                         osArg = osArg.substr(1, osArg.length() - 2);
                         char *pszArg = CPLUnescapeString(
-                            osArg, nullptr, CPLES_BackslashQuotable);
+                            osArg.c_str(), nullptr, CPLES_BackslashQuotable);
                         osArg = pszArg;
                         CPLFree(pszArg);
                     }
 
                     if (papszKeyedValues[iKey][1] == 'e')
-                        osEPSG = osArg;
+                        osEPSG = std::move(osArg);
                     if (papszKeyedValues[iKey][1] == 'p')
-                        osProj4 = osArg;
+                        osProj4 = std::move(osArg);
                     if (papszKeyedValues[iKey][1] == 'w')
-                        osWKT = osArg;
+                        osWKT = std::move(osArg);
                 }
             }
 
@@ -1025,7 +1027,7 @@ int OGRGmtLayer::TestCapability(const char *pszCap)
 /*                            CreateField()                             */
 /************************************************************************/
 
-OGRErr OGRGmtLayer::CreateField(OGRFieldDefn *poField, int bApproxOK)
+OGRErr OGRGmtLayer::CreateField(const OGRFieldDefn *poField, int bApproxOK)
 
 {
     if (!bUpdate)

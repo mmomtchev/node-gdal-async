@@ -39,6 +39,7 @@
 
 class OGRDGNLayer final : public OGRLayer
 {
+    GDALDataset *m_poDS = nullptr;
     OGRFeatureDefn *poFeatureDefn;
 
     int iNextShapeId;
@@ -63,10 +64,12 @@ class OGRDGNLayer final : public OGRLayer
     OGRErr CreateFeatureWithGeom(OGRFeature *, const OGRGeometry *);
 
   public:
-    OGRDGNLayer(const char *pszName, DGNHandle hDGN, int bUpdate);
+    OGRDGNLayer(GDALDataset *poDS, const char *pszName, DGNHandle hDGN,
+                int bUpdate);
     virtual ~OGRDGNLayer();
 
     void SetSpatialFilter(OGRGeometry *) override;
+
     virtual void SetSpatialFilter(int iGeomField, OGRGeometry *poGeom) override
     {
         OGRLayer::SetSpatialFilter(iGeomField, poGeom);
@@ -78,6 +81,7 @@ class OGRDGNLayer final : public OGRLayer
 
     virtual GIntBig GetFeatureCount(int bForce = TRUE) override;
     virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
+
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce) override
     {
@@ -92,6 +96,11 @@ class OGRDGNLayer final : public OGRLayer
     int TestCapability(const char *) override;
 
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
+
+    GDALDataset *GetDataset() override
+    {
+        return m_poDS;
+    }
 };
 
 /************************************************************************/
@@ -115,18 +124,20 @@ class OGRDGNDataSource final : public OGRDataSource
     int Open(const char *, int bTestOpen, int bUpdate);
     bool PreCreate(const char *, char **);
 
-    OGRLayer *ICreateLayer(const char *, const OGRSpatialReference * = nullptr,
-                           OGRwkbGeometryType = wkbUnknown,
-                           char ** = nullptr) override;
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList) override;
 
     const char *GetName() override
     {
         return pszName;
     }
+
     int GetLayerCount() override
     {
         return nLayers;
     }
+
     OGRLayer *GetLayer(int) override;
 
     int TestCapability(const char *) override;

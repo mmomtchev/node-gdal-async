@@ -26,7 +26,8 @@
 				"../gdal/frmts/png/libpng/pngget.c",
 				"../gdal/frmts/png/libpng/pngset.c",
 				"../gdal/frmts/png/libpng/pngrio.c",
-				"../gdal/frmts/png/libpng/pngwrite.c"
+				"../gdal/frmts/png/libpng/pngwrite.c",
+        "../gdal/frmts/png/pngdrivercore.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/png",

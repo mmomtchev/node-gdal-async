@@ -178,14 +178,17 @@ OGRErr OGRCompoundCurve::importFromWkb(const unsigned char *pabyData,
 /************************************************************************/
 /*                            exportToWkb()                             */
 /************************************************************************/
-OGRErr OGRCompoundCurve::exportToWkb(OGRwkbByteOrder eByteOrder,
-                                     unsigned char *pabyData,
-                                     OGRwkbVariant eWkbVariant) const
+
+OGRErr OGRCompoundCurve::exportToWkb(unsigned char *pabyData,
+                                     const OGRwkbExportOptions *psOptions) const
 {
+    OGRwkbExportOptions sOptions(psOptions ? *psOptions
+                                           : OGRwkbExportOptions());
+
     // Does not make sense for new geometries, so patch it.
-    if (eWkbVariant == wkbVariantOldOgc)
-        eWkbVariant = wkbVariantIso;
-    return oCC.exportToWkb(this, eByteOrder, pabyData, eWkbVariant);
+    if (sOptions.eWkbVariant == wkbVariantOldOgc)
+        sOptions.eWkbVariant = wkbVariantIso;
+    return oCC.exportToWkb(this, pabyData, &sOptions);
 }
 
 /************************************************************************/
@@ -736,6 +739,7 @@ class OGRCompoundCurvePointIterator final : public OGRPointIterator
         : poCC(poCCIn)
     {
     }
+
     ~OGRCompoundCurvePointIterator() override
     {
         delete poCurveIter;
@@ -883,6 +887,7 @@ OGRCurveCasterToLinearRing OGRCompoundCurve::GetCasterToLinearRing() const
 {
     return OGRCompoundCurve::CasterToLinearRing;
 }
+
 //! @endcond
 
 /************************************************************************/
@@ -917,6 +922,32 @@ double OGRCompoundCurve::get_Area() const
 
     OGRLineString *poLS = CurveToLine();
     double dfArea = poLS->get_Area();
+    delete poLS;
+
+    return dfArea;
+}
+
+/************************************************************************/
+/*                        get_GeodesicArea()                            */
+/************************************************************************/
+
+double OGRCompoundCurve::get_GeodesicArea(
+    const OGRSpatialReference *poSRSOverride) const
+{
+    if (IsEmpty())
+        return 0;
+
+    if (!get_IsClosed())
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "Non-closed geometry");
+        return -1;
+    }
+
+    if (!poSRSOverride)
+        poSRSOverride = getSpatialReference();
+
+    OGRLineString *poLS = CurveToLine();
+    const double dfArea = poLS->get_GeodesicArea(poSRSOverride);
     delete poLS;
 
     return dfArea;

@@ -99,7 +99,7 @@ class CPL_DLL OGRMutexedLayer : public OGRLayerDecorator
 
     virtual int TestCapability(const char *) override;
 
-    virtual OGRErr CreateField(OGRFieldDefn *poField,
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
     virtual OGRErr DeleteField(int iField) override;
     virtual OGRErr ReorderFields(int *panMap) override;
@@ -124,7 +124,7 @@ class CPL_DLL OGRMutexedLayer : public OGRLayerDecorator
     virtual const char *GetFIDColumn() override;
     virtual const char *GetGeometryColumn() override;
 
-    virtual OGRErr SetIgnoredFields(const char **papszFields) override;
+    virtual OGRErr SetIgnoredFields(CSLConstList papszFields) override;
 
     virtual char **GetMetadata(const char *pszDomain = "") override;
     virtual CPLErr SetMetadata(char **papszMetadata,

@@ -1183,8 +1183,8 @@ char *OGRPGCommonGByteArrayToBYTEA(const GByte *pabyData, size_t nLen)
 /*                       OGRPGCommonLayerGetType()                      */
 /************************************************************************/
 
-CPLString OGRPGCommonLayerGetType(OGRFieldDefn &oField, bool bPreservePrecision,
-                                  bool bApproxOK)
+CPLString OGRPGCommonLayerGetType(const OGRFieldDefn &oField,
+                                  bool bPreservePrecision, bool bApproxOK)
 {
     const char *pszFieldType = "";
 
@@ -1558,7 +1558,7 @@ CPLString OGRPGCommonLayerGetPGDefault(OGRFieldDefn *poFieldDefn)
 /*                           GetNextFeature()                           */
 /************************************************************************/
 
-OGRErr OGRPGDumpLayer::CreateField(OGRFieldDefn *poFieldIn, int bApproxOK)
+OGRErr OGRPGDumpLayer::CreateField(const OGRFieldDefn *poFieldIn, int bApproxOK)
 {
     if (m_poFeatureDefn->GetFieldCount() +
             m_poFeatureDefn->GetGeomFieldCount() ==
@@ -1592,8 +1592,8 @@ OGRErr OGRPGDumpLayer::CreateField(OGRFieldDefn *poFieldIn, int bApproxOK)
     /* -------------------------------------------------------------------- */
     if (m_bLaunderColumnNames)
     {
-        char *pszSafeName =
-            OGRPGCommonLaunderName(oField.GetNameRef(), "PGDump");
+        char *pszSafeName = OGRPGCommonLaunderName(oField.GetNameRef(),
+                                                   "PGDump", m_bUTF8ToASCII);
 
         oField.SetName(pszSafeName);
         CPLFree(pszSafeName);
@@ -1677,7 +1677,7 @@ OGRErr OGRPGDumpLayer::CreateField(OGRFieldDefn *poFieldIn, int bApproxOK)
 /*                           CreateGeomField()                          */
 /************************************************************************/
 
-OGRErr OGRPGDumpLayer::CreateGeomField(OGRGeomFieldDefn *poGeomFieldIn,
+OGRErr OGRPGDumpLayer::CreateGeomField(const OGRGeomFieldDefn *poGeomFieldIn,
                                        int /* bApproxOK */)
 {
     if (m_poFeatureDefn->GetFieldCount() +
@@ -1711,7 +1711,7 @@ OGRErr OGRPGDumpLayer::CreateGeomField(OGRGeomFieldDefn *poGeomFieldIn,
 
     CPLString osCommand;
     auto poGeomField =
-        cpl::make_unique<OGRPGDumpGeomFieldDefn>(&oTmpGeomFieldDefn);
+        std::make_unique<OGRPGDumpGeomFieldDefn>(&oTmpGeomFieldDefn);
 
     /* -------------------------------------------------------------------- */
     /*      Do we want to "launder" the column names into Postgres          */
@@ -1719,8 +1719,8 @@ OGRErr OGRPGDumpLayer::CreateGeomField(OGRGeomFieldDefn *poGeomFieldIn,
     /* -------------------------------------------------------------------- */
     if (m_bLaunderColumnNames)
     {
-        char *pszSafeName =
-            OGRPGCommonLaunderName(poGeomField->GetNameRef(), "PGDump");
+        char *pszSafeName = OGRPGCommonLaunderName(poGeomField->GetNameRef(),
+                                                   "PGDump", m_bUTF8ToASCII);
 
         poGeomField->SetName(pszSafeName);
         CPLFree(pszSafeName);
@@ -1959,4 +1959,13 @@ void OGRPGDumpLayer::SetForcedDescription(const char *pszDescriptionIn)
                          OGRPGDumpEscapeString(pszDescriptionIn).c_str());
         m_poDS->Log(osCommand);
     }
+}
+
+/************************************************************************/
+/*                             GetDataset()                             */
+/************************************************************************/
+
+GDALDataset *OGRPGDumpLayer::GetDataset()
+{
+    return m_poDS;
 }

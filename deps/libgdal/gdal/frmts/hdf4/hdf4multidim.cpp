@@ -65,10 +65,12 @@ class HDF4SharedResources
     {
         return m_hSD;
     }
+
     const std::string &GetFilename() const
     {
         return m_osFilename;
     }
+
     const char *FetchOpenOption(const char *pszName,
                                 const char *pszDefault) const
     {
@@ -173,6 +175,7 @@ struct HDF4SwathsHandle
     explicit HDF4SwathsHandle(int32 handle) : m_handle(handle)
     {
     }
+
     ~HDF4SwathsHandle()
     {
         CPLMutexHolderD(&hHDF4Mutex);
@@ -194,6 +197,7 @@ struct HDF4SwathHandle
         : m_poSwathsHandle(poSwathsHandle), m_handle(handle)
     {
     }
+
     ~HDF4SwathHandle()
     {
         CPLMutexHolderD(&hHDF4Mutex);
@@ -393,6 +397,7 @@ struct HDF4GDsHandle
     explicit HDF4GDsHandle(int32 handle) : m_handle(handle)
     {
     }
+
     ~HDF4GDsHandle()
     {
         CPLMutexHolderD(&hHDF4Mutex);
@@ -414,6 +419,7 @@ struct HDF4GDHandle
         : m_poGDsHandle(poGDsHandle), m_handle(handle)
     {
     }
+
     ~HDF4GDHandle()
     {
         CPLMutexHolderD(&hHDF4Mutex);
@@ -466,6 +472,7 @@ class HDF4EOSGridGroup final : public GDALGroup
           m_poGDHandle(poGDHandle)
     {
     }
+
     std::vector<std::shared_ptr<GDALDimension>>
     GetDimensions(CSLConstList papszOptions = nullptr) const override;
 
@@ -652,6 +659,7 @@ class HDF4SDSGroup final : public GDALGroup
     {
         m_bIsGDALDataset = true;
     }
+
     void SetGlobalAttributes(
         const std::vector<std::shared_ptr<GDALAttribute>> &attrs)
     {
@@ -774,6 +782,7 @@ struct HDF4GRsHandle
         : m_hHandle(hHandle), m_grHandle(grHandle)
     {
     }
+
     ~HDF4GRsHandle()
     {
         CPLMutexHolderD(&hHDF4Mutex);
@@ -796,6 +805,7 @@ struct HDF4GRHandle
         : m_poGRsHandle(poGRsHandle), m_iGR(iGR)
     {
     }
+
     ~HDF4GRHandle()
     {
         CPLMutexHolderD(&hHDF4Mutex);
@@ -2512,7 +2522,7 @@ HDF4SDSGroup::GetDimensions(CSLConstList) const
     std::string osTransformationMatrix;
     if (m_bIsGDALDataset)
     {
-        for (auto &poAttr : m_oGlobalAttributes)
+        for (const auto &poAttr : m_oGlobalAttributes)
         {
             if (poAttr->GetName() == "Projection" &&
                 poAttr->GetDataType().GetClass() == GEDTC_STRING)
@@ -2622,7 +2632,7 @@ HDF4SDSGroup::GetDimensions(CSLConstList) const
                         GetFullName(), "Band", std::string(), std::string(),
                         m_dims[2]->GetSize()));
             }
-            m_dims = newDims;
+            m_dims = std::move(newDims);
 
             m_varX = GDALMDArrayRegularlySpaced::Create(
                 GetFullName(), m_dims[1]->GetName(), m_dims[1],
@@ -2644,7 +2654,7 @@ HDF4SDSGroup::GetDimensions(CSLConstList) const
         if (poArray)
         {
             m_oSetIndexingVariables.push_back(poArray);
-            poDim->SetIndexingVariable(poArray);
+            poDim->SetIndexingVariable(std::move(poArray));
         }
     }
 
@@ -2812,7 +2822,7 @@ std::shared_ptr<OGRSpatialReference> HDF4SDSArray::GetSpatialRef() const
     if (m_bIsGDALDataset)
     {
         std::string osProjection;
-        for (auto &poAttr : m_oGlobalAttributes)
+        for (const auto &poAttr : m_oGlobalAttributes)
         {
             if (poAttr->GetName() == "Projection" &&
                 poAttr->GetDataType().GetClass() == GEDTC_STRING)

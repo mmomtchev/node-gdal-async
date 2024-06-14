@@ -84,7 +84,8 @@ OGRElasticLayer::OGRElasticLayer(const char *pszLayerName,
                                  const char *pszIndexName,
                                  const char *pszMappingName,
                                  OGRElasticDataSource *poDS,
-                                 char **papszOptions, const char *pszESSearch)
+                                 CSLConstList papszOptions,
+                                 const char *pszESSearch)
     :
 
       m_poDS(poDS), m_osIndexName(pszIndexName ? pszIndexName : ""),
@@ -1414,7 +1415,8 @@ static void decode_geohash_bbox(const char *geohash, double lat[2],
     hashlen = static_cast<int>(strlen(geohash));
     for (i = 0; i < hashlen; i++)
     {
-        c = static_cast<char>(tolower(geohash[i]));
+        c = static_cast<char>(
+            CPLTolower(static_cast<unsigned char>(geohash[i])));
         cd = static_cast<char>(strchr(BASE32, c) - BASE32);
         for (j = 0; j < 5; j++)
         {
@@ -2898,7 +2900,7 @@ bool OGRElasticLayer::PushIndex()
 /*                            CreateField()                             */
 /************************************************************************/
 
-OGRErr OGRElasticLayer::CreateField(OGRFieldDefn *poFieldDefn,
+OGRErr OGRElasticLayer::CreateField(const OGRFieldDefn *poFieldDefn,
                                     int /*bApproxOK*/)
 {
     if (m_poDS->GetAccess() != GA_Update)
@@ -2951,7 +2953,7 @@ OGRErr OGRElasticLayer::CreateField(OGRFieldDefn *poFieldDefn,
 /*                           CreateGeomField()                          */
 /************************************************************************/
 
-OGRErr OGRElasticLayer::CreateGeomField(OGRGeomFieldDefn *poFieldIn,
+OGRErr OGRElasticLayer::CreateGeomField(const OGRGeomFieldDefn *poFieldIn,
                                         int /*bApproxOK*/)
 
 {
@@ -3998,4 +4000,13 @@ OGRErr OGRElasticLayer::GetExtent(int iGeomField, OGREnvelope *psExtent,
     json_object_put(poResponse);
 
     return eErr;
+}
+
+/************************************************************************/
+/*                             GetDataset()                             */
+/************************************************************************/
+
+GDALDataset *OGRElasticLayer::GetDataset()
+{
+    return m_poDS;
 }

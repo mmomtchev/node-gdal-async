@@ -1433,7 +1433,8 @@ void OWUpperIfNoQuotes(char *pszText)
 
     for (size_t i = 0; i < nSize; i++)
     {
-        pszText[i] = static_cast<char>(toupper(pszText[i]));
+        pszText[i] =
+            static_cast<char>(toupper(static_cast<unsigned char>(pszText[i])));
     }
 }
 
@@ -1488,7 +1489,7 @@ CPLString OWParseSDO_GEOR_INIT(const char *pszInsert, int nField)
 
     for (pszIn = szUpcase; *pszIn != '\0'; pszIn++)
     {
-        *pszIn = (char)toupper(*pszIn);
+        *pszIn = (char)toupper(static_cast<unsigned char>(*pszIn));
     }
 
     char *pszStart = strstr(szUpcase, "SDO_GEOR.INIT");
@@ -1596,7 +1597,6 @@ const char *OWSetDataType(const GDALDataType eType)
 /*****************************************************************************/
 /*                            Check for Failure                              */
 /*****************************************************************************/
-
 bool CheckError(sword nStatus, OCIError *hError)
 {
     text szMsg[OWTEXT];
@@ -1637,6 +1637,28 @@ bool CheckError(sword nStatus, OCIError *hError)
 
             if (nCode == 1405)  // Null field
             {
+                return false;
+            }
+            else if (
+                nCode == 28002 ||
+                nCode ==
+                    28098)  // password expires codes (ORA-28002, ORA-28098)
+            {
+                static bool bPasswordExpiredLogged = false;
+                if (!bPasswordExpiredLogged)
+                {
+                    bPasswordExpiredLogged = true;
+                    // Workaround, when this is called with gdal_translate,
+                    // the error message is not printed because it has
+                    // an error handler that suppresses the message.
+                    // It pushes a default error handler that prints the message,
+                    // and then pops it to restore the previous error handler.
+
+                    CPLPushErrorHandler(CPLDefaultErrorHandler);
+                    CPLError(CE_Warning, CPLE_AppDefined, "%s", szMsg);
+                    CPLPopErrorHandler();
+                }
+
                 return false;
             }
 

@@ -284,7 +284,7 @@ bool GDALPDFComposerWriter::CreateLayerTree(const CPLXMLNode *psNode,
             auto nThisObjId = WriteOCG(pszName, nParentId);
             m_oMapLayerIdToOCG[pszId] = nThisObjId;
 
-            auto newTreeOfOCG = cpl::make_unique<TreeOfOCG>();
+            auto newTreeOfOCG = std::make_unique<TreeOfOCG>();
             newTreeOfOCG->m_nNum = nThisObjId;
             newTreeOfOCG->m_bInitiallyVisible = bInitiallyVisible;
             parent->m_children.emplace_back(std::move(newTreeOfOCG));
@@ -319,7 +319,7 @@ bool GDALPDFComposerWriter::ParseActions(
         if (psIter->eType == CXT_Element &&
             strcmp(psIter->pszValue, "GotoPageAction") == 0)
         {
-            auto poAction = cpl::make_unique<GotoPageAction>();
+            auto poAction = std::make_unique<GotoPageAction>();
             const char *pszPageId = CPLGetXMLValue(psIter, "pageId", nullptr);
             if (!pszPageId)
             {
@@ -395,7 +395,7 @@ bool GDALPDFComposerWriter::ParseActions(
         else if (psIter->eType == CXT_Element &&
                  strcmp(psIter->pszValue, "JavascriptAction") == 0)
         {
-            auto poAction = cpl::make_unique<JavascriptAction>();
+            auto poAction = std::make_unique<JavascriptAction>();
             poAction->m_osScript = CPLGetXMLValue(psIter, nullptr, "");
             actions.push_back(std::move(poAction));
         }
@@ -403,7 +403,7 @@ bool GDALPDFComposerWriter::ParseActions(
 
     if (!anONLayers.empty() || !anOFFLayers.empty())
     {
-        auto poAction = cpl::make_unique<SetLayerStateAction>();
+        auto poAction = std::make_unique<SetLayerStateAction>();
         poAction->m_anONLayers = std::move(anONLayers);
         poAction->m_anOFFLayers = std::move(anOFFLayers);
         actions.push_back(std::move(poAction));
@@ -424,7 +424,7 @@ bool GDALPDFComposerWriter::CreateOutlineFirstPass(const CPLXMLNode *psNode,
         if (psIter->eType == CXT_Element &&
             strcmp(psIter->pszValue, "OutlineItem") == 0)
         {
-            auto newItem = cpl::make_unique<OutlineItem>();
+            auto newItem = std::make_unique<OutlineItem>();
             const char *pszName = CPLGetXMLValue(psIter, "name", nullptr);
             if (!pszName)
             {
@@ -662,7 +662,7 @@ bool GDALPDFComposerWriter::GenerateGeoreferencing(
         }
     }
 
-    std::vector<GDAL_GCP> aGCPs;
+    std::vector<gdal::GCP> aGCPs;
     for (const auto *psIter = psGeoreferencing->psChild; psIter;
          psIter = psIter->psNext)
     {
@@ -680,15 +680,8 @@ bool GDALPDFComposerWriter::GenerateGeoreferencing(
                          "missing on ControlPoint");
                 return false;
             }
-            GDAL_GCP gcp;
-            gcp.pszId = nullptr;
-            gcp.pszInfo = nullptr;
-            gcp.dfGCPPixel = CPLAtof(pszx);
-            gcp.dfGCPLine = CPLAtof(pszy);
-            gcp.dfGCPX = CPLAtof(pszX);
-            gcp.dfGCPY = CPLAtof(pszY);
-            gcp.dfGCPZ = 0;
-            aGCPs.emplace_back(std::move(gcp));
+            aGCPs.emplace_back(nullptr, nullptr, CPLAtof(pszx), CPLAtof(pszy),
+                               CPLAtof(pszX), CPLAtof(pszY));
         }
     }
     if (aGCPs.size() < 4)
@@ -736,7 +729,7 @@ bool GDALPDFComposerWriter::GenerateGeoreferencing(
         CPLError(CE_Failure, CPLE_NotSupported, "Missing SRS");
         return false;
     }
-    auto poSRS = cpl::make_unique<OGRSpatialReference>();
+    auto poSRS = std::make_unique<OGRSpatialReference>();
     if (poSRS->SetFromUserInput(pszSRS) != OGRERR_NONE)
     {
         return false;
@@ -771,7 +764,8 @@ bool GDALPDFComposerWriter::GenerateGeoreferencing(
     if (pszId)
     {
         if (!GDALGCPsToGeoTransform(static_cast<int>(aGCPs.size()),
-                                    aGCPs.data(), georeferencing.m_adfGT, TRUE))
+                                    gdal::GCP::c_ptr(aGCPs),
+                                    georeferencing.m_adfGT, TRUE))
         {
             CPLError(CE_Failure, CPLE_AppDefined,
                      "Could not compute geotransform with approximate match.");
@@ -809,7 +803,7 @@ bool GDALPDFComposerWriter::GenerateGeoreferencing(
 
 GDALPDFObjectNum GDALPDFComposerWriter::GenerateISO32000_Georeferencing(
     OGRSpatialReferenceH hSRS, double bboxX1, double bboxY1, double bboxX2,
-    double bboxY2, const std::vector<GDAL_GCP> &aGCPs,
+    double bboxY2, const std::vector<gdal::GCP> &aGCPs,
     const std::vector<xyPair> &aBoundingPolygon)
 {
     OGRSpatialReferenceH hSRSGeog = OSRCloneGeogCS(hSRS);
@@ -826,22 +820,15 @@ GDALPDFObjectNum GDALPDFComposerWriter::GenerateISO32000_Georeferencing(
         return GDALPDFObjectNum();
     }
 
-    std::vector<GDAL_GCP> aGCPReprojected;
+    std::vector<gdal::GCP> aGCPReprojected;
     bool bSuccess = true;
     for (const auto &gcp : aGCPs)
     {
-        double X = gcp.dfGCPX;
-        double Y = gcp.dfGCPY;
+        double X = gcp.X();
+        double Y = gcp.Y();
         bSuccess &= OCTTransform(hCT, 1, &X, &Y, nullptr) == 1;
-        GDAL_GCP newGCP;
-        newGCP.pszId = nullptr;
-        newGCP.pszInfo = nullptr;
-        newGCP.dfGCPPixel = gcp.dfGCPPixel;
-        newGCP.dfGCPLine = gcp.dfGCPLine;
-        newGCP.dfGCPX = X;
-        newGCP.dfGCPY = Y;
-        newGCP.dfGCPZ = 0;
-        aGCPReprojected.emplace_back(std::move(newGCP));
+        aGCPReprojected.emplace_back(nullptr, nullptr, gcp.Pixel(), gcp.Line(),
+                                     X, Y);
     }
     if (!bSuccess)
     {
@@ -891,12 +878,12 @@ GDALPDFObjectNum GDALPDFComposerWriter::GenerateISO32000_Georeferencing(
         atoi(CPLGetConfigOption("PDF_COORD_DOUBLE_PRECISION", "16"));
     for (const auto &gcp : aGCPReprojected)
     {
-        poGPTS->AddWithPrecision(gcp.dfGCPY, nPrecision)
-            .AddWithPrecision(gcp.dfGCPX, nPrecision);  // Lat, long order
+        poGPTS->AddWithPrecision(gcp.Y(), nPrecision)
+            .AddWithPrecision(gcp.X(), nPrecision);  // Lat, long order
         poLPTS
-            ->AddWithPrecision((gcp.dfGCPPixel - bboxX1) / (bboxX2 - bboxX1),
+            ->AddWithPrecision((gcp.Pixel() - bboxX1) / (bboxX2 - bboxX1),
                                nPrecision)
-            .AddWithPrecision((gcp.dfGCPLine - bboxY1) / (bboxY2 - bboxY1),
+            .AddWithPrecision((gcp.Line() - bboxY1) / (bboxY2 - bboxY1),
                               nPrecision);
     }
 
@@ -942,7 +929,7 @@ GDALPDFObjectNum GDALPDFComposerWriter::GenerateISO32000_Georeferencing(
 
 GDALPDFObjectNum GDALPDFComposerWriter::GenerateOGC_BP_Georeferencing(
     OGRSpatialReferenceH hSRS, double bboxX1, double bboxY1, double bboxX2,
-    double bboxY2, const std::vector<GDAL_GCP> &aGCPs,
+    double bboxY2, const std::vector<gdal::GCP> &aGCPs,
     const std::vector<xyPair> &aBoundingPolygon)
 {
     const OGRSpatialReference *poSRS = OGRSpatialReference::FromHandle(hSRS);
@@ -972,10 +959,10 @@ GDALPDFObjectNum GDALPDFComposerWriter::GenerateOGC_BP_Georeferencing(
     for (const auto &gcp : aGCPs)
     {
         GDALPDFArrayRW *poGCP = new GDALPDFArrayRW();
-        poGCP->Add(gcp.dfGCPPixel, TRUE)
-            .Add(gcp.dfGCPLine, TRUE)
-            .Add(gcp.dfGCPX, TRUE)
-            .Add(gcp.dfGCPY, TRUE);
+        poGCP->Add(gcp.Pixel(), TRUE)
+            .Add(gcp.Line(), TRUE)
+            .Add(gcp.X(), TRUE)
+            .Add(gcp.Y(), TRUE);
         poRegistration->Add(poGCP);
     }
 
@@ -1418,7 +1405,7 @@ bool GDALPDFComposerWriter::WriteRaster(const CPLXMLNode *psNode,
                      pszGeoreferencingId);
             return false;
         }
-        auto &georeferencing = iter->second;
+        const auto &georeferencing = iter->second;
         dfX1 = georeferencing.m_bboxX1;
         dfY1 = georeferencing.m_bboxY1;
         dfX2 = georeferencing.m_bboxX2;
@@ -1657,7 +1644,7 @@ bool GDALPDFComposerWriter::SetupVectorGeoreferencing(
                  "Cannot find georeferencing of id %s", pszGeoreferencingId);
         return false;
     }
-    auto &georeferencing = iter->second;
+    const auto &georeferencing = iter->second;
     const double dfX1 = georeferencing.m_bboxX1;
     const double dfY1 = georeferencing.m_bboxY1;
     const double dfX2 = georeferencing.m_bboxX2;

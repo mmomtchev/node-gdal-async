@@ -74,107 +74,169 @@ constexpr char ARROW_LETTER_LARGE_BINARY = 'Z';
 constexpr char ARROW_LETTER_DECIMAL = 'd';
 constexpr char ARROW_2ND_LETTER_LIST = 'l';
 constexpr char ARROW_2ND_LETTER_LARGE_LIST = 'L';
+
 static inline bool IsStructure(const char *format)
 {
     return format[0] == '+' && format[1] == 's' && format[2] == 0;
 }
+
 static inline bool IsMap(const char *format)
 {
     return format[0] == '+' && format[1] == 'm' && format[2] == 0;
 }
+
 static inline bool IsFixedWidthBinary(const char *format)
 {
     return format[0] == 'w' && format[1] == ':';
 }
+
 static inline int GetFixedWithBinary(const char *format)
 {
     return atoi(format + strlen("w:"));
 }
+
 static inline bool IsList(const char *format)
 {
     return format[0] == '+' && format[1] == ARROW_2ND_LETTER_LIST &&
            format[2] == 0;
 }
+
 static inline bool IsLargeList(const char *format)
 {
     return format[0] == '+' && format[1] == ARROW_2ND_LETTER_LARGE_LIST &&
            format[2] == 0;
 }
+
 static inline bool IsFixedSizeList(const char *format)
 {
     return format[0] == '+' && format[1] == 'w' && format[2] == ':';
 }
+
 static inline int GetFixedSizeList(const char *format)
 {
     return atoi(format + strlen("+w:"));
 }
+
 static inline bool IsDecimal(const char *format)
 {
     return format[0] == ARROW_LETTER_DECIMAL && format[1] == ':';
 }
+
 static inline bool IsBoolean(const char *format)
 {
     return format[0] == ARROW_LETTER_BOOLEAN && format[1] == 0;
 }
+
 static inline bool IsInt8(const char *format)
 {
     return format[0] == ARROW_LETTER_INT8 && format[1] == 0;
 }
+
 static inline bool IsUInt8(const char *format)
 {
     return format[0] == ARROW_LETTER_UINT8 && format[1] == 0;
 }
+
 static inline bool IsInt16(const char *format)
 {
     return format[0] == ARROW_LETTER_INT16 && format[1] == 0;
 }
+
 static inline bool IsUInt16(const char *format)
 {
     return format[0] == ARROW_LETTER_UINT16 && format[1] == 0;
 }
+
 static inline bool IsInt32(const char *format)
 {
     return format[0] == ARROW_LETTER_INT32 && format[1] == 0;
 }
+
 static inline bool IsUInt32(const char *format)
 {
     return format[0] == ARROW_LETTER_UINT32 && format[1] == 0;
 }
+
 static inline bool IsInt64(const char *format)
 {
     return format[0] == ARROW_LETTER_INT64 && format[1] == 0;
 }
+
 static inline bool IsUInt64(const char *format)
 {
     return format[0] == ARROW_LETTER_UINT64 && format[1] == 0;
 }
+
 static inline bool IsFloat16(const char *format)
 {
     return format[0] == ARROW_LETTER_FLOAT16 && format[1] == 0;
 }
+
 static inline bool IsFloat32(const char *format)
 {
     return format[0] == ARROW_LETTER_FLOAT32 && format[1] == 0;
 }
+
 static inline bool IsFloat64(const char *format)
 {
     return format[0] == ARROW_LETTER_FLOAT64 && format[1] == 0;
 }
+
 static inline bool IsString(const char *format)
 {
     return format[0] == ARROW_LETTER_STRING && format[1] == 0;
 }
+
 static inline bool IsLargeString(const char *format)
 {
     return format[0] == ARROW_LETTER_LARGE_STRING && format[1] == 0;
 }
+
 static inline bool IsBinary(const char *format)
 {
     return format[0] == ARROW_LETTER_BINARY && format[1] == 0;
 }
+
 static inline bool IsLargeBinary(const char *format)
 {
     return format[0] == ARROW_LETTER_LARGE_BINARY && format[1] == 0;
+}
+
+static inline bool IsTimestampInternal(const char *format, char chType)
+{
+    return format[0] == 't' && format[1] == 's' && format[2] == chType &&
+           format[3] == ':';
+}
+
+static inline bool IsTimestampSeconds(const char *format)
+{
+    return IsTimestampInternal(format, 's');
+}
+
+static inline bool IsTimestampMilliseconds(const char *format)
+{
+    return IsTimestampInternal(format, 'm');
+}
+
+static inline bool IsTimestampMicroseconds(const char *format)
+{
+    return IsTimestampInternal(format, 'u');
+}
+
+static inline bool IsTimestampNanoseconds(const char *format)
+{
+    return IsTimestampInternal(format, 'n');
+}
+
+static inline bool IsTimestamp(const char *format)
+{
+    return IsTimestampSeconds(format) || IsTimestampMilliseconds(format) ||
+           IsTimestampMicroseconds(format) || IsTimestampNanoseconds(format);
+}
+
+static inline const char *GetTimestampTimezone(const char *format)
+{
+    return IsTimestamp(format) ? format + strlen("tm?:") : "";
 }
 
 /************************************************************************/
@@ -512,41 +574,38 @@ int OGRLayer::GetArrowSchema(struct ArrowArrayStream *,
         std::vector<std::pair<std::string, std::string>> oMetadata;
         const char *pszAlternativeName = poFieldDefn->GetAlternativeNameRef();
         if (pszAlternativeName && pszAlternativeName[0])
-            oMetadata.push_back(std::pair<std::string, std::string>(
-                MD_GDAL_OGR_ALTERNATIVE_NAME, pszAlternativeName));
+            oMetadata.emplace_back(
+                std::pair(MD_GDAL_OGR_ALTERNATIVE_NAME, pszAlternativeName));
 
         const char *pszDefault = poFieldDefn->GetDefault();
         if (pszDefault && pszDefault[0])
-            oMetadata.push_back(std::pair<std::string, std::string>(
-                MD_GDAL_OGR_DEFAULT, pszDefault));
+            oMetadata.emplace_back(std::pair(MD_GDAL_OGR_DEFAULT, pszDefault));
 
         const std::string &osComment = poFieldDefn->GetComment();
         if (!osComment.empty())
-            oMetadata.push_back(std::pair<std::string, std::string>(
-                MD_GDAL_OGR_COMMENT, osComment));
+            oMetadata.emplace_back(std::pair(MD_GDAL_OGR_COMMENT, osComment));
 
         if (poFieldDefn->GetSubType() != OFSTNone &&
             poFieldDefn->GetSubType() != OFSTBoolean &&
             poFieldDefn->GetSubType() != OFSTFloat32)
         {
-            oMetadata.push_back(std::pair<std::string, std::string>(
-                MD_GDAL_OGR_SUBTYPE,
-                OGR_GetFieldSubTypeName(poFieldDefn->GetSubType())));
+            oMetadata.emplace_back(
+                std::pair(MD_GDAL_OGR_SUBTYPE,
+                          OGR_GetFieldSubTypeName(poFieldDefn->GetSubType())));
         }
         if (poFieldDefn->GetType() == OFTString && poFieldDefn->GetWidth() > 0)
         {
-            oMetadata.push_back(std::pair<std::string, std::string>(
+            oMetadata.emplace_back(std::pair(
                 MD_GDAL_OGR_WIDTH, CPLSPrintf("%d", poFieldDefn->GetWidth())));
         }
         if (poFieldDefn->IsUnique())
         {
-            oMetadata.push_back(std::pair<std::string, std::string>(
-                MD_GDAL_OGR_UNIQUE, "true"));
+            oMetadata.emplace_back(std::pair(MD_GDAL_OGR_UNIQUE, "true"));
         }
         if (!poFieldDefn->GetDomainName().empty())
         {
-            oMetadata.push_back(std::pair<std::string, std::string>(
-                MD_GDAL_OGR_DOMAIN_NAME, poFieldDefn->GetDomainName()));
+            oMetadata.emplace_back(std::pair(MD_GDAL_OGR_DOMAIN_NAME,
+                                             poFieldDefn->GetDomainName()));
         }
 
         if (!oMetadata.empty())
@@ -1610,8 +1669,8 @@ static bool FillDateArray(struct ArrowArray *psChild,
             brokenDown.tm_year = psRawField->Date.Year - 1900;
             brokenDown.tm_mon = psRawField->Date.Month - 1;
             brokenDown.tm_mday = psRawField->Date.Day;
-            panValues[iFeat] = static_cast<int>(
-                (CPLYMDHMSToUnixTime(&brokenDown) + 36200) / 86400);
+            panValues[iFeat] =
+                static_cast<int>(CPLYMDHMSToUnixTime(&brokenDown) / 86400);
         }
         else if (bIsNullable)
         {
@@ -2216,25 +2275,6 @@ int OGRLayer::StaticGetNextArrowArray(struct ArrowArrayStream *stream,
 }
 
 /************************************************************************/
-/*                          GetDataset()                                */
-/************************************************************************/
-
-/** Return the dataset associated with this layer.
- *
- * NOTE: that method is implemented in very few drivers, and cannot generally
- * be relied on. It is currently only used by the GetRecordBatchSchema()
- * method to retrieve the field domain associated with a field, to fill the
- * dictionary field of a struct ArrowSchema.
- *
- * @return dataset, or nullptr when unknown.
- * @since GDAL 3.6
- */
-GDALDataset *OGRLayer::GetDataset()
-{
-    return nullptr;
-}
-
-/************************************************************************/
 /*                            ReleaseStream()                           */
 /************************************************************************/
 
@@ -2640,7 +2680,7 @@ OGRParseArrowMetadata(const char *pabyMetadata)
         osValue.assign(pabyMetadata, nSizeValue);
         pabyMetadata += nSizeValue;
 
-        oMetadata[osKey] = osValue;
+        oMetadata[osKey] = std::move(osValue);
     }
 
     return oMetadata;
@@ -2817,20 +2857,9 @@ static bool IsHandledSchema(bool bTopLevel, const struct ArrowSchema *schema,
         return true;
     }
 
-    const char *const apszHandledFormatsPrefix[] = {
-        "w:",    // fixed width binary
-        "tss:",  // timestamp [seconds] with timezone
-        "tsm:",  // timestamp [milliseconds] with timezone
-        "tsu:",  // timestamp [microseconds] with timezone
-        "tsn:",  // timestamp [nanoseconds] with timezone
-    };
-
-    for (const char *pszHandledFormat : apszHandledFormatsPrefix)
+    if (IsFixedWidthBinary(format) || IsTimestamp(format))
     {
-        if (strncmp(format, pszHandledFormat, strlen(pszHandledFormat)) == 0)
-        {
-            return true;
-        }
+        return true;
     }
 
     CPLDebug("OGR", "Field %s has unhandled format '%s'",
@@ -3969,9 +3998,9 @@ static void AddToArray(CPLJSONArray &oArray, const struct ArrowSchema *schema,
 /************************************************************************/
 
 template <class OffsetType>
-static CPLJSONObject GetListAsJSON(const struct ArrowSchema *schema,
-                                   const struct ArrowArray *array,
-                                   const size_t nIdx)
+static CPLJSONArray GetListAsJSON(const struct ArrowSchema *schema,
+                                  const struct ArrowArray *array,
+                                  const size_t nIdx)
 {
     CPLJSONArray oArray;
     const auto panOffsets = static_cast<const OffsetType *>(array->buffers[1]) +
@@ -4002,9 +4031,9 @@ static CPLJSONObject GetListAsJSON(const struct ArrowSchema *schema,
 /*                     GetFixedSizeListAsJSON()                         */
 /************************************************************************/
 
-static CPLJSONObject GetFixedSizeListAsJSON(const struct ArrowSchema *schema,
-                                            const struct ArrowArray *array,
-                                            const size_t nIdx)
+static CPLJSONArray GetFixedSizeListAsJSON(const struct ArrowSchema *schema,
+                                           const struct ArrowArray *array,
+                                           const size_t nIdx)
 {
     CPLJSONArray oArray;
     const int nVals = GetFixedSizeList(schema->format);
@@ -4244,7 +4273,7 @@ static bool SetFieldForOtherFormats(OGRFeature &oFeature,
     {
         // date32[days]
         // number of days since Epoch
-        int64_t timestamp = static_cast<int64_t>(static_cast<const uint32_t *>(
+        int64_t timestamp = static_cast<int64_t>(static_cast<const int32_t *>(
                                 array->buffers[1])[nOffsettedIndex]) *
                             3600 * 24;
         struct tm dt;
@@ -4300,37 +4329,30 @@ static bool SetFieldForOtherFormats(OGRFeature &oFeature,
                           static_cast<GIntBig>(static_cast<const int64_t *>(
                               array->buffers[1])[nOffsettedIndex]));
     }
-    else if (format[0] == 't' && format[1] == 's' && format[2] == 's' &&
-             format[3] == ':')  // STARTS_WITH(format, "tss:")
+    else if (IsTimestampSeconds(format))
     {
-        // timestamp [seconds] with timezone
         ArrowTimestampToOGRDateTime(
             static_cast<const int64_t *>(array->buffers[1])[nOffsettedIndex], 1,
-            format + strlen("tss:"), oFeature, iOGRFieldIndex);
+            GetTimestampTimezone(format), oFeature, iOGRFieldIndex);
     }
-    else if (format[0] == 't' && format[1] == 's' && format[2] == 'm' &&
-             format[3] == ':')  // STARTS_WITH(format, "tsm:"))
+    else if (IsTimestampMilliseconds(format))
     {
-        //  timestamp [milliseconds] with timezone
         ArrowTimestampToOGRDateTime(
             static_cast<const int64_t *>(array->buffers[1])[nOffsettedIndex],
-            1000, format + strlen("tsm:"), oFeature, iOGRFieldIndex);
+            1000, GetTimestampTimezone(format), oFeature, iOGRFieldIndex);
     }
-    else if (format[0] == 't' && format[1] == 's' && format[2] == 'u' &&
-             format[3] == ':')  // STARTS_WITH(format, "tsu:"))
+    else if (IsTimestampMicroseconds(format))
     {
-        //  timestamp [microseconds] with timezone
         ArrowTimestampToOGRDateTime(
             static_cast<const int64_t *>(array->buffers[1])[nOffsettedIndex],
-            1000 * 1000, format + strlen("tsu:"), oFeature, iOGRFieldIndex);
+            1000 * 1000, GetTimestampTimezone(format), oFeature,
+            iOGRFieldIndex);
     }
-    else if (format[0] == 't' && format[1] == 's' && format[2] == 'n' &&
-             format[3] == ':')  // STARTS_WITH(format, "tsn:"))
+    else if (IsTimestampNanoseconds(format))
     {
-        //  timestamp [nanoseconds] with timezone
         ArrowTimestampToOGRDateTime(
             static_cast<const int64_t *>(array->buffers[1])[nOffsettedIndex],
-            1000 * 1000 * 1000, format + strlen("tsn:"), oFeature,
+            1000 * 1000 * 1000, GetTimestampTimezone(format), oFeature,
             iOGRFieldIndex);
     }
     else if (IsFixedSizeList(format))
@@ -4678,6 +4700,7 @@ static size_t FillValidityArrayFromAttrQuery(
         int iOGRFieldIndex{};
         std::vector<int> anArrowPath{};
     };
+
     std::vector<UsedFieldsInfo> aoUsedFieldsInfo;
 
     bool bNeedsFID = false;
@@ -5172,14 +5195,14 @@ static bool OGRCloneArrowArray(const struct ArrowSchema *schema,
             if (src_array->buffers[i])
             {
                 const size_t nBytes = nLength ? (nLength + 7) / 8 : 1;
-                uint8_t *p = static_cast<uint8_t *>(
+                uint8_t *CPL_RESTRICT p = static_cast<uint8_t *>(
                     VSI_MALLOC_ALIGNED_AUTO_VERBOSE(nBytes));
                 if (!p)
                 {
                     bRet = false;
                     break;
                 }
-                const uint8_t *pSrcArray =
+                const auto *CPL_RESTRICT pSrcArray =
                     static_cast<const uint8_t *>(src_array->buffers[i]);
                 if ((nOffset % 8) != 0)
                 {
@@ -5223,9 +5246,7 @@ static bool OGRCloneArrowArray(const struct ArrowSchema *schema,
             }
             else if (IsUInt64(format) || IsInt64(format) || IsFloat64(format) ||
                      strcmp(format, "tdm") == 0 || strcmp(format, "ttu") == 0 ||
-                     strcmp(format, "ttn") == 0 || strcmp(format, "tss") == 0 ||
-                     STARTS_WITH(format, "tsm:") ||
-                     STARTS_WITH(format, "tsu:") || STARTS_WITH(format, "tsn:"))
+                     strcmp(format, "ttn") == 0 || IsTimestamp(format))
             {
                 nEltSize = sizeof(uint64_t);
             }
@@ -5272,11 +5293,13 @@ static bool OGRCloneArrowArray(const struct ArrowSchema *schema,
                         static_cast<const uint32_t *>(
                             src_array->buffers[1])[nOffset] != 0)
                     {
-                        const auto *pSrcOffsets = static_cast<const uint32_t *>(
-                                                      src_array->buffers[1]) +
-                                                  nOffset;
+                        const auto *CPL_RESTRICT pSrcOffsets =
+                            static_cast<const uint32_t *>(
+                                src_array->buffers[1]) +
+                            nOffset;
                         const auto nShiftOffset = pSrcOffsets[0];
-                        auto *pDstOffsets = static_cast<uint32_t *>(p);
+                        auto *CPL_RESTRICT pDstOffsets =
+                            static_cast<uint32_t *>(p);
                         for (size_t iRow = 0; iRow <= nLength; ++iRow)
                         {
                             pDstOffsets[iRow] =
@@ -5287,11 +5310,13 @@ static bool OGRCloneArrowArray(const struct ArrowSchema *schema,
                              static_cast<const uint64_t *>(
                                  src_array->buffers[1])[nOffset] != 0)
                     {
-                        const auto *pSrcOffsets = static_cast<const uint64_t *>(
-                                                      src_array->buffers[1]) +
-                                                  nOffset;
+                        const auto *CPL_RESTRICT pSrcOffsets =
+                            static_cast<const uint64_t *>(
+                                src_array->buffers[1]) +
+                            nOffset;
                         const auto nShiftOffset = pSrcOffsets[0];
-                        auto *pDstOffsets = static_cast<uint64_t *>(p);
+                        auto *CPL_RESTRICT pDstOffsets =
+                            static_cast<uint64_t *>(p);
                         for (size_t iRow = 0; iRow <= nLength; ++iRow)
                         {
                             pDstOffsets[iRow] =
@@ -5684,20 +5709,8 @@ static bool IsArrowSchemaSupportedInternal(const struct ArrowSchema *schema,
             }
         }
 
-        if (IsFixedWidthBinary(format))
+        if (IsFixedWidthBinary(format) || IsTimestamp(format))
             return true;
-
-        const char *const apszTimestamps[] = {
-            "tss:",  // timestamp[s]
-            "tsm:",  // timestamp[ms]
-            "tsu:",  // timestamp[us]
-            "tsn:"   // timestamp[ns]
-        };
-        for (const char *pszSupported : apszTimestamps)
-        {
-            if (STARTS_WITH(format, pszSupported))
-                return true;
-        }
 
         AppendError("Type '" + std::string(format) + "' for field " +
                     osFieldPrefix + fieldName + " is not supported.");
@@ -5940,6 +5953,11 @@ bool OGRLayer::CreateFieldFromArrowSchemaInternal(
                     if (poDS && poDS->GetFieldDomain(oIter.second))
                         oFieldDefn.SetDomainName(oIter.second);
                 }
+                else if (oIter.first == ARROW_EXTENSION_NAME_KEY &&
+                         oIter.second == EXTENSION_NAME_ARROW_JSON)
+                {
+                    oFieldDefn.SetSubType(OFSTJSON);
+                }
                 else
                 {
                     CPLDebug("OGR", "Unknown field metadata: %s",
@@ -5978,10 +5996,7 @@ bool OGRLayer::CreateFieldFromArrowSchemaInternal(
         return AddField(OFTString, OFSTJSON, 0, 0);
     }
 
-    if (STARTS_WITH(format, "tss:") ||  // timestamp[s]
-        STARTS_WITH(format, "tsm:") ||  // timestamp[ms]
-        STARTS_WITH(format, "tsu:") ||  // timestamp[us]
-        STARTS_WITH(format, "tsn:"))    // timestamp[ns]
+    if (IsTimestamp(format))
     {
         return AddField(OFTDateTime, OFSTNone, 0, 0);
     }
@@ -6073,6 +6088,7 @@ bool OGRLayer::CreateFieldFromArrowSchemaInternal(
                  .c_str());
     return false;
 }
+
 //! @endcond
 
 /** Creates a field from an ArrowSchema.
@@ -6263,8 +6279,8 @@ static bool BuildOGRFieldInfo(
     }
     else
     {
-        const auto osExpectedOGRFieldName =
-            [&oMapArrowFieldNameToOGRFieldName, &sInfo]()
+        const std::string &osExpectedOGRFieldName =
+            [&oMapArrowFieldNameToOGRFieldName, &sInfo]() -> const std::string &
         {
             const auto oIter =
                 oMapArrowFieldNameToOGRFieldName.find(sInfo.osName);
@@ -6293,6 +6309,64 @@ static bool BuildOGRFieldInfo(
                     }
                     else if (eOGRType == OFTString)
                     {
+                        bFallbackTypesUsed = true;
+                        bTypeOK = true;
+                        break;
+                    }
+                    else if (eOGRType == OFTInteger &&
+                             sType.eType == OFTInteger64)
+                    {
+                        // Potentially lossy.
+                        CPLDebug("OGR",
+                                 "For field %s, writing from Arrow array of "
+                                 "type Int64 into OGR Int32 field. "
+                                 "Potentially loss conversion can happen",
+                                 sInfo.osName.c_str());
+                        bFallbackTypesUsed = true;
+                        bTypeOK = true;
+                        break;
+                    }
+                    else if (eOGRType == OFTInteger && sType.eType == OFTReal)
+                    {
+                        // Potentially lossy.
+                        CPLDebug("OGR",
+                                 "For field %s, writing from Arrow array of "
+                                 "type Real into OGR Int32 field. "
+                                 "Potentially loss conversion can happen",
+                                 sInfo.osName.c_str());
+                        bFallbackTypesUsed = true;
+                        bTypeOK = true;
+                        break;
+                    }
+                    else if (eOGRType == OFTInteger64 && sType.eType == OFTReal)
+                    {
+                        // Potentially lossy.
+                        CPLDebug("OGR",
+                                 "For field %s, writing from Arrow array of "
+                                 "type Real into OGR Int64 field. "
+                                 "Potentially loss conversion can happen",
+                                 sInfo.osName.c_str());
+                        bFallbackTypesUsed = true;
+                        bTypeOK = true;
+                        break;
+                    }
+                    else if (eOGRType == OFTReal && sType.eType == OFTInteger64)
+                    {
+                        // Potentially lossy.
+                        CPLDebug("OGR",
+                                 "For field %s, writing from Arrow array of "
+                                 "type Int64 into OGR Real field. "
+                                 "Potentially loss conversion can happen",
+                                 sInfo.osName.c_str());
+                        bFallbackTypesUsed = true;
+                        bTypeOK = true;
+                        break;
+                    }
+                    else if ((eOGRType == OFTInteger64 ||
+                              eOGRType == OFTReal) &&
+                             sType.eType == OFTInteger)
+                    {
+                        // Non-lossy
                         bFallbackTypesUsed = true;
                         bTypeOK = true;
                         break;
@@ -6329,9 +6403,7 @@ static bool BuildOGRFieldInfo(
                 }
             }
 
-            if (!bTypeOK &&
-                (STARTS_WITH(format, "tss:") || STARTS_WITH(format, "tsm:") ||
-                 STARTS_WITH(format, "tsu:") || STARTS_WITH(format, "tsn:")))
+            if (!bTypeOK && IsTimestamp(format))
             {
                 sInfo.eNominalFieldType = OFTDateTime;
                 if (eOGRType == sInfo.eNominalFieldType)
@@ -6737,6 +6809,7 @@ inline static void FillField(const struct ArrowArray *array, int iOGRFieldIdx,
         iOGRFieldIdx,
         static_cast<OGRType>(panValues[iFeature + array->offset]));
 }
+
 /************************************************************************/
 /*                          FillFieldString()                           */
 /************************************************************************/
@@ -7138,8 +7211,18 @@ static bool FillFeature(OGRLayer *poLayer, const struct ArrowSchema *schema,
  * will be supported by WriteArrowBatch().
  *
  * OGR fields for the corresponding children arrays must exist and be of a
- * compatible type. For attribute fields, they should be created with
- * CreateFieldFromArrowSchema().
+ * compatible type. For attribute fields, they should generally be created with
+ * CreateFieldFromArrowSchema(). This is strictly required for output drivers
+ * Arrow or Parquet, and strongly recommended otherwise. For geometry fields,
+ * they should be created either implicitly at CreateLayer() type
+ * (if geom_type != wkbNone), or explicitly with CreateGeomField().
+ *
+ * Starting with GDAL 3.9, some tolerance has been introduced in the base
+ * implementation of WriteArrowBatch() for scenarios that involve appending to
+ * an already existing output layer when the input Arrow field type and the
+ * OGR layer field type are 32/64-bi integers or real number, but do not match
+ * exactly, which may cause lossy conversions. The IF_FIELD_NOT_PRESERVED option
+ * can be used to control the behavior in case of lossy conversion.
  *
  * Arrays for geometry columns should be of binary or large binary type and
  * contain WKB geometry.
@@ -7164,6 +7247,14 @@ static bool FillFeature(OGRLayer *poLayer, const struct ArrowSchema *schema,
  *     Setting it to ERROR will cause the function to error out. Setting it
  *     to WARNING will cause the function to emit a warning but continue its
  *     processing.
+ * </li>
+ * <li>IF_FIELD_NOT_PRESERVED=ERROR/WARNING. (since GDAL 3.9)
+ *     Action to perform when the input field value is not preserved in the
+ *     output layer.
+ *     The default is WARNING, which will cause the function to emit a warning
+ *     but continue its processing.
+ *     Setting it to ERROR will cause the function to error out if a lossy
+ *     conversion is detected.
  * </li>
  * <li>GEOMETRY_NAME=name. Name of the geometry column. If not provided,
  *     GetGeometryColumn() is used. The special name
@@ -7300,6 +7391,9 @@ bool OGRLayer::WriteArrowBatch(const struct ArrowSchema *schema,
     const bool bWarningIfFIDNotPreserved =
         EQUAL(CSLFetchNameValueDef(papszOptions, "IF_FID_NOT_PRESERVED", ""),
               "WARNING");
+    const bool bErrorIfFieldNotPreserved =
+        EQUAL(CSLFetchNameValueDef(papszOptions, "IF_FIELD_NOT_PRESERVED", ""),
+              "ERROR");
     const char *pszGeomFieldName = CSLFetchNameValueDef(
         papszOptions, "GEOMETRY_NAME", GetGeometryColumn());
     if (!pszGeomFieldName || pszGeomFieldName[0] == 0)
@@ -7336,6 +7430,7 @@ bool OGRLayer::WriteArrowBatch(const struct ArrowSchema *schema,
     }
 
     OGRFeatureDefn oLayerDefnTmp(poLayerDefn->GetName());
+
     struct LayerDefnTmpRefReleaser
     {
         OGRFeatureDefn &m_oDefn;
@@ -7350,6 +7445,7 @@ bool OGRLayer::WriteArrowBatch(const struct ArrowSchema *schema,
             m_oDefn.Dereference();
         }
     };
+
     LayerDefnTmpRefReleaser oLayerDefnTmpRefReleaser(oLayerDefnTmp);
 
     std::vector<int> anIdentityFieldMap;
@@ -7424,8 +7520,7 @@ bool OGRLayer::WriteArrowBatch(const struct ArrowSchema *schema,
 
     bool bTransactionOK;
     {
-        CPLErrorHandlerPusher oHandler(CPLQuietErrorHandler);
-        CPLErrorStateBackuper oBackuper;
+        CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
         bTransactionOK = StartTransaction() == OGRERR_NONE;
     }
 
@@ -7469,6 +7564,59 @@ bool OGRLayer::WriteArrowBatch(const struct ArrowSchema *schema,
                                    /*bForgiving=*/true,
                                    /*bUseISO8601ForDateTimeAsString=*/true);
             oFeatureTarget.SetFID(oFeature.GetFID());
+
+            if (bErrorIfFieldNotPreserved)
+            {
+                for (int i = 0; i < poLayerDefn->GetFieldCount(); ++i)
+                {
+                    if (!oFeature.IsFieldSetAndNotNullUnsafe(i))
+                    {
+                        continue;
+                    }
+                    bool bLossyConversion = false;
+                    const auto eSrcType =
+                        oLayerDefnTmp.GetFieldDefnUnsafe(i)->GetType();
+                    const auto eDstType =
+                        poLayerDefn->GetFieldDefnUnsafe(i)->GetType();
+                    if (eSrcType == OFTInteger64 && eDstType == OFTInteger &&
+                        oFeatureTarget.GetFieldAsIntegerUnsafe(i) !=
+                            oFeature.GetFieldAsInteger64Unsafe(i))
+                    {
+                        bLossyConversion = true;
+                    }
+                    else if (eSrcType == OFTReal && eDstType == OFTInteger &&
+                             oFeatureTarget.GetFieldAsIntegerUnsafe(i) !=
+                                 oFeature.GetFieldAsDoubleUnsafe(i))
+                    {
+                        bLossyConversion = true;
+                    }
+                    else if (eSrcType == OFTReal && eDstType == OFTInteger64 &&
+                             static_cast<double>(
+                                 oFeatureTarget.GetFieldAsInteger64Unsafe(i)) !=
+                                 oFeature.GetFieldAsDoubleUnsafe(i))
+                    {
+                        bLossyConversion = true;
+                    }
+                    else if (eSrcType == OFTInteger64 && eDstType == OFTReal &&
+                             static_cast<GIntBig>(
+                                 oFeatureTarget.GetFieldAsDoubleUnsafe(i)) !=
+                                 oFeature.GetFieldAsInteger64Unsafe(i))
+                    {
+                        bLossyConversion = true;
+                    }
+                    if (bLossyConversion)
+                    {
+                        CPLError(CE_Failure, CPLE_AppDefined,
+                                 "For feature " CPL_FRMT_GIB
+                                 ", value of field %s cannot not preserved",
+                                 oFeatureTarget.GetFID(),
+                                 oLayerDefnTmp.GetFieldDefn(i)->GetNameRef());
+                        if (bTransactionOK)
+                            RollbackTransaction();
+                        return false;
+                    }
+                }
+            }
         }
 
         const auto nInputFID = poFeatureTarget->GetFID();
@@ -7582,10 +7730,18 @@ bool OGRLayer::WriteArrowBatch(const struct ArrowSchema *schema,
  * will be supported by WriteArrowBatch().
  *
  * OGR fields for the corresponding children arrays must exist and be of a
- * compatible type. For attribute fields, they should be created with
- * CreateFieldFromArrowSchema(). For geometry fields, they should be created
- * either implicitly at CreateLayer() type (if geom_type != wkbNone), or
- * explicitly with CreateGeomField().
+ * compatible type. For attribute fields, they should generally be created with
+ * CreateFieldFromArrowSchema(). This is strictly required for output drivers
+ * Arrow or Parquet, and strongly recommended otherwise. For geometry fields,
+ * they should be created either implicitly at CreateLayer() type
+ * (if geom_type != wkbNone), or explicitly with CreateGeomField().
+ *
+ * Starting with GDAL 3.9, some tolerance has been introduced in the base
+ * implementation of WriteArrowBatch() for scenarios that involve appending to
+ * an already existing output layer when the input Arrow field type and the
+ * OGR layer field type are 32/64-bi integers or real number, but do not match
+ * exactly, which may cause lossy conversions. The IF_FIELD_NOT_PRESERVED option
+ * can be used to control the behavior in case of lossy conversion.
  *
  * Arrays for geometry columns should be of binary or large binary type and
  * contain WKB geometry.
@@ -7610,6 +7766,14 @@ bool OGRLayer::WriteArrowBatch(const struct ArrowSchema *schema,
  *     Setting it to ERROR will cause the function to error out. Setting it
  *     to WARNING will cause the function to emit a warning but continue its
  *     processing.
+ * </li>
+ * <li>IF_FIELD_NOT_PRESERVED=ERROR/WARNING. (since GDAL 3.9)
+ *     Action to perform when the input field value is not preserved in the
+ *     output layer.
+ *     The default is WARNING, which will cause the function to emit a warning
+ *     but continue its processing.
+ *     Setting it to ERROR will cause the function to error out if a lossy
+ *     conversion is detected.
  * </li>
  * <li>GEOMETRY_NAME=name. Name of the geometry column. If not provided,
  *     GetGeometryColumn() is used. The special name

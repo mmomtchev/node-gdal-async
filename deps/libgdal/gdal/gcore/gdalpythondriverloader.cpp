@@ -355,6 +355,7 @@ class PythonPluginLayer final : public OGRLayer
     void SetSpatialFilter(int iGeomField, OGRGeometry *) override;
 
     OGRErr GetExtent(OGREnvelope *psExtent, int bForce) override;
+
     OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent, int bForce) override
     {
         return OGRLayer::GetExtent(iGeomField, psExtent, bForce);
@@ -1884,7 +1885,7 @@ static void LoadPythonDriver(const char *pszFilename)
             osValue.resize(osValue.size() - 1);
         if (EQUAL(osKey, "NAME"))
         {
-            osPluginName = osValue;
+            osPluginName = std::move(osValue);
         }
         else if (EQUAL(osKey, "SUPPORTED_API_VERSION"))
         {

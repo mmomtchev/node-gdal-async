@@ -75,9 +75,7 @@ std::shared_ptr<ZarrArray> ZarrV3Group::OpenZarrArray(const std::string &osName,
         if (!oDoc.Load(osZarrayFilename))
             return nullptr;
         const auto oRoot = oDoc.GetRoot();
-        std::set<std::string> oSetFilenamesInLoading;
-        return LoadArray(osName, osZarrayFilename, oRoot,
-                         oSetFilenamesInLoading);
+        return LoadArray(osName, osZarrayFilename, oRoot);
     }
 
     return nullptr;
@@ -678,7 +676,7 @@ std::shared_ptr<GDALMDArray> ZarrV3Group::CreateMDArray(
             oInputArrayMetadata.anBlockSizes.push_back(
                 static_cast<size_t>(nSize));
         oInputArrayMetadata.oElt = aoDtypeElts.back();
-        poCodecs = cpl::make_unique<ZarrV3CodecSequence>(oInputArrayMetadata);
+        poCodecs = std::make_unique<ZarrV3CodecSequence>(oInputArrayMetadata);
         if (!poCodecs->InitFromJson(oCodecs))
             return nullptr;
     }

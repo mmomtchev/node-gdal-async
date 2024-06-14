@@ -127,6 +127,7 @@ class OGROAPIFDataset final : public GDALDataset
     {
         return static_cast<int>(m_apoLayers.size());
     }
+
     OGRLayer *GetLayer(int idx) override;
 
     bool Open(GDALOpenInfo *);
@@ -207,6 +208,7 @@ class OGROAPIFLayer final : public OGRLayer
     {
         return GetDescription();
     }
+
     OGRFeatureDefn *GetLayerDefn() override;
     void ResetReading() override;
     OGRFeature *GetNextFeature() override;
@@ -214,16 +216,19 @@ class OGROAPIFLayer final : public OGRLayer
     int TestCapability(const char *) override;
     GIntBig GetFeatureCount(int bForce = FALSE) override;
     OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
+
     OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent, int bForce) override
     {
         return OGRLayer::GetExtent(iGeomField, psExtent, bForce);
     }
 
     void SetSpatialFilter(OGRGeometry *poGeom) override;
+
     void SetSpatialFilter(int iGeomField, OGRGeometry *poGeom) override
     {
         OGRLayer::SetSpatialFilter(iGeomField, poGeom);
     }
+
     OGRErr SetAttributeFilter(const char *pszQuery) override;
 
     const OGRLayer::GetSupportedSRSListRetType &
@@ -302,11 +307,11 @@ CPLString OGROAPIFDataset::ReinjectAuthInURL(const CPLString &osURL) const
         {
             auto osUserPwd = m_osRootURL.substr(
                 strlen("https://"), nArobaseInURLPos - strlen("https://"));
-            auto osServer =
+            std::string osServer(
                 nFirstSlashPos == std::string::npos
                     ? m_osRootURL.substr(nArobaseInURLPos + 1)
                     : m_osRootURL.substr(nArobaseInURLPos + 1,
-                                         nFirstSlashPos - nArobaseInURLPos);
+                                         nFirstSlashPos - nArobaseInURLPos));
             if (STARTS_WITH(osRet, ("https://" + osServer).c_str()))
             {
                 osRet = "https://" + osUserPwd + "@" +
@@ -763,7 +768,7 @@ bool OGROAPIFDataset::LoadJSONCollection(const CPLJSONObject &oCollection,
     }
 
     const auto oLinks = oCollection.GetArray("links");
-    auto poLayer = cpl::make_unique<OGROAPIFLayer>(
+    auto poLayer = std::make_unique<OGROAPIFLayer>(
         this, osName, oBBOX, osBBOXCrs, std::move(oCRSList), osActiveCRS,
         dfCoordinateEpoch, oLinks);
     if (!osTitle.empty())
@@ -1557,7 +1562,7 @@ static bool BuildExampleRecursively(CPLJSONObject &oRes,
                 oArray.Add(oChildRes);
             }
         }
-        oRes = oArray;
+        oRes = std::move(oArray);
         return true;
     }
     else if (osType == "string")
@@ -1631,8 +1636,7 @@ void OGROAPIFLayer::GetSchema()
     if (m_osDescribedByURL.empty() || m_poDS->m_bIgnoreSchema)
         return;
 
-    CPLErrorHandlerPusher oErrorHandlerPusher(CPLQuietErrorHandler);
-    CPLErrorStateBackuper oErrorStateBackuper;
+    CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
 
     if (m_bDescribedByIsXML)
     {
@@ -1679,7 +1683,7 @@ void OGROAPIFLayer::GetSchema()
                 const char *pszName =
                     poProperty->GetName() +
                     (bAllPrefixed ? osPropertyNamePrefix.size() : 0);
-                auto poField = cpl::make_unique<OGRFieldDefn>(pszName, eFType);
+                auto poField = std::make_unique<OGRFieldDefn>(pszName, eFType);
                 poField->SetSubType(eSubType);
                 m_apoFieldsFromSchema.emplace_back(std::move(poField));
             }
@@ -1758,7 +1762,7 @@ void OGROAPIFLayer::GetSchema()
                             }
                         }
 
-                        auto poField = cpl::make_unique<OGRFieldDefn>(
+                        auto poField = std::make_unique<OGRFieldDefn>(
                             oProp.GetName().c_str(), eType);
                         poField->SetSubType(eSubType);
                         m_apoFieldsFromSchema.emplace_back(std::move(poField));
@@ -2085,7 +2089,7 @@ OGRFeature *OGROAPIFLayer::GetNextRawFeature()
                 if (oLinks.IsValid())
                 {
                     int nCountRelNext = 0;
-                    CPLString osNextURL;
+                    std::string osNextURL;
                     for (int i = 0; i < oLinks.Size(); i++)
                     {
                         CPLJSONObject oLink = oLinks[i];
@@ -2113,7 +2117,7 @@ OGRFeature *OGROAPIFLayer::GetNextRawFeature()
                     if (nCountRelNext == 1 && m_osGetURL.empty())
                     {
                         // In case we go a "rel": "next" without a "type"
-                        m_osGetURL = osNextURL;
+                        m_osGetURL = std::move(osNextURL);
                     }
                 }
 
@@ -2527,13 +2531,11 @@ CPLString OGROAPIFLayer::BuildFilter(const swq_expr_node *poNode)
                  m_aoSetQueryableAttributes.find(poFieldDefn->GetNameRef()) !=
                      m_aoSetQueryableAttributes.end())
         {
-            CPLString osEscapedFieldName;
-            {
-                char *pszEscapedFieldName =
-                    CPLEscapeString(poFieldDefn->GetNameRef(), -1, CPLES_URL);
-                osEscapedFieldName = pszEscapedFieldName;
-                CPLFree(pszEscapedFieldName);
-            }
+            char *pszEscapedFieldName =
+                CPLEscapeString(poFieldDefn->GetNameRef(), -1, CPLES_URL);
+            const CPLString osEscapedFieldName(pszEscapedFieldName);
+            CPLFree(pszEscapedFieldName);
+
             if (poNode->papoSubExpr[1]->field_type == SWQ_STRING)
             {
                 char *pszEscapedValue = CPLEscapeString(
@@ -3133,7 +3135,7 @@ static GDALDataset *OGROAPIFDriverOpen(GDALOpenInfo *poOpenInfo)
 {
     if (!OGROAPIFDriverIdentify(poOpenInfo) || poOpenInfo->eAccess == GA_Update)
         return nullptr;
-    auto poDataset = cpl::make_unique<OGROAPIFDataset>();
+    auto poDataset = std::make_unique<OGROAPIFDataset>();
     if (!poDataset->Open(poOpenInfo))
         return nullptr;
     return poDataset.release();

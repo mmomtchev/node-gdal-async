@@ -120,7 +120,7 @@ class CPL_DLL OGREditableLayer : public OGRLayerDecorator
 
     virtual int TestCapability(const char *) override;
 
-    virtual OGRErr CreateField(OGRFieldDefn *poField,
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
     virtual OGRErr DeleteField(int iField) override;
     virtual OGRErr ReorderFields(int *panMap) override;
@@ -131,7 +131,7 @@ class CPL_DLL OGREditableLayer : public OGRLayerDecorator
                        const OGRGeomFieldDefn *poNewGeomFieldDefn,
                        int nFlags) override;
 
-    virtual OGRErr CreateGeomField(OGRGeomFieldDefn *poField,
+    virtual OGRErr CreateGeomField(const OGRGeomFieldDefn *poField,
                                    int bApproxOK = TRUE) override;
 
     virtual OGRErr SyncToDisk() override;
@@ -142,6 +142,7 @@ class CPL_DLL OGREditableLayer : public OGRLayerDecorator
 
     virtual const char *GetGeometryColumn() override;
 };
+
 //! @endcond
 
 #endif  // OGREDITABLELAYER_H_INCLUDED

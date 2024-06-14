@@ -958,7 +958,7 @@ VRTMDArray::Create(const std::shared_ptr<VRTGroup> &poThisGroup,
     std::unique_ptr<OGRSpatialReference> poSRS;
     if (psSRSNode)
     {
-        poSRS = cpl::make_unique<OGRSpatialReference>();
+        poSRS = std::make_unique<OGRSpatialReference>();
         poSRS->SetFromUserInput(
             CPLGetXMLValue(psSRSNode, nullptr, ""),
             OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get());
@@ -1121,7 +1121,7 @@ std::shared_ptr<VRTMDArray> VRTMDArray::Create(const char *pszVRTPath,
         std::shared_ptr<VRTGroup>(new VRTGroup(pszVRTPath ? pszVRTPath : ""));
     auto poArray = Create(poDummyGroup, std::string(), psNode);
     if (poArray)
-        poArray->m_poDummyOwningGroup = poDummyGroup;
+        poArray->m_poDummyOwningGroup = std::move(poDummyGroup);
     return poArray;
 }
 
@@ -1343,7 +1343,7 @@ VRTMDArraySourceInlinedValues::Create(const VRTMDArray *array,
         pabyPtr += nDTSize;
     }
 
-    return cpl::make_unique<VRTMDArraySourceInlinedValues>(
+    return std::make_unique<VRTMDArraySourceInlinedValues>(
         array, bIsConstantValue, std::move(anOffset), std::move(anCount),
         std::move(abyValues));
 }
@@ -1455,7 +1455,7 @@ bool VRTMDArraySourceInlinedValues::Read(
     std::vector<GByte *> abyStackDstPtr(nDims + 1);
     abyStackDstPtr[0] = static_cast<GByte *>(pDstBuffer) + nDstOffset;
 
-    const auto dt(m_poDstArray->GetDataType());
+    const auto &dt(m_poDstArray->GetDataType());
     std::vector<size_t> anStackCount(nDims);
     size_t iDim = 0;
 
@@ -1498,7 +1498,7 @@ lbl_next_depth:
 void VRTMDArraySourceInlinedValues::Serialize(CPLXMLNode *psParent,
                                               const char *) const
 {
-    const auto dt(m_poDstArray->GetDataType());
+    const auto &dt(m_poDstArray->GetDataType());
     CPLXMLNode *psSource = CPLCreateXMLNode(psParent, CXT_Element,
                                             m_bIsConstantValue ? "ConstantValue"
                                             : dt.GetClass() == GEDTC_STRING
@@ -1743,7 +1743,7 @@ VRTMDArraySourceFromArray::Create(const VRTMDArray *poDstArray,
         }
     }
 
-    return cpl::make_unique<VRTMDArraySourceFromArray>(
+    return std::make_unique<VRTMDArraySourceFromArray>(
         poDstArray, bRelativeToVRTSet, bRelativeToVRT, pszFilename, pszArray,
         pszSourceBand, std::move(anTransposedAxis), pszView,
         std::move(anSrcOffset), std::move(anCount), std::move(anStep),
@@ -1984,7 +1984,7 @@ bool VRTMDArraySourceFromArray::Read(const GUInt64 *arrayStartIdx,
             if (!poSrcDS)
                 return false;
             poSrcDSWrapper = std::make_shared<VRTArrayDatasetWrapper>(poSrcDS);
-            oPair.first = poSrcDSWrapper;
+            oPair.first = std::move(poSrcDSWrapper);
             oPair.second.insert(this);
             g_cacheSources.insert(key, oPair);
         }
@@ -2602,8 +2602,8 @@ class VRTArraySource : public VRTSource
     CPLErr RasterIO(GDALDataType eBandDataType, int nXOff, int nYOff,
                     int nXSize, int nYSize, void *pData, int nBufXSize,
                     int nBufYSize, GDALDataType eBufType, GSpacing nPixelSpace,
-                    GSpacing nLineSpace,
-                    GDALRasterIOExtraArg *psExtraArg) override;
+                    GSpacing nLineSpace, GDALRasterIOExtraArg *psExtraArg,
+                    WorkingState &oWorkingState) override;
 
     double GetMinimum(int nXSize, int nYSize, int *pbSuccess) override
     {
@@ -2627,7 +2627,7 @@ class VRTArraySource : public VRTSource
     }
 
     CPLErr
-    XMLInit(CPLXMLNode *psTree, const char *pszVRTPath,
+    XMLInit(const CPLXMLNode *psTree, const char *pszVRTPath,
             std::map<CPLString, GDALDataset *> &oMapSharedSources) override;
     CPLXMLNode *SerializeToXML(const char *pszVRTPath) override;
 };
@@ -2641,11 +2641,13 @@ CPLErr VRTArraySource::RasterIO(GDALDataType eBandDataType, int nXOff,
                                 int nBufXSize, int nBufYSize,
                                 GDALDataType eBufType, GSpacing nPixelSpace,
                                 GSpacing nLineSpace,
-                                GDALRasterIOExtraArg *psExtraArg)
+                                GDALRasterIOExtraArg *psExtraArg,
+                                WorkingState &oWorkingState)
 {
-    return m_poSimpleSource->RasterIO(
-        eBandDataType, nXOff, nYOff, nXSize, nYSize, pData, nBufXSize,
-        nBufYSize, eBufType, nPixelSpace, nLineSpace, psExtraArg);
+    return m_poSimpleSource->RasterIO(eBandDataType, nXOff, nYOff, nXSize,
+                                      nYSize, pData, nBufXSize, nBufYSize,
+                                      eBufType, nPixelSpace, nLineSpace,
+                                      psExtraArg, oWorkingState);
 }
 
 /************************************************************************/
@@ -2704,7 +2706,7 @@ ParseSingleSourceArray(const CPLXMLNode *psSingleSourceArray,
 /************************************************************************/
 
 CPLErr VRTArraySource::XMLInit(
-    CPLXMLNode *psTree, const char *pszVRTPath,
+    const CPLXMLNode *psTree, const char *pszVRTPath,
     std::map<CPLString, GDALDataset *> & /*oMapSharedSources*/)
 {
     const auto poArray = ParseArray(psTree, pszVRTPath, "ArraySource");
@@ -2712,8 +2714,7 @@ CPLErr VRTArraySource::XMLInit(
     {
         return CE_Failure;
     }
-    auto apoDims = poArray->GetDimensions();
-    if (apoDims.size() != 2)
+    if (poArray->GetDimensionCount() != 2)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "Array referenced in <ArraySource> should be a "
@@ -2725,7 +2726,7 @@ CPLErr VRTArraySource::XMLInit(
     if (!m_poDS)
         return CE_Failure;
 
-    m_poSimpleSource = cpl::make_unique<VRTSimpleSource>();
+    m_poSimpleSource = std::make_unique<VRTSimpleSource>();
     auto poBand = m_poDS->GetRasterBand(1);
     m_poSimpleSource->SetSrcBand(poBand);
     m_poDS->Reference();
@@ -2862,7 +2863,7 @@ std::shared_ptr<GDALMDArray> VRTDerivedArrayCreate(const char *pszVRTPath,
             const char *pszSRS = CPLGetXMLValue(psResample, "SRS", nullptr);
             if (pszSRS)
             {
-                poSRS = cpl::make_unique<OGRSpatialReference>();
+                poSRS = std::make_unique<OGRSpatialReference>();
                 poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                 if (poSRS->SetFromUserInput(
                         pszSRS, OGRSpatialReference::
@@ -2977,7 +2978,7 @@ static std::shared_ptr<GDALMDArray> ParseArray(const CPLXMLNode *psTree,
 /************************************************************************/
 
 VRTSource *
-VRTParseArraySource(CPLXMLNode *psChild, const char *pszVRTPath,
+VRTParseArraySource(const CPLXMLNode *psChild, const char *pszVRTPath,
                     std::map<CPLString, GDALDataset *> &oMapSharedSources)
 {
     VRTSource *poSource = nullptr;

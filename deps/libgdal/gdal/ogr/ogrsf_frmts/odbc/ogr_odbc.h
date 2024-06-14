@@ -33,6 +33,8 @@
 #include "ogrsf_frmts.h"
 #include "cpl_odbc.h"
 #include "cpl_error.h"
+
+#include <map>
 #include <unordered_set>
 
 /************************************************************************/
@@ -138,6 +140,7 @@ class OGRODBCTableLayer final : public OGRODBCLayer
     {
         bLaunderColumnNames = bFlag;
     }
+
     void SetPrecisionFlag(int bFlag)
     {
         bPreservePrecision = bFlag;
@@ -168,6 +171,7 @@ class OGRODBCSelectLayer final : public OGRODBCLayer
     virtual OGRFeature *GetFeature(GIntBig nFeatureId) override;
 
     virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
+
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce) override
     {
@@ -190,11 +194,15 @@ class OGRODBCDataSource final : public OGRDataSource
 
     CPLODBCSession oSession;
 
+#if 0
+    // NOTE: nothing uses the SRS cache currently. Hence disabled.
+
     // We maintain a list of known SRID to reduce the number of trips to
     // the database to get SRSes.
-    int nKnownSRID;
-    int *panSRID;
-    OGRSpatialReference **papoSRS;
+    std::map<int,
+             std::unique_ptr<OGRSpatialReference, OGRSpatialReferenceReleaser>>
+        m_oSRSCache{};
+#endif
 
     // set of all lowercase table names. Note that this is only used when
     // opening MDB datasources, not generic ODBC ones.
@@ -216,10 +224,12 @@ class OGRODBCDataSource final : public OGRDataSource
     {
         return pszName;
     }
+
     int GetLayerCount() override
     {
         return nLayers;
     }
+
     OGRLayer *GetLayer(int) override;
     OGRLayer *GetLayerByName(const char *) override;
     bool IsLayerPrivate(int) const override;
@@ -230,8 +240,6 @@ class OGRODBCDataSource final : public OGRDataSource
                                  OGRGeometry *poSpatialFilter,
                                  const char *pszDialect) override;
     virtual void ReleaseResultSet(OGRLayer *poLayer) override;
-
-    static bool IsSupportedMsAccessFileExtension(const char *pszExtension);
 
     // Internal use
     CPLODBCSession *GetSession()

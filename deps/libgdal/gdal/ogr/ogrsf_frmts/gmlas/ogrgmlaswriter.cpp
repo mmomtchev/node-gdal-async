@@ -51,27 +51,24 @@ typedef std::pair<CPLString, CPLString> PairLayerNameColName;
 class LayerDescription
 {
   public:
-    CPLString osName;
-    CPLString osXPath;
-    CPLString osPKIDName;
-    CPLString osParentPKIDName;
-    bool bIsSelected;
-    bool bIsTopLevel;
-    bool bIsJunction;
+    CPLString osName{};
+    CPLString osXPath{};
+    CPLString osPKIDName{};
+    CPLString osParentPKIDName{};
+    bool bIsSelected = false;
+    bool bIsTopLevel = false;
+    bool bIsJunction = false;
     // map a field sequential number to a field
-    std::map<int, GMLASField> oMapIdxToField;
+    std::map<int, GMLASField> oMapIdxToField{};
     // map a field xpath to its sequential number
-    std::map<CPLString, int> oMapFieldXPathToIdx;
-    std::map<CPLString, int> oMapFieldNameToOGRIdx;
-    std::vector<PairLayerNameColName> aoReferencingLayers;
+    std::map<CPLString, int> oMapFieldXPathToIdx{};
+    std::map<CPLString, int> oMapFieldNameToOGRIdx{};
+    std::vector<PairLayerNameColName> aoReferencingLayers{};
 
     // NOTE: this doesn't scale to arbitrarily large datasets
-    std::set<GIntBig> aoSetReferencedFIDs;
+    std::set<GIntBig> aoSetReferencedFIDs{};
 
-    LayerDescription()
-        : bIsSelected(false), bIsTopLevel(false), bIsJunction(false)
-    {
-    }
+    LayerDescription() = default;
 
     int GetOGRIdxFromFieldName(const CPLString &osFieldName) const
     {
@@ -84,39 +81,45 @@ class LayerDescription
 
 class GMLASWriter
 {
-    GMLASConfiguration m_oConf;
-    CPLString m_osFilename;
-    CPLString m_osGMLVersion;
-    CPLString m_osSRSNameFormat;
-    CPLString m_osEOL;
+    GMLASConfiguration m_oConf{};
+    CPLString m_osFilename{};
+    CPLString m_osGMLVersion{};
+    CPLString m_osSRSNameFormat{};
+#ifdef _WIN32
+    CPLString m_osEOL = "\r\n";
+#else
+    CPLString m_osEOL = "\n";
+#endif
     GDALDataset *m_poSrcDS;
-    char **m_papszOptions;
-    VSILFILE *m_fpXML;
-    OGRGMLASDataSource *m_poTmpDS;
-    OGRLayer *m_poLayersMDLayer;
-    OGRLayer *m_poFieldsMDLayer;
-    OGRLayer *m_poLayerRelationshipsLayer;
-    std::vector<LayerDescription> m_aoLayerDesc;
-    std::map<CPLString, int> m_oMapLayerNameToIdx;
-    std::map<CPLString, int> m_oMapXPathToIdx;
-    std::map<CPLString, OGRLayer *> m_oMapLayerNameToLayer;
-    std::map<CPLString, XPathComponents> m_oMapXPathToComponents;
-    std::map<const OGRSpatialReference *, bool> m_oMapSRSToCoordSwap;
+    CPLStringList m_aosOptions{};
+    VSIVirtualHandleUniquePtr m_fpXML{};
+    std::unique_ptr<OGRGMLASDataSource> m_poTmpDS{};
+    OGRLayer *m_poLayersMDLayer = nullptr;
+    OGRLayer *m_poFieldsMDLayer = nullptr;
+    OGRLayer *m_poLayerRelationshipsLayer = nullptr;
+    std::vector<LayerDescription> m_aoLayerDesc{};
+    std::map<CPLString, int> m_oMapLayerNameToIdx{};
+    std::map<CPLString, int> m_oMapXPathToIdx{};
+    std::map<CPLString, OGRLayer *> m_oMapLayerNameToLayer{};
+    std::map<CPLString, XPathComponents> m_oMapXPathToComponents{};
+    std::map<const OGRSpatialReference *, bool> m_oMapSRSToCoordSwap{};
 
-    CPLString m_osTargetNameSpace;
-    CPLString m_osTargetNameSpacePrefix;
+    CPLString m_osTargetNameSpace = szOGRGMLAS_URI;
+    CPLString m_osTargetNameSpacePrefix = szOGRGMLAS_PREFIX;
 
-    CPLString m_osIndentation;
-    int m_nIndentLevel;
+    CPLString m_osIndentation = std::string(INDENT_SIZE_DEFAULT, ' ');
+    int m_nIndentLevel = 0;
 
     void IncIndent()
     {
         ++m_nIndentLevel;
     }
+
     void DecIndent()
     {
         --m_nIndentLevel;
     }
+
     void PrintIndent(VSILFILE *fp);
 
     void PrintLine(VSILFILE *fp, const char *fmt, ...)
@@ -201,10 +204,11 @@ class GMLASWriter
 
     bool GetCoordSwap(const OGRSpatialReference *poSRS);
 
+    CPL_DISALLOW_COPY_ASSIGN(GMLASWriter)
+
   public:
     GMLASWriter(const char *pszFilename, GDALDataset *poSrcDS,
-                char **papszOptions);
-    ~GMLASWriter();
+                CSLConstList papszOptions);
 
     bool Write(GDALProgressFunc pfnProgress, void *pProgressData);
 };
@@ -214,33 +218,9 @@ class GMLASWriter
 /************************************************************************/
 
 GMLASWriter::GMLASWriter(const char *pszFilename, GDALDataset *poSrcDS,
-                         char **papszOptions)
-    : m_osFilename(pszFilename)
-#ifdef WIN32
-      ,
-      m_osEOL("\r\n")
-#else
-      ,
-      m_osEOL("\n")
-#endif
-      ,
-      m_poSrcDS(poSrcDS), m_papszOptions(CSLDuplicate(papszOptions)),
-      m_fpXML(nullptr), m_poTmpDS(nullptr), m_poLayersMDLayer(nullptr),
-      m_poFieldsMDLayer(nullptr), m_poLayerRelationshipsLayer(nullptr),
-      m_osTargetNameSpace(szOGRGMLAS_URI),
-      m_osTargetNameSpacePrefix(szOGRGMLAS_PREFIX),
-      m_osIndentation(std::string(INDENT_SIZE_DEFAULT, ' ')), m_nIndentLevel(0)
+                         CSLConstList papszOptions)
+    : m_osFilename(pszFilename), m_poSrcDS(poSrcDS), m_aosOptions(papszOptions)
 {
-}
-
-/************************************************************************/
-/*                           ~GMLASWriter()                             */
-/************************************************************************/
-
-GMLASWriter::~GMLASWriter()
-{
-    CSLDestroy(m_papszOptions);
-    Close();
 }
 
 /************************************************************************/
@@ -249,11 +229,8 @@ GMLASWriter::~GMLASWriter()
 
 void GMLASWriter::Close()
 {
-    if (m_fpXML != nullptr)
-        VSIFCloseL(m_fpXML);
-    m_fpXML = nullptr;
-    delete m_poTmpDS;
-    m_poTmpDS = nullptr;
+    m_fpXML.reset();
+    m_poTmpDS.reset();
 }
 
 /************************************************************************/
@@ -271,7 +248,7 @@ bool GMLASWriter::Write(GDALProgressFunc pfnProgress, void *pProgressData)
 
     // Load configuration file
     CPLString osConfigFile =
-        CSLFetchNameValueDef(m_papszOptions, szCONFIG_FILE_OPTION, "");
+        m_aosOptions.FetchNameValueDef(szCONFIG_FILE_OPTION, "");
     if (osConfigFile.empty())
     {
         const char *pszConfigFile =
@@ -296,7 +273,7 @@ bool GMLASWriter::Write(GDALProgressFunc pfnProgress, void *pProgressData)
     }
 
     CPLString osXSDFilenames =
-        CSLFetchNameValueDef(m_papszOptions, szINPUT_XSD_OPTION, "");
+        m_aosOptions.FetchNameValueDef(szINPUT_XSD_OPTION, "");
     std::vector<PairURIFilename> aoXSDs;
     std::map<CPLString, CPLString> oMapURIToPrefix;
     CPLString osGMLVersion;
@@ -304,7 +281,7 @@ bool GMLASWriter::Write(GDALProgressFunc pfnProgress, void *pProgressData)
     if (!osXSDFilenames.empty())
     {
         // Create a fake GMLAS dataset from the XSD= value
-        m_poTmpDS = new OGRGMLASDataSource();
+        m_poTmpDS = std::make_unique<OGRGMLASDataSource>();
         GDALOpenInfo oOpenInfo(szGMLAS_PREFIX, GA_ReadOnly);
         oOpenInfo.papszOpenOptions = CSLSetNameValue(
             oOpenInfo.papszOpenOptions, szXSD_OPTION, osXSDFilenames);
@@ -317,7 +294,7 @@ bool GMLASWriter::Write(GDALProgressFunc pfnProgress, void *pProgressData)
         }
     }
 
-    GDALDataset *poQueryDS = m_poTmpDS ? m_poTmpDS : m_poSrcDS;
+    GDALDataset *poQueryDS = m_poTmpDS ? m_poTmpDS.get() : m_poSrcDS;
 
     // No explicit XSD creation option, then we assume that the source
     // dataset contains all the metadata layers we need
@@ -359,11 +336,8 @@ bool GMLASWriter::Write(GDALProgressFunc pfnProgress, void *pProgressData)
     std::map<int, CPLString> oMapToUri;
     std::map<int, CPLString> oMapToLocation;
     std::map<int, CPLString> oMapToPrefix;
-    while (true)
+    for (auto &&poFeature : *poOtherMetadataLayer)
     {
-        OGRFeature *poFeature = poOtherMetadataLayer->GetNextFeature();
-        if (poFeature == nullptr)
-            break;
         const char *pszKey = poFeature->GetFieldAsString(szKEY);
         int i = 0;
         if (sscanf(pszKey, szNAMESPACE_URI_FMT, &i) == 1 && i > 0)
@@ -382,7 +356,6 @@ bool GMLASWriter::Write(GDALProgressFunc pfnProgress, void *pProgressData)
         {
             osGMLVersion = poFeature->GetFieldAsString(szVALUE);
         }
-        delete poFeature;
     }
     poOtherMetadataLayer->ResetReading();
 
@@ -408,7 +381,7 @@ bool GMLASWriter::Write(GDALProgressFunc pfnProgress, void *pProgressData)
     if (!CollectRelationships())
         return false;
 
-    const char *pszLayers = CSLFetchNameValue(m_papszOptions, szLAYERS_OPTION);
+    const char *pszLayers = m_aosOptions.FetchNameValue(szLAYERS_OPTION);
     if (pszLayers)
     {
         for (const auto &oLayerIter : m_oMapLayerNameToIdx)
@@ -467,10 +440,9 @@ bool GMLASWriter::Write(GDALProgressFunc pfnProgress, void *pProgressData)
         ComputeTopLevelFIDs();
     }
 
-    const bool bWFS2FeatureCollection =
-        EQUAL(CSLFetchNameValueDef(m_papszOptions, szWRAPPING_OPTION,
-                                   m_oConf.m_osWrapping),
-              szWFS2_FEATURECOLLECTION);
+    const bool bWFS2FeatureCollection = EQUAL(
+        m_aosOptions.FetchNameValueDef(szWRAPPING_OPTION, m_oConf.m_osWrapping),
+        szWFS2_FEATURECOLLECTION);
 
     if (pfnProgress == GDALDummyProgress)
         pfnProgress = nullptr;
@@ -498,8 +470,8 @@ bool GMLASWriter::Write(GDALProgressFunc pfnProgress, void *pProgressData)
     int nIndentSize =
         std::min(INDENT_SIZE_MAX,
                  std::max(INDENT_SIZE_MIN,
-                          atoi(CSLFetchNameValueDef(
-                              m_papszOptions, szINDENT_SIZE_OPTION,
+                          atoi(m_aosOptions.FetchNameValueDef(
+                              szINDENT_SIZE_OPTION,
                               CPLSPrintf("%d", m_oConf.m_nIndentSize)))));
     m_osIndentation.assign(nIndentSize, ' ');
 
@@ -512,13 +484,14 @@ bool GMLASWriter::Write(GDALProgressFunc pfnProgress, void *pProgressData)
     else
     {
         m_osGMLVersion = osGMLVersion;
+        CPL_IGNORE_RET_VAL(osGMLVersion);
     }
 
-    m_osSRSNameFormat = CSLFetchNameValueDef(
-        m_papszOptions, szSRSNAME_FORMAT_OPTION, m_oConf.m_osSRSNameFormat);
+    m_osSRSNameFormat = m_aosOptions.FetchNameValueDef(
+        szSRSNAME_FORMAT_OPTION, m_oConf.m_osSRSNameFormat);
 
-    CPLString osLineFormat = CSLFetchNameValueDef(
-        m_papszOptions, szLINEFORMAT_OPTION, m_oConf.m_osLineFormat);
+    CPLString osLineFormat = m_aosOptions.FetchNameValueDef(
+        szLINEFORMAT_OPTION, m_oConf.m_osLineFormat);
     if (!osLineFormat.empty())
     {
         if (EQUAL(osLineFormat, szCRLF))
@@ -528,11 +501,11 @@ bool GMLASWriter::Write(GDALProgressFunc pfnProgress, void *pProgressData)
     }
 
     CPLString osOutXSDFilename =
-        CSLFetchNameValueDef(m_papszOptions, szOUTPUT_XSD_FILENAME_OPTION, "");
+        m_aosOptions.FetchNameValueDef(szOUTPUT_XSD_FILENAME_OPTION, "");
     const bool bGenerateXSD =
         !bWFS2FeatureCollection &&
         (m_osFilename != "/vsistdout/" || !osOutXSDFilename.empty()) &&
-        CPLFetchBool(m_papszOptions, szGENERATE_XSD_OPTION, true);
+        m_aosOptions.FetchBool(szGENERATE_XSD_OPTION, true);
 
     // Write .xsd
     if (bWFS2FeatureCollection)
@@ -567,11 +540,12 @@ bool GMLASWriter::Write(GDALProgressFunc pfnProgress, void *pProgressData)
     // Epilogue of .xml file
     if (bWFS2FeatureCollection)
     {
-        PrintLine(m_fpXML, "</%s:%s>", szWFS_PREFIX, szFEATURE_COLLECTION);
+        PrintLine(m_fpXML.get(), "</%s:%s>", szWFS_PREFIX,
+                  szFEATURE_COLLECTION);
     }
     else
     {
-        PrintLine(m_fpXML, "</%s:%s>", m_osTargetNameSpacePrefix.c_str(),
+        PrintLine(m_fpXML.get(), "</%s:%s>", m_osTargetNameSpacePrefix.c_str(),
                   szFEATURE_COLLECTION);
     }
 
@@ -697,7 +671,7 @@ bool GMLASWriter::WriteXMLHeader(
     const std::vector<PairURIFilename> &aoXSDs,
     const std::map<CPLString, CPLString> &oMapURIToPrefix)
 {
-    m_fpXML = VSIFOpenL(m_osFilename, "wb");
+    m_fpXML.reset(VSIFOpenL(m_osFilename, "wb"));
     if (m_fpXML == nullptr)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "Cannot create %s",
@@ -711,48 +685,49 @@ bool GMLASWriter::WriteXMLHeader(
     std::map<CPLString, CPLString> aoWrittenPrefixes;
     aoWrittenPrefixes[szXSI_PREFIX] = szXSI_URI;
 
-    PrintLine(m_fpXML, "<?xml version=\"1.0\" encoding=\"utf-8\" ?>");
+    PrintLine(m_fpXML.get(), "<?xml version=\"1.0\" encoding=\"utf-8\" ?>");
     if (bWFS2FeatureCollection)
     {
-        PrintLine(m_fpXML, "<%s:%s", szWFS_PREFIX, szFEATURE_COLLECTION);
+        PrintLine(m_fpXML.get(), "<%s:%s", szWFS_PREFIX, szFEATURE_COLLECTION);
 
-        const CPLString osTimestamp(CSLFetchNameValueDef(
-            m_papszOptions, szTIMESTAMP_OPTION, m_oConf.m_osTimestamp));
+        const CPLString osTimestamp(m_aosOptions.FetchNameValueDef(
+            szTIMESTAMP_OPTION, m_oConf.m_osTimestamp));
         if (osTimestamp.empty())
         {
             struct tm sTime;
             CPLUnixTimeToYMDHMS(time(nullptr), &sTime);
-            PrintLine(m_fpXML,
+            PrintLine(m_fpXML.get(),
                       "    timeStamp=\"%04d-%02d-%02dT%02d:%02d:%02dZ\"",
                       sTime.tm_year + 1900, sTime.tm_mon + 1, sTime.tm_mday,
                       sTime.tm_hour, sTime.tm_min, sTime.tm_sec);
         }
         else
         {
-            PrintLine(m_fpXML, "    timeStamp=\"%s\"", osTimestamp.c_str());
+            PrintLine(m_fpXML.get(), "    timeStamp=\"%s\"",
+                      osTimestamp.c_str());
         }
-        PrintLine(m_fpXML, "    numberMatched=\"unknown\"");
-        PrintLine(m_fpXML, "    numberReturned=\"" CPL_FRMT_GIB "\"",
+        PrintLine(m_fpXML.get(), "    numberMatched=\"unknown\"");
+        PrintLine(m_fpXML.get(), "    numberReturned=\"" CPL_FRMT_GIB "\"",
                   nTotalFeatures);
-        PrintLine(m_fpXML, "    xmlns:%s=\"%s\"", szWFS_PREFIX, szWFS20_URI);
+        PrintLine(m_fpXML.get(), "    xmlns:%s=\"%s\"", szWFS_PREFIX,
+                  szWFS20_URI);
         aoWrittenPrefixes[szWFS_PREFIX] = szWFS20_URI;
     }
     else
     {
-        PrintLine(m_fpXML, "<%s:%s", m_osTargetNameSpacePrefix.c_str(),
+        PrintLine(m_fpXML.get(), "<%s:%s", m_osTargetNameSpacePrefix.c_str(),
                   szFEATURE_COLLECTION);
-        PrintLine(m_fpXML, "    xmlns:%s=\"%s\"",
+        PrintLine(m_fpXML.get(), "    xmlns:%s=\"%s\"",
                   m_osTargetNameSpacePrefix.c_str(),
                   XMLEscape(m_osTargetNameSpace).c_str());
     }
-    PrintLine(m_fpXML, "    xmlns:%s=\"%s\"", szXSI_PREFIX, szXSI_URI);
+    PrintLine(m_fpXML.get(), "    xmlns:%s=\"%s\"", szXSI_PREFIX, szXSI_URI);
 
     CPLString osSchemaURI;
     if (bWFS2FeatureCollection)
     {
-        const CPLString osWFS20SchemaLocation(
-            CSLFetchNameValueDef(m_papszOptions, szWFS20_SCHEMALOCATION_OPTION,
-                                 m_oConf.m_osWFS20SchemaLocation));
+        const CPLString osWFS20SchemaLocation(m_aosOptions.FetchNameValueDef(
+            szWFS20_SCHEMALOCATION_OPTION, m_oConf.m_osWFS20SchemaLocation));
         osSchemaURI += szWFS20_URI;
         osSchemaURI += " ";
         osSchemaURI += osWFS20SchemaLocation;
@@ -805,7 +780,7 @@ bool GMLASWriter::WriteXMLHeader(
         {
             if (!osLocation.empty())
             {
-                PrintLine(m_fpXML, "    xsi:%s=\"%s\"",
+                PrintLine(m_fpXML.get(), "    xsi:%s=\"%s\"",
                           szNO_NAMESPACE_SCHEMA_LOCATION,
                           XMLEscape(osLocation).c_str());
             }
@@ -817,7 +792,7 @@ bool GMLASWriter::WriteXMLHeader(
                 osPrefix = CPLSPrintf("ns%d", static_cast<int>(i));
             }
 
-            PrintLine(m_fpXML, "    xmlns:%s=\"%s\"", osPrefix.c_str(),
+            PrintLine(m_fpXML.get(), "    xmlns:%s=\"%s\"", osPrefix.c_str(),
                       XMLEscape(osURI).c_str());
 
             if (!osLocation.empty())
@@ -833,13 +808,13 @@ bool GMLASWriter::WriteXMLHeader(
 
     if (!osSchemaURI.empty())
     {
-        PrintLine(m_fpXML, "    xsi:%s=\"%s\" >", szSCHEMA_LOCATION,
+        PrintLine(m_fpXML.get(), "    xsi:%s=\"%s\" >", szSCHEMA_LOCATION,
                   XMLEscape(osSchemaURI).c_str());
     }
 
     // Write optional user comment
-    CPLString osComment(CSLFetchNameValueDef(m_papszOptions, szCOMMENT_OPTION,
-                                             m_oConf.m_osComment));
+    CPLString osComment(
+        m_aosOptions.FetchNameValueDef(szCOMMENT_OPTION, m_oConf.m_osComment));
     if (!osComment.empty())
     {
         while (true)
@@ -849,7 +824,7 @@ bool GMLASWriter::WriteXMLHeader(
             if (nSizeBefore == osComment.size())
                 break;
         }
-        PrintLine(m_fpXML, "<!-- %s -->", osComment.c_str());
+        PrintLine(m_fpXML.get(), "<!-- %s -->", osComment.c_str());
     }
 
     return true;
@@ -878,11 +853,8 @@ bool GMLASWriter::CollectLayers()
 
     m_poLayersMDLayer->SetAttributeFilter(nullptr);
     m_poLayersMDLayer->ResetReading();
-    while (true)
+    for (auto &&poFeature : *m_poLayersMDLayer)
     {
-        OGRFeature *poFeature = m_poLayersMDLayer->GetNextFeature();
-        if (poFeature == nullptr)
-            break;
         LayerDescription desc;
         desc.osName = poFeature->GetFieldAsString(szLAYER_NAME);
         desc.osXPath = poFeature->GetFieldAsString(szLAYER_XPATH);
@@ -894,7 +866,6 @@ bool GMLASWriter::CollectLayers()
         desc.bIsSelected = desc.bIsTopLevel;
         desc.bIsJunction = EQUAL(poFeature->GetFieldAsString(szLAYER_CATEGORY),
                                  szJUNCTION_TABLE);
-        delete poFeature;
 
         OGRLayer *poLyr = GetLayerByName(desc.osName);
         if (poLyr)
@@ -963,12 +934,8 @@ bool GMLASWriter::CollectFields()
     m_poFieldsMDLayer->SetAttributeFilter(
         (CPLString(szFIELD_CATEGORY) + " != '" + szSWE_FIELD + "'").c_str());
     m_poFieldsMDLayer->ResetReading();
-    while (true)
+    for (auto &&poFeature : m_poFieldsMDLayer)
     {
-        OGRFeature *poFeature = m_poFieldsMDLayer->GetNextFeature();
-        if (poFeature == nullptr)
-            break;
-
         GMLASField oField;
 
         oField.SetName(poFeature->GetFieldAsString(szFIELD_NAME));
@@ -983,12 +950,10 @@ bool GMLASWriter::CollectFields()
                      "referenced in %s by field %s",
                      szOGR_LAYERS_METADATA, osLayerName.c_str(),
                      szOGR_FIELDS_METADATA, oField.GetName().c_str());
-            delete poFeature;
             continue;
         }
         if (m_aoLayerDesc[oIterToIdx->second].bIsJunction)
         {
-            delete poFeature;
             continue;
         }
 
@@ -1041,7 +1006,6 @@ bool GMLASWriter::CollectFields()
                          "Missing value for %s for field (%s,%s)",
                          szFIELD_JUNCTION_LAYER, osLayerName.c_str(),
                          oField.GetName().c_str());
-                delete poFeature;
                 continue;
             }
             oField.SetJunctionLayer(osJunctionLayer);
@@ -1057,7 +1021,6 @@ bool GMLASWriter::CollectFields()
                      "Unknown category = %s for field (%s,%s)",
                      osCategory.c_str(), osLayerName.c_str(),
                      oField.GetName().c_str());
-            delete poFeature;
             continue;
         }
 
@@ -1082,7 +1045,6 @@ bool GMLASWriter::CollectFields()
             poFeature->GetFieldAsString(szFIELD_DEFAULT_VALUE));
 
         const int nIdx = poFeature->GetFieldAsInteger(szFIELD_INDEX);
-        delete poFeature;
 
         const int nLayerIdx = m_oMapLayerNameToIdx[osLayerName];
         LayerDescription &oLayerDesc = m_aoLayerDesc[nLayerIdx];
@@ -1159,12 +1121,8 @@ bool GMLASWriter::CollectRelationships()
     m_poLayerRelationshipsLayer->SetAttributeFilter(nullptr);
     m_poLayerRelationshipsLayer->ResetReading();
 
-    while (true)
+    for (auto &&poFeature : m_poLayerRelationshipsLayer)
     {
-        OGRFeature *poFeature = m_poLayerRelationshipsLayer->GetNextFeature();
-        if (poFeature == nullptr)
-            break;
-
         const CPLString osParentLayer(
             poFeature->GetFieldAsString(szPARENT_LAYER));
         if (m_oMapLayerNameToIdx.find(osParentLayer) ==
@@ -1175,7 +1133,6 @@ bool GMLASWriter::CollectRelationships()
                      "Cannot find in %s layer %s, referenced in %s",
                      szOGR_LAYERS_METADATA, osParentLayer.c_str(),
                      szOGR_LAYER_RELATIONSHIPS);
-            delete poFeature;
             continue;
         }
 
@@ -1189,7 +1146,6 @@ bool GMLASWriter::CollectRelationships()
                      "Cannot find in %s layer %s, referenced in %s",
                      szOGR_LAYERS_METADATA, osChildLayer.c_str(),
                      szOGR_LAYER_RELATIONSHIPS);
-            delete poFeature;
             continue;
         }
 
@@ -1202,8 +1158,6 @@ bool GMLASWriter::CollectRelationships()
             m_aoLayerDesc[nChildLayerIdx].aoReferencingLayers.push_back(
                 PairLayerNameColName(osParentLayer, osReferencingField));
         }
-
-        delete poFeature;
     }
     m_poLayerRelationshipsLayer->ResetReading();
 
@@ -1286,16 +1240,10 @@ void GMLASWriter::ComputeTopLevelFIDs()
                     m_poSrcDS->ExecuteSQL(osSQL, nullptr, nullptr);
                 if (poSQLLyr)
                 {
-                    while (true)
+                    for (auto &&poFeature : *poSQLLyr)
                     {
-                        OGRFeature *poFeature = poSQLLyr->GetNextFeature();
-                        if (poFeature == nullptr)
-                            break;
-
                         const GIntBig nFID = poFeature->GetFieldAsInteger64(0);
                         oDesc.aoSetReferencedFIDs.insert(nFID);
-
-                        delete poFeature;
                     }
                     m_poSrcDS->ReleaseResultSet(poSQLLyr);
                 }
@@ -1401,37 +1349,33 @@ bool GMLASWriter::WriteLayer(bool bWFS2FeatureCollection,
     std::set<CPLString> oSetLayersInIteration;
     oSetLayersInIteration.insert(oDesc.osName);
     bool bRet = true;
-    while (bRet)
+    for (auto &&poFeature : *poSrcLayer)
     {
-        OGRFeature *poFeature = poSrcLayer->GetNextFeature();
-        if (poFeature == nullptr)
-            break;
-
         if (oDesc.aoSetReferencedFIDs.find(poFeature->GetFID()) ==
             oDesc.aoSetReferencedFIDs.end())
         {
-            PrintIndent(m_fpXML);
+            PrintIndent(m_fpXML.get());
             if (bWFS2FeatureCollection)
             {
-                PrintLine(m_fpXML, "<%s:%s>", szWFS_PREFIX, szMEMBER);
+                PrintLine(m_fpXML.get(), "<%s:%s>", szWFS_PREFIX, szMEMBER);
             }
             else
             {
-                PrintLine(m_fpXML, "<%s:%s>", m_osTargetNameSpacePrefix.c_str(),
-                          szFEATURE_MEMBER);
+                PrintLine(m_fpXML.get(), "<%s:%s>",
+                          m_osTargetNameSpacePrefix.c_str(), szFEATURE_MEMBER);
             }
 
-            bRet = WriteFeature(poFeature, oDesc, oSetLayersInIteration,
+            bRet = WriteFeature(poFeature.get(), oDesc, oSetLayersInIteration,
                                 XPathComponents(), XPathComponents(), 0);
 
-            PrintIndent(m_fpXML);
+            PrintIndent(m_fpXML.get());
             if (bWFS2FeatureCollection)
             {
-                PrintLine(m_fpXML, "</%s:%s>", szWFS_PREFIX, szMEMBER);
+                PrintLine(m_fpXML.get(), "</%s:%s>", szWFS_PREFIX, szMEMBER);
             }
             else
             {
-                PrintLine(m_fpXML, "</%s:%s>",
+                PrintLine(m_fpXML.get(), "</%s:%s>",
                           m_osTargetNameSpacePrefix.c_str(), szFEATURE_MEMBER);
             }
 
@@ -1445,8 +1389,9 @@ bool GMLASWriter::WriteLayer(bool bWFS2FeatureCollection,
                     bRet = false;
                 }
             }
+            if (!bRet)
+                break;
         }
-        delete poFeature;
     }
     poSrcLayer->ResetReading();
     DecIndent();
@@ -1518,14 +1463,14 @@ void GMLASWriter::WriteClosingTags(size_t nCommonLength,
                      nCommonLength + 2 <= aoCurComponents.size()) &&
                     i >= 2)
                 {
-                    PrintLine(m_fpXML, " />");
+                    PrintLine(m_fpXML.get(), " />");
                     i -= 2;
                     DecIndent();
                     bMustIndent = true;
                 }
                 else
                 {
-                    VSIFPrintfL(m_fpXML, ">");
+                    VSIFPrintfL(m_fpXML.get(), ">");
                     CPLAssert(i > 0);
                     i--;
                     // Print a new line except in the <elt attr="foo">bar</elt>
@@ -1534,7 +1479,7 @@ void GMLASWriter::WriteClosingTags(size_t nCommonLength,
                           nCommonLength == aoNewComponents.size() &&
                           bNewIsRegularField))
                     {
-                        PrintLine(m_fpXML, "%s", "");
+                        PrintLine(m_fpXML.get(), "%s", "");
                     }
                 }
             }
@@ -1546,10 +1491,10 @@ void GMLASWriter::WriteClosingTags(size_t nCommonLength,
             {
                 if (bMustIndent)
                 {
-                    PrintIndent(m_fpXML);
+                    PrintIndent(m_fpXML.get());
                 }
                 bMustIndent = true;
-                PrintLine(m_fpXML, "</%s>",
+                PrintLine(m_fpXML.get(), "</%s>",
                           MakeXPath(aoCurComponents[i]).c_str());
                 DecIndent();
                 if (i == 0)
@@ -1576,8 +1521,8 @@ void GMLASWriter::WriteClosingAndStartingTags(
     for (size_t i = nCommonLength; i < aoNewComponents.size(); ++i)
     {
         IncIndent();
-        PrintIndent(m_fpXML);
-        PrintLine(m_fpXML, "<%s>", MakeXPath(aoNewComponents[i]).c_str());
+        PrintIndent(m_fpXML.get());
+        PrintLine(m_fpXML.get(), "<%s>", MakeXPath(aoNewComponents[i]).c_str());
     }
 }
 
@@ -1654,9 +1599,9 @@ bool GMLASWriter::WriteFeature(OGRFeature *poFeature,
     {
         aoLayerComponents = SplitXPath(oLayerDesc.osXPath);
         const CPLString osLayerElt(MakeXPath(aoLayerComponents.back()));
-        PrintIndent(m_fpXML);
-        VSIFPrintfL(m_fpXML, "%s", m_osIndentation.c_str());
-        PrintLine(m_fpXML, "<%s />", osLayerElt.c_str());
+        PrintIndent(m_fpXML.get());
+        VSIFPrintfL(m_fpXML.get(), "%s", m_osIndentation.c_str());
+        PrintLine(m_fpXML.get(), "<%s />", osLayerElt.c_str());
     }
     else
     {
@@ -1678,14 +1623,14 @@ void GMLASWriter::PrintMultipleValuesSeparator(
 {
     if (oField.IsList())
     {
-        VSIFPrintfL(m_fpXML, " ");
+        VSIFPrintfL(m_fpXML.get(), " ");
     }
     else
     {
-        PrintLine(m_fpXML, "</%s>",
+        PrintLine(m_fpXML.get(), "</%s>",
                   MakeXPath(aoFieldComponents.back()).c_str());
-        PrintIndent(m_fpXML);
-        VSIFPrintfL(m_fpXML, "<%s>",
+        PrintIndent(m_fpXML.get());
+        VSIFPrintfL(m_fpXML.get(), "<%s>",
                     MakeXPath(aoFieldComponents.back()).c_str());
     }
 }
@@ -1713,7 +1658,7 @@ static void PrintXMLDouble(VSILFILE *fp, double dfVal)
 /*                 AreGeomsEqualAxisOrderInsensitive()                  */
 /************************************************************************/
 
-static bool AreGeomsEqualAxisOrderInsensitive(OGRGeometry *poGeomRef,
+static bool AreGeomsEqualAxisOrderInsensitive(const OGRGeometry *poGeomRef,
                                               OGRGeometry *poGeomModifiable)
 {
     if (poGeomRef->Equals(poGeomModifiable))
@@ -1837,7 +1782,7 @@ bool GMLASWriter::WriteFieldRegular(
         nCommonLength == aoFieldComponents.size())
     {
         // Particular case for <a foo="bar" xsi:nil="true"/>
-        VSIFPrintfL(m_fpXML, " xsi:nil=\"true\">");
+        VSIFPrintfL(m_fpXML.get(), " xsi:nil=\"true\">");
         aoCurComponents = aoFieldComponents;
         bCurIsRegularField = true;
         return true;
@@ -1859,7 +1804,7 @@ bool GMLASWriter::WriteFieldRegular(
         {
             if (aoFieldComponents[i].second != szAT_ANY_ATTR)
             {
-                VSIFPrintfL(m_fpXML,
+                VSIFPrintfL(m_fpXML.get(),
                             " %s=", MakeXPath(aoFieldComponents[i]).c_str());
                 bWriteEltContent = false;
             }
@@ -1867,16 +1812,16 @@ bool GMLASWriter::WriteFieldRegular(
         else
         {
             if (i > nCommonLength)
-                PrintLine(m_fpXML, "%s", "");
+                PrintLine(m_fpXML.get(), "%s", "");
             IncIndent();
-            PrintIndent(m_fpXML);
+            PrintIndent(m_fpXML.get());
 
             if (i + 2 == aoFieldComponents.size() &&
                 IsAttr(aoFieldComponents[i + 1]))
             {
                 // Are we an element that is going to have an
                 // attribute ?
-                VSIFPrintfL(m_fpXML, "<%s",
+                VSIFPrintfL(m_fpXML.get(), "<%s",
                             MakeXPath(aoFieldComponents[i]).c_str());
             }
             else
@@ -1884,12 +1829,12 @@ bool GMLASWriter::WriteFieldRegular(
                 // Are we a regular element ?
                 if (bEmptyContent)
                 {
-                    VSIFPrintfL(m_fpXML, "<%s xsi:nil=\"true\">",
+                    VSIFPrintfL(m_fpXML.get(), "<%s xsi:nil=\"true\">",
                                 MakeXPath(aoFieldComponents[i]).c_str());
                 }
                 else
                 {
-                    VSIFPrintfL(m_fpXML, "<%s>",
+                    VSIFPrintfL(m_fpXML.get(), "<%s>",
                                 MakeXPath(aoFieldComponents[i]).c_str());
                 }
             }
@@ -1898,7 +1843,7 @@ bool GMLASWriter::WriteFieldRegular(
 
     // Write content
     if (!bWriteEltContent)
-        VSIFPrintfL(m_fpXML, "\"");
+        VSIFPrintfL(m_fpXML.get(), "\"");
 
     if (!bEmptyContent && oField.GetTypeName() == szFAKEXS_JSON_DICT)
     {
@@ -1917,7 +1862,7 @@ bool GMLASWriter::WriteFieldRegular(
                         json_object_get_type(it.val) == json_type_string)
                     {
                         VSIFPrintfL(
-                            m_fpXML, " %s=\"%s\"", it.key,
+                            m_fpXML.get(), " %s=\"%s\"", it.key,
                             XMLEscape(json_object_get_string(it.val)).c_str());
                     }
                 }
@@ -1943,7 +1888,7 @@ bool GMLASWriter::WriteFieldRegular(
                 if (wkbFlatten(poGeom->getGeometryType()) ==
                     wkbGeometryCollection)
                 {
-                    OGRGeometryCollection *poGC = new OGRGeometryCollection();
+                    OGRGeometryCollection oGC;
                     char **papszValues =
                         poFeature->GetFieldAsStringList(nFieldXMLIdx);
                     for (int j = 0;
@@ -1953,9 +1898,9 @@ bool GMLASWriter::WriteFieldRegular(
                         OGRGeometry *poPart = OGRGeometry::FromHandle(
                             OGR_G_CreateFromGML(papszValues[j]));
                         if (poPart)
-                            poGC->addGeometryDirectly(poPart);
+                            oGC.addGeometryDirectly(poPart);
                     }
-                    if (AreGeomsEqualAxisOrderInsensitive(poGeom, poGC))
+                    if (AreGeomsEqualAxisOrderInsensitive(poGeom, &oGC))
                     {
                         for (int j = 0; papszValues != nullptr &&
                                         papszValues[j] != nullptr;
@@ -1964,27 +1909,26 @@ bool GMLASWriter::WriteFieldRegular(
                             if (j > 0)
                                 PrintMultipleValuesSeparator(oField,
                                                              aoFieldComponents);
-                            VSIFPrintfL(m_fpXML, "%s", papszValues[j]);
+                            VSIFPrintfL(m_fpXML.get(), "%s", papszValues[j]);
                         }
                         bWriteOGRGeom = false;
                     }
-                    delete poGC;
                 }
             }
             else
             {
                 const char *pszXML = poFeature->GetFieldAsString(nFieldXMLIdx);
-                OGRGeometry *poOrigGeom =
-                    OGRGeometry::FromHandle(OGR_G_CreateFromGML(pszXML));
+                auto poOrigGeom = std::unique_ptr<OGRGeometry>(
+                    OGRGeometry::FromHandle(OGR_G_CreateFromGML(pszXML)));
 
                 if (poOrigGeom != nullptr)
                 {
-                    if (AreGeomsEqualAxisOrderInsensitive(poGeom, poOrigGeom))
+                    if (AreGeomsEqualAxisOrderInsensitive(poGeom,
+                                                          poOrigGeom.get()))
                     {
-                        VSIFPrintfL(m_fpXML, "%s", pszXML);
+                        VSIFPrintfL(m_fpXML.get(), "%s", pszXML);
                         bWriteOGRGeom = false;
                     }
-                    delete poOrigGeom;
                 }
             }
         }
@@ -2052,7 +1996,7 @@ bool GMLASWriter::WriteFieldRegular(
                         OGRGeometry::ToHandle(poGC->getGeometryRef(j)),
                         papszOptions);
                     if (pszGML)
-                        VSIFPrintfL(m_fpXML, "%s", pszGML);
+                        VSIFPrintfL(m_fpXML.get(), "%s", pszGML);
                     CPLFree(pszGML);
                 }
             }
@@ -2076,7 +2020,7 @@ bool GMLASWriter::WriteFieldRegular(
                         if (pszEnd)
                         {
                             *pszEnd = '\0';
-                            VSIFPrintfL(m_fpXML,
+                            VSIFPrintfL(m_fpXML.get(),
                                         "<gml:patches><gml:PolygonPatch>%s"
                                         "</gml:PolygonPatch></gml:patches>",
                                         pszGML + strlen("<gml:Polygon>"));
@@ -2090,7 +2034,7 @@ bool GMLASWriter::WriteFieldRegular(
                         {
                             *pszEnd = '\0';
                             VSIFPrintfL(
-                                m_fpXML,
+                                m_fpXML.get(),
                                 "<gml:segments><gml:LineStringSegment>%s"
                                 "</gml:LineStringSegment></gml:segments>",
                                 pszGML + strlen("<gml:LineString>"));
@@ -2102,13 +2046,13 @@ bool GMLASWriter::WriteFieldRegular(
                         if (pszEnd)
                         {
                             *pszEnd = '\0';
-                            VSIFPrintfL(m_fpXML, "%s",
+                            VSIFPrintfL(m_fpXML.get(), "%s",
                                         pszGML + strlen("<gml:Point>"));
                         }
                     }
                     else
                     {
-                        VSIFPrintfL(m_fpXML, "%s", pszGML);
+                        VSIFPrintfL(m_fpXML.get(), "%s", pszGML);
                     }
                 }
                 CPLFree(pszGML);
@@ -2124,13 +2068,13 @@ bool GMLASWriter::WriteFieldRegular(
         CPLXMLNode *psNode = CPLParseXMLString(osValidatingXML);
         if (psNode != nullptr)
         {
-            VSIFPrintfL(m_fpXML, "%s", osXML.c_str());
+            VSIFPrintfL(m_fpXML.get(), "%s", osXML.c_str());
             CPLDestroyXMLNode(psNode);
         }
         else
         {
             // Otherwise consider it as text and escape
-            VSIFPrintfL(m_fpXML, "%s", XMLEscape(osXML).c_str());
+            VSIFPrintfL(m_fpXML.get(), "%s", XMLEscape(osXML).c_str());
         }
     }
     else if (!bEmptyContent)
@@ -2152,14 +2096,16 @@ bool GMLASWriter::WriteFieldRegular(
                         if (j > 0)
                             PrintMultipleValuesSeparator(oField,
                                                          aoFieldComponents);
-                        VSIFPrintfL(m_fpXML, panValues[j] ? "true" : "false");
+                        VSIFPrintfL(m_fpXML.get(),
+                                    panValues[j] ? "true" : "false");
                     }
                 }
                 else
                 {
-                    VSIFPrintfL(m_fpXML, poFeature->GetFieldAsInteger(nFieldIdx)
-                                             ? "true"
-                                             : "false");
+                    VSIFPrintfL(m_fpXML.get(),
+                                poFeature->GetFieldAsInteger(nFieldIdx)
+                                    ? "true"
+                                    : "false");
                 }
                 break;
             }
@@ -2176,7 +2122,7 @@ bool GMLASWriter::WriteFieldRegular(
                     char *pszT = strchr(pszFormatted, 'T');
                     if (oField.GetType() == GMLAS_FT_TIME && pszT != nullptr)
                     {
-                        VSIFPrintfL(m_fpXML, "%s", pszT + 1);
+                        VSIFPrintfL(m_fpXML.get(), "%s", pszT + 1);
                     }
                     else
                     {
@@ -2185,7 +2131,7 @@ bool GMLASWriter::WriteFieldRegular(
                             if (pszT)
                                 *pszT = '\0';
                         }
-                        VSIFPrintfL(m_fpXML, "%s", pszFormatted);
+                        VSIFPrintfL(m_fpXML.get(), "%s", pszFormatted);
                     }
                     VSIFree(pszFormatted);
                 }
@@ -2208,7 +2154,7 @@ bool GMLASWriter::WriteFieldRegular(
                     GByte *pabyContent =
                         poFeature->GetFieldAsBinary(nFieldIdx, &nCount);
                     char *pszBase64 = CPLBase64Encode(nCount, pabyContent);
-                    VSIFPrintfL(m_fpXML, "%s", pszBase64);
+                    VSIFPrintfL(m_fpXML.get(), "%s", pszBase64);
                     CPLFree(pszBase64);
                 }
                 else
@@ -2230,7 +2176,7 @@ bool GMLASWriter::WriteFieldRegular(
                     GByte *pabyContent =
                         poFeature->GetFieldAsBinary(nFieldIdx, &nCount);
                     for (int i = 0; i < nCount; ++i)
-                        VSIFPrintfL(m_fpXML, "%02X", pabyContent[i]);
+                        VSIFPrintfL(m_fpXML.get(), "%02X", pabyContent[i]);
                 }
                 else
                 {
@@ -2261,7 +2207,7 @@ bool GMLASWriter::WriteFieldRegular(
                             if (j > 0)
                                 PrintMultipleValuesSeparator(oField,
                                                              aoFieldComponents);
-                            VSIFPrintfL(m_fpXML, "%s",
+                            VSIFPrintfL(m_fpXML.get(), "%s",
                                         XMLEscape(papszValues[j]).c_str());
                         }
                     }
@@ -2275,7 +2221,7 @@ bool GMLASWriter::WriteFieldRegular(
                             if (j > 0)
                                 PrintMultipleValuesSeparator(oField,
                                                              aoFieldComponents);
-                            PrintXMLDouble(m_fpXML, padfValues[j]);
+                            PrintXMLDouble(m_fpXML.get(), padfValues[j]);
                         }
                     }
                     else if (eOGRType == OFTIntegerList)
@@ -2288,7 +2234,7 @@ bool GMLASWriter::WriteFieldRegular(
                             if (j > 0)
                                 PrintMultipleValuesSeparator(oField,
                                                              aoFieldComponents);
-                            VSIFPrintfL(m_fpXML, "%d", panValues[j]);
+                            VSIFPrintfL(m_fpXML.get(), "%d", panValues[j]);
                         }
                     }
                     else if (eOGRType == OFTInteger64List)
@@ -2302,19 +2248,20 @@ bool GMLASWriter::WriteFieldRegular(
                             if (j > 0)
                                 PrintMultipleValuesSeparator(oField,
                                                              aoFieldComponents);
-                            VSIFPrintfL(m_fpXML, CPL_FRMT_GIB, panValues[j]);
+                            VSIFPrintfL(m_fpXML.get(), CPL_FRMT_GIB,
+                                        panValues[j]);
                         }
                     }
                 }
                 else if (eOGRType == OFTReal)
                 {
-                    PrintXMLDouble(m_fpXML,
+                    PrintXMLDouble(m_fpXML.get(),
                                    poFeature->GetFieldAsDouble(nFieldIdx));
                 }
                 else
                 {
                     VSIFPrintfL(
-                        m_fpXML, "%s",
+                        m_fpXML.get(), "%s",
                         XMLEscape(poFeature->GetFieldAsString(nFieldIdx))
                             .c_str());
                 }
@@ -2324,9 +2271,9 @@ bool GMLASWriter::WriteFieldRegular(
     }
 
     if (!bWriteEltContent)
-        VSIFPrintfL(m_fpXML, "\"");
+        VSIFPrintfL(m_fpXML.get(), "\"");
 
-    aoCurComponents = aoFieldComponents;
+    aoCurComponents = std::move(aoFieldComponents);
     bCurIsRegularField = true;
 
     return true;
@@ -2423,7 +2370,8 @@ bool GMLASWriter::WriteFieldNoLink(
                    osParentPKID.c_str()));
     poRelLayer->ResetReading();
 
-    OGRFeature *poChildFeature = poRelLayer->GetNextFeature();
+    auto poChildFeature =
+        std::unique_ptr<OGRFeature>(poRelLayer->GetNextFeature());
     XPathComponents aoNewInitialContext;
     if (poChildFeature != nullptr)
     {
@@ -2440,7 +2388,7 @@ bool GMLASWriter::WriteFieldNoLink(
                 </xs:complexType>
             </xs:element>
             */
-            aoNewInitialContext = aoFieldComponents;
+            aoNewInitialContext = std::move(aoFieldComponents);
         }
         else if (aoFieldComponents.size() == aoLayerComponents.size() + 2)
         {
@@ -2455,7 +2403,7 @@ bool GMLASWriter::WriteFieldNoLink(
                 </xs:complexType>
             </xs:element>
             */
-            aoNewInitialContext = aoFieldComponents;
+            aoNewInitialContext = std::move(aoFieldComponents);
             aoNewInitialContext.resize(aoNewInitialContext.size() - 1);
         }
         else
@@ -2471,7 +2419,7 @@ bool GMLASWriter::WriteFieldNoLink(
                 </xs:complexType>
             </xs:element>
             */
-            aoNewInitialContext = aoLayerComponents;
+            aoNewInitialContext = std::move(aoLayerComponents);
         }
 
         WriteClosingAndStartingTags(aoCurComponents, aoNewInitialContext,
@@ -2484,15 +2432,14 @@ bool GMLASWriter::WriteFieldNoLink(
 
     while (poChildFeature)
     {
-        bool bRet = WriteFeature(poChildFeature, oChildLayerDesc,
+        bool bRet = WriteFeature(poChildFeature.get(), oChildLayerDesc,
                                  oSetLayersInIterationSub, aoNewInitialContext,
                                  aoPrefixComponents, nRecLevel + 1);
 
-        delete poChildFeature;
         if (!bRet)
             return false;
 
-        poChildFeature = poRelLayer->GetNextFeature();
+        poChildFeature.reset(poRelLayer->GetNextFeature());
     }
     poRelLayer->ResetReading();
 
@@ -2647,12 +2594,13 @@ bool GMLASWriter::WriteFieldWithLink(
                                  aoPrefixComponents.end());
     }
 
-    OGRFeature *poChildFeature = poIterLayer->GetNextFeature();
+    auto poChildFeature =
+        std::unique_ptr<OGRFeature>(poIterLayer->GetNextFeature());
     XPathComponents aoInitialComponents;
     const bool bHasChild = poChildFeature != nullptr;
     if (bHasChild)
     {
-        aoInitialComponents = aoFieldComponents;
+        aoInitialComponents = std::move(aoFieldComponents);
         if (!aoInitialComponents.empty())
             aoInitialComponents.resize(aoInitialComponents.size() - 1);
         WriteClosingAndStartingTags(aoCurComponents, aoInitialComponents,
@@ -2662,21 +2610,19 @@ bool GMLASWriter::WriteFieldWithLink(
     bool bRet = true;
     while (poChildFeature)
     {
-        bRet = WriteFeature(poChildFeature, oChildLayerDesc,
+        bRet = WriteFeature(poChildFeature.get(), oChildLayerDesc,
                             oSetLayersInIterationSub, aoInitialComponents,
                             aoPrefixComponentsNew, nRecLevel + 1);
-
-        delete poChildFeature;
         if (!bRet)
             break;
-        poChildFeature = poIterLayer->GetNextFeature();
+        poChildFeature.reset(poIterLayer->GetNextFeature());
     }
     ReleaseFilteredLayer(poRelLayer, poIterLayer);
 
     if (bHasChild)
     {
         bAtLeastOneFieldWritten = true;
-        aoCurComponents = aoInitialComponents;
+        aoCurComponents = std::move(aoInitialComponents);
         bCurIsRegularField = false;
     }
 
@@ -2771,16 +2717,10 @@ bool GMLASWriter::WriteFieldJunctionTable(
         "%s = '%s'", szPARENT_PKID, poFeature->GetFieldAsString(nIndexPKID)));
     poJunctionLayer->ResetReading();
     std::vector<CPLString> aoChildPKIDs;
-    while (true)
+    for (auto &&poJunctionFeature : *poJunctionLayer)
     {
-        OGRFeature *poJunctionFeature = poJunctionLayer->GetNextFeature();
-        if (poJunctionFeature == nullptr)
-            break;
-
         aoChildPKIDs.push_back(
             poJunctionFeature->GetFieldAsString(szCHILD_PKID));
-
-        delete poJunctionFeature;
     }
     poJunctionLayer->ResetReading();
 
@@ -2799,7 +2739,8 @@ bool GMLASWriter::WriteFieldJunctionTable(
             return true;
         }
 
-        OGRFeature *poChildFeature = poIterLayer->GetNextFeature();
+        auto poChildFeature =
+            std::unique_ptr<OGRFeature>(poIterLayer->GetNextFeature());
         if (poChildFeature != nullptr)
         {
             if (!bHasChild)
@@ -2817,11 +2758,10 @@ bool GMLASWriter::WriteFieldJunctionTable(
                     aoCurComponents, aoInitialComponents, bCurIsRegularField);
             }
 
-            bRet = WriteFeature(poChildFeature, oRelLayerDesc,
+            bRet = WriteFeature(poChildFeature.get(), oRelLayerDesc,
                                 oSetLayersInIterationSub, XPathComponents(),
                                 XPathComponents(), nRecLevel + 1);
 
-            delete poChildFeature;
             ReleaseFilteredLayer(poRelLayer, poIterLayer);
         }
         else
@@ -2833,7 +2773,7 @@ bool GMLASWriter::WriteFieldJunctionTable(
     if (bHasChild)
     {
         bAtLeastOneFieldWritten = true;
-        aoCurComponents = aoInitialComponents;
+        aoCurComponents = std::move(aoInitialComponents);
         bCurIsRegularField = false;
     }
 
@@ -2918,12 +2858,11 @@ GDALDataset *OGRGMLASDriverCreateCopy(const char *pszFilename,
     {
         GDALOpenInfo oOpenInfo(
             (CPLString(szGMLAS_PREFIX) + pszFilename).c_str(), GA_ReadOnly);
-        OGRGMLASDataSource *poOutDS = new OGRGMLASDataSource();
+        auto poOutDS = std::make_unique<OGRGMLASDataSource>();
         if (!poOutDS->Open(&oOpenInfo))
         {
-            delete poOutDS;
-            poOutDS = nullptr;
+            poOutDS.reset();
         }
-        return poOutDS;
+        return poOutDS.release();
     }
 }

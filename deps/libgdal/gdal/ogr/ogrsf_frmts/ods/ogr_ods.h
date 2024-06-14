@@ -66,6 +66,7 @@ class OGRODSLayer final : public OGRMemLayer
     {
         return bHasHeaderLine;
     }
+
     void SetHasHeaderLine(bool bIn)
     {
         bHasHeaderLine = bIn;
@@ -75,10 +76,12 @@ class OGRODSLayer final : public OGRMemLayer
     {
         return OGRMemLayer::GetLayerDefn()->GetName();
     }
+
     OGRwkbGeometryType GetGeomType() override
     {
         return wkbNone;
     }
+
     virtual OGRSpatialReference *GetSpatialRef() override
     {
         return nullptr;
@@ -101,6 +104,7 @@ class OGRODSLayer final : public OGRMemLayer
     {
         return OGRMemLayer::GetNextFeature();
     }
+
     OGRErr SetFeatureWithoutFIDHack(OGRFeature *poFeature)
     {
         SetUpdated();
@@ -113,7 +117,7 @@ class OGRODSLayer final : public OGRMemLayer
         return OGRMemLayer::ICreateFeature(poFeature);
     }
 
-    virtual OGRErr CreateField(OGRFieldDefn *poField,
+    virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override
     {
         SetUpdated();
@@ -140,6 +144,8 @@ class OGRODSLayer final : public OGRMemLayer
     }
 
     virtual OGRErr SyncToDisk() override;
+
+    GDALDataset *GetDataset() override;
 };
 
 /************************************************************************/
@@ -247,10 +253,10 @@ class OGRODSDataSource final : public GDALDataset
 
     virtual int TestCapability(const char *) override;
 
-    virtual OGRLayer *ICreateLayer(const char *pszLayerName,
-                                   const OGRSpatialReference *poSRS,
-                                   OGRwkbGeometryType eType,
-                                   char **papszOptions) override;
+    OGRLayer *ICreateLayer(const char *pszName,
+                           const OGRGeomFieldDefn *poGeomFieldDefn,
+                           CSLConstList papszOptions) override;
+
     virtual OGRErr DeleteLayer(int iLayer) override;
 
     virtual CPLErr FlushCache(bool bAtClosing) override;
@@ -267,6 +273,7 @@ class OGRODSDataSource final : public GDALDataset
     {
         return bUpdatable;
     }
+
     void SetUpdated()
     {
         bUpdated = true;

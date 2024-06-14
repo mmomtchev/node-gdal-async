@@ -108,7 +108,7 @@ int OGRDGNDataSource::Open(const char *pszNewName, int bTestOpen, int bUpdate)
     /* -------------------------------------------------------------------- */
     /*      Create the layer object.                                        */
     /* -------------------------------------------------------------------- */
-    OGRDGNLayer *poLayer = new OGRDGNLayer("elements", hDGN, bUpdate);
+    OGRDGNLayer *poLayer = new OGRDGNLayer(this, "elements", hDGN, bUpdate);
     pszName = CPLStrdup(pszNewName);
 
     /* -------------------------------------------------------------------- */
@@ -170,10 +170,10 @@ bool OGRDGNDataSource::PreCreate(const char *pszFilename, char **papszOptionsIn)
 /*                           ICreateLayer()                             */
 /************************************************************************/
 
-OGRLayer *OGRDGNDataSource::ICreateLayer(const char *pszLayerName,
-                                         const OGRSpatialReference *poSRS,
-                                         OGRwkbGeometryType eGeomType,
-                                         char **papszExtraOptions)
+OGRLayer *
+OGRDGNDataSource::ICreateLayer(const char *pszLayerName,
+                               const OGRGeomFieldDefn *poGeomFieldDefn,
+                               CSLConstList papszExtraOptions)
 
 {
     /* -------------------------------------------------------------------- */
@@ -186,6 +186,11 @@ OGRLayer *OGRDGNDataSource::ICreateLayer(const char *pszLayerName,
                  "in it.");
         return nullptr;
     }
+
+    const auto eGeomType =
+        poGeomFieldDefn ? poGeomFieldDefn->GetType() : wkbNone;
+    const auto poSRS =
+        poGeomFieldDefn ? poGeomFieldDefn->GetSpatialRef() : nullptr;
 
     /* -------------------------------------------------------------------- */
     /*      If the coordinate system is geographic, we should use a         */
@@ -310,7 +315,7 @@ OGRLayer *OGRDGNDataSource::ICreateLayer(const char *pszLayerName,
     /* -------------------------------------------------------------------- */
     /*      Create the layer object.                                        */
     /* -------------------------------------------------------------------- */
-    OGRDGNLayer *poLayer = new OGRDGNLayer(pszLayerName, hDGN, TRUE);
+    OGRDGNLayer *poLayer = new OGRDGNLayer(this, pszLayerName, hDGN, TRUE);
 
     /* -------------------------------------------------------------------- */
     /*      Add layer to data source layer list.                            */
