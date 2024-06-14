@@ -59,9 +59,17 @@
 			"<(deps_dir)/libnetcdf/libnetcdf.gyp:libnetcdf",
 			"<(deps_dir)/libopenjpeg/libopenjpeg.gyp:libopenjpeg"
 		],
+    # Next time someone asks you what is the problem with node-gyp, show him this
+    'cflags_cc/': [ ['exclude', '^-std=(?!c\+\+17)'] ],
     'cflags_cc':[ '-std=c++17' ],
-    'xcode_settings': { 'OTHER_CPLUSPLUSFLAGS': [ '-std=c++17' ] },
-    'msvs_settings': { 'VCCLCompilerTool': { 'AdditionalOptions': [ '/std:c++17' ] } },
+    'xcode_settings': {
+      'OTHER_CPLUSPLUSFLAGS/': [ ['exclude', '^-std=(?!c\+\+17)'] ],
+      'OTHER_CPLUSPLUSFLAGS': [ '-std=c++17' ]
+    },
+    'msvs_settings': { 'VCCLCompilerTool': {
+      'AdditionalOptions/': [ ['exclude', '^/std:(?!c\+\+17)'] ],
+      'AdditionalOptions': [ '/std:c++17' ]
+    } },
 		"conditions": [
 			["OS == 'win'", {
 				"include_dirs": ["./arch/win"],
