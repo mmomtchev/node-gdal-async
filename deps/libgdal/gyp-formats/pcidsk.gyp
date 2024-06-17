@@ -64,18 +64,6 @@
 				"../gdal/frmts/pcidsk/sdk/segment/vecsegdataindex.cpp",
 				"../gdal/frmts/pcidsk/sdk/segment/vecsegheader.cpp"
       ],
-			"conditions": [
-				["OS == 'win'", {
-					"sources": [
-						"../gdal/frmts/pcidsk/sdk/port/io_win32.cpp",
-						"../gdal/frmts/pcidsk/sdk/port/win32_mutex.cpp"
-					]
-				}, {
-					"sources": [
-						"../gdal/frmts/pcidsk/sdk/port/pthread_mutex.cpp"
-					]
-				}]
-			],
 			"include_dirs": [
 				"../gdal/frmts/jpeg/libjpeg",
 				"../gdal/frmts/raw",
