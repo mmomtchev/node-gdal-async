@@ -14,7 +14,7 @@ jobs:
 
     strategy:
       matrix:
-        platforms: [ ubuntu-20.04, ubuntu-22.04, windows-2019, macos-11 ]
+        platforms: [ ubuntu-22.04, ubuntu-24.04, windows-2019, macos-12 ]
         node-version: [ 16.x, 18.x, 20.x, 21.x ]
 
     steps:
@@ -48,7 +48,7 @@ jobs:
 
     strategy:
       matrix:
-        platforms: [ ubuntu-20.04, ubuntu-22.04, windows-2019, macos-11 ]
+        platforms: [ ubuntu-22.04, ubuntu-24.04, windows-2019, macos-12 ]
         node-version: [ 16.x, 18.x, 20.x, 21.x ]
 
     steps:

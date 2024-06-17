@@ -149,7 +149,7 @@ jobs:
 
   test_mac:
 
-    runs-on: macos-11
+    runs-on: macos-12
 
     strategy:
       matrix:
@@ -186,7 +186,7 @@ jobs:
 
   test_mac_debug:
 
-    runs-on: macos-11
+    runs-on: macos-12
 
     steps:
     - uses: actions/checkout@v4
