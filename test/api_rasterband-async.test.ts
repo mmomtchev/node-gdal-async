@@ -347,7 +347,7 @@ describe('gdal.RasterBandAsync', () => {
             // and even in this we should be ready to retry if the host is very busy
             // or it has somehow cached the resource
             it('should call the progress callback when one is provided', function () {
-              this.retries(3)
+              this.retries(10)
 
               const ds = gdal.open(`/vsicurl/https://s3.amazonaws.com/elevation-tiles-prod/geotiff/1/1/1.tif`)
               const band = ds.bands.get(1)
