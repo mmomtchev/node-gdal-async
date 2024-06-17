@@ -53,7 +53,7 @@
         # see https://github.com/nodejs/node-gyp/issues/2412
         "AdditionalOptions/": [
           ['exclude', '^/GR-$' ],
-          ['exclude', '^/std:(?!c\+\+17)']
+          ['exclude', '^[/-]std:(?!c\+\+17)']
         ],
         "ExceptionHandling": 1,
         "RuntimeTypeInfo": "true"
