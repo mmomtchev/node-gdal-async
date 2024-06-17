@@ -1,5 +1,5 @@
 {
-  "includes": [
+	"includes": [
 		"common.gypi"
 	],
 	"variables": {
@@ -68,7 +68,7 @@
 				"src/collections/rasterband_overviews.cpp",
 				"src/collections/rasterband_pixels.cpp",
 				"src/collections/gdal_drivers.cpp",
-        "src/collections/colortable.cpp"
+				"src/collections/colortable.cpp"
 			]
 	},
 	"conditions": [
@@ -76,9 +76,9 @@
 			"variables": {
 				"debug_extra_ccflags_cc": [ "-fsanitize=address" ],
 				"debug_extra_ldflags" : [ "-fsanitize=address" ],
-        # using ASan in a Node.js add-on on Windows requires an /MDd build (RuntimeLibrary: 3)
-        # which is not a safe build, so this option is to remain out of reach of children
-        # (see https://github.com/nodejs/node-gyp/issues/1686)
+				# using ASan in a Node.js add-on on Windows requires an /MDd build (RuntimeLibrary: 3)
+				# which is not a safe build, so this option is to remain out of reach of children
+				# (see https://github.com/nodejs/node-gyp/issues/1686)
 				"debug_extra_VCCLCompilerTool": [ "/fsanitize=address" ],
 				"debug_extra_VCLinkerTool" : [ "/fsanitize=address" ]
 			}
@@ -89,16 +89,16 @@
 				"debug_extra_ldflags" : [ "-lgcov", "--coverage" ],
 			},
 		}],
-    ["OS == 'mac'", {
+		["OS == 'mac'", {
 			"variables": {
-        "debug_extra_ldflags": [ "-Wl,-bind_at_load" ],
-      }
-    }],
-    ["OS == 'linux'", {
+				"debug_extra_ldflags": [ "-Wl,-bind_at_load" ],
+			}
+		}],
+		["OS == 'linux'", {
 			"variables": {
-        "debug_extra_ldflags": [ "-Wl,-z,now" ],
-      }
-    }]
+				"debug_extra_ldflags": [ "-Wl,-z,now" ],
+			}
+		}]
 	],
 	"targets": [
 		{
@@ -109,7 +109,7 @@
 			"product_extension": "node",
 			"sources": [ "<@(sources_node_gdal)" ],
 			"include_dirs": [
-        "include",
+				"include",
 				"<!(node -e \"require('nan')\")"
 			],
 			"defines": [
@@ -177,7 +177,7 @@
 					"actions": [
 						{
 							"action_name": "yatag",
-							"inputs":  [ "<@(sources_node_gdal)", "lib/gdal.js" ],
+							"inputs":	[ "<@(sources_node_gdal)", "lib/gdal.js" ],
 							"outputs": [ "../lib/index.d.ts" ],
 							"action": [ "npm", "run", "yatag" ]
 						}
@@ -187,7 +187,7 @@
 					"actions": [
 						{
 							"action_name": "yatag",
-							"inputs":  [ "<@(sources_node_gdal)", "lib/gdal.js" ],
+							"inputs":	[ "<@(sources_node_gdal)", "lib/gdal.js" ],
 							"outputs": [ "lib/index.d.ts" ],
 							"action": [ 'cmd', '/c"npm run yatag"' ]
 						}

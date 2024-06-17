@@ -21,7 +21,7 @@
 				"../gdal/frmts/nitf/nitf_gcprpc.cpp",
 				"../gdal/frmts/nitf/mgrs.c",
 				"../gdal/frmts/nitf/nitfwritejpeg.cpp",
-        "../gdal/frmts/nitf/nitfdrivercore.cpp"
+				"../gdal/frmts/nitf/nitfdrivercore.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/nitf",

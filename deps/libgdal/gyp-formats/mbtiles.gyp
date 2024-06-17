@@ -10,8 +10,8 @@
 				"../gdal/frmts/mbtiles/mbtilesdataset.cpp"
 			],
 			"include_dirs": [
-			  "../gdal/ogr/ogrsf_frmts/sqlite",
-			  "../gdal/ogr/ogrsf_frmts/gpkg",
+				"../gdal/ogr/ogrsf_frmts/sqlite",
+				"../gdal/ogr/ogrsf_frmts/gpkg",
 				"../gdal/ogr/ogrsf_frmts/mvt",
 				"../gdal/frmts/mbtiles"
 			]

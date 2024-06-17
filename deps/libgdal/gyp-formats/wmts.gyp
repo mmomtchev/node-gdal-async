@@ -8,7 +8,7 @@
 			"type": "static_library",
 			"sources": [
 				"../gdal/frmts/wmts/wmtsdataset.cpp",
-        "../gdal/frmts/wmts/wmtsdrivercore.cpp"
+				"../gdal/frmts/wmts/wmtsdrivercore.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/wmts"

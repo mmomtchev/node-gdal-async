@@ -57,7 +57,7 @@
 				"../gdal/frmts/jpeg/libjpeg/jfdctint.c",
 				"../gdal/frmts/jpeg/libjpeg/jcmainct.c",
 				"../gdal/frmts/jpeg/libjpeg/jdmerge.c",
-        "../gdal/frmts/jpeg/jpegdrivercore.cpp"
+				"../gdal/frmts/jpeg/jpegdrivercore.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/jpeg",

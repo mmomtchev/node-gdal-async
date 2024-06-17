@@ -170,20 +170,20 @@
 				"CURL_DISABLE_RTSP=1",
 				"CURL_DISABLE_SMB=1",
 				"ENABLE_IPV6=1",
-        "HAVE_ZLIB_H=1"
+				"HAVE_ZLIB_H=1"
 			],
 			"conditions": [
-        ["runtime == 'electron'", {
-          "include_dirs": [
-    			  "../libgdal/gdal/frmts/zlib"
-          ]
-        }],
-        ["runtime == 'node' and OS == 'linux'", {
-          "defines": [
+				["runtime == 'electron'", {
+					"include_dirs": [
+						"../libgdal/gdal/frmts/zlib"
+					]
+				}],
+				["runtime == 'node' and OS == 'linux'", {
+					"defines": [
 						"HAVE_LIBSSL=1",
-            "OPENSSL_API_COMPAT=0x10100001L",
-            "OPENSSL_CONFIGURED_API=10100",
-            "OPENSSL_MIN_API=10100",
+						"OPENSSL_API_COMPAT=0x10100001L",
+						"OPENSSL_CONFIGURED_API=10100",
+						"OPENSSL_MIN_API=10100",
 						"HAVE_OPENSSL_CRYPTO_H=1",
 						"HAVE_OPENSSL_ERR_H=1",
 						"HAVE_OPENSSL_PEM_H=1",
@@ -193,8 +193,8 @@
 						"HAVE_OPENSSL_VERSION=1",
 						"HAVE_OPENSSL_X509_H=1",
 						"USE_OPENSSL=1",
-          ]
-        }],
+					]
+				}],
 				["OS == 'win'", {
 					"defines": [
 						"USE_WINDOWS_SSPI=1",

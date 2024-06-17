@@ -15,7 +15,7 @@
 				"../gdal/frmts/wcs/wcsutils.cpp",
 				"../gdal/frmts/wcs/wcsdataset.cpp",
 				"../gdal/frmts/wcs/wcsdataset110.cpp",
-        "../gdal/frmts/wcs/wcsdrivercore.cpp"
+				"../gdal/frmts/wcs/wcsdrivercore.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/wcs",

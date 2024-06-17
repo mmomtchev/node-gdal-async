@@ -338,20 +338,20 @@
 				"hdf5/hl/src/H5PT.c",
 				"hdf5/hl/src/H5TB.c",
 				"hdf5/hl/src/H5LD.c",
-        "hdf5/src/H5ESint.c",
-        "hdf5/src/H5ESevent.c",
-        "hdf5/src/H5ESlist.c",
-        "hdf5/src/H5Lint.c",
-        "hdf5/src/H5FDsplitter.c",
-        "hdf5/src/H5Cint.c",
-        "hdf5/src/H5Centry.c",
-        "hdf5/src/H5VLdyn_ops.c",
-        "hdf5/src/H5Tinit_float.c",
-        "hdf5/src/H5FDperform.c"
+				"hdf5/src/H5ESint.c",
+				"hdf5/src/H5ESevent.c",
+				"hdf5/src/H5ESlist.c",
+				"hdf5/src/H5Lint.c",
+				"hdf5/src/H5FDsplitter.c",
+				"hdf5/src/H5Cint.c",
+				"hdf5/src/H5Centry.c",
+				"hdf5/src/H5VLdyn_ops.c",
+				"hdf5/src/H5Tinit_float.c",
+				"hdf5/src/H5FDperform.c"
 			],
 			"include_dirs": [
 				"./hdf5/src",
-        "./hdf5/src/H5FDsubfiling"
+				"./hdf5/src/H5FDsubfiling"
 			],
 			"conditions": [
 				["OS == 'win'", {
@@ -386,7 +386,7 @@
 				"include_dirs": [
 					"./hdf5/src",
 					"./hdf5/hl/src",
-          "./hdf5/src/H5FDsubfiling"
+					"./hdf5/src/H5FDsubfiling"
 				]
 			}
 		}

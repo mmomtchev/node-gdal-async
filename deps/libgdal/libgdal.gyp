@@ -11,13 +11,13 @@
 			"sources": [
 				"./gdal/apps/ogr2ogr_lib.cpp",
 				"./gdal/apps/gdalbuildvrt_lib.cpp",
-        "./gdal/apps/gdal_translate_lib.cpp",
-        "./gdal/apps/gdal_rasterize_lib.cpp",
-        "./gdal/apps/gdalinfo_lib.cpp",
-        "./gdal/apps/gdalwarp_lib.cpp",
-        "./gdal/apps/gdaldem_lib.cpp",
+				"./gdal/apps/gdal_translate_lib.cpp",
+				"./gdal/apps/gdal_rasterize_lib.cpp",
+				"./gdal/apps/gdalinfo_lib.cpp",
+				"./gdal/apps/gdalwarp_lib.cpp",
+				"./gdal/apps/gdaldem_lib.cpp",
 				"./gdal/apps/commonutils.cpp",
-        "./gdal/apps/gdalargumentparser.cpp",
+				"./gdal/apps/gdalargumentparser.cpp",
 				"./gdal/frmts/gdalallregister.cpp",
 				"./gdal/frmts/derived/deriveddataset.cpp",
 				"./gdal/frmts/derived/derivedlist.c",
@@ -99,7 +99,7 @@
 				"./gdal/ogr/ogrsf_frmts/generic/ogrmutexeddatasource.cpp",
 				"./gdal/ogr/ogrsf_frmts/generic/ogrlayer.cpp",
 				"./gdal/ogr/ogrsf_frmts/generic/ogrlayerdecorator.cpp",
-        "./gdal/ogr/ogrsf_frmts/generic/ogrlayerarrow.cpp",
+				"./gdal/ogr/ogrsf_frmts/generic/ogrlayerarrow.cpp",
 
 				'<!@(python ../glob-files.py "./gdal/alg/*.cpp")',
 				'<!@(python ../glob-files.py "./gdal/alg/*.c")',
@@ -184,8 +184,8 @@
 				"./gdal/port/cpl_aws_win32.cpp",
 				"./gdal/port/cpl_atomic_ops.cpp",
 				"./gdal/port/cpl_alibaba_oss.cpp",
-        "./gdal/port/cpl_vax.cpp",
-        "./gdal/port/cpl_compressor.cpp",
+				"./gdal/port/cpl_vax.cpp",
+				"./gdal/port/cpl_compressor.cpp",
 
 				'<!@(python ../glob-files.py "./gdal/gnm/*.cpp")',
 				'<!@(python ../glob-files.py "./gdal/frmts/jpeg/libjpeg/*.c" "./gdal/frmts/jpeg/libjpeg/jstdhuff.c")'
@@ -213,11 +213,11 @@
 				'<@(gdal_format_defs)'
 			],
 			"conditions": [
-        ["runtime == 'electron'", {
-          "include_dirs": [
-    			  "./gdal/frmts/zlib"
-          ]
-        }],
+				["runtime == 'electron'", {
+					"include_dirs": [
+						"./gdal/frmts/zlib"
+					]
+				}],
 				["OS == 'win'", {
 					"sources": [
 						"./gdal/port/cpl_odbc.cpp"
@@ -246,7 +246,7 @@
 						"include_dirs": ["arch/unix"]
 					}],
 					[ "OS == 'mac'", {
-					    "libraries": [
+							"libraries": [
 							"-liconv"
 						]
 					}]

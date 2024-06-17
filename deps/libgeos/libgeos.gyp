@@ -17,7 +17,7 @@
 			],
 			"include_dirs": [
 				"./include",
-        "./geos/src/deps",
+				"./geos/src/deps",
 				"./geos/include",
 				"./geos/capi"
 			],

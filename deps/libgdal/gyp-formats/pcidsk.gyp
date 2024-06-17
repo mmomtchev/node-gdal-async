@@ -6,13 +6,13 @@
 		{
 			"target_name": "libgdal_pcidsk_frmt",
 			"type": "static_library",
-      "defines": [ "PCIDSK_INTERNAL" ],
+			"defines": [ "PCIDSK_INTERNAL" ],
 			"sources": [
 				"../gdal/frmts/pcidsk/pcidskdataset2.cpp",
 				"../gdal/frmts/pcidsk/gdal_edb.cpp",
 				"../gdal/frmts/pcidsk/vsi_pcidsk_io.cpp",
 				"../gdal/frmts/pcidsk/ogrpcidsklayer.cpp",
-        "../gdal/frmts/pcidsk/pcidskdrivercore.cpp",
+				"../gdal/frmts/pcidsk/pcidskdrivercore.cpp",
 				"../gdal/frmts/pcidsk/sdk/blockdir/asciitiledir.cpp",
 				"../gdal/frmts/pcidsk/sdk/blockdir/asciitilelayer.cpp",
 				"../gdal/frmts/pcidsk/sdk/blockdir/binarytiledir.cpp",
@@ -63,7 +63,7 @@
 				"../gdal/frmts/pcidsk/sdk/segment/systiledir.cpp",
 				"../gdal/frmts/pcidsk/sdk/segment/vecsegdataindex.cpp",
 				"../gdal/frmts/pcidsk/sdk/segment/vecsegheader.cpp"
-      ],
+			],
 			"include_dirs": [
 				"../gdal/frmts/jpeg/libjpeg",
 				"../gdal/frmts/raw",

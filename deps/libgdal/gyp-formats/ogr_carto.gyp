@@ -12,7 +12,7 @@
 				"../gdal/ogr/ogrsf_frmts/carto/ogrcartodriver.cpp",
 				"../gdal/ogr/ogrsf_frmts/carto/ogrcartodatasource.cpp",
 				"../gdal/ogr/ogrsf_frmts/carto/ogrcartoresultlayer.cpp",
-        "../gdal/ogr/ogrsf_frmts/carto/ogrcartodrivercore.cpp"
+				"../gdal/ogr/ogrsf_frmts/carto/ogrcartodrivercore.cpp"
 			],
 			"include_dirs": [
 				"../gdal/ogr/ogrsf_frmts/carto",

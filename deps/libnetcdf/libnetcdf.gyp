@@ -19,7 +19,7 @@
 				"netcdf/libsrc/putget.c",
 				"netcdf/libsrc/nc3dispatch.c",
 				"netcdf/libsrc/attr.c",
-        "netcdf/libsrc/s3io.c",
+				"netcdf/libsrc/s3io.c",
 				"netcdf/liblib/nc_initialize.c",
 				"netcdf/oc2/oc.c",
 				"netcdf/oc2/dapparse.c",
@@ -68,7 +68,7 @@
 				"netcdf/libhdf5/nc4memcb.c",
 				"netcdf/libhdf5/nc4info.c",
 				"netcdf/libhdf5/hdf5dim.c",
-        "netcdf/libhdf5/hdf5set_format_compatibility.c",
+				"netcdf/libhdf5/hdf5set_format_compatibility.c",
 				"netcdf/libsrc4/nc4cache.c",
 				"netcdf/libsrc4/nc4var.c",
 				"netcdf/libsrc4/nc4attr.c",
@@ -145,10 +145,10 @@
 				"netcdf/libdispatch/dattinq.c",
 				"netcdf/libdispatch/dpathmgr.c",
 				"netcdf/libdispatch/utf8proc.c",
-        "netcdf/libdispatch/ds3util.c",
-        "netcdf/libdispatch/dinstance.c",
-        "netcdf/libncxml/ncxml_tinyxml2.cpp",
-        "netcdf/libncxml/tinyxml2.cpp"
+				"netcdf/libdispatch/ds3util.c",
+				"netcdf/libdispatch/dinstance.c",
+				"netcdf/libncxml/ncxml_tinyxml2.cpp",
+				"netcdf/libncxml/tinyxml2.cpp"
 			],
 			"include_dirs": [
 				"netcdf",
