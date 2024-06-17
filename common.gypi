@@ -9,8 +9,8 @@
 		"cflags!": ["-fno-rtti", "-fno-exceptions"],
     # node-gyp sets the standard for us and ensures that its include file comes last
     # this is the only reliable way to override it
-    'cflags_cc/': [ ['exclude', '^-std=(?!c\+\+17)'] ],
-    'cflags_cc':[ '-std=c++17' ],
+    'cflags_cc/': [ ['exclude', '^-std=(?!gnu\+\+17)'] ],
+    'cflags_cc':[ '-std=gnu++17' ],
 		"variables": {
 			"debug_extra_ccflags_cc%": [],
 			"debug_extra_ldflags%" : [],
@@ -37,14 +37,14 @@
 				"-frtti",
 				"-fexceptions"
 			],
-      'OTHER_CPLUSPLUSFLAGS/': [ ['exclude', '^-std=(?!c\+\+17)'] ],
+      'OTHER_CPLUSPLUSFLAGS/': [ ['exclude', '^-std=(?!gnu\+\+17)'] ],
 		},
     "msvs_settings": {
       "VCCLCompilerTool": {
         #"Optimization": 0, # 0:/Od disable, 1:/O1 min size, 2:/O2 max speed, 3:/Ox full optimization
         #"InlineFunctionExpansion": 0, #0:/Ob0: disable, 1:/Ob1 inline only marked funtions, 2:/Ob2 inline anything eligible
         "AdditionalOptions": [
-          "/std:gnu++17",
+          "/std:c++17",
           "/MP",        # compile across multiple CPUs
           "/GR",        # force RTTI
           "/EHsc"       # same for ExceptionHandling
