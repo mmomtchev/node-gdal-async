@@ -7,7 +7,7 @@
 			"target_name": "libgdal_ogr_shape_frmt",
 			"type": "static_library",
 			"sources": [
-				"../gdal/ogr/ogrsf_frmts/shape/sbnsearch_wrapper.c",
+				"../gdal/ogr/ogrsf_frmts/shape/sbnsearch_wrapper.cpp",
 				"../gdal/ogr/ogrsf_frmts/shape/dbfopen.c",
 				"../gdal/ogr/ogrsf_frmts/shape/dbfopen_wrapper.c",
 				"../gdal/ogr/ogrsf_frmts/shape/shape2ogr.cpp",
