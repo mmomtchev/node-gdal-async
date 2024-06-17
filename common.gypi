@@ -47,7 +47,7 @@
           "/std:c++17",
           "/MP",        # compile across multiple CPUs
           "/GR",        # force RTTI
-          "/EHsc"       # same for ExceptionHandling
+          "/EHsc",      # same for ExceptionHandling
           "/permissive" # for the new MSVC in Github Actions, mostly related to const char to char conversions
         ],
         # see https://github.com/nodejs/node-gyp/issues/2412
