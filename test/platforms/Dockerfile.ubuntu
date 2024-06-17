@@ -16,7 +16,7 @@ RUN \
   DEBIAN_FRONTEND=noninteractive apt-get update && \
   DEBIAN_FRONTEND=noninteractive apt-get install -y lsb-release nodejs && \
   DEBIAN_FRONTEND=noninteractive apt-get install -y python3 && \
-  update-alternatives --install /usr/bin/python python /usr/bin/python3 10 \
+  update-alternatives --install /usr/bin/python python /usr/bin/python3 10 && \
   DEBIAN_FRONTEND=noninteractive apt-get install -y git build-essential ccache && \
   mkdir -p /target && chmod 777 /target
 
