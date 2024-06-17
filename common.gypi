@@ -70,8 +70,20 @@
 					"WIN32",
 					"CURL_STATICLIB",
 					"PROJ_DLL=",
-					"OPJ_EXPORTS"
+					"OPJ_EXPORTS",
+          # This is one of the most horrible pitfalls ever in the MSVC world, particularly common
+          # in Node.js addons since Node.js/node-gyp define it by default
+          # With MSVC, exceptions work with and without this macro
+          # However, sizeof(std::exception) is not the same with and without it, which produces
+          # some very subtle memory alignment errors in the compiled code
+          # (because MSVC carries two different std::exception implementations...)
+          # You must always know its state for all of your code!
+          # (it was also the subject of a particularly contentious issue between me and my beloved Node.js core team
+          # for reasons that go far above and beyond software and transcend into life, the universe and everything)
+          # https://github.com/nodejs/node-gyp/issues/2903
+          "_HAS_EXCEPTIONS=1"
 				],
+        "defines!": [ "_HAS_EXCEPTIONS=0" ],
 				"libraries": [
 					"secur32.lib",
 					"odbccp32.lib",
