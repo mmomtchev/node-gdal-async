@@ -337,7 +337,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 Release binaries with pre-built bundled GDAL are tested against the full matrix of:
 
 * Node.js versions: 14.x, 16.x, 17.x, 18.x, 20.x
-* OS: Ubuntu 20.04, Ubuntu 22.04, CentOS 9 Stream, Fedora 36, Fedora 37, Debian 10 buster, Debian 11 bullseye, Arch Linux current, Amazon Linux, Windows Server 2019, macOS Catalina 10.15 (EOL), macOS Big Sur 11
+* OS: Ubuntu 20.04, Ubuntu 22.04, CentOS 9 Stream, Fedora 36, Fedora 37, Debian 10 buster, Debian 11 bullseye, Arch Linux current, Amazon Linux, Windows Server 2019, macOS Catalina 10.15 (EOL), macOS Monterey 12
 
 On Ubuntu 16.04, Amazon Linux, Windows and macOS only the bundled GDAL version is officially supported. On all other platforms both the bundled and the system-installed versions are supported.
 
@@ -359,15 +359,11 @@ Development versions are unit tested for the following targets:
 | Node.js 18.x | Fedora 37 | system-installed GDAL 3.5.2
 | Node.js 18.x | Fedora 37 | bundled GDAL
 | Node.js 20.x | Fedora 38 | bundled GDAL
-| Node.js 17.x | Ubuntu 20.04 | system-installed GDAL 3.0.4
-| Node.js 18.x | Ubuntu 20.04 | system-installed GDAL 3.0.4
-| Node.js 14.x | Ubuntu 22.04 | system-installed GDAL 3.4.1
-| Node.js 18.x | Ubuntu 22.04 | system-installed GDAL 3.4.1
+| Node.js 20.x | Ubuntu 20.04 | system-installed GDAL 3.0.4
 | Node.js 20.x | Ubuntu 22.04 | system-installed GDAL 3.4.1
-| Node.js 22.x | Ubuntu 22.04 | system-installed GDAL 3.4.1
-| Node.js 17.x | Ubuntu 22.04 | bundled GDAL
+| Node.js 20.x | Ubuntu 24.04 | system-installed GDAL 3.8.4
 | Node.js 18.x | Ubuntu 22.04 | bundled GDAL
-| Node.js 20.x | Ubuntu 22.04 | bundled GDAL (*code coverage platform*)
+| Node.js 20.x | Ubuntu 22.04 | bundled GDAL (*code coverage and development platform*)
 | Node.js 22.x | Ubuntu 22.04 | bundled GDAL
 | Node.js 16.x | Amazon Linux 2022 | bundled GDAL
 | Node.js 16.x | Windows Server 2019 | bundled GDAL
@@ -375,9 +371,9 @@ Development versions are unit tested for the following targets:
 | Node.js 18.x | Windows Server 2019 | bundled GDAL
 | Node.js 20.x | Windows Server 2019 | bundled GDAL
 | Node.js 22.x | Windows Server 2019 | bundled GDAL
-| Node.js 16.x | macOS Big Sur 11 | bundled GDAL
-| Node.js 17.x | macOS Big Sur 11 | bundled GDAL
-| Node.js 18.x | macOS Big Sur 11 | bundled GDAL
-| Node.js 20.x | macOS Big Sur 11 | bundled GDAL
-| Node.js 22.x | macOS Big Sur 11 | bundled GDAL
+| Node.js 16.x | macOS Monterey 12 | bundled GDAL
+| Node.js 17.x | macOS Monterey 12 | bundled GDAL
+| Node.js 18.x | macOS Monterey 12 | bundled GDAL
+| Node.js 20.x | macOS Monterey 12 | bundled GDAL
+| Node.js 22.x | macOS Monterey 12 | bundled GDAL
 ---
