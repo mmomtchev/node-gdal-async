@@ -128,7 +128,7 @@ jobs:
       with:
         max-size: 1000M
         key: node-${{ matrix.node-version }}
-    - run: npm run container dev ubuntu:24.04 ${{ matrix.node-version }} ${{ matrix.gdal-version }}
+    - run: npm run container dev ubuntu:22.04 ${{ matrix.node-version }} ${{ matrix.gdal-version }}
       env:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
 
