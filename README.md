@@ -362,17 +362,16 @@ Development versions are unit tested for the following targets:
 | Node.js 20.x | Ubuntu 20.04 | system-installed GDAL 3.0.4
 | Node.js 20.x | Ubuntu 22.04 | system-installed GDAL 3.4.1
 | Node.js 20.x | Ubuntu 24.04 | system-installed GDAL 3.8.4
+| Node.js 16.x | Ubuntu 22.04 | bundled GDAL
 | Node.js 18.x | Ubuntu 22.04 | bundled GDAL
 | Node.js 20.x | Ubuntu 22.04 | bundled GDAL (*code coverage and development platform*)
 | Node.js 22.x | Ubuntu 22.04 | bundled GDAL
 | Node.js 16.x | Amazon Linux 2022 | bundled GDAL
 | Node.js 16.x | Windows Server 2019 | bundled GDAL
-| Node.js 17.x | Windows Server 2019 | bundled GDAL
 | Node.js 18.x | Windows Server 2019 | bundled GDAL
 | Node.js 20.x | Windows Server 2019 | bundled GDAL
 | Node.js 22.x | Windows Server 2019 | bundled GDAL
 | Node.js 16.x | macOS Monterey 12 | bundled GDAL
-| Node.js 17.x | macOS Monterey 12 | bundled GDAL
 | Node.js 18.x | macOS Monterey 12 | bundled GDAL
 | Node.js 20.x | macOS Monterey 12 | bundled GDAL
 | Node.js 22.x | macOS Monterey 12 | bundled GDAL
