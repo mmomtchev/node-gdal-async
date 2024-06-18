@@ -109,7 +109,7 @@
     "benny": "^3.7.1",
     "c8": "^10.1.2",
     "chai": "^4.2.0",
-    "chai-as-promised": "^7.1.1",
+    "chai-as-promised": "^8.0.0",
     "documentation-hipster": "^1.0.0",
     "documentation-polyglot": "^1.0.1",
     "eslint": "^8.15.0",
