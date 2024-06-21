@@ -280,7 +280,7 @@ describe('gdal.Layer', () => {
           assert.closeTo(actual_envelope.maxY, expected_envelope.maxY, 0.00001)
         })
       })
-      it("should throw error if force flag is false and layer doesn't have extent already computed", function() {
+      it("should throw error if force flag is false and layer doesn't have extent already computed", () => {
         // No longer true in GDAL 3.9
         if (semver.lt(gdal.version, '3.9.0')) {
           const dataset = gdal.open(`${__dirname}/data/park.geo.json`)

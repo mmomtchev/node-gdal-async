@@ -100,7 +100,7 @@ ${Object.keys(metadata).map((k) => `    <MDI key="${k}">${metadata[k]}</MDI>`).j
 
     const bands = ds.bands.map((b) => ({ sources: [ b ] }))
 
-    const actual = gdal.wrapVRT({bands})
+    const actual = gdal.wrapVRT({ bands })
 
     assert.strictEqual(actual, expected)
   })

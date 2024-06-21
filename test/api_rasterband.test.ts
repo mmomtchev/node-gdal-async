@@ -654,7 +654,7 @@ describe('gdal.RasterBand', () => {
                 ds.rasterSize.x / 2, ds.rasterSize.y / 2, data)
             }, /Array length must be greater than/)
           })
-          it('w/file over the 4G elements limit', function() {
+          it('w/file over the 4G elements limit', function () {
             if (semver.gte(process.versions.node, '22.0.0')) {
               // It seems that Node.js 22 (V8?) has removed the 32-bit index restrictions
               // on TypedArrays
