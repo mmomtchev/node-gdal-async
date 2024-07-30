@@ -1544,6 +1544,43 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
   Nan::Set(target, Nan::New("OFTDateTime").ToLocalChecked(), Nan::New(getFieldTypeName(OFTDateTime)).ToLocalChecked());
 
   /*
+   * Field sub-types
+   */
+
+  /**
+   * @final
+   * @constant
+   * @name OFSTNone
+   * @type {string}
+   */
+  Nan::Set(
+    target, Nan::New("OFSTNone").ToLocalChecked(), Nan::New(getFieldSubTypeName(OFSTNone)).ToLocalChecked());
+  /**
+   * @final
+   * @constant
+   * @name OFSTBoolean
+   * @type {string}
+   */
+  Nan::Set(
+    target, Nan::New("OFSTBoolean").ToLocalChecked(), Nan::New(getFieldSubTypeName(OFSTBoolean)).ToLocalChecked());
+  /**
+   * @final
+   * @constant
+   * @name OFSTInt16
+   * @type {string}
+   */
+  Nan::Set(
+    target, Nan::New("OFSTInt16").ToLocalChecked(), Nan::New(getFieldSubTypeName(OFSTInt16)).ToLocalChecked());
+  /**
+   * @final
+   * @constant
+   * @name OFSTFloat32
+   * @type {string}
+   */
+  Nan::Set(
+    target, Nan::New("OFSTFloat32").ToLocalChecked(), Nan::New(getFieldSubTypeName(OFSTFloat32)).ToLocalChecked());
+
+  /*
    * Resampling options that can be used with the gdal.reprojectImage() and gdal.RasterBandPixels.read methods.
    */
 
