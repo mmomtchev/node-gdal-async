@@ -4,7 +4,6 @@ import * as gdal from 'gdal-async'
 import * as fileUtils from './utils/file'
 
 describe('gdal.RasterBand', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   it('should not be instantiable', () => {
@@ -1615,7 +1614,7 @@ describe('gdal.RasterBand', () => {
           ds.close()
           gdal.vsimem.release(tempFile)
           assert.throws(() => {
-            for (const overview of band.overviews) overview
+            for (const overview of band.overviews) void overview
           })
         })
       })

@@ -20,7 +20,6 @@ const NAD83_WKT =
   'UNIT["Meter",1.0]]'
 
 describe('gdal.Dataset', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   let ds: gdal.Dataset
@@ -171,7 +170,7 @@ describe('gdal.Dataset', () => {
           const ds = gdal.open(`${__dirname}/data/sample.tif`)
           ds.close()
           assert.throws(() => {
-            for (const band of ds.bands) band
+            for (const band of ds.bands) void band
           })
         })
       })
@@ -1030,7 +1029,7 @@ describe('gdal.Dataset', () => {
         const ds = gdal.open(tempFile, 'r+')
         try {
           ds.buildOverviews('NEAREST', [ 2, 4, -3 ])
-        } catch (e) {
+        } catch (_e) {
           /* ignore (see above) */
         }
         ds.close()

@@ -58,7 +58,6 @@ const create31 = {
 }
 
 describe('Class semantics', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   const klasses = create

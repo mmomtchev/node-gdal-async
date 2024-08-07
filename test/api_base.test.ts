@@ -11,7 +11,6 @@ if (process.env.GDAL_DATA !== undefined) {
 }
 
 describe('gdal', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   describe('"lastError" property', () => {
@@ -81,7 +80,6 @@ describe('gdal', () => {
         const env = Object.assign({}, process.env)
         env.GDAL_DATA = 'bogus'
         const gdalJS = fs.existsSync('./lib/gdal.js') ? './lib/gdal.js' : 'gdal-async'
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         // The manual delete/global.gc() allows for error-free unit testing of the ASAN build
         const command =
           `"const gdal = require('${gdalJS}'); console.log(gdal.config.get('GDAL_DATA')); delete gdal.drivers; global.gc();"`

@@ -8,7 +8,6 @@ chai.use(chaiAsPromised)
 const wcsURL = 'WCS:https://demo.mapserver.org/cgi-bin/wcs?VERSION=1.0.0&COVERAGE=ndvi'
 
 describe('Open', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   // System-installed versions do not always have the WCS driver

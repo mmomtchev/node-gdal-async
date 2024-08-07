@@ -6,7 +6,6 @@ import * as gdal from 'gdal-async'
 chai.use(chaiAsPromised)
 
 describe('gdal.drivers', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   describe('count()', () => {

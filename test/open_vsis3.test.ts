@@ -10,7 +10,6 @@ describe('Open', () => {
     return
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
   before(() => {
     gdal.config.set('AWS_NO_SIGN_REQUEST', 'YES')

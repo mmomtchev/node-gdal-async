@@ -3,7 +3,6 @@ import { assert } from 'chai'
 import * as semver from 'semver'
 
 describe('gdal', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   describe('suggestedWarpOutput()', () => {
@@ -85,7 +84,7 @@ describe('gdal', () => {
     afterEach(() => {
       try {
         src.close()
-      } catch (err) {
+      } catch (_err) {
         /* ignore */
       }
     })

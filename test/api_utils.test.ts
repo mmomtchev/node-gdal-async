@@ -7,7 +7,6 @@ import * as path from 'path'
 import * as semver from 'semver'
 
 describe('gdal_utils', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   describe('translate', () => {
@@ -721,7 +720,7 @@ describe('gdal_utils', () => {
       try {
         T2m = gdal.open(path.resolve(__dirname, 'data','AROME_T2m_10.tiff'))
         D2m = gdal.open(path.resolve(__dirname, 'data','truncated.tiff'))
-      } catch (e) {
+      } catch (_e) {
         // Older GDAL versions cannot open the truncated file, so this is
         // considered a successful test too
         this.skip()

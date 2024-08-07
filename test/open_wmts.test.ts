@@ -7,7 +7,6 @@ chai.use(chaiAsPromised)
 const shomTides = 'WMTS:https://services.data.shom.fr/INSPIRE/wmts?request=GetCapabilities&service=WMTS&version=1.0.0,layer=ZONES_MAREE_PYR_PNG_3857_WMTS'
 
 describe('Open', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   describe('WMTS w/Net', () => {

@@ -3,7 +3,6 @@ import * as path from 'path'
 import { assert } from 'chai'
 
 describe('Open', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   describe('GeoJSON', () => {

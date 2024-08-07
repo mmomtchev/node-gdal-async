@@ -2,7 +2,6 @@ import { assert } from 'chai'
 import * as gdal from 'gdal-async'
 
 describe('gdal.CircularString', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   it('should be instantiable', () => {

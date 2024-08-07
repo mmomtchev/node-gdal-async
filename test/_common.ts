@@ -6,15 +6,16 @@ console.log(`GDAL Version: ${gdal.version}, source: ${gdal.bundled ? 'bundled' :
 try {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (gdal as any).startLogging(`${__dirname}/artifacts/log.txt`)
-} catch (e) {
+} catch (_e) {
   /* ignore */
 }
 
 // seg fault handler
 let SegfaultHandler
 try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   SegfaultHandler = require('segfault-handler')
   SegfaultHandler.registerHandler()
-} catch (err) {
+} catch (_err) {
   /* ignore */
 }

@@ -3,7 +3,6 @@ import { assert } from 'chai'
 import * as path from 'path'
 
 describe('gdal.Feature', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   let ds: gdal.Dataset, lyr: gdal.Layer, defn: gdal.FeatureDefn, fields: gdal.FieldDefn[]

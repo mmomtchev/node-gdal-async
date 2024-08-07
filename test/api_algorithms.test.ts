@@ -7,7 +7,6 @@ import * as chaiAsPromised from 'chai-as-promised'
 chai.use(chaiAsPromised)
 
 describe('gdal', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   describe('contourGenerate()', () => {
@@ -38,7 +37,7 @@ describe('gdal', () => {
     afterEach(() => {
       try {
         dst.close()
-      } catch (err) {
+      } catch (_err) {
         /* ignore */
       }
     })
@@ -178,7 +177,7 @@ describe('gdal', () => {
     afterEach(() => {
       try {
         src.close()
-      } catch (err) {
+      } catch (_err) {
         /* ignore */
       }
     })
@@ -243,7 +242,7 @@ describe('gdal', () => {
     afterEach(() => {
       try {
         src.close()
-      } catch (err) {
+      } catch (_err) {
         /* ignore */
       }
     })
@@ -307,7 +306,7 @@ describe('gdal', () => {
     afterEach(() => {
       try {
         src.close()
-      } catch (err) {
+      } catch (_err) {
         /* ignore */
       }
     })
@@ -389,7 +388,7 @@ describe('gdal', () => {
     after(() => {
       try {
         src.close()
-      } catch (err) {
+      } catch (_err) {
         /* ignore */
       }
     })
@@ -401,7 +400,7 @@ describe('gdal', () => {
     afterEach(() => {
       try {
         dst.close()
-      } catch (err) {
+      } catch (_err) {
         /* ignore */
       }
     })

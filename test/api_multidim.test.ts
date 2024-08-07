@@ -19,8 +19,7 @@ describe('gdal', () => {
 
   afterEach(() => {
     ds.close()
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    global.gc!()
+      global.gc!()
   })
 
   describe('gdal.Group', () => {

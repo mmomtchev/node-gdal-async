@@ -15,8 +15,7 @@ describe('object cache', () => {
       assert.equal(band1, band2)
       assert.equal(band1.size.x, 4)
       assert.equal(band2.size.x, 4)
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      global.gc!()
+          global.gc!()
     }
   })
 })
@@ -29,18 +28,16 @@ describe('object lifetimes', () => {
     const band_uid = (band as any)._uid
 
     ds = null
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    global.gc!()
+      global.gc!()
 
-    assert.isTrue((gdal as any)._isAlive(ds_uid))
-    assert.isTrue((gdal as any)._isAlive(band_uid))
+      assert.isTrue((gdal as any)._isAlive(ds_uid))
+      assert.isTrue((gdal as any)._isAlive(band_uid))
 
-    band = null
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    global.gc!()
+      band = null
+      global.gc!()
 
-    assert.isFalse((gdal as any)._isAlive(ds_uid))
-    assert.isFalse((gdal as any)._isAlive(band_uid))
+      assert.isFalse((gdal as any)._isAlive(ds_uid))
+      assert.isFalse((gdal as any)._isAlive(band_uid))
   })
   it('bands should immediately be garbage collected as they go out of scope', () => {
     const ds = (gdal as any).open('temp', 'w', 'MEM', 4, 4, 1)
@@ -50,11 +47,10 @@ describe('object lifetimes', () => {
     const band_uid = band._uid
 
     band = null
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    global.gc!()
+      global.gc!()
 
-    assert.isTrue((gdal as any)._isAlive(ds_uid))
-    assert.isFalse((gdal as any)._isAlive(band_uid))
+      assert.isTrue((gdal as any)._isAlive(ds_uid))
+      assert.isFalse((gdal as any)._isAlive(band_uid))
   })
   it('datasets should stay alive until all layers go out of scope', () => {
     let ds: gdal.Dataset | null = gdal.open(path.join(__dirname, 'data/shp/sample.shp'))
@@ -64,18 +60,16 @@ describe('object lifetimes', () => {
     const layer_uid = (layer as any)._uid
 
     ds = null
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    global.gc!()
+      global.gc!()
 
-    assert.isTrue((gdal as any)._isAlive(ds_uid))
-    assert.isTrue((gdal as any)._isAlive(layer_uid))
+      assert.isTrue((gdal as any)._isAlive(ds_uid))
+      assert.isTrue((gdal as any)._isAlive(layer_uid))
 
-    layer = null
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    global.gc!()
+      layer = null
+      global.gc!()
 
-    assert.isFalse((gdal as any)._isAlive(ds_uid))
-    assert.isFalse((gdal as any)._isAlive(layer_uid))
+      assert.isFalse((gdal as any)._isAlive(ds_uid))
+      assert.isFalse((gdal as any)._isAlive(layer_uid))
   })
   it('layers should immediately be garbage collected as they go out of scope', () => {
     const ds: gdal.Dataset | null = gdal.open(path.join(__dirname, 'data/shp/sample.shp'))
@@ -85,10 +79,9 @@ describe('object lifetimes', () => {
     const layer_uid = (layer as any)._uid
 
     layer = null
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    global.gc!()
+      global.gc!()
 
-    assert.isTrue((gdal as any)._isAlive(ds_uid))
-    assert.isFalse((gdal as any)._isAlive(layer_uid))
+      assert.isTrue((gdal as any)._isAlive(ds_uid))
+      assert.isFalse((gdal as any)._isAlive(layer_uid))
   })
 })

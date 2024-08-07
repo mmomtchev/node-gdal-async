@@ -58,7 +58,7 @@ let stop = false
 
 try {
   gdal.startLogging(`${__dirname}/artifacts/stress.log`)
-} catch (e) {
+} catch (_e) {
   /* ignore */
 }
 

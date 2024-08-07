@@ -3,7 +3,6 @@ import { assert } from 'chai'
 import * as gdal from 'gdal-async'
 
 describe('gdal.Envelope3D', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   it('should be instantiable', () => {
@@ -105,7 +104,7 @@ describe('gdal.Envelope3D', () => {
         square.rings.add(ring)
 
         const envelope = square.getEnvelope3D()
-        assert.propertyVal(envelope, 'minX', 0),
+        assert.propertyVal(envelope, 'minX', 0)
         assert.propertyVal(envelope, 'maxX', 10)
         assert.propertyVal(envelope, 'minY', 0)
         assert.propertyVal(envelope, 'maxY', 10)

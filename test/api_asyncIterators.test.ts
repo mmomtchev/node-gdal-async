@@ -25,7 +25,7 @@ if (Symbol.asyncIterator) {
             const ds = gdal.open(path.resolve(__dirname, 'data', 'multiband.tif'))
             ds.close()
             return assert.isRejected((async () => {
-              for await (const band of ds.bands) band
+              for await (const band of ds.bands) void band
             })(), /already been destroyed/)
           })
         })
@@ -51,7 +51,7 @@ if (Symbol.asyncIterator) {
             const layer = ds.layers.get(0)
             ds.close()
             return assert.isRejected((async () => {
-              for (const l of layer.features) l
+              for (const l of layer.features) void l
             })(), /already destroyed/)
           })
         })
@@ -85,7 +85,7 @@ if (Symbol.asyncIterator) {
             ds.close()
             gdal.vsimem.release(tempFile)
             return assert.isRejected((async () => {
-              for await (const overview of band.overviews) overview
+              for await (const overview of band.overviews) void overview
             })(), /already been destroyed/)
           })
         }
@@ -112,7 +112,7 @@ if (Symbol.asyncIterator) {
                 const ds = gdal.open(path.resolve(__dirname, 'data', 'gfs.t00z.alnsf.nc'), 'mr')
                 ds.close()
                 return assert.isRejected((async () => {
-                  for await (const i of ds.root[prop]) i
+                  for await (const i of ds.root[prop]) void i
                 })(), /already been destroyed/)
               })
             })

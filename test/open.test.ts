@@ -4,7 +4,6 @@ import * as assert from 'assert'
 import * as semver from 'semver'
 
 describe('Open', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   it('should throw when invalid file', () => {

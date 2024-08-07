@@ -4,7 +4,6 @@ import { assert } from 'chai'
 import * as semver from 'semver'
 
 describe('Open', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   describe('OpenFileGDB', () => {

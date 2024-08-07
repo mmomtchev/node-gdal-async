@@ -7,7 +7,6 @@ import * as semver from 'semver'
 chai.use(chaiAsPromised)
 
 describe('gdal.RasterBandAsync', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   it('should not be instantiable', () => {
@@ -418,7 +417,7 @@ describe('gdal.RasterBandAsync', () => {
 
             const dataq = band.pixels.readBlockAsync(0, 0)
             return assert.isFulfilled(dataq.then((data) => {
-              assert.instanceOf(data, Uint8Array),
+              assert.instanceOf(data, Uint8Array)
               assert.equal(data.length, band.blockSize.x * band.blockSize.y)
             }))
           })

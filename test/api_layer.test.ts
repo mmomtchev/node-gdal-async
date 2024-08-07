@@ -4,12 +4,10 @@ import * as fileUtils from './utils/file'
 import * as semver from 'semver'
 
 describe('gdal.Layer', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   describe('instance', () => {
     type prepareCb = (ds: gdal.Dataset, l: gdal.Layer) => void
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const prepare_dataset_layer_test = function (mode: string, _arg2: Record<string, unknown> | prepareCb, _arg3?: prepareCb) {
       let ds: gdal.Dataset, layer: gdal.Layer, options, callback: prepareCb,
         err, file: string, dir: string | null, driver: gdal.Driver
@@ -52,21 +50,21 @@ describe('gdal.Layer', () => {
       if (options.autoclose !== false) {
         try {
           ds.close()
-        } catch (e) {
+        } catch (_e) {
           /* ignore */
         }
         if (file && mode === 'w') {
           try {
             driver = gdal.drivers.get('ESRI Shapefile')
             driver.deleteDataset(file)
-          } catch (e) {
+          } catch (_e) {
             /* ignore */
           }
         }
         if (dir) {
           try {
             fileUtils.deleteRecursiveVSIMEM(dir)
-          } catch (e) {
+          } catch (_e) {
             /* ignore */
           }
         }
@@ -551,7 +549,7 @@ describe('gdal.Layer', () => {
           prepare_dataset_layer_test('r', (dataset, layer) => {
             dataset.close()
             assert.throws(() => {
-              for (const l of layer.features) l
+              for (const l of layer.features) void l
             }, /already destroyed/)
           })
         })

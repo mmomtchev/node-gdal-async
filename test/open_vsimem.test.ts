@@ -7,12 +7,10 @@ const assert: Chai.Assert = chai.assert
 chai.use(chaiAsPromised)
 
 describe('Open', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   describe('vsimem/open', () => {
     let filename, ds: gdal.Dataset, buffer: Buffer
-    /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
 
     it('should not throw', () => {
       filename = path.join(__dirname, 'data/park.geo.json')
@@ -40,7 +38,7 @@ describe('Open', () => {
       const ds2 = gdal.open(buffer)
       /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
       assert.equal((ds2 as any).buffer, (ds as any).buffer)
-      /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+
       ds2.close()
     })
     it('layer should have all fields defined', () => {
@@ -57,10 +55,8 @@ describe('Open', () => {
     let filename, ds: Promise<gdal.Dataset>, buffer: Buffer
     after(() => ds.then((r) => {
       r.close()
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      global.gc!()
+          global.gc!()
     }))
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     afterEach(global.gc!)
 
     it('should not throw', () => {
@@ -90,7 +86,6 @@ describe('Open', () => {
 })
 
 describe('gdal.vsimem', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   describe('set()', () => {

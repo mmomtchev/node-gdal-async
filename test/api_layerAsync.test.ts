@@ -8,20 +8,19 @@ import * as semver from 'semver'
 chai.use(chaiAsPromised)
 
 describe('gdal.LayerAsync', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   describe('instance', () => {
     const cleanupWrite = (ds: gdal.Dataset, file: string) => {
       try {
         ds.close()
-      } catch (e) {
+      } catch (_e) {
         /* ignore */
       }
       try {
         const driver = gdal.drivers.get('ESRI Shapefile')
         driver.deleteDataset(file)
-      } catch (e) {
+      } catch (_e) {
         /* ignore */
       }
     }
@@ -29,19 +28,18 @@ describe('gdal.LayerAsync', () => {
     const cleanupRead = (ds: gdal.Dataset, dir: string) => {
       try {
         ds.close()
-      } catch (e) {
+      } catch (_e) {
         /* ignore */
       }
       try {
         fileUtils.deleteRecursiveVSIMEM(dir)
-      } catch (e) {
+      } catch (_e) {
         /* ignore */
       }
     }
 
 
     type prepareCb = (ds: gdal.Dataset, l: gdal.Layer, file: string) => void
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const prepare_dataset_layer_test = function (mode: string, _arg2: Record<string, unknown> | prepareCb, _arg3?: prepareCb) {
       let ds: gdal.Dataset, layer: gdal.Layer, options, callback: prepareCb,
         err, file: string, dir: string | null, driver: gdal.Driver

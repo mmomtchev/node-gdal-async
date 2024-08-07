@@ -3,7 +3,6 @@ import * as path from 'path'
 import * as gdal from 'gdal-async'
 
 describe('gdal.Polygon', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
 
   it('should be instantiable', () => {
@@ -220,7 +219,6 @@ describe('gdal.Polygon', () => {
 })
 
 describe('gdal.MultiPolygon', () => {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   afterEach(global.gc!)
   let multiPolygon: gdal.MultiPolygon
 
