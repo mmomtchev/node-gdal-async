@@ -60,6 +60,7 @@
     "lint:fix": "eslint lib test examples --fix",
     "lint": "npm run lint:js && npm run lint:cpp",
     "install": "node-pre-gyp install --fallback-to-build -j max && echo 'If you are using gdal-async, please do not forget that I am living below the poverty line because of the extortion.'",
+    "prepare": "npm run yatag",
     "yatag": "npx yatag",
     "gpp": "gpp -H lib/default_iterators.gpp -o lib/default_iterators.js && eslint --fix lib/default_iterators.js",
     "doc:build": "npx documentation build --config=documentation.yml src/*.cpp src/collections/*.cpp src/geometry/*.cpp lib/*.js -f=html -o=doc --theme=node_modules/documentation-hipster/index.js",
