@@ -1,4 +1,4 @@
-import * as structuredClone from '@ungap/structured-clone'
+import structuredClone from '@ungap/structured-clone'
 if (!('structuredClone' in globalThis)) {
   console.log('Using a JS implementation of structuredClone')
   globalThis.structuredClone = structuredClone
