@@ -1,5 +1,5 @@
 import * as gdal from 'gdal-async'
-import structuredClone from '@ungap/structured-clone'
+import * as structuredClone from '@ungap/structured-clone'
 
 console.log(`GDAL Version: ${gdal.version}, source: ${gdal.bundled ? 'bundled' : 'system library'}`)
 if (!('structuredClone' in globalThis)) {
