@@ -1,3 +1,9 @@
+import * as structuredClone from '@ungap/structured-clone'
+if (!('structuredClone' in globalThis)) {
+  console.log('Using a JS implementation of structuredClone')
+  globalThis.structuredClone = structuredClone
+}
+
 import mocha from 'eslint-plugin-mocha'
 import preferArrow from 'eslint-plugin-prefer-arrow'
 import globals from 'globals'
