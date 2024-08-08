@@ -1,12 +1,6 @@
 import * as gdal from 'gdal-async'
-import * as structuredClone from '@ungap/structured-clone'
 
 console.log(`GDAL Version: ${gdal.version}, source: ${gdal.bundled ? 'bundled' : 'system library'}`)
-if (!('structuredClone' in globalThis)) {
-  console.log('Using a JS implementation of structuredClone')
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  globalThis.structuredClone = structuredClone as any
-}
 
 // gc tracing
 try {
