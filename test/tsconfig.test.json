@@ -2,6 +2,7 @@
   "compilerOptions": {
     "downlevelIteration": true,
     "strict": true,
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "esModuleInterop": true
   }
 }
