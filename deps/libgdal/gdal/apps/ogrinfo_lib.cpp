@@ -1191,10 +1191,12 @@ static void ReportOnLayer(CPLString &osRet, CPLJSONObject &oLayer,
             {
                 std::string osCoordinateEpoch =
                     CPLSPrintf("%f", dfCoordinateEpoch);
-                if (osCoordinateEpoch.find('.') != std::string::npos)
+                const size_t nDotPos = osCoordinateEpoch.find('.');
+                if (nDotPos != std::string::npos)
                 {
-                    while (osCoordinateEpoch.back() == '0')
-                        osCoordinateEpoch.resize(osCoordinateEpoch.size() - 1);
+                    while (osCoordinateEpoch.size() > nDotPos + 2 &&
+                           osCoordinateEpoch.back() == '0')
+                        osCoordinateEpoch.pop_back();
                 }
                 Concat(osRet, psOptions->bStdoutOutput,
                        "Coordinate epoch: %s\n", osCoordinateEpoch.c_str());
@@ -2427,15 +2429,16 @@ static std::unique_ptr<GDALArgumentParser> GDALVectorInfoOptionsGetParser(
             })
         .help(_("Format/driver name(s) to try when opening the input file."));
 
-    argParser->add_argument("filename")
-        .nargs(argparse::nargs_pattern::optional)
-        .action(
-            [psOptionsForBinary](const std::string &s)
-            {
-                if (psOptionsForBinary)
-                    psOptionsForBinary->osFilename = s;
-            })
-        .help(_("The data source to open."));
+    auto &argFilename = argParser->add_argument("filename")
+                            .action(
+                                [psOptionsForBinary](const std::string &s)
+                                {
+                                    if (psOptionsForBinary)
+                                        psOptionsForBinary->osFilename = s;
+                                })
+                            .help(_("The data source to open."));
+    if (!psOptionsForBinary)
+        argFilename.nargs(argparse::nargs_pattern::optional);
 
     argParser->add_argument("layer")
         .remaining()

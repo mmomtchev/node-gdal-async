@@ -968,7 +968,8 @@ public:
             std::bind(is_optional, std::placeholders::_1, m_prefix_chars));
         dist = static_cast<std::size_t>(std::distance(start, end));
         if (dist < num_args_min) {
-          throw std::runtime_error("Too few arguments");
+          throw std::runtime_error("Too few arguments for '" +
+                                   std::string(m_used_name) + "'.");
         }
       }
 
@@ -1357,6 +1358,10 @@ private:
    *    '+' '-'
    */
   static bool is_decimal_literal(std::string_view s) {
+    if (s == "inf") {
+      return true;
+    }
+
     auto is_digit = [](auto c) constexpr {
       switch (c) {
       case '0':

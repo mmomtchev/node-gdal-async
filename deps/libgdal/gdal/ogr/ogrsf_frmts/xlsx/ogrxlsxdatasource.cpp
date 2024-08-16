@@ -97,22 +97,49 @@ OGRErr OGRXLSXLayer::SyncToDisk()
 }
 
 /************************************************************************/
+/*                      TranslateFIDFromMemLayer()                      */
+/************************************************************************/
+
+// Translate a FID from MEM convention (0-based) to XLSX convention
+GIntBig OGRXLSXLayer::TranslateFIDFromMemLayer(GIntBig nFID) const
+{
+    return nFID + (1 + (bHasHeaderLine ? 1 : 0));
+}
+
+/************************************************************************/
+/*                        TranslateFIDToMemLayer()                      */
+/************************************************************************/
+
+// Translate a FID from XLSX convention to MEM convention (0-based)
+GIntBig OGRXLSXLayer::TranslateFIDToMemLayer(GIntBig nFID) const
+{
+    if (nFID > 0)
+        return nFID - (1 + (bHasHeaderLine ? 1 : 0));
+    return OGRNullFID;
+}
+
+/************************************************************************/
 /*                          GetNextFeature()                            */
 /************************************************************************/
 
 OGRFeature *OGRXLSXLayer::GetNextFeature()
 {
     Init();
+
     OGRFeature *poFeature = OGRMemLayer::GetNextFeature();
     if (poFeature)
-        poFeature->SetFID(poFeature->GetFID() + 1 +
-                          static_cast<int>(bHasHeaderLine));
+        poFeature->SetFID(TranslateFIDFromMemLayer(poFeature->GetFID()));
     return poFeature;
 }
+
+/************************************************************************/
+/*                           CreateField()                              */
+/************************************************************************/
 
 OGRErr OGRXLSXLayer::CreateField(const OGRFieldDefn *poField, int bApproxOK)
 {
     Init();
+
     if (GetLayerDefn()->GetFieldCount() >= 2000)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
@@ -130,29 +157,61 @@ OGRErr OGRXLSXLayer::CreateField(const OGRFieldDefn *poField, int bApproxOK)
 OGRFeature *OGRXLSXLayer::GetFeature(GIntBig nFeatureId)
 {
     Init();
-    OGRFeature *poFeature = OGRMemLayer::GetFeature(
-        nFeatureId - (1 + static_cast<int>(bHasHeaderLine)));
+
+    OGRFeature *poFeature =
+        OGRMemLayer::GetFeature(TranslateFIDToMemLayer(nFeatureId));
     if (poFeature)
         poFeature->SetFID(nFeatureId);
     return poFeature;
 }
 
 /************************************************************************/
-/*                           ISetFeature()                               */
+/*                           ISetFeature()                              */
 /************************************************************************/
 
 OGRErr OGRXLSXLayer::ISetFeature(OGRFeature *poFeature)
 {
     Init();
-    if (poFeature == nullptr)
-        return OGRMemLayer::ISetFeature(poFeature);
 
-    GIntBig nFID = poFeature->GetFID();
-    if (nFID != OGRNullFID)
-        poFeature->SetFID(nFID - (1 + static_cast<int>(bHasHeaderLine)));
+    const GIntBig nFIDOrigin = poFeature->GetFID();
+    if (nFIDOrigin > 0)
+    {
+        const GIntBig nFIDMemLayer = TranslateFIDToMemLayer(nFIDOrigin);
+        if (!GetFeatureRef(nFIDMemLayer))
+            return OGRERR_NON_EXISTING_FEATURE;
+        poFeature->SetFID(nFIDMemLayer);
+    }
+    else
+    {
+        return OGRERR_NON_EXISTING_FEATURE;
+    }
     SetUpdated();
     OGRErr eErr = OGRMemLayer::ISetFeature(poFeature);
-    poFeature->SetFID(nFID);
+    poFeature->SetFID(nFIDOrigin);
+    return eErr;
+}
+
+/************************************************************************/
+/*                         IUpdateFeature()                             */
+/************************************************************************/
+
+OGRErr OGRXLSXLayer::IUpdateFeature(OGRFeature *poFeature,
+                                    int nUpdatedFieldsCount,
+                                    const int *panUpdatedFieldsIdx,
+                                    int nUpdatedGeomFieldsCount,
+                                    const int *panUpdatedGeomFieldsIdx,
+                                    bool bUpdateStyleString)
+{
+    Init();
+
+    const GIntBig nFIDOrigin = poFeature->GetFID();
+    if (nFIDOrigin != OGRNullFID)
+        poFeature->SetFID(TranslateFIDToMemLayer(nFIDOrigin));
+    SetUpdated();
+    OGRErr eErr = OGRMemLayer::IUpdateFeature(
+        poFeature, nUpdatedFieldsCount, panUpdatedFieldsIdx,
+        nUpdatedGeomFieldsCount, panUpdatedGeomFieldsIdx, bUpdateStyleString);
+    poFeature->SetFID(nFIDOrigin);
     return eErr;
 }
 
@@ -164,16 +223,23 @@ OGRErr OGRXLSXLayer::ICreateFeature(OGRFeature *poFeature)
 {
     Init();
 
-    GIntBig nFID = poFeature->GetFID();
-    if (nFID != OGRNullFID)
+    const GIntBig nFIDOrigin = poFeature->GetFID();
+    if (nFIDOrigin > 0)
     {
-        // Compensate what ISetFeature() will do since
-        // OGRMemLayer::ICreateFeature() will eventually call it
-        poFeature->SetFID(nFID + (1 + static_cast<int>(bHasHeaderLine)));
+        const GIntBig nFIDModified = TranslateFIDToMemLayer(nFIDOrigin);
+        if (GetFeatureRef(nFIDModified))
+        {
+            SetUpdated();
+            poFeature->SetFID(nFIDModified);
+            OGRErr eErr = OGRMemLayer::ISetFeature(poFeature);
+            poFeature->SetFID(nFIDOrigin);
+            return eErr;
+        }
     }
     SetUpdated();
+    poFeature->SetFID(OGRNullFID);
     OGRErr eErr = OGRMemLayer::ICreateFeature(poFeature);
-    poFeature->SetFID(nFID);
+    poFeature->SetFID(TranslateFIDFromMemLayer(poFeature->GetFID()));
     return eErr;
 }
 
@@ -185,8 +251,7 @@ OGRErr OGRXLSXLayer::DeleteFeature(GIntBig nFID)
 {
     Init();
     SetUpdated();
-    return OGRMemLayer::DeleteFeature(nFID -
-                                      (1 + static_cast<int>(bHasHeaderLine)));
+    return OGRMemLayer::DeleteFeature(TranslateFIDToMemLayer(nFID));
 }
 
 /************************************************************************/
@@ -354,6 +419,18 @@ int OGRXLSXDataSource::Create(const char *pszFilename,
 }
 
 /************************************************************************/
+/*                           GetUnprefixed()                            */
+/************************************************************************/
+
+static const char *GetUnprefixed(const char *pszStr)
+{
+    const char *pszColumn = strchr(pszStr, ':');
+    if (pszColumn)
+        return pszColumn + 1;
+    return pszStr;
+}
+
+/************************************************************************/
 /*                           startElementCbk()                          */
 /************************************************************************/
 
@@ -368,6 +445,8 @@ void OGRXLSXDataSource::startElementCbk(const char *pszNameIn,
 {
     if (bStopParsing)
         return;
+
+    pszNameIn = GetUnprefixed(pszNameIn);
 
     nWithoutEventCounter = 0;
     switch (stateStack[nStackDepth].eVal)
@@ -408,6 +487,8 @@ void OGRXLSXDataSource::endElementCbk(const char *pszNameIn)
 {
     if (bStopParsing)
         return;
+
+    pszNameIn = GetUnprefixed(pszNameIn);
 
     nWithoutEventCounter = 0;
 
@@ -1281,6 +1362,8 @@ void OGRXLSXDataSource::startElementSSCbk(const char *pszNameIn,
     if (bStopParsing)
         return;
 
+    pszNameIn = GetUnprefixed(pszNameIn);
+
     nWithoutEventCounter = 0;
     switch (stateStack[nStackDepth].eVal)
     {
@@ -1316,10 +1399,13 @@ static void XMLCALL endElementSSCbk(void *pUserData, const char *pszNameIn)
     ((OGRXLSXDataSource *)pUserData)->endElementSSCbk(pszNameIn);
 }
 
-void OGRXLSXDataSource::endElementSSCbk(CPL_UNUSED const char *pszNameIn)
+void OGRXLSXDataSource::endElementSSCbk(const char * /*pszNameIn*/)
 {
     if (bStopParsing)
         return;
+
+    // If we were to use pszNameIn, then we need:
+    // pszNameIn = GetUnprefixed(pszNameIn);
 
     nWithoutEventCounter = 0;
 
@@ -1464,6 +1550,8 @@ void OGRXLSXDataSource::startElementWBRelsCbk(const char *pszNameIn,
     if (bStopParsing)
         return;
 
+    pszNameIn = GetUnprefixed(pszNameIn);
+
     nWithoutEventCounter = 0;
     if (strcmp(pszNameIn, "Relationship") == 0)
     {
@@ -1529,18 +1617,6 @@ void OGRXLSXDataSource::AnalyseWorkbookRels(VSILFILE *fpWorkbookRels)
 }
 
 /************************************************************************/
-/*                           GetUnprefixed()                            */
-/************************************************************************/
-
-static const char *GetUnprefixed(const char *pszStr)
-{
-    const char *pszColumn = strchr(pszStr, ':');
-    if (pszColumn)
-        return pszColumn + 1;
-    return pszStr;
-}
-
-/************************************************************************/
 /*                          startElementWBCbk()                         */
 /************************************************************************/
 
@@ -1556,8 +1632,10 @@ void OGRXLSXDataSource::startElementWBCbk(const char *pszNameIn,
     if (bStopParsing)
         return;
 
+    pszNameIn = GetUnprefixed(pszNameIn);
+
     nWithoutEventCounter = 0;
-    if (strcmp(GetUnprefixed(pszNameIn), "sheet") == 0)
+    if (strcmp(pszNameIn, "sheet") == 0)
     {
         const char *pszSheetName = GetAttributeValue(ppszAttr, "name", nullptr);
         const char *pszId = GetAttributeValue(ppszAttr, "r:id", nullptr);
@@ -1660,6 +1738,8 @@ void OGRXLSXDataSource::startElementStylesCbk(const char *pszNameIn,
     if (bStopParsing)
         return;
 
+    pszNameIn = GetUnprefixed(pszNameIn);
+
     nWithoutEventCounter = 0;
     if (strcmp(pszNameIn, "numFmt") == 0)
     {
@@ -1744,6 +1824,8 @@ void OGRXLSXDataSource::endElementStylesCbk(const char *pszNameIn)
 {
     if (bStopParsing)
         return;
+
+    pszNameIn = GetUnprefixed(pszNameIn);
 
     nWithoutEventCounter = 0;
     if (strcmp(pszNameIn, "cellXfs") == 0)

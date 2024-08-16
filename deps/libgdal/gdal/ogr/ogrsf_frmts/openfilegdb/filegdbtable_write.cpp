@@ -51,6 +51,7 @@
 #include "cpl_time.h"
 #include "cpl_vsi.h"
 #include "filegdbtable_priv.h"
+#include "gdal_priv_templates.hpp"
 #include "ogr_api.h"
 #include "ogr_core.h"
 #include "ogr_geometry.h"
@@ -371,24 +372,15 @@ bool FileGDBTable::Sync(VSILFILE *fpTable, VSILFILE *fpTableX)
 /************************************************************************/
 
 #define CHECK_CAN_BE_ENCODED_ON_VARUINT(v, msg)                                \
-    if (!((v) >= 0 &&                                                          \
-          (v) <= static_cast<double>(std::numeric_limits<uint64_t>::max())))   \
+    if (!GDALIsValueInRange<uint64_t>(v))                                      \
     {                                                                          \
         CPLError(CE_Failure, CPLE_AppDefined, msg);                            \
         return false;                                                          \
     }
 
 #define CHECK_CAN_BE_ENCODED_ON_VARINT(v, oldV, msg)                           \
-    if (!((v) >= static_cast<double>(std::numeric_limits<int64_t>::min()) &&   \
-          (v) <= static_cast<double>(std::numeric_limits<int64_t>::max())))    \
-    {                                                                          \
-        CPLError(CE_Failure, CPLE_AppDefined, msg);                            \
-        return false;                                                          \
-    }                                                                          \
-    if (!(((v) - (oldV)) >=                                                    \
-              static_cast<double>(std::numeric_limits<int64_t>::min()) &&      \
-          ((v) - (oldV)) <=                                                    \
-              static_cast<double>(std::numeric_limits<int64_t>::max())))       \
+    if (!GDALIsValueInRange<int64_t>(v) ||                                     \
+        !GDALIsValueInRange<int64_t>((v) - (oldV)))                            \
     {                                                                          \
         CPLError(CE_Failure, CPLE_AppDefined, msg);                            \
         return false;                                                          \
@@ -2016,6 +2008,7 @@ bool FileGDBTable::UpdateFeature(int nFID,
         m_nRowBufferMaxSize = std::max(m_nRowBufferMaxSize, m_nRowBlobLength);
         if (nFreeOffset == OFFSET_MINUS_ONE)
         {
+            m_bDirtyHeader = true;
             m_nFileSize += sizeof(uint32_t) + m_nRowBlobLength;
         }
 

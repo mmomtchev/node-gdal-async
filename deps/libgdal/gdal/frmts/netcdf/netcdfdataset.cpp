@@ -70,6 +70,7 @@
 #include "cpl_time.h"
 #include "gdal.h"
 #include "gdal_frmts.h"
+#include "gdal_priv_templates.hpp"
 #include "ogr_core.h"
 #include "ogr_srs_api.h"
 
@@ -759,22 +760,12 @@ netCDFRasterBand::netCDFRasterBand(const netCDFRasterBand::CONSTRUCTOR_OPEN &,
 #ifdef NCDF_DEBUG
             CPLDebug("GDAL_netCDF", "SetNoDataValue(%f) read", dfNoData);
 #endif
-            if (eDataType == GDT_Int64 &&
-                dfNoData >=
-                    static_cast<double>(std::numeric_limits<int64_t>::min()) &&
-                dfNoData <=
-                    static_cast<double>(std::numeric_limits<int64_t>::max()) &&
-                dfNoData == static_cast<double>(static_cast<int64_t>(dfNoData)))
+            if (eDataType == GDT_Int64 && GDALIsValueExactAs<int64_t>(dfNoData))
             {
                 SetNoDataValueNoUpdate(static_cast<int64_t>(dfNoData));
             }
             else if (eDataType == GDT_UInt64 &&
-                     dfNoData >= static_cast<double>(
-                                     std::numeric_limits<uint64_t>::min()) &&
-                     dfNoData <= static_cast<double>(
-                                     std::numeric_limits<uint64_t>::max()) &&
-                     dfNoData ==
-                         static_cast<double>(static_cast<uint64_t>(dfNoData)))
+                     GDALIsValueExactAs<uint64_t>(dfNoData))
             {
                 SetNoDataValueNoUpdate(static_cast<uint64_t>(dfNoData));
             }
@@ -3901,6 +3892,56 @@ void netCDFDataset::SetProjectionFromVar(
             double xMinMax[2] = {0.0, 0.0};
             double yMinMax[2] = {0.0, 0.0};
 
+            const auto RoundMinMaxForFloatVals =
+                [](double &dfMin, double &dfMax, int nIntervals)
+            {
+                // Helps for a case where longitudes range from
+                // -179.99 to 180.0 with a 0.01 degree spacing.
+                // However as this is encoded in a float array,
+                // -179.99 is actually read as -179.99000549316406 as
+                // a double. Try to detect that and correct the rounding
+
+                const auto IsAlmostInteger = [](double dfVal)
+                {
+                    constexpr double THRESHOLD_INTEGER = 1e-3;
+                    return std::fabs(dfVal - std::round(dfVal)) <=
+                           THRESHOLD_INTEGER;
+                };
+
+                const double dfSpacing = (dfMax - dfMin) / nIntervals;
+                if (dfSpacing > 0)
+                {
+                    const double dfInvSpacing = 1.0 / dfSpacing;
+                    if (IsAlmostInteger(dfInvSpacing))
+                    {
+                        const double dfRoundedSpacing =
+                            1.0 / std::round(dfInvSpacing);
+                        const double dfMinDivRoundedSpacing =
+                            dfMin / dfRoundedSpacing;
+                        const double dfMaxDivRoundedSpacing =
+                            dfMax / dfRoundedSpacing;
+                        if (IsAlmostInteger(dfMinDivRoundedSpacing) &&
+                            IsAlmostInteger(dfMaxDivRoundedSpacing))
+                        {
+                            const double dfRoundedMin =
+                                std::round(dfMinDivRoundedSpacing) *
+                                dfRoundedSpacing;
+                            const double dfRoundedMax =
+                                std::round(dfMaxDivRoundedSpacing) *
+                                dfRoundedSpacing;
+                            if (static_cast<float>(dfMin) ==
+                                    static_cast<float>(dfRoundedMin) &&
+                                static_cast<float>(dfMax) ==
+                                    static_cast<float>(dfRoundedMax))
+                            {
+                                dfMin = dfRoundedMin;
+                                dfMax = dfRoundedMax;
+                            }
+                        }
+                    }
+                }
+            };
+
             if (!nc_get_att_double(nGroupDimXID, nVarDimXID, "actual_range",
                                    adfActualRange))
             {
@@ -3920,6 +3961,12 @@ void netCDFDataset::SetProjectionFromVar(
                 xMinMax[0] = pdfXCoord[0];
                 xMinMax[1] = pdfXCoord[xdim - 1];
                 node_offset = 0;
+
+                if (nc_var_dimx_datatype == NC_FLOAT)
+                {
+                    RoundMinMaxForFloatVals(xMinMax[0], xMinMax[1],
+                                            poDS->nRasterXSize - 1);
+                }
             }
 
             if (!nc_get_att_double(nGroupDimYID, nVarDimYID, "actual_range",
@@ -3941,6 +3988,12 @@ void netCDFDataset::SetProjectionFromVar(
                 yMinMax[0] = pdfYCoord[0];
                 yMinMax[1] = pdfYCoord[ydim - 1];
                 node_offset = 0;
+
+                if (nc_var_dimy_datatype == NC_FLOAT)
+                {
+                    RoundMinMaxForFloatVals(yMinMax[0], yMinMax[1],
+                                            poDS->nRasterYSize - 1);
+                }
             }
 
             double dfCoordOffset = 0.0;
@@ -8310,13 +8363,12 @@ GDALDataset *netCDFDataset::Open(GDALOpenInfo *poOpenInfo)
     bool bHasSimpleGeometries = false;  // but not necessarily valid
     if (poDS->nCFVersion >= 1.8)
     {
-        poDS->bSGSupport = true;
         bHasSimpleGeometries = poDS->DetectAndFillSGLayers(cdfid);
-        poDS->vcdf.enableFullVirtualMode();
-    }
-    else
-    {
-        poDS->bSGSupport = false;
+        if (bHasSimpleGeometries)
+        {
+            poDS->bSGSupport = true;
+            poDS->vcdf.enableFullVirtualMode();
+        }
     }
 
     char szConventions[NC_MAX_NAME + 1];
@@ -9285,9 +9337,12 @@ GDALDataset *netCDFDataset::Create(const char *pszFilename, int nXSize,
     // Add Conventions, GDAL info and history.
     if (poDS->cdfid >= 0)
     {
-        const char *CF_Vector_Conv = poDS->bSGSupport
-                                         ? NCDF_CONVENTIONS_CF_V1_8
-                                         : NCDF_CONVENTIONS_CF_V1_6;
+        const char *CF_Vector_Conv =
+            poDS->bSGSupport ||
+                    // Use of variable length strings require CF-1.8
+                    EQUAL(aosOptions.FetchNameValueDef("FORMAT", ""), "NC4")
+                ? NCDF_CONVENTIONS_CF_V1_8
+                : NCDF_CONVENTIONS_CF_V1_6;
         poDS->bWriteGDALVersion = CPLTestBool(
             CSLFetchNameValueDef(papszOptions, "WRITE_GDAL_VERSION", "YES"));
         poDS->bWriteGDALHistory = CPLTestBool(

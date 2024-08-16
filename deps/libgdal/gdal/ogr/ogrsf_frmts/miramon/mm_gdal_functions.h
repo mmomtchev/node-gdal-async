@@ -95,6 +95,7 @@ extern char szNumberOfElementaryPolygonsSpa[];
 
 char *MM_oemansi(char *szcadena);
 char *MM_oemansi_n(char *szcadena, size_t n_bytes);
+char *MM_stristr(const char *haystack, const char *needle);
 void MM_InitializeField(struct MM_FIELD *camp);
 struct MM_FIELD *MM_CreateAllFields(MM_EXT_DBF_N_FIELDS ncamps);
 MM_FIRST_RECORD_OFFSET_TYPE
@@ -102,7 +103,7 @@ MM_GiveOffsetExtendedFieldName(const struct MM_FIELD *camp);
 struct MM_DATA_BASE_XP *MM_CreateDBFHeader(MM_EXT_DBF_N_FIELDS n_camps,
                                            MM_BYTE nCharSet);
 void MM_ReleaseMainFields(struct MM_DATA_BASE_XP *data_base_XP);
-void MM_ReleaseDBFHeader(struct MM_DATA_BASE_XP *data_base_XP);
+void MM_ReleaseDBFHeader(struct MM_DATA_BASE_XP **data_base_XP);
 MM_BOOLEAN MM_CreateAndOpenDBFFile(struct MM_DATA_BASE_XP *bd_xp,
                                    const char *NomFitxer);
 int MM_DuplicateFieldDBXP(struct MM_FIELD *camp_final,

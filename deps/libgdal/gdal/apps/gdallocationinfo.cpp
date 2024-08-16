@@ -342,6 +342,8 @@ MAIN_START(argc, argv)
     while (inputAvailable)
     {
         int iPixel, iLine;
+        const double dfXIn = dfGeoX;
+        const double dfYIn = dfGeoY;
 
         if (hCT)
         {
@@ -411,7 +413,7 @@ MAIN_START(argc, argv)
         }
         else if (bEcho)
         {
-            printf("%d%s%d%s", iPixel, osFieldSep.c_str(), iLine,
+            printf("%.15g%s%.15g%s", dfXIn, osFieldSep.c_str(), dfYIn,
                    osFieldSep.c_str());
         }
 
@@ -424,7 +426,12 @@ MAIN_START(argc, argv)
                 osXML += "<Alert>Location is off this file! No further details "
                          "to report.</Alert>";
             else if (bValOnly)
-                printf("\n");
+            {
+                for (int i = 1; i < static_cast<int>(anBandList.size()); i++)
+                {
+                    printf("%s", osFieldSep.c_str());
+                }
+            }
             else if (!bQuiet)
                 printf("\nLocation is off this file! No further details to "
                        "report.\n");

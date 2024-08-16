@@ -73,6 +73,13 @@ static constexpr const char szPROFILE_BASELINE[] = "BASELINE";
 static constexpr const char szPROFILE_GeoTIFF[] = "GeoTIFF";
 static constexpr const char szPROFILE_GDALGeoTIFF[] = "GDALGeoTIFF";
 
+// Due to libgeotiff/xtiff.c declaring TIFFTAG_GEOTIEPOINTS with field_readcount
+// and field_writecount == -1 == TIFF_VARIABLE, we are limited to writing
+// 65535 values in that tag. That could potentially be overcome by changing the tag
+// declaration to using TIFF_VARIABLE2 where the count is a uint32_t.
+constexpr int knMAX_GCP_COUNT =
+    static_cast<int>(std::numeric_limits<uint16_t>::max() / 6);
+
 enum
 {
     ENDIANNESS_NATIVE,
@@ -1714,10 +1721,7 @@ static void DiscardLsb(GByte *pabyBuffer, GPtrDiff_t nBytes, int iBand,
     if (nBitsPerSample == 8 && nSampleFormat == SAMPLEFORMAT_UINT)
     {
         uint8_t nNoDataValue = 0;
-        if (bHasNoData &&
-            dfNoDataValue >= std::numeric_limits<uint8_t>::min() &&
-            dfNoDataValue <= std::numeric_limits<uint8_t>::max() &&
-            dfNoDataValue == static_cast<uint8_t>(dfNoDataValue))
+        if (bHasNoData && GDALIsValueExactAs<uint8_t>(dfNoDataValue))
         {
             nNoDataValue = static_cast<uint8_t>(dfNoDataValue);
         }
@@ -1799,9 +1803,7 @@ static void DiscardLsb(GByte *pabyBuffer, GPtrDiff_t nBytes, int iBand,
     else if (nBitsPerSample == 8 && nSampleFormat == SAMPLEFORMAT_INT)
     {
         int8_t nNoDataValue = 0;
-        if (bHasNoData && dfNoDataValue >= std::numeric_limits<int8_t>::min() &&
-            dfNoDataValue <= std::numeric_limits<int8_t>::max() &&
-            dfNoDataValue == static_cast<int8_t>(dfNoDataValue))
+        if (bHasNoData && GDALIsValueExactAs<int8_t>(dfNoDataValue))
         {
             nNoDataValue = static_cast<int8_t>(dfNoDataValue);
         }
@@ -1816,10 +1818,7 @@ static void DiscardLsb(GByte *pabyBuffer, GPtrDiff_t nBytes, int iBand,
     else if (nBitsPerSample == 16 && nSampleFormat == SAMPLEFORMAT_INT)
     {
         int16_t nNoDataValue = 0;
-        if (bHasNoData &&
-            dfNoDataValue >= std::numeric_limits<int16_t>::min() &&
-            dfNoDataValue <= std::numeric_limits<int16_t>::max() &&
-            dfNoDataValue == static_cast<int16_t>(dfNoDataValue))
+        if (bHasNoData && GDALIsValueExactAs<int16_t>(dfNoDataValue))
         {
             nNoDataValue = static_cast<int16_t>(dfNoDataValue);
         }
@@ -1834,10 +1833,7 @@ static void DiscardLsb(GByte *pabyBuffer, GPtrDiff_t nBytes, int iBand,
     else if (nBitsPerSample == 16 && nSampleFormat == SAMPLEFORMAT_UINT)
     {
         uint16_t nNoDataValue = 0;
-        if (bHasNoData &&
-            dfNoDataValue >= std::numeric_limits<uint16_t>::min() &&
-            dfNoDataValue <= std::numeric_limits<uint16_t>::max() &&
-            dfNoDataValue == static_cast<uint16_t>(dfNoDataValue))
+        if (bHasNoData && GDALIsValueExactAs<uint16_t>(dfNoDataValue))
         {
             nNoDataValue = static_cast<uint16_t>(dfNoDataValue);
         }
@@ -1852,10 +1848,7 @@ static void DiscardLsb(GByte *pabyBuffer, GPtrDiff_t nBytes, int iBand,
     else if (nBitsPerSample == 32 && nSampleFormat == SAMPLEFORMAT_INT)
     {
         int32_t nNoDataValue = 0;
-        if (bHasNoData &&
-            dfNoDataValue >= std::numeric_limits<int32_t>::min() &&
-            dfNoDataValue <= std::numeric_limits<int32_t>::max() &&
-            dfNoDataValue == static_cast<int32_t>(dfNoDataValue))
+        if (bHasNoData && GDALIsValueExactAs<int32_t>(dfNoDataValue))
         {
             nNoDataValue = static_cast<int32_t>(dfNoDataValue);
         }
@@ -1870,10 +1863,7 @@ static void DiscardLsb(GByte *pabyBuffer, GPtrDiff_t nBytes, int iBand,
     else if (nBitsPerSample == 32 && nSampleFormat == SAMPLEFORMAT_UINT)
     {
         uint32_t nNoDataValue = 0;
-        if (bHasNoData &&
-            dfNoDataValue >= std::numeric_limits<uint32_t>::min() &&
-            dfNoDataValue <= std::numeric_limits<uint32_t>::max() &&
-            dfNoDataValue == static_cast<uint32_t>(dfNoDataValue))
+        if (bHasNoData && GDALIsValueExactAs<uint32_t>(dfNoDataValue))
         {
             nNoDataValue = static_cast<uint32_t>(dfNoDataValue);
         }
@@ -1890,13 +1880,7 @@ static void DiscardLsb(GByte *pabyBuffer, GPtrDiff_t nBytes, int iBand,
         // FIXME: we should not rely on dfNoDataValue when we support native
         // data type for nodata
         int64_t nNoDataValue = 0;
-        if (bHasNoData &&
-            dfNoDataValue >=
-                static_cast<double>(std::numeric_limits<int64_t>::min()) &&
-            dfNoDataValue <=
-                static_cast<double>(std::numeric_limits<int64_t>::max()) &&
-            dfNoDataValue ==
-                static_cast<double>(static_cast<int64_t>(dfNoDataValue)))
+        if (bHasNoData && GDALIsValueExactAs<int64_t>(dfNoDataValue))
         {
             nNoDataValue = static_cast<int64_t>(dfNoDataValue);
         }
@@ -1913,13 +1897,7 @@ static void DiscardLsb(GByte *pabyBuffer, GPtrDiff_t nBytes, int iBand,
         // FIXME: we should not rely on dfNoDataValue when we support native
         // data type for nodata
         uint64_t nNoDataValue = 0;
-        if (bHasNoData &&
-            dfNoDataValue >=
-                static_cast<double>(std::numeric_limits<uint64_t>::min()) &&
-            dfNoDataValue <=
-                static_cast<double>(std::numeric_limits<uint64_t>::max()) &&
-            dfNoDataValue ==
-                static_cast<double>(static_cast<uint64_t>(dfNoDataValue)))
+        if (bHasNoData && GDALIsValueExactAs<uint64_t>(dfNoDataValue))
         {
             nNoDataValue = static_cast<uint64_t>(dfNoDataValue);
         }
@@ -2821,7 +2799,7 @@ CPLErr GTiffDataset::CreateOverviewsFromSrcOverviews(GDALDataset *poSrcDS,
     /* -------------------------------------------------------------------- */
     CPLString osMetadata;
 
-    GTIFFBuildOverviewMetadata("NONE", this, osMetadata);
+    GTIFFBuildOverviewMetadata("NONE", this, false, osMetadata);
 
     int nCompression;
     uint16_t nPlanarConfig;
@@ -3108,7 +3086,8 @@ CPLErr GTiffDataset::IBuildOverviews(const char *pszResampling, int nOverviews,
     /* -------------------------------------------------------------------- */
     CPLString osMetadata;
 
-    GTIFFBuildOverviewMetadata(pszResampling, this, osMetadata);
+    const bool bIsForMaskBand = nBands == 1 && GetRasterBand(1)->IsMaskBand();
+    GTIFFBuildOverviewMetadata(pszResampling, this, bIsForMaskBand, osMetadata);
 
     int nCompression;
     uint16_t nPlanarConfig;
@@ -3695,7 +3674,8 @@ void GTiffDataset::WriteGeoTIFFInfo()
         else if (CPLFetchBool(m_papszCreationOptions, "WORLDFILE", false))
             GDALWriteWorldFile(m_pszFilename, "wld", m_adfGeoTransform);
     }
-    else if (GetGCPCount() > 0)
+    else if (GetGCPCount() > 0 && GetGCPCount() <= knMAX_GCP_COUNT &&
+             m_eProfile != GTiffProfile::BASELINE)
     {
         m_bNeedsRewrite = true;
 
@@ -3719,9 +3699,8 @@ void GTiffDataset::WriteGeoTIFFInfo()
             }
         }
 
-        if (m_eProfile != GTiffProfile::BASELINE)
-            TIFFSetField(m_hTIFF, TIFFTAG_GEOTIEPOINTS, 6 * GetGCPCount(),
-                         padfTiePoints);
+        TIFFSetField(m_hTIFF, TIFFTAG_GEOTIEPOINTS, 6 * GetGCPCount(),
+                     padfTiePoints);
         CPLFree(padfTiePoints);
     }
 
@@ -8463,7 +8442,6 @@ CPLErr GTiffDataset::SetGCPs(int nGCPCountIn, const GDAL_GCP *pasGCPListIn,
             m_bGeoTransformValid = false;
             m_bForceUnsetGTOrGCPs = true;
         }
-
         if ((m_eProfile == GTiffProfile::BASELINE) &&
             (GetPamFlags() & GPF_DISABLED) == 0)
         {
@@ -8471,7 +8449,21 @@ CPLErr GTiffDataset::SetGCPs(int nGCPCountIn, const GDAL_GCP *pasGCPListIn,
         }
         else
         {
-            if (GDALPamDataset::GetGCPCount() > 0)
+            if (nGCPCountIn > knMAX_GCP_COUNT)
+            {
+                if (GDALPamDataset::GetGCPCount() == 0 && !m_aoGCPs.empty())
+                {
+                    m_bForceUnsetGTOrGCPs = true;
+                }
+                ReportError(CE_Warning, CPLE_AppDefined,
+                            "Trying to write %d GCPs, whereas the maximum "
+                            "supported in GeoTIFF tag is %d. "
+                            "Falling back to writing them to PAM",
+                            nGCPCountIn, knMAX_GCP_COUNT);
+                eErr = GDALPamDataset::SetGCPs(nGCPCountIn, pasGCPListIn,
+                                               poGCPSRS);
+            }
+            else if (GDALPamDataset::GetGCPCount() > 0)
             {
                 // Cancel any existing GCPs from PAM file.
                 GDALPamDataset::SetGCPs(

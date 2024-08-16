@@ -807,34 +807,69 @@ OGRFeature *OGRMiraMonLayer::GetFeature(GIntBig nFeatureId)
     /* -------------------------------------------------------------------- */
     /*      Read nFeatureId feature directly from the file.                 */
     /* -------------------------------------------------------------------- */
-    if (nIElem < phMiraMonLayer->TopHeader.nElemCount)
+    switch (phMiraMonLayer->eLT)
     {
-        switch (phMiraMonLayer->eLT)
-        {
-            case MM_LayerType_Point:
-            case MM_LayerType_Point3d:
-                // Read point
-                poGeom = new OGRPoint();
-                poPoint = poGeom->toPoint();
+        case MM_LayerType_Point:
+        case MM_LayerType_Point3d:
+            // Read point
+            poGeom = new OGRPoint();
+            poPoint = poGeom->toPoint();
 
-                // Get X,Y (z). MiraMon has no multipoints
-                if (MMGetGeoFeatureFromVector(phMiraMonLayer, nIElem))
-                {
-                    CPLError(CE_Failure, CPLE_AppDefined, "Wrong file format.");
-                    delete poGeom;
-                    return nullptr;
-                }
+            // Get X,Y (z). MiraMon has no multipoints
+            if (MMGetGeoFeatureFromVector(phMiraMonLayer, nIElem))
+            {
+                CPLError(CE_Failure, CPLE_AppDefined, "Wrong file format.");
+                delete poGeom;
+                return nullptr;
+            }
 
-                poPoint->setX(phMiraMonLayer->ReadFeature.pCoord[0].dfX);
-                poPoint->setY(phMiraMonLayer->ReadFeature.pCoord[0].dfY);
+            poPoint->setX(phMiraMonLayer->ReadFeature.pCoord[0].dfX);
+            poPoint->setY(phMiraMonLayer->ReadFeature.pCoord[0].dfY);
+            if (phMiraMonLayer->TopHeader.bIs3d)
+                poPoint->setZ(phMiraMonLayer->ReadFeature.pZCoord[0]);
+            break;
+
+        case MM_LayerType_Arc:
+        case MM_LayerType_Arc3d:
+            poGeom = new OGRLineString();
+            poLS = poGeom->toLineString();
+
+            // Get X,Y (Z) n times MiraMon has no multilines
+            if (MMGetGeoFeatureFromVector(phMiraMonLayer, nIElem))
+            {
+                CPLError(CE_Failure, CPLE_AppDefined, "Wrong file format.");
+                delete poGeom;
+                return nullptr;
+            }
+
+            for (MM_N_VERTICES_TYPE nIVrt = 0;
+                 nIVrt < phMiraMonLayer->ReadFeature.pNCoordRing[0]; nIVrt++)
+            {
                 if (phMiraMonLayer->TopHeader.bIs3d)
-                    poPoint->setZ(phMiraMonLayer->ReadFeature.pZCoord[0]);
-                break;
+                    poLS->addPoint(
+                        phMiraMonLayer->ReadFeature.pCoord[nIVrt].dfX,
+                        phMiraMonLayer->ReadFeature.pCoord[nIVrt].dfY,
+                        phMiraMonLayer->ReadFeature.pZCoord[nIVrt]);
+                else
+                    poLS->addPoint(
+                        phMiraMonLayer->ReadFeature.pCoord[nIVrt].dfX,
+                        phMiraMonLayer->ReadFeature.pCoord[nIVrt].dfY);
+            }
+            break;
 
-            case MM_LayerType_Arc:
-            case MM_LayerType_Arc3d:
-                poGeom = new OGRLineString();
-                poLS = poGeom->toLineString();
+        case MM_LayerType_Pol:
+        case MM_LayerType_Pol3d:
+            // Read polygon
+            auto poPoly = std::make_unique<OGRPolygon>();
+            MM_POLYGON_RINGS_COUNT nIRing;
+            MM_N_VERTICES_TYPE nIVrtAcum;
+
+            if (phMiraMonLayer->TopHeader.bIsMultipolygon)
+            {
+                OGRMultiPolygon *poMP = nullptr;
+
+                poGeom = new OGRMultiPolygon();
+                poMP = poGeom->toMultiPolygon();
 
                 // Get X,Y (Z) n times MiraMon has no multilines
                 if (MMGetGeoFeatureFromVector(phMiraMonLayer, nIElem))
@@ -844,50 +879,84 @@ OGRFeature *OGRMiraMonLayer::GetFeature(GIntBig nFeatureId)
                     return nullptr;
                 }
 
-                for (MM_N_VERTICES_TYPE nIVrt = 0;
-                     nIVrt < phMiraMonLayer->ReadFeature.pNCoordRing[0];
-                     nIVrt++)
+                nIVrtAcum = 0;
+                if (!(phMiraMonLayer->ReadFeature.flag_VFG[0] &
+                      MM_EXTERIOR_ARC_SIDE))
                 {
-                    if (phMiraMonLayer->TopHeader.bIs3d)
-                        poLS->addPoint(
-                            phMiraMonLayer->ReadFeature.pCoord[nIVrt].dfX,
-                            phMiraMonLayer->ReadFeature.pCoord[nIVrt].dfY,
-                            phMiraMonLayer->ReadFeature.pZCoord[nIVrt]);
-                    else
-                        poLS->addPoint(
-                            phMiraMonLayer->ReadFeature.pCoord[nIVrt].dfX,
-                            phMiraMonLayer->ReadFeature.pCoord[nIVrt].dfY);
+                    CPLError(CE_Failure, CPLE_NoWriteAccess,
+                             "Wrong polygon format.");
+                    delete poGeom;
+                    return nullptr;
                 }
-                break;
 
-            case MM_LayerType_Pol:
-            case MM_LayerType_Pol3d:
-                // Read polygon
-                auto poPoly = std::make_unique<OGRPolygon>();
-                MM_POLYGON_RINGS_COUNT nIRing;
-                MM_N_VERTICES_TYPE nIVrtAcum;
-
-                if (phMiraMonLayer->TopHeader.bIsMultipolygon)
+                for (nIRing = 0; nIRing < phMiraMonLayer->ReadFeature.nNRings;
+                     nIRing++)
                 {
-                    OGRMultiPolygon *poMP = nullptr;
+                    auto poRing = std::make_unique<OGRLinearRing>();
 
-                    poGeom = new OGRMultiPolygon();
-                    poMP = poGeom->toMultiPolygon();
-
-                    // Get X,Y (Z) n times MiraMon has no multilines
-                    if (MMGetGeoFeatureFromVector(phMiraMonLayer, nIElem))
+                    for (MM_N_VERTICES_TYPE nIVrt = 0;
+                         nIVrt <
+                         phMiraMonLayer->ReadFeature.pNCoordRing[nIRing];
+                         nIVrt++)
                     {
-                        CPLError(CE_Failure, CPLE_AppDefined,
-                                 "Wrong file format.");
-                        delete poGeom;
-                        return nullptr;
+                        if (phMiraMonLayer->TopHeader.bIs3d)
+                        {
+                            poRing->addPoint(
+                                phMiraMonLayer->ReadFeature.pCoord[nIVrtAcum]
+                                    .dfX,
+                                phMiraMonLayer->ReadFeature.pCoord[nIVrtAcum]
+                                    .dfY,
+                                phMiraMonLayer->ReadFeature.pZCoord[nIVrtAcum]);
+                        }
+                        else
+                        {
+                            poRing->addPoint(
+                                phMiraMonLayer->ReadFeature.pCoord[nIVrtAcum]
+                                    .dfX,
+                                phMiraMonLayer->ReadFeature.pCoord[nIVrtAcum]
+                                    .dfY);
+                        }
+
+                        nIVrtAcum++;
                     }
 
+                    // If I'm going to start a new polygon...
+                    if ((nIRing + 1 < phMiraMonLayer->ReadFeature.nNRings &&
+                         ((phMiraMonLayer->ReadFeature.flag_VFG[nIRing + 1]) &
+                          MM_EXTERIOR_ARC_SIDE)) ||
+                        nIRing + 1 >= phMiraMonLayer->ReadFeature.nNRings)
+                    {
+                        poPoly->addRingDirectly(poRing.release());
+                        poMP->addGeometryDirectly(poPoly.release());
+                        poPoly = std::make_unique<OGRPolygon>();
+                    }
+                    else
+                        poPoly->addRingDirectly(poRing.release());
+                }
+            }
+            else
+            {
+                OGRPolygon *poP = nullptr;
+
+                poGeom = new OGRPolygon();
+                poP = poGeom->toPolygon();
+
+                // Get X,Y (Z) n times because MiraMon has no multilinetrings
+                if (MMGetGeoFeatureFromVector(phMiraMonLayer, nIElem))
+                {
+                    CPLError(CE_Failure, CPLE_AppDefined, "Wrong file format.");
+                    delete poGeom;
+                    return nullptr;
+                }
+
+                if (phMiraMonLayer->ReadFeature.nNRings &&
+                    phMiraMonLayer->ReadFeature.nNumpCoord)
+                {
                     nIVrtAcum = 0;
                     if (!(phMiraMonLayer->ReadFeature.flag_VFG[0] &
                           MM_EXTERIOR_ARC_SIDE))
                     {
-                        CPLError(CE_Failure, CPLE_NoWriteAccess,
+                        CPLError(CE_Failure, CPLE_AssertionFailed,
                                  "Wrong polygon format.");
                         delete poGeom;
                         return nullptr;
@@ -926,106 +995,23 @@ OGRFeature *OGRMiraMonLayer::GetFeature(GIntBig nFeatureId)
 
                             nIVrtAcum++;
                         }
-
-                        // If I'm going to start a new polygon...
-                        if ((nIRing + 1 < phMiraMonLayer->ReadFeature.nNRings &&
-                             ((phMiraMonLayer->ReadFeature
-                                   .flag_VFG[nIRing + 1]) &
-                              MM_EXTERIOR_ARC_SIDE)) ||
-                            nIRing + 1 >= phMiraMonLayer->ReadFeature.nNRings)
-                        {
-                            poPoly->addRingDirectly(poRing.release());
-                            poMP->addGeometryDirectly(poPoly.release());
-                            poPoly = std::make_unique<OGRPolygon>();
-                        }
-                        else
-                            poPoly->addRingDirectly(poRing.release());
+                        poP->addRingDirectly(poRing.release());
                     }
                 }
-                else
-                {
-                    OGRPolygon *poP = nullptr;
+            }
 
-                    poGeom = new OGRPolygon();
-                    poP = poGeom->toPolygon();
-
-                    // Get X,Y (Z) n times because MiraMon has no multilinetrings
-                    if (MMGetGeoFeatureFromVector(phMiraMonLayer, nIElem))
-                    {
-                        CPLError(CE_Failure, CPLE_AppDefined,
-                                 "Wrong file format.");
-                        delete poGeom;
-                        return nullptr;
-                    }
-
-                    if (phMiraMonLayer->ReadFeature.nNRings &&
-                        phMiraMonLayer->ReadFeature.nNumpCoord)
-                    {
-                        nIVrtAcum = 0;
-                        if (!(phMiraMonLayer->ReadFeature.flag_VFG[0] &
-                              MM_EXTERIOR_ARC_SIDE))
-                        {
-                            CPLError(CE_Failure, CPLE_AssertionFailed,
-                                     "Wrong polygon format.");
-                            delete poGeom;
-                            return nullptr;
-                        }
-
-                        for (nIRing = 0;
-                             nIRing < phMiraMonLayer->ReadFeature.nNRings;
-                             nIRing++)
-                        {
-                            auto poRing = std::make_unique<OGRLinearRing>();
-
-                            for (MM_N_VERTICES_TYPE nIVrt = 0;
-                                 nIVrt < phMiraMonLayer->ReadFeature
-                                             .pNCoordRing[nIRing];
-                                 nIVrt++)
-                            {
-                                if (phMiraMonLayer->TopHeader.bIs3d)
-                                {
-                                    poRing->addPoint(phMiraMonLayer->ReadFeature
-                                                         .pCoord[nIVrtAcum]
-                                                         .dfX,
-                                                     phMiraMonLayer->ReadFeature
-                                                         .pCoord[nIVrtAcum]
-                                                         .dfY,
-                                                     phMiraMonLayer->ReadFeature
-                                                         .pZCoord[nIVrtAcum]);
-                                }
-                                else
-                                {
-                                    poRing->addPoint(phMiraMonLayer->ReadFeature
-                                                         .pCoord[nIVrtAcum]
-                                                         .dfX,
-                                                     phMiraMonLayer->ReadFeature
-                                                         .pCoord[nIVrtAcum]
-                                                         .dfY);
-                                }
-
-                                nIVrtAcum++;
-                            }
-                            poP->addRingDirectly(poRing.release());
-                        }
-                    }
-                }
-
-                break;
-        }
-
-        if (poGeom == nullptr)
-            return nullptr;
+            break;
     }
+
+    if (poGeom == nullptr)
+        return nullptr;
 
     /* -------------------------------------------------------------------- */
     /*      Create feature.                                                 */
     /* -------------------------------------------------------------------- */
     auto poFeature = std::make_unique<OGRFeature>(m_poFeatureDefn);
-    if (poGeom)
-    {
-        poGeom->assignSpatialReference(m_poSRS);
-        poFeature->SetGeometryDirectly(poGeom);
-    }
+    poGeom->assignSpatialReference(m_poSRS);
+    poFeature->SetGeometryDirectly(poGeom);
 
     /* -------------------------------------------------------------------- */
     /*      Process field values if its possible.                           */
@@ -1830,6 +1816,7 @@ OGRErr OGRMiraMonLayer::MMDumpVertices(OGRGeometryH hGeom,
                               MM_MEAN_NUMBER_OF_NCOORDS, 0))
         return OGRERR_FAILURE;
 
+    hMMFeature.bAllZHaveSameValue = TRUE;
     for (int iPoint = 0;
          (MM_N_VERTICES_TYPE)iPoint < hMMFeature.pNCoordRing[hMMFeature.nIRing];
          iPoint++)
@@ -1844,6 +1831,15 @@ OGRErr OGRMiraMonLayer::MMDumpVertices(OGRGeometryH hGeom,
             hMMFeature.pZCoord[hMMFeature.nICoord] = OGR_G_GetZ(hGeom, iPoint);
             phMiraMonLayer->bIsReal3d = 1;
         }
+
+        // Asking if last Z-coordinate is the same than this one.
+        // If all Z-coordinates are the same, following MiraMon specification
+        // only the hMMFeature.pZCoord[0] value will be used and the number of
+        // vertices will be saved as a negative number on disk
+        if (iPoint > 0 &&
+            !CPLIsEqual(hMMFeature.pZCoord[hMMFeature.nICoord],
+                        hMMFeature.pZCoord[hMMFeature.nICoord - 1]))
+            hMMFeature.bAllZHaveSameValue = FALSE;
 
         hMMFeature.nICoord++;
     }
@@ -1953,9 +1949,11 @@ OGRErr OGRMiraMonLayer::MMWriteGeometry()
     {
         CPLDebugOnly("MiraMon", "Error in MMAddFeature() "
                                 "MM_STOP_WRITING_FEATURES");
-        CPLError(CE_Failure, CPLE_FileIO, "MiraMon format limitations.");
         CPLError(CE_Failure, CPLE_FileIO,
-                 "Try V2.0 option (-lco Version=V2.0).");
+                 "MiraMon format limitations. Try V2.0 option (-lco "
+                 "Version=V2.0). " sprintf_UINT64
+                 " elements have been written correctly.",
+                 phMiraMonLayer->TopHeader.nElemCount);
         return OGRERR_FAILURE;
     }
 
@@ -2218,6 +2216,7 @@ OGRErr OGRMiraMonLayer::TranslateFieldsValuesToMM(OGRFeature *poFeature)
     MM_EXT_DBF_N_FIELDS nNumFields = m_poFeatureDefn->GetFieldCount();
     MM_EXT_DBF_N_MULTIPLE_RECORDS nNumRecords, nRealNumRecords;
     hMMFeature.nNumMRecords = 0;
+#define MAX_SIZE_OF_FIELD_NUMBER_WITH_MINUS 22
 
     for (MM_EXT_DBF_N_FIELDS iField = 0; iField < nNumFields; iField++)
     {
@@ -2429,7 +2428,7 @@ OGRErr OGRMiraMonLayer::TranslateFieldsValuesToMM(OGRFeature *poFeature)
                         hMMFeature.pRecords[nIRecord].nNumField))
                     return OGRERR_NOT_ENOUGH_MEMORY;
 
-                char szChain[21];
+                char szChain[MAX_SIZE_OF_FIELD_NUMBER_WITH_MINUS];
                 MM_SprintfDoubleSignifFigures(
                     szChain, sizeof(szChain),
                     phMiraMonLayer->pLayerDB->pFields[iField].nNumberOfDecimals,
@@ -2645,7 +2644,7 @@ OGRErr OGRMiraMonLayer::TranslateFieldsValuesToMM(OGRFeature *poFeature)
                 hMMFeature.pRecords[0].pField[iField].bIsValid = 0;
             else
             {
-                char szChain[21];
+                char szChain[MAX_SIZE_OF_FIELD_NUMBER_WITH_MINUS];
                 MM_SprintfDoubleSignifFigures(
                     szChain, sizeof(szChain),
                     phMiraMonLayer->pLayerDB->pFields[iField].nNumberOfDecimals,

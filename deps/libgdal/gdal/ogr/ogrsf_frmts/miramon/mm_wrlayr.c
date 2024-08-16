@@ -89,8 +89,9 @@ void MMUpdateBoundingBoxXY(struct MMBoundingBox *dfBB,
 void MMUpdateBoundingBox(struct MMBoundingBox *dfBBToBeAct,
                          struct MMBoundingBox *dfBBWithData);
 int MMCheckVersionFor3DOffset(struct MiraMonVectLayerInfo *hMiraMonLayer,
-                              MM_FILE_OFFSET nOffset,
-                              MM_INTERNAL_FID nElemCount);
+                              MM_INTERNAL_FID nElemCount,
+                              MM_FILE_OFFSET nOffsetAL,
+                              MM_FILE_OFFSET nZLOffset);
 int MMCheckVersionOffset(struct MiraMonVectLayerInfo *hMiraMonLayer,
                          MM_FILE_OFFSET OffsetToCheck);
 int MMCheckVersionForFID(struct MiraMonVectLayerInfo *hMiraMonLayer,
@@ -652,6 +653,15 @@ MMWriteZDescriptionHeaders(struct MiraMonVectLayerInfo *hMiraMonLayer,
             }
         }
 
+        // Overflow?
+        if (hMiraMonLayer->LayerVersion == MM_32BITS_VERSION &&
+            (pZDescription + nIndex)->nOffsetZ >
+                MAXIMUM_OFFSET_IN_2GB_VECTORS - nOffsetDiff)
+        {
+            MMCPLError(CE_Failure, CPLE_OpenFailed, "Offset Overflow in V1.1");
+            return 1;
+        }
+
         if (MMAppendIntegerDependingOnVersion(
                 hMiraMonLayer, &FlushTMP, &nUL32,
                 (pZDescription + nIndex)->nOffsetZ + nOffsetDiff))
@@ -818,7 +828,7 @@ static int MMChangeFinalPartOfTheName(char *pszName, size_t nMaxSizeOfName,
     // It's the implementation on windows of the linux strrstr()
     // pszLastFound = strrstr(pszWhereToFind, pszFinalPart);
     pszWhereToFind = pszName;
-    while (nullptr != (pAux = strstr(pszWhereToFind, pszFinalPart)))
+    while (nullptr != (pAux = MM_stristr(pszWhereToFind, pszFinalPart)))
     {
         pszLastFound = pAux;
         pszWhereToFind = pAux + strlen(pAux);
@@ -3647,7 +3657,9 @@ void MMResetFeatureRecord(struct MiraMonFeature *hMMFeature)
                     '\0';
             hMMFeature->pRecords[nIRecord].pField[nIField].bIsValid = 0;
         }
+        hMMFeature->pRecords[nIRecord].nNumField = 0;
     }
+    hMMFeature->nNumMRecords = 0;
 }
 
 // Destroys all allocated memory
@@ -3921,16 +3933,43 @@ static int MMCreateFeaturePolOrArc(struct MiraMonVectLayerInfo *hMiraMonLayer,
             // Where 3D part is going to start
             if (hMiraMonLayer->TopHeader.bIs3d)
             {
-                nArcOffset +=
-                    hMMFeature->pNCoordRing[nIPart] * pMMArc->nALElementSize;
-                if (MMCheckVersionFor3DOffset(
-                        hMiraMonLayer, nArcOffset,
-                        hMiraMonLayer->TopHeader.nElemCount +
-                            hMMFeature->nNRings))
+                if (nArcElemCount == 0)
                 {
-                    MMCPLDebug("MiraMon",
-                               "Error in MMCheckVersionFor3DOffset()");
-                    return MM_STOP_WRITING_FEATURES;
+                    if (MMCheckVersionFor3DOffset(hMiraMonLayer,
+                                                  nArcElemCount + 1, 0, 0))
+                        return MM_STOP_WRITING_FEATURES;
+                }
+                else
+                {
+                    pZDesc = pMMArc->pZSection.pZDescription;
+                    if (!pZDesc)
+                    {
+                        MMCPLError(
+                            CE_Failure, CPLE_ObjectNull,
+                            "Error: pZDescription should not be nullptr");
+                        return MM_STOP_WRITING_FEATURES;
+                    }
+
+                    if (pZDesc[nArcElemCount - 1].nZCount < 0)
+                    {
+                        // One altitude was written on last element
+                        if (MMCheckVersionFor3DOffset(
+                                hMiraMonLayer, nArcElemCount + 1, nArcOffset,
+                                pZDesc[nArcElemCount - 1].nOffsetZ +
+                                    sizeof(*pZ)))
+                            return MM_STOP_WRITING_FEATURES;
+                    }
+                    else
+                    {
+                        // One for each vertice altitude was written on last element
+                        if (MMCheckVersionFor3DOffset(
+                                hMiraMonLayer, nArcElemCount + 1, nArcOffset,
+                                pZDesc[nArcElemCount - 1].nOffsetZ +
+                                    sizeof(*pZ) * (pMMArc->pArcHeader +
+                                                   (nArcElemCount - 1))
+                                                      ->nElemCount))
+                            return MM_STOP_WRITING_FEATURES;
+                    }
                 }
             }
         }
@@ -4187,6 +4226,16 @@ static int MMCreateFeaturePolOrArc(struct MiraMonVectLayerInfo *hMiraMonLayer,
                 STATISTICAL_UNDEF_VALUE;
             pZDesc[pArcTopHeader->nElemCount].dfBBmaxz =
                 -STATISTICAL_UNDEF_VALUE;
+
+            // Number of arc altitudes. If the number of altitudes is
+            // positive this indicates the number of altitudes for
+            // each vertex of the arc, and all the altitudes of the
+            // vertex 0 are written first, then those of the vertex 1,
+            // etc. If the number of altitudes is negative this
+            // indicates the number of arc altitudes, understanding
+            // that all the vertices have the same altitude (it is
+            // the case of a contour line, for example).
+
             for (nIVertice = 0; nIVertice < pCurrentArcHeader->nElemCount;
                  nIVertice++, pZ++)
             {
@@ -4202,17 +4251,41 @@ static int MMCreateFeaturePolOrArc(struct MiraMonVectLayerInfo *hMiraMonLayer,
                     pZDesc[pArcTopHeader->nElemCount].dfBBminz = *pZ;
                 if (pZDesc[pArcTopHeader->nElemCount].dfBBmaxz < *pZ)
                     pZDesc[pArcTopHeader->nElemCount].dfBBmaxz = *pZ;
+
+                // Only one altitude (the same for all vertices) is written
+                if (hMMFeature->bAllZHaveSameValue)
+                    break;
             }
-            pZDesc[pArcTopHeader->nElemCount].nZCount = 1;
+            if (hMMFeature->bAllZHaveSameValue)
+            {
+                // Same altitude for all vertices
+                pZDesc[pArcTopHeader->nElemCount].nZCount = -1;
+            }
+            else
+            {
+                // One different altitude for each vertice
+                pZDesc[pArcTopHeader->nElemCount].nZCount = 1;
+            }
+
             if (pArcTopHeader->nElemCount == 0)
                 pZDesc[pArcTopHeader->nElemCount].nOffsetZ = 0;
             else
             {
                 pLastArcHeader =
                     pMMArc->pArcHeader + pArcTopHeader->nElemCount - 1;
-                pZDesc[pArcTopHeader->nElemCount].nOffsetZ =
-                    pZDesc[pArcTopHeader->nElemCount - 1].nOffsetZ +
-                    sizeof(*pZ) * (pLastArcHeader->nElemCount);
+
+                if (pZDesc[pArcTopHeader->nElemCount - 1].nZCount < 0)
+                {
+                    pZDesc[pArcTopHeader->nElemCount].nOffsetZ =
+                        pZDesc[pArcTopHeader->nElemCount - 1].nOffsetZ +
+                        sizeof(*pZ);
+                }
+                else
+                {
+                    pZDesc[pArcTopHeader->nElemCount].nOffsetZ =
+                        pZDesc[pArcTopHeader->nElemCount - 1].nOffsetZ +
+                        sizeof(*pZ) * (pLastArcHeader->nElemCount);
+                }
             }
         }
 
@@ -4338,7 +4411,10 @@ static int MMCreateRecordDBF(struct MiraMonVectLayerInfo *hMiraMonLayer,
     if (hMiraMonLayer->TopHeader.nElemCount == 0)
     {
         if (MMCreateMMDB(hMiraMonLayer, nullptr))
+        {
+            MMDestroyMMDB(hMiraMonLayer);
             return MM_FATAL_ERROR_WRITING_FEATURES;
+        }
     }
 
     result = MMAddDBFRecordToMMDB(hMiraMonLayer, hMMFeature);
@@ -4391,7 +4467,8 @@ static int MMCreateFeaturePoint(struct MiraMonVectLayerInfo *hMiraMonLayer,
         {
             if (nElemCount == 0)
             {
-                if (MMCheckVersionFor3DOffset(hMiraMonLayer, 0, nElemCount + 1))
+                if (MMCheckVersionFor3DOffset(hMiraMonLayer, (nElemCount + 1),
+                                              0, 0))
                     return MM_STOP_WRITING_FEATURES;
             }
             else
@@ -4403,10 +4480,10 @@ static int MMCreateFeaturePoint(struct MiraMonVectLayerInfo *hMiraMonLayer,
                                "Error: pZDescription should not be nullptr");
                     return MM_STOP_WRITING_FEATURES;
                 }
+
                 if (MMCheckVersionFor3DOffset(
-                        hMiraMonLayer,
-                        pZDescription[nElemCount - 1].nOffsetZ + sizeof(*pZ),
-                        nElemCount + 1))
+                        hMiraMonLayer, nElemCount + 1, 0,
+                        pZDescription[nElemCount - 1].nOffsetZ + sizeof(*pZ)))
                     return MM_STOP_WRITING_FEATURES;
             }
         }
@@ -4436,7 +4513,9 @@ static int MMCreateFeaturePoint(struct MiraMonVectLayerInfo *hMiraMonLayer,
 
             pZDescription[nElemCount].dfBBminz = *pZ;
             pZDescription[nElemCount].dfBBmaxz = *pZ;
-            pZDescription[nElemCount].nZCount = 1;
+
+            // Specification ask for a negative number.
+            pZDescription[nElemCount].nZCount = -1;
             if (nElemCount == 0)
                 pZDescription[nElemCount].nOffsetZ = 0;
             else
@@ -4557,8 +4636,9 @@ int MMCheckVersionOffset(struct MiraMonVectLayerInfo *hMiraMonLayer,
 // Checks whether a given offset in 3D section exceeds the maximum allowed
 // index for 2 GB vectors in a specific MiraMon layer.
 int MMCheckVersionFor3DOffset(struct MiraMonVectLayerInfo *hMiraMonLayer,
-                              MM_FILE_OFFSET nOffset,
-                              MM_INTERNAL_FID nElemCount)
+                              MM_INTERNAL_FID nElemCount,
+                              MM_FILE_OFFSET nOffsetAL,
+                              MM_FILE_OFFSET nZLOffset)
 {
     MM_FILE_OFFSET LastOffset;
 
@@ -4570,10 +4650,17 @@ int MMCheckVersionFor3DOffset(struct MiraMonVectLayerInfo *hMiraMonLayer,
         return 0;
 
     // User decided that if necessary, output version can be 2.0
-    LastOffset = nOffset + MM_HEADER_SIZE_32_BITS + nElemCount * MM_SIZE_OF_TL;
+    if (hMiraMonLayer->bIsPoint)
+        LastOffset = MM_HEADER_SIZE_32_BITS + nElemCount * MM_SIZE_OF_TL;
+    else  // Arc case
+    {
+        LastOffset = MM_HEADER_SIZE_32_BITS +
+                     nElemCount * MM_SIZE_OF_AH_32BITS + +nOffsetAL;
+    }
 
     LastOffset += MM_SIZE_OF_ZH;
     LastOffset += nElemCount * MM_SIZE_OF_ZD_32_BITS;
+    LastOffset += nZLOffset;
 
     if (LastOffset < MAXIMUM_OFFSET_IN_2GB_VECTORS)
         return 0;
@@ -5302,7 +5389,7 @@ int MMReturnCodeFromMM_m_idofic(char *pMMSRS_or_pSRS, char *szResult,
                    "Wrong format in data\\MM_m_idofic.csv.\n");
         return 1;
     }
-    id_geodes = strstr(pszLine, "ID_GEODES");
+    id_geodes = MM_stristr(pszLine, "ID_GEODES");
     if (!id_geodes)
     {
         fclose_function(pfMMSRS);
@@ -5311,7 +5398,7 @@ int MMReturnCodeFromMM_m_idofic(char *pMMSRS_or_pSRS, char *szResult,
         return 1;
     }
     id_geodes[strlen("ID_GEODES")] = '\0';
-    psidgeodes = strstr(pszLine, "PSIDGEODES");
+    psidgeodes = MM_stristr(pszLine, "PSIDGEODES");
     if (!psidgeodes)
     {
         fclose_function(pfMMSRS);
@@ -5584,14 +5671,22 @@ static int MMWriteMetadataFile(struct MiraMonVectorMetaData *hMMMD)
         }
     }
 
-    // Writing OVERVIEW:ASPECTES_TECNICS in polygon metadata file.
-    // ArcSource=fitx_pol.arc
-    if (hMMMD->ePlainLT == MM_LayerType_Pol)
+    if (hMMMD->ePlainLT == MM_LayerType_Pol && hMMMD->aArcFile)
     {
+        // Writing OVERVIEW:ASPECTES_TECNICS in polygon metadata file.
+        // ArcSource=fitx_pol.arc
         fprintf_function(pF, LineReturn "[%s]" LineReturn,
                          SECTION_OVVW_ASPECTES_TECNICS);
         fprintf_function(pF, "%s=\"%s\"" LineReturn, KEY_ArcSource,
                          hMMMD->aArcFile);
+    }
+    else if (hMMMD->ePlainLT == MM_LayerType_Arc && hMMMD->aArcFile)
+    {
+        // Writing OVERVIEW:ASPECTES_TECNICS in arc metadata file.
+        // Ciclat1=fitx_arc.pol
+        fprintf_function(pF, LineReturn "[%s]" LineReturn,
+                         SECTION_OVVW_ASPECTES_TECNICS);
+        fprintf_function(pF, "Ciclat1=\"%s\"" LineReturn, hMMMD->aArcFile);
     }
 
     // Writing EXTENT section
@@ -5846,6 +5941,8 @@ static int MMWriteVectorMetadataFile(struct MiraMonVectLayerInfo *hMiraMonLayer,
     }
     else if (layerPlainType == MM_LayerType_Arc)
     {
+        int nResult;
+
         // Arcs and not polygons
         if (layerMainPlainType == MM_LayerType_Arc)
         {
@@ -5867,8 +5964,12 @@ static int MMWriteVectorMetadataFile(struct MiraMonVectLayerInfo *hMiraMonLayer,
             memcpy(&hMMMD.hBB, &hMiraMonLayer->MMPolygon.TopArcHeader.hBB,
                    sizeof(hMMMD.hBB));
             hMMMD.pLayerDB = nullptr;
+            hMMMD.aArcFile = strdup_function(
+                get_filename_function(hMiraMonLayer->MMPolygon.pszLayerName));
         }
-        return MMWriteMetadataFile(&hMMMD);
+        nResult = MMWriteMetadataFile(&hMMMD);
+        free_function(hMMMD.aArcFile);
+        return nResult;
     }
     else if (layerPlainType == MM_LayerType_Pol)
     {
@@ -6003,16 +6104,16 @@ int MMCheck_REL_FILE(const char *szREL_file)
         return 1;
     }
 
-    // SubVers>=3?
+    // SubVers>=0?
     pszLine = MMReturnValueFromSectionINIFile(szREL_file, SECTION_VERSIO,
                                               KEY_SubVers);
     if (pszLine)
     {
-        if (*pszLine == '\0' || atoi(pszLine) < (int)MM_SUBVERS)
+        if (*pszLine == '\0' || atoi(pszLine) < (int)MM_SUBVERS_ACCEPTED)
         {
             MMCPLError(CE_Failure, CPLE_OpenFailed,
                        "The file \"%s\" must have %s>=%d.", szREL_file,
-                       KEY_SubVers, MM_SUBVERS);
+                       KEY_SubVers, MM_SUBVERS_ACCEPTED);
 
             free_function(pszLine);
             return 1;
@@ -6023,20 +6124,20 @@ int MMCheck_REL_FILE(const char *szREL_file)
     {
         MMCPLError(CE_Failure, CPLE_OpenFailed,
                    "The file \"%s\" must have %s>=%d.", szREL_file, KEY_SubVers,
-                   MM_SUBVERS);
+                   MM_SUBVERS_ACCEPTED);
         return 1;
     }
 
-    // VersMetaDades>=5?
+    // VersMetaDades>=4?
     pszLine = MMReturnValueFromSectionINIFile(szREL_file, SECTION_VERSIO,
                                               KEY_VersMetaDades);
     if (pszLine)
     {
-        if (*pszLine == '\0' || atoi(pszLine) < (int)MM_VERS_METADADES)
+        if (*pszLine == '\0' || atoi(pszLine) < (int)MM_VERS_METADADES_ACCEPTED)
         {
             MMCPLError(CE_Failure, CPLE_OpenFailed,
                        "The file \"%s\" must have %s>=%d.", szREL_file,
-                       KEY_VersMetaDades, MM_VERS_METADADES);
+                       KEY_VersMetaDades, MM_VERS_METADADES_ACCEPTED);
             free_function(pszLine);
             return 1;
         }
@@ -6046,7 +6147,7 @@ int MMCheck_REL_FILE(const char *szREL_file)
     {
         MMCPLError(CE_Failure, CPLE_OpenFailed,
                    "The file \"%s\" must have %s>=%d.", szREL_file,
-                   KEY_VersMetaDades, MM_VERS_METADADES);
+                   KEY_VersMetaDades, MM_VERS_METADADES_ACCEPTED);
         return 1;
     }
 
@@ -7301,8 +7402,8 @@ static void MMDestroyMMDBFile(struct MiraMonVectLayerInfo *hMiraMonLayer,
 
     if (pMMAdmDB && pMMAdmDB->pMMBDXP)
     {
-        MM_ReleaseDBFHeader(pMMAdmDB->pMMBDXP);
-        hMiraMonLayer->pMMBDXP = pMMAdmDB->pMMBDXP = nullptr;
+        MM_ReleaseDBFHeader(&pMMAdmDB->pMMBDXP);
+        hMiraMonLayer->pMMBDXP = nullptr;
     }
     if (pMMAdmDB && pMMAdmDB->pRecList)
     {
