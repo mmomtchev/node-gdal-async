@@ -130,6 +130,7 @@
 #define HAVE_STRLCAT 1
 #endif
 #endif
+#endif
 
 #ifdef WIN32
 #ifdef _MSC_VER
