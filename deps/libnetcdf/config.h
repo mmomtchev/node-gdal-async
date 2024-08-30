@@ -125,7 +125,8 @@
 #define USE_NETCDF4 1
 #define USE_NETCDF_2 1
 
-#ifdef __GNUC_PREREQ
+#ifdef __GNUC__
+#include <features.h>
 #if __GNUC_PREREQ(2, 38)
 #define HAVE_STRLCAT 1
 #endif
