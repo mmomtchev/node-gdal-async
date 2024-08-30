@@ -125,11 +125,10 @@
 #define USE_NETCDF4 1
 #define USE_NETCDF_2 1
 
-#ifdef __GNUC__
+#include <gnu/libc-version.h>
 #include <features.h>
-#if __GNUC_PREREQ(2, 38)
+#if __GLIBC_PREREQ(2, 38)
 #define HAVE_STRLCAT 1
-#endif
 #endif
 #endif
 
