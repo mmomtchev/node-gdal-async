@@ -124,6 +124,11 @@
 #define USE_HDF5 1
 #define USE_NETCDF4 1
 #define USE_NETCDF_2 1
+
+#ifdef __GNUC_PREREQ
+#if __GNUC_PREREQ(2, 38)
+#define HAVE_STRLCAT 1
+#endif
 #endif
 
 #ifdef WIN32
