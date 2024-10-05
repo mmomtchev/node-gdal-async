@@ -35,4 +35,25 @@ inline int getFieldTypeByName(std::string name) {
   return -1;
 }
 
+// OFSTNone = 0, OFSTBoolean = 1, OFSTInt16 = 2, OFSTFloat32 = 3
+
+static const char *const FIELD_SUBTYPES[] = {
+  /* 0 */ "none",
+  /* 1 */ "boolean",
+  /* 2 */ "integer16",
+  /* 3 */ "float32"};
+
+inline const char *getFieldSubTypeName(OGRFieldSubType subtype) {
+  int i = static_cast<int>(subtype);
+  if (i < 0 || i > OFSTFloat32) { return "invalid"; }
+  return FIELD_SUBTYPES[i];
+}
+
+inline int getFieldSubTypeByName(std::string name) {
+  for (int i = 0; i <= OFSTFloat32; i++) {
+    if (name == FIELD_SUBTYPES[i]) return i;
+  }
+  return 0;
+}
+
 #endif
