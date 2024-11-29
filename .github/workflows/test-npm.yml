@@ -16,10 +16,10 @@ jobs:
       fail-fast: false
       matrix:
         platforms: [ ubuntu-20.04, ubuntu-22.04, ubuntu-24.04, windows-2019, macos-12 ]
-        node-version: [ 16.x, 18.x, 20.x, 22.x ]
+        node-version: [ 18.x, 20.x, 22.x, 23.x ]
         exclude:
-          - platforms: ubuntu-24.04
-            node-version: 16.x
+          - platforms: ubuntu-20.04
+            node-version: 23.x
 
     steps:
     - name: Use Node.js ${{ matrix.node-version }}
@@ -54,10 +54,10 @@ jobs:
       fail-fast: false
       matrix:
         platforms: [ ubuntu-20.04, ubuntu-22.04, ubuntu-24.04, windows-2019, macos-12 ]
-        node-version: [ 16.x, 18.x, 20.x, 22.x ]
+        node-version: [ 18.x, 20.x, 22.x, 23.x ]
         exclude:
-          - platforms: ubuntu-24.04
-            node-version: 16.x
+          - platforms: ubuntu-20.04
+            node-version: 23.x
 
     steps:
     - name: Use Node.js ${{ matrix.node-version }}
