@@ -7,23 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2018, Even Rouault <even.rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -81,7 +65,8 @@ class VSIWebHDFSFSHandler final : public VSICurlFilesystemHandlerBaseWritable
     char **GetFileList(const char *pszFilename, int nMaxFiles,
                        bool *pbGotFileList) override;
 
-    std::string GetURLFromFilename(const std::string &osFilename) override;
+    std::string
+    GetURLFromFilename(const std::string &osFilename) const override;
 
     VSIVirtualHandleUniquePtr
     CreateWriteHandle(const char *pszFilename,
@@ -283,7 +268,7 @@ void VSIWebHDFSWriteHandle::InvalidateParentDirectory()
 
     std::string osFilenameWithoutSlash(m_osFilename);
     if (!osFilenameWithoutSlash.empty() && osFilenameWithoutSlash.back() == '/')
-        osFilenameWithoutSlash.resize(osFilenameWithoutSlash.size() - 1);
+        osFilenameWithoutSlash.pop_back();
     m_poFS->InvalidateDirContent(CPLGetDirname(osFilenameWithoutSlash.c_str()));
 }
 
@@ -564,11 +549,11 @@ VSICurlHandle *VSIWebHDFSFSHandler::CreateFileHandle(const char *pszFilename)
 }
 
 /************************************************************************/
-/*                          GetURLFromFilename()                         */
+/*                          GetURLFromFilename()                        */
 /************************************************************************/
 
 std::string
-VSIWebHDFSFSHandler::GetURLFromFilename(const std::string &osFilename)
+VSIWebHDFSFSHandler::GetURLFromFilename(const std::string &osFilename) const
 {
     return osFilename.substr(GetFSPrefix().size());
 }
@@ -753,7 +738,7 @@ int VSIWebHDFSFSHandler::Unlink(const char *pszFilename)
         std::string osFilenameWithoutSlash(pszFilename);
         if (!osFilenameWithoutSlash.empty() &&
             osFilenameWithoutSlash.back() == '/')
-            osFilenameWithoutSlash.resize(osFilenameWithoutSlash.size() - 1);
+            osFilenameWithoutSlash.pop_back();
 
         InvalidateDirContent(CPLGetDirname(osFilenameWithoutSlash.c_str()));
     }
@@ -794,7 +779,7 @@ int VSIWebHDFSFSHandler::Mkdir(const char *pszDirname, long nMode)
     if (!osDirnameWithoutEndSlash.empty() &&
         osDirnameWithoutEndSlash.back() == '/')
     {
-        osDirnameWithoutEndSlash.resize(osDirnameWithoutEndSlash.size() - 1);
+        osDirnameWithoutEndSlash.pop_back();
     }
 
     if (osDirnameWithoutEndSlash.find("/webhdfs/v1") ==
@@ -947,7 +932,7 @@ vsi_l_offset VSIWebHDFSHandle::GetFileSize(bool bSetError)
     CURL *hCurlHandle = curl_easy_init();
 
     struct curl_slist *headers =
-        VSICurlSetOptions(hCurlHandle, osURL.c_str(), m_papszHTTPOptions);
+        VSICurlSetOptions(hCurlHandle, osURL.c_str(), m_aosHTTPOptions.List());
 
     WriteFuncStruct sWriteFuncData;
     VSICURLInitWriteFuncStruct(&sWriteFuncData, nullptr, nullptr, nullptr);
@@ -1049,8 +1034,7 @@ std::string VSIWebHDFSHandle::DownloadRegion(const vsi_l_offset startOffset,
     std::string osURL(m_pszURL);
 
     WriteFuncStruct sWriteFuncData;
-    int nRetryCount = 0;
-    double dfRetryDelay = m_dfRetryDelay;
+    CPLHTTPRetryContext oRetryContext(m_oRetryParameters);
     bool bInRedirect = false;
     const vsi_l_offset nEndOffset =
         startOffset +
@@ -1075,7 +1059,7 @@ retry:
     }
 
     struct curl_slist *headers =
-        VSICurlSetOptions(hCurlHandle, osURL.c_str(), m_papszHTTPOptions);
+        VSICurlSetOptions(hCurlHandle, osURL.c_str(), m_aosHTTPOptions.List());
 
     if (!m_osDataNodeHost.empty())
     {
@@ -1139,20 +1123,15 @@ retry:
 
     if (response_code != 200)
     {
-        // If HTTP 429, 500, 502, 503, 504 error retry after a
-        // pause.
-        const double dfNewRetryDelay =
-            CPLHTTPGetNewRetryDelay(static_cast<int>(response_code),
-                                    dfRetryDelay, nullptr, szCurlErrBuf);
-        if (dfNewRetryDelay > 0 && nRetryCount < m_nMaxRetry)
+        if (oRetryContext.CanRetry(static_cast<int>(response_code), nullptr,
+                                   szCurlErrBuf))
         {
             CPLError(CE_Warning, CPLE_AppDefined,
                      "HTTP error code: %d - %s. "
                      "Retrying again in %.1f secs",
-                     static_cast<int>(response_code), m_pszURL, dfRetryDelay);
-            CPLSleep(dfRetryDelay);
-            dfRetryDelay = dfNewRetryDelay;
-            nRetryCount++;
+                     static_cast<int>(response_code), m_pszURL,
+                     oRetryContext.GetCurrentDelay());
+            CPLSleep(oRetryContext.GetCurrentDelay());
             CPLFree(sWriteFuncData.pBuffer);
             curl_easy_cleanup(hCurlHandle);
             goto retry;

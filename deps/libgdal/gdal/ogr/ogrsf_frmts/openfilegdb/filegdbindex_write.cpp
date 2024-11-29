@@ -7,23 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2022, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -163,6 +147,7 @@ bool FileGDBTable::CreateIndex(const std::string &osIndexName,
         return false;
     }
 
+    GetIndexCount();
     for (const auto &poIndex : m_apoIndexes)
     {
         if (EQUAL(poIndex->GetIndexName().c_str(), osIndexName.c_str()))
@@ -305,7 +290,7 @@ void FileGDBTable::ComputeOptimalSpatialIndexGridResolution()
     {
         // For point, use the density as the grid resolution
         int nValid = 0;
-        for (int iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
+        for (int64_t iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
         {
             iCurFeat = GetAndSelectNextNonEmptyRow(iCurFeat);
             if (iCurFeat < 0)
@@ -349,7 +334,7 @@ void FileGDBTable::ComputeOptimalSpatialIndexGridResolution()
         int64_t nValid = 0;
         auto poGeomConverter = std::unique_ptr<FileGDBOGRGeometryConverter>(
             FileGDBOGRGeometryConverter::BuildConverter(poGeomField));
-        for (int iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
+        for (int64_t iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
         {
             iCurFeat = GetAndSelectNextNonEmptyRow(iCurFeat);
             if (iCurFeat < 0)
@@ -403,7 +388,7 @@ void FileGDBTable::ComputeOptimalSpatialIndexGridResolution()
         // of all geometries
         double dfMaxSize = 0;
         OGREnvelope sEnvelope;
-        for (int iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
+        for (int64_t iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
         {
             iCurFeat = GetAndSelectNextNonEmptyRow(iCurFeat);
             if (iCurFeat < 0)
@@ -847,7 +832,7 @@ bool FileGDBTable::CreateSpatialIndex()
     }
     auto poGeomConverter = std::unique_ptr<FileGDBOGRGeometryConverter>(
         FileGDBOGRGeometryConverter::BuildConverter(poGeomField));
-    typedef std::pair<int64_t, int> ValueOIDPair;
+    typedef std::pair<int64_t, int64_t> ValueOIDPair;
     std::vector<ValueOIDPair> asValues;
 
     const double dfGridStep = m_adfSpatialIndexGridResolution.back();
@@ -1159,11 +1144,11 @@ bool FileGDBTable::CreateSpatialIndex()
     };
 
     std::vector<int64_t> aSetValues;
-    int iLastReported = 0;
+    int64_t iLastReported = 0;
     const auto nReportIncrement = m_nTotalRecordCount / 20;
     try
     {
-        for (int iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
+        for (int64_t iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
         {
             if (m_nTotalRecordCount > 10000 &&
                 (iCurFeat + 1 == m_nTotalRecordCount ||
@@ -1343,9 +1328,10 @@ bool FileGDBTable::CreateAttributeIndex(const FileGDBIndex *poIndex)
         const auto eFieldType = m_apoFields[iField]->GetType();
         if (eFieldType == FGFT_INT16)
         {
-            typedef std::pair<int16_t, int> ValueOIDPair;
+            typedef std::pair<int16_t, int64_t> ValueOIDPair;
             std::vector<ValueOIDPair> asValues;
-            for (int iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
+            for (int64_t iCurFeat = 0; iCurFeat < m_nTotalRecordCount;
+                 ++iCurFeat)
             {
                 iCurFeat = GetAndSelectNextNonEmptyRow(iCurFeat);
                 if (iCurFeat < 0)
@@ -1368,9 +1354,10 @@ bool FileGDBTable::CreateAttributeIndex(const FileGDBIndex *poIndex)
         }
         else if (eFieldType == FGFT_INT32)
         {
-            typedef std::pair<int32_t, int> ValueOIDPair;
+            typedef std::pair<int32_t, int64_t> ValueOIDPair;
             std::vector<ValueOIDPair> asValues;
-            for (int iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
+            for (int64_t iCurFeat = 0; iCurFeat < m_nTotalRecordCount;
+                 ++iCurFeat)
             {
                 iCurFeat = GetAndSelectNextNonEmptyRow(iCurFeat);
                 if (iCurFeat < 0)
@@ -1393,9 +1380,10 @@ bool FileGDBTable::CreateAttributeIndex(const FileGDBIndex *poIndex)
         }
         else if (eFieldType == FGFT_INT64)
         {
-            typedef std::pair<int64_t, int> ValueOIDPair;
+            typedef std::pair<int64_t, int64_t> ValueOIDPair;
             std::vector<ValueOIDPair> asValues;
-            for (int iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
+            for (int64_t iCurFeat = 0; iCurFeat < m_nTotalRecordCount;
+                 ++iCurFeat)
             {
                 iCurFeat = GetAndSelectNextNonEmptyRow(iCurFeat);
                 if (iCurFeat < 0)
@@ -1418,9 +1406,10 @@ bool FileGDBTable::CreateAttributeIndex(const FileGDBIndex *poIndex)
         }
         else if (eFieldType == FGFT_FLOAT32)
         {
-            typedef std::pair<float, int> ValueOIDPair;
+            typedef std::pair<float, int64_t> ValueOIDPair;
             std::vector<ValueOIDPair> asValues;
-            for (int iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
+            for (int64_t iCurFeat = 0; iCurFeat < m_nTotalRecordCount;
+                 ++iCurFeat)
             {
                 iCurFeat = GetAndSelectNextNonEmptyRow(iCurFeat);
                 if (iCurFeat < 0)
@@ -1444,11 +1433,12 @@ bool FileGDBTable::CreateAttributeIndex(const FileGDBIndex *poIndex)
                  eFieldType == FGFT_DATE || eFieldType == FGFT_TIME ||
                  eFieldType == FGFT_DATETIME_WITH_OFFSET)
         {
-            typedef std::pair<double, int> ValueOIDPair;
+            typedef std::pair<double, int64_t> ValueOIDPair;
             std::vector<ValueOIDPair> asValues;
             // Hack to force reading DateTime as double
             m_apoFields[iField]->m_bReadAsDouble = true;
-            for (int iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
+            for (int64_t iCurFeat = 0; iCurFeat < m_nTotalRecordCount;
+                 ++iCurFeat)
             {
                 iCurFeat = GetAndSelectNextNonEmptyRow(iCurFeat);
                 if (iCurFeat < 0)
@@ -1471,13 +1461,14 @@ bool FileGDBTable::CreateAttributeIndex(const FileGDBIndex *poIndex)
         }
         else if (eFieldType == FGFT_STRING)
         {
-            typedef std::pair<std::vector<std::uint16_t>, int> ValueOIDPair;
+            typedef std::pair<std::vector<std::uint16_t>, int64_t> ValueOIDPair;
             std::vector<ValueOIDPair> asValues;
             bRet = true;
             const bool bIsLower =
                 STARTS_WITH_CI(poIndex->GetExpression().c_str(), "LOWER(");
             int maxStrSize = 0;
-            for (int iCurFeat = 0; iCurFeat < m_nTotalRecordCount; ++iCurFeat)
+            for (int64_t iCurFeat = 0; iCurFeat < m_nTotalRecordCount;
+                 ++iCurFeat)
             {
                 iCurFeat = GetAndSelectNextNonEmptyRow(iCurFeat);
                 if (iCurFeat < 0)

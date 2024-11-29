@@ -9,23 +9,7 @@
  **********************************************************************
  * Copyright (c) 1998, Daniel Morissette
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #ifndef CPL_ERROR_H_INCLUDED
@@ -167,7 +151,7 @@ void CPL_DLL CPL_STDCALL CPLDefaultErrorHandler(CPLErr, CPLErrorNum,
                                                 const char *);
 void CPL_DLL CPL_STDCALL CPLQuietErrorHandler(CPLErr, CPLErrorNum,
                                               const char *);
-void CPLTurnFailureIntoWarning(int bOn);
+void CPL_DLL CPLTurnFailureIntoWarning(int bOn);
 
 CPLErrorHandler CPL_DLL CPLGetErrorHandler(void **ppUserData);
 
@@ -180,8 +164,14 @@ void CPL_DLL CPL_STDCALL CPLSetCurrentErrorHandlerCatchDebug(int bCatchDebug);
 void CPL_DLL CPL_STDCALL CPLPopErrorHandler(void);
 
 #ifdef WITHOUT_CPLDEBUG
-#define CPLDebug(...)         /* Eat all CPLDebug calls. */
-#define CPLDebugProgress(...) /* Eat all CPLDebugProgress calls. */
+#define CPLDebug(...)                                                          \
+    do                                                                         \
+    {                                                                          \
+    } while (0) /* Eat all CPLDebug calls. */
+#define CPLDebugProgress(...)                                                  \
+    do                                                                         \
+    {                                                                          \
+    } while (0) /* Eat all CPLDebugProgress calls. */
 #else
 void CPL_DLL CPLDebug(const char *, CPL_FORMAT_STRING(const char *), ...)
     CPL_PRINT_FUNC_FORMAT(2, 3);
@@ -198,7 +188,10 @@ void CPL_DLL CPLDebugProgress(const char *, CPL_FORMAT_STRING(const char *),
 /** Same as CPLDebug(), but expands to nothing for non-DEBUG builds.
  * @since GDAL 3.1
  */
-#define CPLDebugOnly(...)
+#define CPLDebugOnly(...)                                                      \
+    do                                                                         \
+    {                                                                          \
+    } while (0)
 #endif
 
 void CPL_DLL CPL_STDCALL _CPLAssert(const char *, const char *,
@@ -213,7 +206,10 @@ void CPL_DLL CPL_STDCALL _CPLAssert(const char *, const char *,
 #define CPLAssertAlwaysEval(expr) CPLAssert(expr)
 #else
 /** Assert on an expression. Only enabled in DEBUG mode */
-#define CPLAssert(expr)
+#define CPLAssert(expr)                                                        \
+    do                                                                         \
+    {                                                                          \
+    } while (0)
 #ifdef __cplusplus
 /** Assert on an expression in DEBUG mode. Evaluate it also in non-DEBUG mode
  * (useful to 'consume' a error return variable) */

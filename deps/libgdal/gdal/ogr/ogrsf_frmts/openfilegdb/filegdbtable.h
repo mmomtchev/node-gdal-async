@@ -8,23 +8,7 @@
  ******************************************************************************
  * Copyright (c) 2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #ifndef FILEGDBTABLE_H_INCLUDED
@@ -447,8 +431,16 @@ class FileGDBTable
 {
     VSILFILE *m_fpTable = nullptr;
     VSILFILE *m_fpTableX = nullptr;
+
+    enum class GDBTableVersion
+    {
+        V3 = 3,  // 32-bit object id
+        V4 = 4,  // 64-bit object id (ince ArcGIS Pro 3.2)
+    };
+    GDBTableVersion m_eGDBTableVersion = GDBTableVersion::V3;
     vsi_l_offset m_nFileSize = 0; /* only read when needed */
     bool m_bUpdate = false;
+    bool m_bReliableObjectID = true;  // can be set to false on some V4 files
 
     //! This flag is set when we detect that a corruption of m_nHeaderBufferMaxSize
     // prior to fix needs to  fdf39012788b1110b3bf0ae6b8422a528f0ae8b6 to be
@@ -456,6 +448,7 @@ class FileGDBTable
     bool m_bHasWarnedAboutHeaderRepair = false;
 
     std::string m_osFilename{};
+    std::string m_osFilenameWithLayerName{};
     bool m_bIsV9 = false;
     std::vector<std::unique_ptr<FileGDBField>> m_apoFields{};
     int m_iObjectIdField = -1;
@@ -489,7 +482,7 @@ class FileGDBTable
                                  no .gdbtablx file */
 
     uint64_t m_nOffsetTableXTrailer = 0;
-    uint32_t m_n1024BlocksPresent = 0;
+    uint64_t m_n1024BlocksPresent = 0;
     std::vector<GByte> m_abyTablXBlockMap{};
     int m_nCountBlocksBeforeIBlockIdx = 0;   /* optimization */
     int m_nCountBlocksBeforeIBlockValue = 0; /* optimization */
@@ -503,9 +496,9 @@ class FileGDBTable
     int m_nChSaved = -1;
 
     int m_bError = FALSE;
-    int m_nCurRow = -1;
+    int64_t m_nCurRow = -1;
     int m_bHasDeletedFeaturesListed = FALSE;
-    int m_bIsDeleted = FALSE;
+    bool m_bIsDeleted = false;
     int m_nLastCol = -1;
     GByte *m_pabyIterVals = nullptr;
     int m_iAccNullable = 0;
@@ -518,11 +511,11 @@ class FileGDBTable
     bool m_bStringsAreUTF8 = true;  // if false, UTF16
     std::string m_osTempString{};   // used as a temporary to store strings
                                     // recoded from UTF16 to UTF8
-    int m_nValidRecordCount = 0;
-    int m_nTotalRecordCount = 0;
+    int64_t m_nValidRecordCount = 0;
+    int64_t m_nTotalRecordCount = 0;
     int m_iGeomField = -1;
     int m_nCountNullableFields = 0;
-    int m_nNullableFieldsSizeInBytes = 0;
+    unsigned m_nNullableFieldsSizeInBytes = 0;
 
     std::vector<double> m_adfSpatialIndexGridResolution{};
 
@@ -580,7 +573,8 @@ class FileGDBTable
     bool WriteHeader(VSILFILE *fpTable);
     bool WriteHeaderX(VSILFILE *fpTableX);
 
-    int ReadTableXHeader();
+    bool ReadTableXHeaderV3();
+    bool ReadTableXHeaderV4();
     int IsLikelyFeatureAtOffset(vsi_l_offset nOffset, GUInt32 *pnSize,
                                 int *pbDeletedRecord);
     bool GuessFeatureLocations();
@@ -648,12 +642,12 @@ class FileGDBTable
         return m_bGeomTypeHasM;
     }
 
-    int GetValidRecordCount() const
+    int64_t GetValidRecordCount() const
     {
         return m_nValidRecordCount;
     }
 
-    int GetTotalRecordCount() const
+    int64_t GetTotalRecordCount() const
     {
         return m_nTotalRecordCount;
     }
@@ -694,6 +688,15 @@ class FileGDBTable
         return m_apoIndexes[i].get();
     }
 
+    /** Return if we can use attribute or spatial indices.
+     * This can be false for some sparse tables with 64-bit ObjectID since
+     * the format of the sparse bitmap isn't fully understood yet.
+     */
+    bool CanUseIndices() const
+    {
+        return m_bReliableObjectID;
+    }
+
     bool HasSpatialIndex();
     bool CreateIndex(const std::string &osIndexName,
                      const std::string &osExpression);
@@ -701,7 +704,8 @@ class FileGDBTable
     bool CreateSpatialIndex();
 
     vsi_l_offset
-    GetOffsetInTableForRow(int iRow, vsi_l_offset *pnOffsetInTableX = nullptr);
+    GetOffsetInTableForRow(int64_t iRow,
+                           vsi_l_offset *pnOffsetInTableX = nullptr);
 
     int HasDeletedFeaturesListed() const
     {
@@ -710,20 +714,20 @@ class FileGDBTable
 
     /* Next call to SelectRow() or GetFieldValue() invalidates previously
      * returned values */
-    int SelectRow(int iRow);
-    int GetAndSelectNextNonEmptyRow(int iRow);
+    bool SelectRow(int64_t iRow);
+    int64_t GetAndSelectNextNonEmptyRow(int64_t iRow);
 
     int HasGotError() const
     {
         return m_bError;
     }
 
-    int GetCurRow() const
+    int64_t GetCurRow() const
     {
         return m_nCurRow;
     }
 
-    int IsCurRowDeleted() const
+    bool IsCurRowDeleted() const
     {
         return m_bIsDeleted;
     }
@@ -755,9 +759,9 @@ class FileGDBTable
 
     bool CreateFeature(const std::vector<OGRField> &asRawFields,
                        const OGRGeometry *poGeom, int *pnFID = nullptr);
-    bool UpdateFeature(int nFID, const std::vector<OGRField> &asRawFields,
+    bool UpdateFeature(int64_t nFID, const std::vector<OGRField> &asRawFields,
                        const OGRGeometry *poGeom);
-    bool DeleteFeature(int nFID);
+    bool DeleteFeature(int64_t nFID);
 
     bool CheckFreeListConsistency();
     void DeleteFreeList();
@@ -791,18 +795,18 @@ class FileGDBIterator
 
     virtual FileGDBTable *GetTable() = 0;
     virtual void Reset() = 0;
-    virtual int GetNextRowSortedByFID() = 0;
-    virtual int GetRowCount();
+    virtual int64_t GetNextRowSortedByFID() = 0;
+    virtual int64_t GetRowCount();
 
     /* Only available on a BuildIsNotNull() iterator */
     virtual const OGRField *GetMinValue(int &eOutOGRFieldType);
     virtual const OGRField *GetMaxValue(int &eOutOGRFieldType);
     /* will reset the iterator */
-    virtual int GetMinMaxSumCount(double &dfMin, double &dfMax, double &dfSum,
-                                  int &nCount);
+    virtual bool GetMinMaxSumCount(double &dfMin, double &dfMax, double &dfSum,
+                                   int &nCount);
 
     /* Only available on a BuildIsNotNull() or Build() iterator */
-    virtual int GetNextRowSortedByValue();
+    virtual int64_t GetNextRowSortedByValue();
 
     static FileGDBIterator *Build(FileGDBTable *poParent, int nFieldIdx,
                                   int bAscending, FileGDBSQLOp op,

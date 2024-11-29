@@ -8,23 +8,7 @@
  * Copyright (c) 2011, Frank Warmerdam <warmerdam@pobox.com>
  * Copyright (c) 2011-2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -83,6 +67,7 @@ class VSICachedFile final : public VSIVirtualHandle
         m_oCache;  // can only been initialized in constructor
 
     bool m_bEOF = false;
+    bool m_bError = false;
 
     int Seek(vsi_l_offset nOffset, int nWhence) override;
     vsi_l_offset Tell() override;
@@ -98,7 +83,9 @@ class VSICachedFile final : public VSIVirtualHandle
     }
 
     size_t Write(const void *pBuffer, size_t nSize, size_t nMemb) override;
+    void ClearErr() override;
     int Eof() override;
+    int Error() override;
     int Flush() override;
     int Close() override;
 
@@ -241,6 +228,8 @@ bool VSICachedFile::LoadBlocks(vsi_l_offset nStartBlock, size_t nBlockCount,
                 m_poBase->Read(oData.data(), 1, m_nChunkSize);
             if (nDataRead == 0)
                 return false;
+            if (nDataRead < m_nChunkSize && m_poBase->Error())
+                m_bError = true;
             oData.resize(nDataRead);
 
             m_oCache.insert(nStartBlock, std::move(oData));
@@ -292,11 +281,13 @@ bool VSICachedFile::LoadBlocks(vsi_l_offset nStartBlock, size_t nBlockCount,
     /*      Read the whole request into the working buffer.                 */
     /* -------------------------------------------------------------------- */
 
-    const size_t nDataRead =
-        m_poBase->Read(pabyWorkBuffer, 1, nBlockCount * m_nChunkSize);
+    const size_t nToRead = nBlockCount * m_nChunkSize;
+    const size_t nDataRead = m_poBase->Read(pabyWorkBuffer, 1, nToRead);
+    if (nDataRead < nToRead && m_poBase->Error())
+        m_bError = true;
 
     bool ret = true;
-    if (nBlockCount * m_nChunkSize > nDataRead + m_nChunkSize - 1)
+    if (nToRead > nDataRead + m_nChunkSize - 1)
     {
         size_t nNewBlockCount = (nDataRead + m_nChunkSize - 1) / m_nChunkSize;
         if (nNewBlockCount < nBlockCount)
@@ -429,7 +420,7 @@ size_t VSICachedFile::Read(void *pBuffer, size_t nSize, size_t nCount)
     m_nOffset += nAmountCopied;
 
     const size_t nRet = nAmountCopied / nSize;
-    if (nRet != nCount)
+    if (nRet != nCount && !m_bError)
         m_bEOF = true;
     return nRet;
 }
@@ -454,6 +445,28 @@ size_t VSICachedFile::Write(const void * /* pBuffer */, size_t /*nSize */,
                             size_t /* nCount */)
 {
     return 0;
+}
+
+/************************************************************************/
+/*                             ClearErr()                               */
+/************************************************************************/
+
+void VSICachedFile::ClearErr()
+
+{
+    m_poBase->ClearErr();
+    m_bEOF = false;
+    m_bError = false;
+}
+
+/************************************************************************/
+/*                              Error()                                 */
+/************************************************************************/
+
+int VSICachedFile::Error()
+
+{
+    return m_bError;
 }
 
 /************************************************************************/

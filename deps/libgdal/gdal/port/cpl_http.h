@@ -9,23 +9,7 @@
  * Copyright (c) 2006, Frank Warmerdam
  * Copyright (c) 2009, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #ifndef CPL_HTTP_H_INCLUDED
@@ -179,8 +163,44 @@ CPL_C_END
 void CPL_DLL *CPLHTTPSetOptions(void *pcurl, const char *pszURL,
                                 const char *const *papszOptions);
 char **CPLHTTPGetOptionsFromEnv(const char *pszFilename);
-double CPLHTTPGetNewRetryDelay(int response_code, double dfOldDelay,
-                               const char *pszErrBuf, const char *pszCurlError);
+
+/** Stores HTTP retry parameters */
+struct CPLHTTPRetryParameters
+{
+    int nMaxRetry = CPL_HTTP_MAX_RETRY;
+    double dfInitialDelay = CPL_HTTP_RETRY_DELAY;
+    std::string osRetryCodes{};
+
+    CPLHTTPRetryParameters() = default;
+    explicit CPLHTTPRetryParameters(const CPLStringList &aosHTTPOptions);
+};
+
+/** HTTP retry context */
+class CPLHTTPRetryContext
+{
+  public:
+    explicit CPLHTTPRetryContext(const CPLHTTPRetryParameters &oParams);
+
+    bool CanRetry(int response_code, const char *pszErrBuf,
+                  const char *pszCurlError);
+    bool CanRetry();
+
+    /** Returns the delay to apply. Only valid after a successful call to CanRetry() */
+    double GetCurrentDelay() const;
+
+    /** Reset retry counter. */
+    void ResetCounter()
+    {
+        m_nRetryCount = 0;
+    }
+
+  private:
+    CPLHTTPRetryParameters m_oParameters{};
+    int m_nRetryCount = 0;
+    double m_dfCurDelay = 0.0;
+    double m_dfNextDelay = 0.0;
+};
+
 void CPL_DLL *CPLHTTPIgnoreSigPipe();
 void CPL_DLL CPLHTTPRestoreSigPipeHandler(void *old_handler);
 bool CPLMultiPerformWait(void *hCurlMultiHandle, int &repeats);
@@ -241,9 +261,43 @@ class GOA2Manager
         return m_osClientEmail;
     }
 
+    /** Returns a key that can be used to uniquely identify the instance
+     * parameters (excluding bearer)
+     */
+    std::string GetKey() const
+    {
+        std::string osKey(std::to_string(static_cast<int>(m_eMethod))
+                              .append(",client-id=")
+                              .append(m_osClientId)
+                              .append(",client-secret=")
+                              .append(m_osClientSecret)
+                              .append(",refresh-token=")
+                              .append(m_osRefreshToken)
+                              .append(",private-key=")
+                              .append(m_osPrivateKey)
+                              .append(",client-email=")
+                              .append(m_osClientEmail)
+                              .append(",scope=")
+                              .append(m_osScope));
+        osKey.append(",additional-claims=");
+        for (const auto *pszOption : m_aosAdditionalClaims)
+        {
+            osKey.append(pszOption);
+            osKey.append("+");
+        }
+        osKey.append(",options=");
+        for (const auto *pszOption : m_aosOptions)
+        {
+            osKey.append(pszOption);
+            osKey.append("+");
+        }
+        return osKey;
+    }
+
   private:
     mutable CPLString m_osCurrentBearer{};
     mutable time_t m_nExpirationTime = 0;
+
     AuthMethod m_eMethod = NONE;
 
     // for ACCESS_TOKEN_FROM_REFRESH

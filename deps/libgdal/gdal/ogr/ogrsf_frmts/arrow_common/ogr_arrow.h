@@ -7,23 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2022, Planet Labs
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #ifndef OGR_ARROW_H
@@ -60,6 +44,28 @@ enum class OGRArrowGeomEncoding
     GEOARROW_STRUCT_MULTILINESTRING,
     GEOARROW_STRUCT_MULTIPOLYGON,
 };
+
+/************************************************************************/
+/*                        OGRArrowIsGeoArrowStruct()                    */
+/************************************************************************/
+
+inline bool OGRArrowIsGeoArrowStruct(OGRArrowGeomEncoding eEncoding)
+{
+    switch (eEncoding)
+    {
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_GENERIC:
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_POINT:
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_LINESTRING:
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_POLYGON:
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTIPOINT:
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTILINESTRING:
+        case OGRArrowGeomEncoding::GEOARROW_STRUCT_MULTIPOLYGON:
+            return true;
+
+        default:
+            return false;
+    }
+}
 
 /************************************************************************/
 /*                         OGRArrowLayer                                */
@@ -121,6 +127,16 @@ class OGRArrowLayer CPL_NON_FINAL
     std::vector<int> m_anMapGeomFieldIndexToArrowColumn{};
     std::vector<OGRArrowGeomEncoding> m_aeGeomEncoding{};
 
+    //! Whether bounding box based spatial filter should be skipped.
+    // This is set to true by OGRParquetDatasetLayer when there is a bounding
+    // box field, as an optimization.
+    bool m_bBaseArrowIgnoreSpatialFilterRect = false;
+
+    //! Whether spatial filter should be skipped (by GetNextArrowArray())
+    // This is set to true by OGRParquetDatasetLayer when filtering points in
+    // a rectangle.
+    bool m_bBaseArrowIgnoreSpatialFilter = false;
+
     //! Describe the bbox column of a geometry column
     struct GeomColBBOX
     {
@@ -159,6 +175,10 @@ class OGRArrowLayer CPL_NON_FINAL
         // m_bIgnoredFields is set
     int m_nRequestedFIDColumn = -1;  // only valid when m_bIgnoredFields is set
 
+    int m_nExpectedBatchColumns =
+        -1;  // Should be equal to m_poBatch->num_columns() (when
+             // m_bIgnoredFields is set)
+
     bool m_bEOF = false;
     int64_t m_nFeatureIdx = 0;
     int64_t m_nIdxInBatch = 0;
@@ -173,6 +193,11 @@ class OGRArrowLayer CPL_NON_FINAL
     mutable std::shared_ptr<arrow::Array> m_poReadFeatureTmpArray{};
 
     std::vector<Constraint> m_asAttributeFilterConstraints{};
+
+    //! Whether attribute filter should be skipped.
+    // This is set to true by OGRParquetDatasetLayer when it can fully translate
+    // a filter, as an optimization.
+    bool m_bBaseArrowIgnoreAttributeFilter = false;
 
     std::map<std::string, std::unique_ptr<OGRFieldDefn>>
     LoadGDALSchema(const arrow::KeyValueMetadata *kv_metadata);
@@ -237,6 +262,10 @@ class OGRArrowLayer CPL_NON_FINAL
     // Refreshes Constraint.iArrayIdx from iField. To be called by SetIgnoredFields()
     void ComputeConstraintsArrayIdx();
 
+    static const swq_expr_node *GetColumnSubNode(const swq_expr_node *poNode);
+    static const swq_expr_node *GetConstantSubNode(const swq_expr_node *poNode);
+    static bool IsComparisonOp(int op);
+
     virtual bool FastGetExtent(int iGeomField, OGREnvelope *psExtent) const;
     bool FastGetExtent3D(int iGeomField, OGREnvelope3D *psExtent) const;
     static OGRErr GetExtentFromMetadata(const CPLJSONObject &oJSONDef,
@@ -251,6 +280,8 @@ class OGRArrowLayer CPL_NON_FINAL
     {
         ++m_nFeatureIdx;
     }
+
+    void SanityCheckOfSetBatch() const;
 
   public:
     virtual ~OGRArrowLayer() override;
@@ -304,6 +335,13 @@ class OGRArrowDataset CPL_NON_FINAL : public GDALPamDataset
     std::unique_ptr<OGRArrowLayer> m_poLayer{};
     std::vector<std::string> m_aosDomainNames{};
     std::map<std::string, int> m_oMapDomainNameToCol{};
+
+  protected:
+    void close()
+    {
+        m_poLayer.reset();
+        m_poMemoryPool.reset();
+    }
 
   public:
     explicit OGRArrowDataset(

@@ -7,23 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "ogr_pgdump.h"
@@ -32,6 +16,7 @@
 #include "cpl_string.h"
 #include "ogr_p.h"
 
+#include <cmath>
 #include <limits>
 
 //
@@ -626,9 +611,9 @@ void OGRPGCommonAppendCopyRegularFields(
 
                 nOff += static_cast<int>(strlen(pszNeedToFree + nOff));
                 // Check for special values. They need to be quoted.
-                if (CPLIsNan(padfItems[j]))
+                if (std::isnan(padfItems[j]))
                     snprintf(pszNeedToFree + nOff, nLen - nOff, "NaN");
-                else if (CPLIsInf(padfItems[j]))
+                else if (std::isinf(padfItems[j]))
                     snprintf(pszNeedToFree + nOff, nLen - nOff,
                              (padfItems[j] > 0) ? "Infinity" : "-Infinity");
                 else
@@ -663,9 +648,9 @@ void OGRPGCommonAppendCopyRegularFields(
         {
             // Check for special values. They need to be quoted.
             double dfVal = poFeature->GetFieldAsDouble(i);
-            if (CPLIsNan(dfVal))
+            if (std::isnan(dfVal))
                 pszStrValue = "NaN";
-            else if (CPLIsInf(dfVal))
+            else if (std::isinf(dfVal))
                 pszStrValue = (dfVal > 0) ? "Infinity" : "-Infinity";
         }
 
@@ -1057,9 +1042,9 @@ void OGRPGCommonAppendFieldValue(CPLString &osCommand, OGRFeature *poFeature,
 
             nOff += static_cast<int>(strlen(pszNeedToFree + nOff));
             // Check for special values. They need to be quoted.
-            if (CPLIsNan(padfItems[j]))
+            if (std::isnan(padfItems[j]))
                 snprintf(pszNeedToFree + nOff, nLen - nOff, "NaN");
-            else if (CPLIsInf(padfItems[j]))
+            else if (std::isinf(padfItems[j]))
                 snprintf(pszNeedToFree + nOff, nLen - nOff,
                          (padfItems[j] > 0) ? "Infinity" : "-Infinity");
             else
@@ -1121,9 +1106,9 @@ void OGRPGCommonAppendFieldValue(CPLString &osCommand, OGRFeature *poFeature,
     {
         // Check for special values. They need to be quoted.
         double dfVal = poFeature->GetFieldAsDouble(i);
-        if (CPLIsNan(dfVal))
+        if (std::isnan(dfVal))
             pszStrValue = "'NaN'";
-        else if (CPLIsInf(dfVal))
+        else if (std::isinf(dfVal))
             pszStrValue = (dfVal > 0) ? "'Infinity'" : "'-Infinity'";
     }
     else if ((nOGRFieldType == OFTInteger || nOGRFieldType == OFTInteger64) &&
@@ -1549,7 +1534,7 @@ CPLString OGRPGCommonLayerGetPGDefault(OGRFieldDefn *poFieldDefn)
     if (sscanf(osRet, "'%d/%d/%d %d:%d:%f'", &nYear, &nMonth, &nDay, &nHour,
                &nMinute, &fSecond) == 6)
     {
-        osRet.resize(osRet.size() - 1);
+        osRet.pop_back();
         osRet += "+00'::timestamp with time zone";
     }
     return osRet;

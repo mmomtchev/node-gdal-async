@@ -7,23 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2019, Thomas Bonfort <thomas.bonfort@airbus.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -68,6 +52,16 @@ size_t VSIPluginHandle::Read(void *const pBuffer, size_t const nSize,
 int VSIPluginHandle::Eof()
 {
     return poFS->Eof(cbData);
+}
+
+int VSIPluginHandle::Error()
+{
+    return poFS->Error(cbData);
+}
+
+void VSIPluginHandle::ClearErr()
+{
+    poFS->ClearErr(cbData);
 }
 
 int VSIPluginHandle::Close()
@@ -357,6 +351,28 @@ int VSIPluginFilesystemHandler::Eof(void *pFile)
     CPLError(CE_Failure, CPLE_AppDefined, "Eof not implemented for %s plugin",
              m_Prefix);
     return -1;
+}
+
+int VSIPluginFilesystemHandler::Error(void *pFile)
+{
+    if (m_cb->error)
+    {
+        return m_cb->error(pFile);
+    }
+    CPLDebug("CPL", "Error() not implemented for %s plugin", m_Prefix);
+    return 0;
+}
+
+void VSIPluginFilesystemHandler::ClearErr(void *pFile)
+{
+    if (m_cb->clear_err)
+    {
+        m_cb->clear_err(pFile);
+    }
+    else
+    {
+        CPLDebug("CPL", "ClearErr() not implemented for %s plugin", m_Prefix);
+    }
 }
 
 int VSIPluginFilesystemHandler::Close(void *pFile)

@@ -10,23 +10,7 @@
  * Copyright (c) 2015, European Union (European Environment Agency)
  * Copyright (c) 2023, Grok Image Compression Inc.
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include <cassert>
@@ -197,7 +181,7 @@ template <typename CODEC, typename BASE> class JP2JobStruct
     std::vector<std::pair<int, int>> oPairs;
     volatile int nCurPair;
     int nBandCount;
-    int *panBandMap;
+    const int *panBandMap;
     volatile bool bSuccess;
 };
 
@@ -225,7 +209,7 @@ void JP2OPJLikeDataset<CODEC, BASE>::ReadBlockInThread(void *userdata)
     int nBand = poJob->nBand;
     int nPairs = (int)poJob->oPairs.size();
     int nBandCount = poJob->nBandCount;
-    int *panBandMap = poJob->panBandMap;
+    const int *panBandMap = poJob->panBandMap;
     VSILFILE *fp = VSIFOpenL(poGDS->m_osFilename.c_str(), "rb");
     if (fp == nullptr)
     {
@@ -273,7 +257,7 @@ void JP2OPJLikeDataset<CODEC, BASE>::ReadBlockInThread(void *userdata)
 template <typename CODEC, typename BASE>
 int JP2OPJLikeDataset<CODEC, BASE>::PreloadBlocks(
     JP2OPJLikeRasterBand<CODEC, BASE> *poBand, int nXOff, int nYOff, int nXSize,
-    int nYSize, int nBandCount, int *panBandMap)
+    int nYSize, int nBandCount, const int *panBandMap)
 {
     int bRet = TRUE;
     int nXStart = nXOff / poBand->nBlockXSize;
@@ -422,8 +406,8 @@ template <typename CODEC, typename BASE>
 CPLErr JP2OPJLikeDataset<CODEC, BASE>::IRasterIO(
     GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSize, int nYSize,
     void *pData, int nBufXSize, int nBufYSize, GDALDataType eBufType,
-    int nBandCount, int *panBandMap, GSpacing nPixelSpace, GSpacing nLineSpace,
-    GSpacing nBandSpace, GDALRasterIOExtraArg *psExtraArg)
+    int nBandCount, BANDMAP_TYPE panBandMap, GSpacing nPixelSpace,
+    GSpacing nLineSpace, GSpacing nBandSpace, GDALRasterIOExtraArg *psExtraArg)
 {
     if (eRWFlag != GF_Read)
         return CE_Failure;
@@ -498,7 +482,7 @@ template <typename CODEC, typename BASE>
 CPLErr JP2OPJLikeDataset<CODEC, BASE>::ReadBlock(int nBand, VSILFILE *fpIn,
                                                  int nBlockXOff, int nBlockYOff,
                                                  void *pImage, int nBandCount,
-                                                 int *panBandMap)
+                                                 const int *panBandMap)
 {
     CPLErr eErr = CE_None;
     CODEC localctx;
@@ -1870,12 +1854,12 @@ GDALDataset *JP2OPJLikeDataset<CODEC, BASE>::Open(GDALOpenInfo *poOpenInfo)
     /*      Initialize any PAM information.                                 */
     /* -------------------------------------------------------------------- */
     poDS->SetDescription(poOpenInfo->pszFilename);
-    poDS->TryLoadXML();
+    poDS->TryLoadXML(poOpenInfo->GetSiblingFiles());
 
     /* -------------------------------------------------------------------- */
     /*      Check for overviews.                                            */
     /* -------------------------------------------------------------------- */
-    poDS->oOvManager.Initialize(poDS, poOpenInfo->pszFilename);
+    poDS->oOvManager.Initialize(poDS, poOpenInfo);
 
     return poDS;
 }

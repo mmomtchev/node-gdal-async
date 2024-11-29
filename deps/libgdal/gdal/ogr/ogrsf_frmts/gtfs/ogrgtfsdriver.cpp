@@ -7,23 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2023, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -33,6 +17,8 @@
 #include <map>
 #include <new>
 #include <utility>
+
+constexpr const char *const apszCSVDriver[] = {"CSV", nullptr};
 
 /***********************************************************************/
 /*                         OGRGTFSDataset                              */
@@ -73,7 +59,7 @@ OGRLayer *OGRGTFSDataset::GetLayer(int nIdx)
 
 class OGRGTFSLayer final : public OGRLayer
 {
-    std::string m_osDirname{};
+    const std::string m_osDirname;
     std::unique_ptr<GDALDataset> m_poUnderlyingDS{};
     OGRLayer *m_poUnderlyingLayer = nullptr;  // owned by m_poUnderlyingDS
     OGRFeatureDefn *m_poFeatureDefn = nullptr;
@@ -211,7 +197,8 @@ void OGRGTFSLayer::PrepareTripsData()
     {
         {
             auto poStopsDS = std::unique_ptr<GDALDataset>(GDALDataset::Open(
-                (m_osDirname + "/stops.txt").c_str(), GDAL_OF_VECTOR));
+                std::string(m_osDirname).append("/stops.txt").c_str(),
+                GDAL_OF_VECTOR, apszCSVDriver));
             if (!poStopsDS)
                 return;
             auto poStopsLyr = poStopsDS->GetLayer(0);
@@ -236,7 +223,8 @@ void OGRGTFSLayer::PrepareTripsData()
         }
 
         auto poStopTimesDS = std::unique_ptr<GDALDataset>(GDALDataset::Open(
-            (m_osDirname + "/stop_times.txt").c_str(), GDAL_OF_VECTOR));
+            std::string(m_osDirname).append("/stop_times.txt").c_str(),
+            GDAL_OF_VECTOR, apszCSVDriver));
         if (!poStopTimesDS)
             return;
         auto poStopTimesLyr = poStopTimesDS->GetLayer(0);
@@ -554,6 +542,11 @@ int OGRGTFSDataset::Identify(GDALOpenInfo *poOpenInfo)
     if (STARTS_WITH(poOpenInfo->pszFilename, "GTFS:"))
         return TRUE;
 
+    if (poOpenInfo->IsSingleAllowedDriver("GTFS") && poOpenInfo->bIsDirectory)
+    {
+        return TRUE;
+    }
+
     if (!EQUAL(CPLGetExtension(poOpenInfo->pszFilename), "zip"))
         return FALSE;
 
@@ -608,45 +601,39 @@ GDALDataset *OGRGTFSDataset::Open(GDALOpenInfo *poOpenInfo)
     if (!Identify(poOpenInfo))
         return nullptr;
 
-    const char *pszFilename = poOpenInfo->pszFilename;
-    if (STARTS_WITH(pszFilename, "GTFS:"))
-        pszFilename += strlen("GTFS:");
+    const char *pszGTFSFilename = poOpenInfo->pszFilename;
+    if (STARTS_WITH(pszGTFSFilename, "GTFS:"))
+        pszGTFSFilename += strlen("GTFS:");
 
-    std::string osBaseDir(pszFilename);
-    if (!STARTS_WITH(pszFilename, "/vsizip/") &&
-        EQUAL(CPLGetExtension(pszFilename), "zip"))
-    {
-        osBaseDir = "/vsizip/{";
-        osBaseDir += pszFilename;
-        osBaseDir += '}';
-    }
-
-    const std::string osCSVBaseDirPrefix(std::string("CSV:") + osBaseDir);
+    const std::string osBaseDir(
+        (!STARTS_WITH(pszGTFSFilename, "/vsizip/") &&
+         EQUAL(CPLGetExtension(pszGTFSFilename), "zip"))
+            ? std::string("/vsizip/{").append(pszGTFSFilename).append("}")
+            : std::string(pszGTFSFilename));
 
     auto poDS = std::make_unique<OGRGTFSDataset>();
 
-    char **papszFilenames = VSIReadDir(osBaseDir.c_str());
+    const CPLStringList aosFilenames(VSIReadDir(osBaseDir.c_str()));
     size_t nCountFound = 0;
     std::string osShapesFilename;
-    for (CSLConstList papszIter = papszFilenames; papszIter && *papszIter;
-         ++papszIter)
+    for (const char *pszFilename : cpl::Iterate(aosFilenames))
     {
-        if (!EQUAL(CPLGetExtension(*papszIter), "txt"))
+        if (!EQUAL(CPLGetExtension(pszFilename), "txt"))
             continue;
         for (const char *pszFilenameInDir : apszRequiredFiles)
         {
-            if (EQUAL(*papszIter, pszFilenameInDir))
+            if (EQUAL(pszFilename, pszFilenameInDir))
             {
                 nCountFound++;
                 break;
             }
         }
-        if (EQUAL(*papszIter, "shapes.txt"))
-            osShapesFilename = *papszIter;
+        if (EQUAL(pszFilename, "shapes.txt"))
+            osShapesFilename = pszFilename;
 
-        auto poCSVDataset = std::unique_ptr<GDALDataset>(
-            GDALDataset::Open((osCSVBaseDirPrefix + '/' + *papszIter).c_str(),
-                              GDAL_OF_VERBOSE_ERROR | GDAL_OF_VECTOR));
+        auto poCSVDataset = std::unique_ptr<GDALDataset>(GDALDataset::Open(
+            std::string(osBaseDir).append("/").append(pszFilename).c_str(),
+            GDAL_OF_VERBOSE_ERROR | GDAL_OF_VECTOR, apszCSVDriver));
         if (poCSVDataset)
         {
             auto poUnderlyingLayer = poCSVDataset->GetLayer(0);
@@ -657,13 +644,12 @@ GDALDataset *OGRGTFSDataset::Open(GDALOpenInfo *poOpenInfo)
                 {
                     poDS->m_apoLayers.emplace_back(
                         std::make_unique<OGRGTFSLayer>(
-                            osCSVBaseDirPrefix, CPLGetBasename(*papszIter),
+                            osBaseDir, CPLGetBasename(pszFilename),
                             std::move(poCSVDataset)));
                 }
             }
         }
     }
-    CSLDestroy(papszFilenames);
 
     if (nCountFound != sizeof(apszRequiredFiles) / sizeof(apszRequiredFiles[0]))
     {
@@ -675,8 +661,8 @@ GDALDataset *OGRGTFSDataset::Open(GDALOpenInfo *poOpenInfo)
     if (!osShapesFilename.empty())
     {
         auto poCSVDataset = std::unique_ptr<GDALDataset>(GDALDataset::Open(
-            (osCSVBaseDirPrefix + '/' + osShapesFilename).c_str(),
-            GDAL_OF_VERBOSE_ERROR | GDAL_OF_VECTOR));
+            std::string(osBaseDir).append("/").append(osShapesFilename).c_str(),
+            GDAL_OF_VERBOSE_ERROR | GDAL_OF_VECTOR, apszCSVDriver));
         if (poCSVDataset)
         {
             auto poUnderlyingLayer = poCSVDataset->GetLayer(0);

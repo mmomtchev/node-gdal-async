@@ -10,22 +10,7 @@
  *
  * Copyright (c) 2000-2007, ITT Visual Information Solutions
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
-
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
 **/
 
 #include "gdal_frmts.h"
@@ -749,8 +734,7 @@ int JPIPKAKDataset::Initialize(const char *pszDatasetName, int bReinitializing)
     }
 
     // create in memory file using vsimem
-    CPLString osFileBoxName;
-    osFileBoxName.Printf("/vsimem/jpip/%s.dat", pszCid);
+    const CPLString osFileBoxName(VSIMemGenerateHiddenFilename("jpip"));
     VSILFILE *fpLL = VSIFOpenL(osFileBoxName.c_str(), "w+");
     poCache->set_read_scope(KDU_META_DATABIN, nCodestream, 0);
     kdu_byte *pabyBuffer = (kdu_byte *)CPLMalloc(nLen);
@@ -1144,7 +1128,7 @@ CPLErr JPIPKAKDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
                                  int nXSize, int nYSize, void *pData,
                                  int nBufXSize, int nBufYSize,
                                  GDALDataType eBufType, int nBandCount,
-                                 int *panBandMap, GSpacing nPixelSpace,
+                                 BANDMAP_TYPE panBandMap, GSpacing nPixelSpace,
                                  GSpacing nLineSpace, GSpacing nBandSpace,
                                  GDALRasterIOExtraArg *psExtraArg)
 
@@ -1164,8 +1148,9 @@ CPLErr JPIPKAKDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
     /* -------------------------------------------------------------------- */
     GDALAsyncReader *ario = BeginAsyncReader(
         nXOff, nYOff, nXSize, nYSize, pData, nBufXSize, nBufYSize, eBufType,
-        nBandCount, panBandMap, static_cast<int>(nPixelSpace),
-        static_cast<int>(nLineSpace), static_cast<int>(nBandSpace), nullptr);
+        nBandCount, const_cast<int *>(panBandMap),
+        static_cast<int>(nPixelSpace), static_cast<int>(nLineSpace),
+        static_cast<int>(nBandSpace), nullptr);
 
     if (ario == nullptr)
         return CE_Failure;

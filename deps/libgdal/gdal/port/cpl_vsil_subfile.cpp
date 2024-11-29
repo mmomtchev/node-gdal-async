@@ -8,23 +8,7 @@
  * Copyright (c) 2005, Frank Warmerdam <warmerdam@pobox.com>
  * Copyright (c) 2009-2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -58,6 +42,7 @@ class VSISubFileHandle final : public VSIVirtualHandle
     vsi_l_offset nSubregionOffset = 0;
     vsi_l_offset nSubregionSize = 0;
     bool bAtEOF = false;
+    bool bError = false;
 
     VSISubFileHandle() = default;
     ~VSISubFileHandle() override;
@@ -66,7 +51,9 @@ class VSISubFileHandle final : public VSIVirtualHandle
     vsi_l_offset Tell() override;
     size_t Read(void *pBuffer, size_t nSize, size_t nMemb) override;
     size_t Write(const void *pBuffer, size_t nSize, size_t nMemb) override;
+    void ClearErr() override;
     int Eof() override;
+    int Error() override;
     int Close() override;
 };
 
@@ -216,7 +203,12 @@ size_t VSISubFileHandle::Read(void *pBuffer, size_t nSize, size_t nCount)
     }
 
     if (nRet < nCount)
-        bAtEOF = true;
+    {
+        if (fp->Eof())
+            bAtEOF = true;
+        else /* if (fp->Error()) */
+            bError = true;
+    }
 
     return nRet;
 }
@@ -251,6 +243,28 @@ size_t VSISubFileHandle::Write(const void *pBuffer, size_t nSize, size_t nCount)
     }
 
     return VSIFWriteL(pBuffer, nSize, nCount, fp);
+}
+
+/************************************************************************/
+/*                             ClearErr()                               */
+/************************************************************************/
+
+void VSISubFileHandle::ClearErr()
+
+{
+    fp->ClearErr();
+    bAtEOF = false;
+    bError = false;
+}
+
+/************************************************************************/
+/*                              Error()                                 */
+/************************************************************************/
+
+int VSISubFileHandle::Error()
+
+{
+    return bError;
 }
 
 /************************************************************************/

@@ -8,23 +8,7 @@
  * Copyright (c) 1999, Frank Warmerdam
  * Copyright (c) 2009-2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_conv.h"
@@ -1499,20 +1483,30 @@ bye:
 static const char *GetLayerNameForSQL(GDALDataset *poDS,
                                       const char *pszLayerName)
 {
-    char ch;
-    for (int i = 0; (ch = pszLayerName[i]) != 0; i++)
+    /* Only quote if needed. Quoting conventions depend on the driver... */
+    if (!EQUAL(pszLayerName, "SELECT") && !EQUAL(pszLayerName, "AS") &&
+        !EQUAL(pszLayerName, "CAST") && !EQUAL(pszLayerName, "FROM") &&
+        !EQUAL(pszLayerName, "JOIN") && !EQUAL(pszLayerName, "WHERE") &&
+        !EQUAL(pszLayerName, "ON") && !EQUAL(pszLayerName, "USING") &&
+        !EQUAL(pszLayerName, "ORDER") && !EQUAL(pszLayerName, "BY") &&
+        !EQUAL(pszLayerName, "ASC") && !EQUAL(pszLayerName, "DESC") &&
+        !EQUAL(pszLayerName, "GROUP") && !EQUAL(pszLayerName, "LIMIT") &&
+        !EQUAL(pszLayerName, "OFFSET"))
     {
-        if (ch >= '0' && ch <= '9')
+        char ch;
+        for (int i = 0; (ch = pszLayerName[i]) != 0; i++)
         {
-            if (i == 0)
+            if (ch >= '0' && ch <= '9')
+            {
+                if (i == 0)
+                    break;
+            }
+            else if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')))
                 break;
         }
-        else if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')))
-            break;
+        if (ch == 0)
+            return pszLayerName;
     }
-    /* Only quote if needed. Quoting conventions depend on the driver... */
-    if (ch == 0)
-        return pszLayerName;
 
     if (EQUAL(poDS->GetDriverName(), "MYSQL"))
         return CPLSPrintf("`%s`", pszLayerName);
@@ -2031,7 +2025,8 @@ static int TestOGRLayerRandomWrite(OGRLayer *poLayer)
     CPLString os_Id2;
     CPLString os_Id5;
 
-    const bool bHas_Id = poLayer->GetLayerDefn()->GetFieldIndex("_id") == 0;
+    const bool bHas_Id = poLayer->GetLayerDefn()->GetFieldIndex("_id") == 0 ||
+                         poLayer->GetLayerDefn()->GetFieldIndex("id") == 0;
 
     /* -------------------------------------------------------------------- */
     /*      Fetch five features.                                            */
@@ -2467,7 +2462,7 @@ static int TestSpatialFilter(OGRLayer *poLayer, int iGeomField)
     if (poUniquePtrFeature != nullptr)
     {
         bRet = FALSE;
-        printf("ERROR: Spatial filter (%d) failed to eliminate"
+        printf("ERROR: Spatial filter (%d) failed to eliminate "
                "a feature unexpectedly!\n",
                iGeomField);
     }

@@ -9,23 +9,7 @@
  * Copyright (c) 2002, Frank Warmerdam
  * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #ifndef OGR_GENSQL_H_INCLUDED
@@ -55,48 +39,50 @@
 /*                        OGRGenSQLResultsLayer                         */
 /************************************************************************/
 
+class swq_select;
+
 class OGRGenSQLResultsLayer final : public OGRLayer
 {
   private:
-    GDALDataset *poSrcDS;
-    OGRLayer *poSrcLayer;
-    void *pSelectInfo;
+    GDALDataset *m_poSrcDS = nullptr;
+    OGRLayer *m_poSrcLayer = nullptr;
+    std::unique_ptr<swq_select> m_pSelectInfo{};
 
     std::string m_osInitialWHERE{};
     bool m_bForwardWhereToSourceLayer = true;
     bool m_bEOF = false;
 
-    OGRLayer **papoTableLayers;
+    // Array of source layers (owned by m_poSrcDS or m_apoExtraDS)
+    std::vector<OGRLayer *> m_apoTableLayers{};
 
-    OGRFeatureDefn *poDefn;
+    // Array of extra datasets when referencing a table/layer by a dataset name
+    std::vector<std::unique_ptr<GDALDataset, GDALDatasetUniquePtrReleaser>>
+        m_apoExtraDS{};
 
-    int *panGeomFieldToSrcGeomField;
+    OGRFeatureDefn *m_poDefn = nullptr;
 
-    size_t nIndexSize;
-    GIntBig *panFIDIndex;
-    int bOrderByValid;
+    std::vector<int> m_anGeomFieldToSrcGeomField{};
 
-    GIntBig nNextIndexFID;
-    OGRFeature *poSummaryFeature;
+    std::vector<GIntBig> m_anFIDIndex{};
+    bool m_bOrderByValid = false;
 
-    int iFIDFieldIndex;
+    GIntBig m_nNextIndexFID = 0;
+    std::unique_ptr<OGRFeature> m_poSummaryFeature{};
 
-    int nExtraDSCount;
-    GDALDataset **papoExtraDS;
+    int m_iFIDFieldIndex = 0;
 
-    GIntBig nIteratedFeatures;
-    std::vector<CPLString> m_oDistinctList;
+    GIntBig m_nIteratedFeatures = -1;
+    std::vector<std::string> m_aosDistinctList{};
 
-    int PrepareSummary();
+    bool PrepareSummary();
 
-    OGRFeature *TranslateFeature(OGRFeature *);
+    std::unique_ptr<OGRFeature> TranslateFeature(std::unique_ptr<OGRFeature>);
     void CreateOrderByIndex();
     void ReadIndexFields(OGRFeature *poSrcFeat, int nOrderItems,
                          OGRField *pasIndexFields);
     void SortIndexSection(const OGRField *pasIndexFields, GIntBig *panMerged,
                           size_t nStart, size_t nEntries);
-    void FreeIndexFields(OGRField *pasIndexFields, size_t l_nIndexSize,
-                         bool bFreeArray = true);
+    void FreeIndexFields(OGRField *pasIndexFields, size_t l_nIndexSize);
     int Compare(const OGRField *pasFirst, const OGRField *pasSecond);
 
     void ClearFilters();
@@ -115,8 +101,9 @@ class OGRGenSQLResultsLayer final : public OGRLayer
     CPL_DISALLOW_COPY_ASSIGN(OGRGenSQLResultsLayer)
 
   public:
-    OGRGenSQLResultsLayer(GDALDataset *poSrcDS, void *pSelectInfo,
-                          OGRGeometry *poSpatFilter, const char *pszWHERE,
+    OGRGenSQLResultsLayer(GDALDataset *poSrcDS,
+                          std::unique_ptr<swq_select> &&pSelectInfo,
+                          const OGRGeometry *poSpatFilter, const char *pszWHERE,
                           const char *pszDialect);
     virtual ~OGRGenSQLResultsLayer();
 
@@ -148,6 +135,24 @@ class OGRGenSQLResultsLayer final : public OGRLayer
 
     virtual void SetSpatialFilter(int iGeomField, OGRGeometry *) override;
     virtual OGRErr SetAttributeFilter(const char *) override;
+
+    bool GetArrowStream(struct ArrowArrayStream *out_stream,
+                        CSLConstList papszOptions = nullptr) override;
+
+    int GetArrowSchema(struct ArrowArrayStream *stream,
+                       struct ArrowSchema *out_schema) override;
+
+  protected:
+    friend struct OGRGenSQLResultsLayerArrowStreamPrivateData;
+
+    int GetArrowSchemaForwarded(struct ArrowArrayStream *stream,
+                                struct ArrowSchema *out_schema) const;
+
+    int GetNextArrowArray(struct ArrowArrayStream *stream,
+                          struct ArrowArray *out_array) override;
+
+    int GetNextArrowArrayForwarded(struct ArrowArrayStream *stream,
+                                   struct ArrowArray *out_array);
 };
 
 /*! @endcond */

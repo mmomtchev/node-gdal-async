@@ -14,23 +14,7 @@
  * http://trac.osgeo.org/gdal/ticket/2975 for more information regarding
  * history of this code
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************
  *
  * Slope and aspect calculations based on original method for GRASS GIS 4.1
@@ -98,7 +82,9 @@
 #include "gdal_utils.h"
 #include "gdal_utils_priv.h"
 #include "commonutils.h"
+#include "gdalargumentparser.h"
 
+#include <cassert>
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
@@ -109,12 +95,14 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 #include "cpl_error.h"
 #include "cpl_progress.h"
 #include "cpl_string.h"
 #include "cpl_vsi.h"
+#include "cpl_vsi_virtual.h"
 #include "gdal.h"
 #include "gdal_priv.h"
 
@@ -154,7 +142,7 @@ using namespace gdal::GDALDEM;
 struct GDALDEMProcessingOptions
 {
     /*! output format. Use the short format name. */
-    char *pszFormat = nullptr;
+    std::string osFormat{};
 
     /*! the progress function to use */
     GDALProgressFunc pfnProgress = nullptr;
@@ -166,7 +154,8 @@ struct GDALDEMProcessingOptions
     double scale = 1.0;
     double az = 315.0;
     double alt = 45.0;
-    int slopeFormat = 1;  // 0 = 'percent' or 1 = 'degrees'
+    bool bSlopeFormatUseDegrees =
+        true;  // false = 'percent' or true = 'degrees'
     bool bAddAlpha = false;
     bool bZeroForFlat = false;
     bool bAngleAsAzimuth = true;
@@ -179,7 +168,7 @@ struct GDALDEMProcessingOptions
     bool bCombined = false;
     bool bIgor = false;
     bool bMultiDirectional = false;
-    char **papszCreateOptions = nullptr;
+    CPLStringList aosCreationOptions{};
     int nBand = 1;
 };
 
@@ -214,7 +203,7 @@ float ComputeVal(bool bSrcHasNoData, float fSrcNoDataValue,
 {
     if (bSrcHasNoData &&
         ((!bIsSrcNoDataNan && ARE_REAL_EQUAL(afWin[4], fSrcNoDataValue)) ||
-         (bIsSrcNoDataNan && CPLIsNan(afWin[4]))))
+         (bIsSrcNoDataNan && std::isnan(afWin[4]))))
     {
         return fDstNoDataValue;
     }
@@ -224,7 +213,7 @@ float ComputeVal(bool bSrcHasNoData, float fSrcNoDataValue,
         {
             if ((!bIsSrcNoDataNan &&
                  ARE_REAL_EQUAL(afWin[k], fSrcNoDataValue)) ||
-                (bIsSrcNoDataNan && CPLIsNan(afWin[k])))
+                (bIsSrcNoDataNan && std::isnan(afWin[k])))
             {
                 if (bComputeAtEdges)
                     afWin[k] = afWin[4];
@@ -370,7 +359,7 @@ static CPLErr GDALGeneric3x3Processing(
     {
         eReadDT = GDT_Float32;
         fSrcNoDataValue = static_cast<T>(dfNoDataValue);
-        bIsSrcNoDataNan = bSrcHasNoData && CPLIsNan(dfNoDataValue);
+        bIsSrcNoDataNan = bSrcHasNoData && std::isnan(dfNoDataValue);
     }
 
     int bDstHasNoData = FALSE;
@@ -1429,70 +1418,54 @@ static int GDALColorReliefSortColors(const ColorAssociation &pA,
                                      const ColorAssociation &pB)
 {
     /* Sort NaN in first position */
-    return (CPLIsNan(pA.dfVal) && !CPLIsNan(pB.dfVal)) || pA.dfVal < pB.dfVal;
+    return (std::isnan(pA.dfVal) && !std::isnan(pB.dfVal)) ||
+           pA.dfVal < pB.dfVal;
 }
 
 static void
-GDALColorReliefProcessColors(ColorAssociation **ppasColorAssociation,
-                             int *pnColorAssociation, int bSrcHasNoData,
-                             double dfSrcNoDataValue)
+GDALColorReliefProcessColors(std::vector<ColorAssociation> &asColorAssociation,
+                             int bSrcHasNoData, double dfSrcNoDataValue,
+                             ColorSelectionMode eColorSelectionMode)
 {
-    ColorAssociation *pasColorAssociation = *ppasColorAssociation;
-    int nColorAssociation = *pnColorAssociation;
-
-    std::stable_sort(pasColorAssociation,
-                     pasColorAssociation + nColorAssociation,
+    std::stable_sort(asColorAssociation.begin(), asColorAssociation.end(),
                      GDALColorReliefSortColors);
 
-    ColorAssociation *pPrevious =
-        (nColorAssociation > 0) ? &pasColorAssociation[0] : nullptr;
-    int nAdded = 0;
-    int nRepeatedEntryIndex = 0;
-    for (int i = 1; i < nColorAssociation; ++i)
+    size_t nRepeatedEntryIndex = 0;
+    const size_t nInitialSize = asColorAssociation.size();
+    for (size_t i = 1; i < nInitialSize; ++i)
     {
-        ColorAssociation *pCurrent = &pasColorAssociation[i];
+        const ColorAssociation *pPrevious = &asColorAssociation[i - 1];
+        const ColorAssociation *pCurrent = &asColorAssociation[i];
 
         // NaN comparison is always false, so it handles itself
-        if (bSrcHasNoData && pCurrent->dfVal == dfSrcNoDataValue)
+        if (eColorSelectionMode != COLOR_SELECTION_EXACT_ENTRY &&
+            bSrcHasNoData && pCurrent->dfVal == dfSrcNoDataValue)
         {
             // Check if there is enough distance between the nodata value and
             // its predecessor.
-            const double dfNewValue =
-                pCurrent->dfVal - std::abs(pCurrent->dfVal) * DBL_EPSILON;
+            const double dfNewValue = std::nextafter(
+                pCurrent->dfVal, -std::numeric_limits<double>::infinity());
             if (dfNewValue > pPrevious->dfVal)
             {
                 // add one just below the nodata value
-                ++nAdded;
-                ColorAssociation sPrevious = *pPrevious;
-                pasColorAssociation =
-                    static_cast<ColorAssociation *>(CPLRealloc(
-                        pasColorAssociation, (nColorAssociation + nAdded) *
-                                                 sizeof(ColorAssociation)));
-                pCurrent = &pasColorAssociation[i];
-                pasColorAssociation[nColorAssociation + nAdded - 1] = sPrevious;
-                pasColorAssociation[nColorAssociation + nAdded - 1].dfVal =
-                    dfNewValue;
+                ColorAssociation sNew = *pPrevious;
+                sNew.dfVal = dfNewValue;
+                asColorAssociation.push_back(std::move(sNew));
             }
         }
-        else if (bSrcHasNoData && pPrevious->dfVal == dfSrcNoDataValue)
+        else if (eColorSelectionMode != COLOR_SELECTION_EXACT_ENTRY &&
+                 bSrcHasNoData && pPrevious->dfVal == dfSrcNoDataValue)
         {
             // Check if there is enough distance between the nodata value and
             // its successor.
-            const double dfNewValue =
-                pPrevious->dfVal + std::abs(pPrevious->dfVal) * DBL_EPSILON;
+            const double dfNewValue = std::nextafter(
+                pPrevious->dfVal, std::numeric_limits<double>::infinity());
             if (dfNewValue < pCurrent->dfVal)
             {
                 // add one just above the nodata value
-                ++nAdded;
-                ColorAssociation sCurrent = *pCurrent;
-                pasColorAssociation =
-                    static_cast<ColorAssociation *>(CPLRealloc(
-                        pasColorAssociation, (nColorAssociation + nAdded) *
-                                                 sizeof(ColorAssociation)));
-                pCurrent = &pasColorAssociation[i];
-                pasColorAssociation[nColorAssociation + nAdded - 1] = sCurrent;
-                pasColorAssociation[nColorAssociation + nAdded - 1].dfVal =
-                    dfNewValue;
+                ColorAssociation sNew = *pCurrent;
+                sNew.dfVal = dfNewValue;
+                asColorAssociation.push_back(std::move(sNew));
             }
         }
         else if (nRepeatedEntryIndex == 0 &&
@@ -1510,8 +1483,8 @@ GDALColorReliefProcessColors(ColorAssociation **ppasColorAssociation,
             double dfLeftDist = 0.0;
             if (nRepeatedEntryIndex >= 2)
             {
-                ColorAssociation *pLower =
-                    &pasColorAssociation[nRepeatedEntryIndex - 2];
+                const ColorAssociation *pLower =
+                    &asColorAssociation[nRepeatedEntryIndex - 2];
                 dfTotalDist = pCurrent->dfVal - pLower->dfVal;
                 dfLeftDist = pPrevious->dfVal - pLower->dfVal;
             }
@@ -1521,16 +1494,16 @@ GDALColorReliefProcessColors(ColorAssociation **ppasColorAssociation,
             }
 
             // check if this distance is enough
-            const int nEquivalentCount = i - nRepeatedEntryIndex + 1;
+            const size_t nEquivalentCount = i - nRepeatedEntryIndex + 1;
             if (dfTotalDist >
                 std::abs(pPrevious->dfVal) * nEquivalentCount * DBL_EPSILON)
             {
                 // balance the alterations
                 double dfMultiplier =
-                    0.5 - nEquivalentCount * dfLeftDist / dfTotalDist;
-                for (int j = nRepeatedEntryIndex - 1; j < i; ++j)
+                    0.5 - double(nEquivalentCount) * dfLeftDist / dfTotalDist;
+                for (auto j = nRepeatedEntryIndex - 1; j < i; ++j)
                 {
-                    pasColorAssociation[j].dfVal +=
+                    asColorAssociation[j].dfVal +=
                         (std::abs(pPrevious->dfVal) * dfMultiplier) *
                         DBL_EPSILON;
                     dfMultiplier += 1.0;
@@ -1544,35 +1517,33 @@ GDALColorReliefProcessColors(ColorAssociation **ppasColorAssociation,
 
             nRepeatedEntryIndex = 0;
         }
-        pPrevious = pCurrent;
     }
 
-    if (nAdded)
+    if (nInitialSize != asColorAssociation.size())
     {
-        std::stable_sort(pasColorAssociation,
-                         pasColorAssociation + nColorAssociation + nAdded,
+        std::stable_sort(asColorAssociation.begin(), asColorAssociation.end(),
                          GDALColorReliefSortColors);
-        *ppasColorAssociation = pasColorAssociation;
-        *pnColorAssociation = nColorAssociation + nAdded;
     }
 }
 
-static bool GDALColorReliefGetRGBA(ColorAssociation *pasColorAssociation,
-                                   int nColorAssociation, double dfVal,
-                                   ColorSelectionMode eColorSelectionMode,
-                                   int *pnR, int *pnG, int *pnB, int *pnA)
+static bool
+GDALColorReliefGetRGBA(const std::vector<ColorAssociation> &asColorAssociation,
+                       double dfVal, ColorSelectionMode eColorSelectionMode,
+                       int *pnR, int *pnG, int *pnB, int *pnA)
 {
-    int lower = 0;
+    CPLAssert(!asColorAssociation.empty());
+
+    size_t lower = 0;
 
     // Special case for NaN
-    if (CPLIsNan(pasColorAssociation[0].dfVal))
+    if (std::isnan(asColorAssociation[0].dfVal))
     {
-        if (CPLIsNan(dfVal))
+        if (std::isnan(dfVal))
         {
-            *pnR = pasColorAssociation[0].nR;
-            *pnG = pasColorAssociation[0].nG;
-            *pnB = pasColorAssociation[0].nB;
-            *pnA = pasColorAssociation[0].nA;
+            *pnR = asColorAssociation[0].nR;
+            *pnG = asColorAssociation[0].nG;
+            *pnB = asColorAssociation[0].nB;
+            *pnA = asColorAssociation[0].nA;
             return true;
         }
         else
@@ -1583,22 +1554,22 @@ static bool GDALColorReliefGetRGBA(ColorAssociation *pasColorAssociation,
 
     // Find the index of the first element in the LUT input array that
     // is not smaller than the dfVal value.
-    int i = 0;
-    int upper = nColorAssociation - 1;
+    size_t i = 0;
+    size_t upper = asColorAssociation.size() - 1;
     while (true)
     {
-        const int mid = (lower + upper) / 2;
+        const size_t mid = (lower + upper) / 2;
         if (upper - lower <= 1)
         {
-            if (dfVal <= pasColorAssociation[lower].dfVal)
+            if (dfVal <= asColorAssociation[lower].dfVal)
                 i = lower;
-            else if (dfVal <= pasColorAssociation[upper].dfVal)
+            else if (dfVal <= asColorAssociation[upper].dfVal)
                 i = upper;
             else
                 i = upper + 1;
             break;
         }
-        else if (pasColorAssociation[mid].dfVal >= dfVal)
+        else if (asColorAssociation[mid].dfVal >= dfVal)
         {
             upper = mid;
         }
@@ -1611,7 +1582,7 @@ static bool GDALColorReliefGetRGBA(ColorAssociation *pasColorAssociation,
     if (i == 0)
     {
         if (eColorSelectionMode == COLOR_SELECTION_EXACT_ENTRY &&
-            pasColorAssociation[0].dfVal != dfVal)
+            asColorAssociation[0].dfVal != dfVal)
         {
             *pnR = 0;
             *pnG = 0;
@@ -1621,17 +1592,17 @@ static bool GDALColorReliefGetRGBA(ColorAssociation *pasColorAssociation,
         }
         else
         {
-            *pnR = pasColorAssociation[0].nR;
-            *pnG = pasColorAssociation[0].nG;
-            *pnB = pasColorAssociation[0].nB;
-            *pnA = pasColorAssociation[0].nA;
+            *pnR = asColorAssociation[0].nR;
+            *pnG = asColorAssociation[0].nG;
+            *pnB = asColorAssociation[0].nB;
+            *pnA = asColorAssociation[0].nA;
             return true;
         }
     }
-    else if (i == nColorAssociation)
+    else if (i == asColorAssociation.size())
     {
         if (eColorSelectionMode == COLOR_SELECTION_EXACT_ENTRY &&
-            pasColorAssociation[i - 1].dfVal != dfVal)
+            asColorAssociation[i - 1].dfVal != dfVal)
         {
             *pnR = 0;
             *pnG = 0;
@@ -1641,17 +1612,34 @@ static bool GDALColorReliefGetRGBA(ColorAssociation *pasColorAssociation,
         }
         else
         {
-            *pnR = pasColorAssociation[i - 1].nR;
-            *pnG = pasColorAssociation[i - 1].nG;
-            *pnB = pasColorAssociation[i - 1].nB;
-            *pnA = pasColorAssociation[i - 1].nA;
+            *pnR = asColorAssociation[i - 1].nR;
+            *pnG = asColorAssociation[i - 1].nG;
+            *pnB = asColorAssociation[i - 1].nB;
+            *pnA = asColorAssociation[i - 1].nA;
             return true;
         }
     }
     else
     {
-        if (eColorSelectionMode == COLOR_SELECTION_EXACT_ENTRY &&
-            pasColorAssociation[i - 1].dfVal != dfVal)
+        if (asColorAssociation[i - 1].dfVal == dfVal)
+        {
+            *pnR = asColorAssociation[i - 1].nR;
+            *pnG = asColorAssociation[i - 1].nG;
+            *pnB = asColorAssociation[i - 1].nB;
+            *pnA = asColorAssociation[i - 1].nA;
+            return true;
+        }
+
+        if (asColorAssociation[i].dfVal == dfVal)
+        {
+            *pnR = asColorAssociation[i].nR;
+            *pnG = asColorAssociation[i].nG;
+            *pnB = asColorAssociation[i].nB;
+            *pnA = asColorAssociation[i].nA;
+            return true;
+        }
+
+        if (eColorSelectionMode == COLOR_SELECTION_EXACT_ENTRY)
         {
             *pnR = 0;
             *pnG = 0;
@@ -1661,71 +1649,46 @@ static bool GDALColorReliefGetRGBA(ColorAssociation *pasColorAssociation,
         }
 
         if (eColorSelectionMode == COLOR_SELECTION_NEAREST_ENTRY &&
-            pasColorAssociation[i - 1].dfVal != dfVal)
+            asColorAssociation[i - 1].dfVal != dfVal)
         {
-            int index = i;
-            if (dfVal - pasColorAssociation[i - 1].dfVal <
-                pasColorAssociation[i].dfVal - dfVal)
-            {
-                --index;
-            }
-
-            *pnR = pasColorAssociation[index].nR;
-            *pnG = pasColorAssociation[index].nG;
-            *pnB = pasColorAssociation[index].nB;
-            *pnA = pasColorAssociation[index].nA;
+            const size_t index = (dfVal - asColorAssociation[i - 1].dfVal <
+                                  asColorAssociation[i].dfVal - dfVal)
+                                     ? i - 1
+                                     : i;
+            *pnR = asColorAssociation[index].nR;
+            *pnG = asColorAssociation[index].nG;
+            *pnB = asColorAssociation[index].nB;
+            *pnA = asColorAssociation[index].nA;
             return true;
         }
 
-        if (pasColorAssociation[i - 1].dfVal == dfVal)
+        if (std::isnan(asColorAssociation[i - 1].dfVal))
         {
-            *pnR = pasColorAssociation[i - 1].nR;
-            *pnG = pasColorAssociation[i - 1].nG;
-            *pnB = pasColorAssociation[i - 1].nB;
-            *pnA = pasColorAssociation[i - 1].nA;
-            return true;
-        }
-
-        if (CPLIsNan(pasColorAssociation[i - 1].dfVal))
-        {
-            *pnR = pasColorAssociation[i].nR;
-            *pnG = pasColorAssociation[i].nG;
-            *pnB = pasColorAssociation[i].nB;
-            *pnA = pasColorAssociation[i].nA;
+            *pnR = asColorAssociation[i].nR;
+            *pnG = asColorAssociation[i].nG;
+            *pnB = asColorAssociation[i].nB;
+            *pnA = asColorAssociation[i].nA;
             return true;
         }
 
         const double dfRatio =
-            (dfVal - pasColorAssociation[i - 1].dfVal) /
-            (pasColorAssociation[i].dfVal - pasColorAssociation[i - 1].dfVal);
-        *pnR = static_cast<int>(0.45 + pasColorAssociation[i - 1].nR +
-                                dfRatio * (pasColorAssociation[i].nR -
-                                           pasColorAssociation[i - 1].nR));
-        if (*pnR < 0)
-            *pnR = 0;
-        else if (*pnR > 255)
-            *pnR = 255;
-        *pnG = static_cast<int>(0.45 + pasColorAssociation[i - 1].nG +
-                                dfRatio * (pasColorAssociation[i].nG -
-                                           pasColorAssociation[i - 1].nG));
-        if (*pnG < 0)
-            *pnG = 0;
-        else if (*pnG > 255)
-            *pnG = 255;
-        *pnB = static_cast<int>(0.45 + pasColorAssociation[i - 1].nB +
-                                dfRatio * (pasColorAssociation[i].nB -
-                                           pasColorAssociation[i - 1].nB));
-        if (*pnB < 0)
-            *pnB = 0;
-        else if (*pnB > 255)
-            *pnB = 255;
-        *pnA = static_cast<int>(0.45 + pasColorAssociation[i - 1].nA +
-                                dfRatio * (pasColorAssociation[i].nA -
-                                           pasColorAssociation[i - 1].nA));
-        if (*pnA < 0)
-            *pnA = 0;
-        else if (*pnA > 255)
-            *pnA = 255;
+            (dfVal - asColorAssociation[i - 1].dfVal) /
+            (asColorAssociation[i].dfVal - asColorAssociation[i - 1].dfVal);
+        const auto LinearInterpolation = [dfRatio](int nValBefore, int nVal)
+        {
+            return std::clamp(static_cast<int>(0.45 + nValBefore +
+                                               dfRatio * (nVal - nValBefore)),
+                              0, 255);
+        };
+
+        *pnR = LinearInterpolation(asColorAssociation[i - 1].nR,
+                                   asColorAssociation[i].nR);
+        *pnG = LinearInterpolation(asColorAssociation[i - 1].nG,
+                                   asColorAssociation[i].nG);
+        *pnB = LinearInterpolation(asColorAssociation[i - 1].nB,
+                                   asColorAssociation[i].nB);
+        *pnA = LinearInterpolation(asColorAssociation[i - 1].nA,
+                                   asColorAssociation[i].nA);
 
         return true;
     }
@@ -1773,35 +1736,34 @@ static bool GDALColorReliefFindNamedColor(const char *pszColorName, int *pnR,
     *pnR = 0;
     *pnG = 0;
     *pnB = 0;
-    for (unsigned int i = 0; i < sizeof(namedColors) / sizeof(namedColors[0]);
-         i++)
+    for (const auto &namedColor : namedColors)
     {
-        if (EQUAL(pszColorName, namedColors[i].name))
+        if (EQUAL(pszColorName, namedColor.name))
         {
-            *pnR = static_cast<int>(255.0 * namedColors[i].r);
-            *pnG = static_cast<int>(255.0 * namedColors[i].g);
-            *pnB = static_cast<int>(255.0 * namedColors[i].b);
+            *pnR = static_cast<int>(255.0 * namedColor.r);
+            *pnG = static_cast<int>(255.0 * namedColor.g);
+            *pnB = static_cast<int>(255.0 * namedColor.b);
             return true;
         }
     }
     return false;
 }
 
-static ColorAssociation *
+static std::vector<ColorAssociation>
 GDALColorReliefParseColorFile(GDALRasterBandH hSrcBand,
-                              const char *pszColorFilename, int *pnColors)
+                              const char *pszColorFilename,
+                              ColorSelectionMode eColorSelectionMode)
 {
-    VSILFILE *fpColorFile = VSIFOpenL(pszColorFilename, "rt");
+    auto fpColorFile =
+        VSIVirtualHandleUniquePtr(VSIFOpenL(pszColorFilename, "rt"));
     if (fpColorFile == nullptr)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "Cannot find %s",
                  pszColorFilename);
-        *pnColors = 0;
-        return nullptr;
+        return {};
     }
 
-    ColorAssociation *pasColorAssociation = nullptr;
-    int nColorAssociation = 0;
+    std::vector<ColorAssociation> asColorAssociation;
 
     int bSrcHasNoData = FALSE;
     double dfSrcNoDataValue =
@@ -1809,7 +1771,8 @@ GDALColorReliefParseColorFile(GDALRasterBandH hSrcBand,
 
     const char *pszLine = nullptr;
     bool bIsGMT_CPT = false;
-    while ((pszLine = CPLReadLineL(fpColorFile)) != nullptr)
+    ColorAssociation sColor;
+    while ((pszLine = CPLReadLineL(fpColorFile.get())) != nullptr)
     {
         if (pszLine[0] == '#' && strstr(pszLine, "COLOR_MODEL"))
         {
@@ -1817,170 +1780,127 @@ GDALColorReliefParseColorFile(GDALRasterBandH hSrcBand,
             {
                 CPLError(CE_Failure, CPLE_AppDefined,
                          "Only COLOR_MODEL = RGB is supported");
-                CPLFree(pasColorAssociation);
-                *pnColors = 0;
-                return nullptr;
+                return {};
             }
             bIsGMT_CPT = true;
         }
 
-        char **papszFields =
-            CSLTokenizeStringComplex(pszLine, " ,\t:", FALSE, FALSE);
+        const CPLStringList aosFields(
+            CSLTokenizeStringComplex(pszLine, " ,\t:", FALSE, FALSE));
         /* Skip comment lines */
-        const int nTokens = CSLCount(papszFields);
-        if (nTokens >= 1 &&
-            (papszFields[0][0] == '#' || papszFields[0][0] == '/'))
+        const int nTokens = aosFields.size();
+        if (nTokens >= 1 && (aosFields[0][0] == '#' || aosFields[0][0] == '/'))
         {
-            CSLDestroy(papszFields);
             continue;
         }
 
         if (bIsGMT_CPT && nTokens == 8)
         {
-            pasColorAssociation = static_cast<ColorAssociation *>(
-                CPLRealloc(pasColorAssociation,
-                           (nColorAssociation + 2) * sizeof(ColorAssociation)));
+            sColor.dfVal = CPLAtof(aosFields[0]);
+            sColor.nR = atoi(aosFields[1]);
+            sColor.nG = atoi(aosFields[2]);
+            sColor.nB = atoi(aosFields[3]);
+            sColor.nA = 255;
+            asColorAssociation.push_back(sColor);
 
-            pasColorAssociation[nColorAssociation].dfVal =
-                CPLAtof(papszFields[0]);
-            pasColorAssociation[nColorAssociation].nR = atoi(papszFields[1]);
-            pasColorAssociation[nColorAssociation].nG = atoi(papszFields[2]);
-            pasColorAssociation[nColorAssociation].nB = atoi(papszFields[3]);
-            pasColorAssociation[nColorAssociation].nA = 255;
-            nColorAssociation++;
-
-            pasColorAssociation[nColorAssociation].dfVal =
-                CPLAtof(papszFields[4]);
-            pasColorAssociation[nColorAssociation].nR = atoi(papszFields[5]);
-            pasColorAssociation[nColorAssociation].nG = atoi(papszFields[6]);
-            pasColorAssociation[nColorAssociation].nB = atoi(papszFields[7]);
-            pasColorAssociation[nColorAssociation].nA = 255;
-            nColorAssociation++;
+            sColor.dfVal = CPLAtof(aosFields[4]);
+            sColor.nR = atoi(aosFields[5]);
+            sColor.nG = atoi(aosFields[6]);
+            sColor.nB = atoi(aosFields[7]);
+            sColor.nA = 255;
+            asColorAssociation.push_back(sColor);
         }
         else if (bIsGMT_CPT && nTokens == 4)
         {
             // The first token might be B (background), F (foreground) or N
             // (nodata) Just interested in N.
-            if (EQUAL(papszFields[0], "N") && bSrcHasNoData)
+            if (EQUAL(aosFields[0], "N") && bSrcHasNoData)
             {
-                pasColorAssociation =
-                    static_cast<ColorAssociation *>(CPLRealloc(
-                        pasColorAssociation,
-                        (nColorAssociation + 1) * sizeof(ColorAssociation)));
-
-                pasColorAssociation[nColorAssociation].dfVal = dfSrcNoDataValue;
-                pasColorAssociation[nColorAssociation].nR =
-                    atoi(papszFields[1]);
-                pasColorAssociation[nColorAssociation].nG =
-                    atoi(papszFields[2]);
-                pasColorAssociation[nColorAssociation].nB =
-                    atoi(papszFields[3]);
-                pasColorAssociation[nColorAssociation].nA = 255;
-                nColorAssociation++;
+                sColor.dfVal = dfSrcNoDataValue;
+                sColor.nR = atoi(aosFields[1]);
+                sColor.nG = atoi(aosFields[2]);
+                sColor.nB = atoi(aosFields[3]);
+                sColor.nA = 255;
+                asColorAssociation.push_back(sColor);
             }
         }
         else if (!bIsGMT_CPT && nTokens >= 2)
         {
-            pasColorAssociation = static_cast<ColorAssociation *>(
-                CPLRealloc(pasColorAssociation,
-                           (nColorAssociation + 1) * sizeof(ColorAssociation)));
-            if (EQUAL(papszFields[0], "nv"))
+            if (EQUAL(aosFields[0], "nv"))
             {
                 if (!bSrcHasNoData)
                 {
                     CPLError(CE_Warning, CPLE_AppDefined,
                              "Input dataset has no nodata value. "
                              "Ignoring 'nv' entry in color palette");
-                    CSLDestroy(papszFields);
                     continue;
                 }
-                pasColorAssociation[nColorAssociation].dfVal = dfSrcNoDataValue;
+                sColor.dfVal = dfSrcNoDataValue;
             }
-            else if (strlen(papszFields[0]) > 1 &&
-                     papszFields[0][strlen(papszFields[0]) - 1] == '%')
+            else if (strlen(aosFields[0]) > 1 &&
+                     aosFields[0][strlen(aosFields[0]) - 1] == '%')
             {
-                const double dfPct = CPLAtof(papszFields[0]) / 100.0;
+                const double dfPct = CPLAtof(aosFields[0]) / 100.0;
                 if (dfPct < 0.0 || dfPct > 1.0)
                 {
                     CPLError(CE_Failure, CPLE_AppDefined,
-                             "Wrong value for a percentage : %s",
-                             papszFields[0]);
-                    CSLDestroy(papszFields);
-                    VSIFCloseL(fpColorFile);
-                    CPLFree(pasColorAssociation);
-                    *pnColors = 0;
-                    return nullptr;
+                             "Wrong value for a percentage : %s", aosFields[0]);
+                    return {};
                 }
-                pasColorAssociation[nColorAssociation].dfVal =
+                sColor.dfVal =
                     GDALColorReliefGetAbsoluteValFromPct(hSrcBand, dfPct);
             }
             else
             {
-                pasColorAssociation[nColorAssociation].dfVal =
-                    CPLAtof(papszFields[0]);
+                sColor.dfVal = CPLAtof(aosFields[0]);
             }
 
             if (nTokens >= 4)
             {
-                pasColorAssociation[nColorAssociation].nR =
-                    atoi(papszFields[1]);
-                pasColorAssociation[nColorAssociation].nG =
-                    atoi(papszFields[2]);
-                pasColorAssociation[nColorAssociation].nB =
-                    atoi(papszFields[3]);
-                pasColorAssociation[nColorAssociation].nA =
-                    (CSLCount(papszFields) >= 5) ? atoi(papszFields[4]) : 255;
+                sColor.nR = atoi(aosFields[1]);
+                sColor.nG = atoi(aosFields[2]);
+                sColor.nB = atoi(aosFields[3]);
+                sColor.nA =
+                    (CSLCount(aosFields) >= 5) ? atoi(aosFields[4]) : 255;
             }
             else
             {
                 int nR = 0;
                 int nG = 0;
                 int nB = 0;
-                if (!GDALColorReliefFindNamedColor(papszFields[1], &nR, &nG,
-                                                   &nB))
+                if (!GDALColorReliefFindNamedColor(aosFields[1], &nR, &nG, &nB))
                 {
                     CPLError(CE_Failure, CPLE_AppDefined, "Unknown color : %s",
-                             papszFields[1]);
-                    CSLDestroy(papszFields);
-                    VSIFCloseL(fpColorFile);
-                    CPLFree(pasColorAssociation);
-                    *pnColors = 0;
-                    return nullptr;
+                             aosFields[1]);
+                    return {};
                 }
-                pasColorAssociation[nColorAssociation].nR = nR;
-                pasColorAssociation[nColorAssociation].nG = nG;
-                pasColorAssociation[nColorAssociation].nB = nB;
-                pasColorAssociation[nColorAssociation].nA =
-                    (CSLCount(papszFields) >= 3) ? atoi(papszFields[2]) : 255;
+                sColor.nR = nR;
+                sColor.nG = nG;
+                sColor.nB = nB;
+                sColor.nA =
+                    (CSLCount(aosFields) >= 3) ? atoi(aosFields[2]) : 255;
             }
-
-            nColorAssociation++;
+            asColorAssociation.push_back(sColor);
         }
-        CSLDestroy(papszFields);
     }
-    VSIFCloseL(fpColorFile);
 
-    if (nColorAssociation == 0)
+    if (asColorAssociation.empty())
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "No color association found in %s", pszColorFilename);
-        CPLFree(pasColorAssociation);
-        *pnColors = 0;
-        return nullptr;
+        return {};
     }
 
-    GDALColorReliefProcessColors(&pasColorAssociation, &nColorAssociation,
-                                 bSrcHasNoData, dfSrcNoDataValue);
+    GDALColorReliefProcessColors(asColorAssociation, bSrcHasNoData,
+                                 dfSrcNoDataValue, eColorSelectionMode);
 
-    *pnColors = nColorAssociation;
-    return pasColorAssociation;
+    return asColorAssociation;
 }
 
-static GByte *GDALColorReliefPrecompute(GDALRasterBandH hSrcBand,
-                                        ColorAssociation *pasColorAssociation,
-                                        int nColorAssociation,
-                                        ColorSelectionMode eColorSelectionMode,
-                                        int *pnIndexOffset)
+static GByte *GDALColorReliefPrecompute(
+    GDALRasterBandH hSrcBand,
+    const std::vector<ColorAssociation> &asColorAssociation,
+    ColorSelectionMode eColorSelectionMode, int *pnIndexOffset)
 {
     const GDALDataType eDT = GDALGetRasterDataType(hSrcBand);
     GByte *pabyPrecomputed = nullptr;
@@ -2001,9 +1921,8 @@ static GByte *GDALColorReliefPrecompute(GDALRasterBandH hSrcBand,
                 int nG = 0;
                 int nB = 0;
                 int nA = 0;
-                GDALColorReliefGetRGBA(pasColorAssociation, nColorAssociation,
-                                       i - nIndexOffset, eColorSelectionMode,
-                                       &nR, &nG, &nB, &nA);
+                GDALColorReliefGetRGBA(asColorAssociation, i - nIndexOffset,
+                                       eColorSelectionMode, &nR, &nG, &nB, &nA);
                 pabyPrecomputed[4 * i] = static_cast<GByte>(nR);
                 pabyPrecomputed[4 * i + 1] = static_cast<GByte>(nG);
                 pabyPrecomputed[4 * i + 2] = static_cast<GByte>(nB);
@@ -2028,8 +1947,7 @@ class GDALColorReliefDataset : public GDALDataset
 
     GDALDatasetH hSrcDS;
     GDALRasterBandH hSrcBand;
-    int nColorAssociation;
-    ColorAssociation *pasColorAssociation;
+    std::vector<ColorAssociation> asColorAssociation{};
     ColorSelectionMode eColorSelectionMode;
     GByte *pabyPrecomputed;
     int nIndexOffset;
@@ -2037,6 +1955,8 @@ class GDALColorReliefDataset : public GDALDataset
     int *panSourceBuf;
     int nCurBlockXOff;
     int nCurBlockYOff;
+
+    CPL_DISALLOW_COPY_ASSIGN(GDALColorReliefDataset)
 
   public:
     GDALColorReliefDataset(GDALDatasetH hSrcDS, GDALRasterBandH hSrcBand,
@@ -2074,13 +1994,13 @@ GDALColorReliefDataset::GDALColorReliefDataset(
     GDALDatasetH hSrcDSIn, GDALRasterBandH hSrcBandIn,
     const char *pszColorFilename, ColorSelectionMode eColorSelectionModeIn,
     int bAlpha)
-    : hSrcDS(hSrcDSIn), hSrcBand(hSrcBandIn), nColorAssociation(0),
-      pasColorAssociation(nullptr), eColorSelectionMode(eColorSelectionModeIn),
-      pabyPrecomputed(nullptr), nIndexOffset(0), pafSourceBuf(nullptr),
-      panSourceBuf(nullptr), nCurBlockXOff(-1), nCurBlockYOff(-1)
+    : hSrcDS(hSrcDSIn), hSrcBand(hSrcBandIn),
+      eColorSelectionMode(eColorSelectionModeIn), pabyPrecomputed(nullptr),
+      nIndexOffset(0), pafSourceBuf(nullptr), panSourceBuf(nullptr),
+      nCurBlockXOff(-1), nCurBlockYOff(-1)
 {
-    pasColorAssociation = GDALColorReliefParseColorFile(
-        hSrcBand, pszColorFilename, &nColorAssociation);
+    asColorAssociation = GDALColorReliefParseColorFile(
+        hSrcBand, pszColorFilename, eColorSelectionMode);
 
     nRasterXSize = GDALGetRasterXSize(hSrcDS);
     nRasterYSize = GDALGetRasterYSize(hSrcDS);
@@ -2090,8 +2010,7 @@ GDALColorReliefDataset::GDALColorReliefDataset(
     GDALGetBlockSize(hSrcBand, &nBlockXSize, &nBlockYSize);
 
     pabyPrecomputed = GDALColorReliefPrecompute(
-        hSrcBand, pasColorAssociation, nColorAssociation, eColorSelectionMode,
-        &nIndexOffset);
+        hSrcBand, asColorAssociation, eColorSelectionMode, &nIndexOffset);
 
     for (int i = 0; i < ((bAlpha) ? 4 : 3); i++)
     {
@@ -2108,7 +2027,6 @@ GDALColorReliefDataset::GDALColorReliefDataset(
 
 GDALColorReliefDataset::~GDALColorReliefDataset()
 {
-    CPLFree(pasColorAssociation);
     CPLFree(pabyPrecomputed);
     CPLFree(panSourceBuf);
     CPLFree(pafSourceBuf);
@@ -2188,10 +2106,9 @@ CPLErr GDALColorReliefRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
             for (int x = 0; x < nReqXSize; x++)
             {
                 GDALColorReliefGetRGBA(
-                    poGDS->pasColorAssociation, poGDS->nColorAssociation,
-                    poGDS->pafSourceBuf[j], poGDS->eColorSelectionMode,
-                    &anComponents[0], &anComponents[1], &anComponents[2],
-                    &anComponents[3]);
+                    poGDS->asColorAssociation, poGDS->pafSourceBuf[j],
+                    poGDS->eColorSelectionMode, &anComponents[0],
+                    &anComponents[1], &anComponents[2], &anComponents[3]);
                 static_cast<GByte *>(pImage)[y * nBlockXSize + x] =
                     static_cast<GByte>(anComponents[nBand - 1]);
                 j++;
@@ -2218,10 +2135,9 @@ GDALColorRelief(GDALRasterBandH hSrcBand, GDALRasterBandH hDstBand1,
         hDstBand3 == nullptr)
         return CE_Failure;
 
-    int nColorAssociation = 0;
-    ColorAssociation *pasColorAssociation = GDALColorReliefParseColorFile(
-        hSrcBand, pszColorFilename, &nColorAssociation);
-    if (pasColorAssociation == nullptr)
+    const auto asColorAssociation = GDALColorReliefParseColorFile(
+        hSrcBand, pszColorFilename, eColorSelectionMode);
+    if (asColorAssociation.empty())
         return CE_Failure;
 
     if (pfnProgress == nullptr)
@@ -2232,9 +2148,9 @@ GDALColorRelief(GDALRasterBandH hSrcBand, GDALRasterBandH hDstBand1,
     /*      for GDT_Byte, GDT_Int16 or GDT_UInt16                           */
     /* -------------------------------------------------------------------- */
     int nIndexOffset = 0;
-    GByte *pabyPrecomputed = GDALColorReliefPrecompute(
-        hSrcBand, pasColorAssociation, nColorAssociation, eColorSelectionMode,
-        &nIndexOffset);
+    std::unique_ptr<GByte, VSIFreeReleaser> pabyPrecomputed(
+        GDALColorReliefPrecompute(hSrcBand, asColorAssociation,
+                                  eColorSelectionMode, &nIndexOffset));
 
     /* -------------------------------------------------------------------- */
     /*      Initialize progress counter.                                    */
@@ -2243,15 +2159,17 @@ GDALColorRelief(GDALRasterBandH hSrcBand, GDALRasterBandH hDstBand1,
     const int nXSize = GDALGetRasterBandXSize(hSrcBand);
     const int nYSize = GDALGetRasterBandYSize(hSrcBand);
 
-    float *pafSourceBuf = nullptr;
-    int *panSourceBuf = nullptr;
+    std::unique_ptr<float, VSIFreeReleaser> pafSourceBuf;
+    std::unique_ptr<int, VSIFreeReleaser> panSourceBuf;
     if (pabyPrecomputed)
-        panSourceBuf =
-            static_cast<int *>(VSI_MALLOC2_VERBOSE(sizeof(int), nXSize));
+        panSourceBuf.reset(
+            static_cast<int *>(VSI_MALLOC2_VERBOSE(sizeof(int), nXSize)));
     else
-        pafSourceBuf =
-            static_cast<float *>(VSI_MALLOC2_VERBOSE(sizeof(float), nXSize));
-    GByte *pabyDestBuf1 = static_cast<GByte *>(VSI_MALLOC2_VERBOSE(4, nXSize));
+        pafSourceBuf.reset(
+            static_cast<float *>(VSI_MALLOC2_VERBOSE(sizeof(float), nXSize)));
+    std::unique_ptr<GByte, VSIFreeReleaser> pabyDestBuf(
+        static_cast<GByte *>(VSI_MALLOC2_VERBOSE(4, nXSize)));
+    GByte *pabyDestBuf1 = pabyDestBuf.get();
     GByte *pabyDestBuf2 = pabyDestBuf1 ? pabyDestBuf1 + nXSize : nullptr;
     GByte *pabyDestBuf3 = pabyDestBuf2 ? pabyDestBuf2 + nXSize : nullptr;
     GByte *pabyDestBuf4 = pabyDestBuf3 ? pabyDestBuf3 + nXSize : nullptr;
@@ -2260,24 +2178,12 @@ GDALColorRelief(GDALRasterBandH hSrcBand, GDALRasterBandH hDstBand1,
         (pabyPrecomputed == nullptr && pafSourceBuf == nullptr) ||
         pabyDestBuf1 == nullptr)
     {
-        VSIFree(pabyPrecomputed);
-        CPLFree(pafSourceBuf);
-        CPLFree(panSourceBuf);
-        CPLFree(pabyDestBuf1);
-        CPLFree(pasColorAssociation);
-
         return CE_Failure;
     }
 
     if (!pfnProgress(0.0, nullptr, pProgressData))
     {
         CPLError(CE_Failure, CPLE_UserInterrupt, "User terminated");
-        VSIFree(pabyPrecomputed);
-        CPLFree(pafSourceBuf);
-        CPLFree(panSourceBuf);
-        CPLFree(pabyDestBuf1);
-        CPLFree(pasColorAssociation);
-
         return CE_Failure;
     }
 
@@ -2291,37 +2197,34 @@ GDALColorRelief(GDALRasterBandH hSrcBand, GDALRasterBandH hDstBand1,
         /* Read source buffer */
         CPLErr eErr = GDALRasterIO(
             hSrcBand, GF_Read, 0, i, nXSize, 1,
-            panSourceBuf ? static_cast<void *>(panSourceBuf)
-                         : static_cast<void *>(pafSourceBuf),
+            panSourceBuf ? static_cast<void *>(panSourceBuf.get())
+                         : static_cast<void *>(pafSourceBuf.get()),
             nXSize, 1, panSourceBuf ? GDT_Int32 : GDT_Float32, 0, 0);
         if (eErr != CE_None)
         {
-            VSIFree(pabyPrecomputed);
-            CPLFree(pafSourceBuf);
-            CPLFree(panSourceBuf);
-            CPLFree(pabyDestBuf1);
-            CPLFree(pasColorAssociation);
             return eErr;
         }
 
         if (pabyPrecomputed)
         {
+            const auto pabyPrecomputedRaw = pabyPrecomputed.get();
+            const auto panSourceBufRaw = panSourceBuf.get();
             for (int j = 0; j < nXSize; j++)
             {
-                int nIndex = panSourceBuf[j] + nIndexOffset;
-                pabyDestBuf1[j] = pabyPrecomputed[4 * nIndex];
-                pabyDestBuf2[j] = pabyPrecomputed[4 * nIndex + 1];
-                pabyDestBuf3[j] = pabyPrecomputed[4 * nIndex + 2];
-                pabyDestBuf4[j] = pabyPrecomputed[4 * nIndex + 3];
+                int nIndex = panSourceBufRaw[j] + nIndexOffset;
+                pabyDestBuf1[j] = pabyPrecomputedRaw[4 * nIndex];
+                pabyDestBuf2[j] = pabyPrecomputedRaw[4 * nIndex + 1];
+                pabyDestBuf3[j] = pabyPrecomputedRaw[4 * nIndex + 2];
+                pabyDestBuf4[j] = pabyPrecomputedRaw[4 * nIndex + 3];
             }
         }
         else
         {
+            const auto pafSourceBufRaw = pafSourceBuf.get();
             for (int j = 0; j < nXSize; j++)
             {
-                GDALColorReliefGetRGBA(pasColorAssociation, nColorAssociation,
-                                       pafSourceBuf[j], eColorSelectionMode,
-                                       &nR, &nG, &nB, &nA);
+                GDALColorReliefGetRGBA(asColorAssociation, pafSourceBufRaw[j],
+                                       eColorSelectionMode, &nR, &nG, &nB, &nA);
                 pabyDestBuf1[j] = static_cast<GByte>(nR);
                 pabyDestBuf2[j] = static_cast<GByte>(nG);
                 pabyDestBuf3[j] = static_cast<GByte>(nB);
@@ -2334,80 +2237,35 @@ GDALColorRelief(GDALRasterBandH hSrcBand, GDALRasterBandH hDstBand1,
          */
         eErr = GDALRasterIO(hDstBand1, GF_Write, 0, i, nXSize, 1, pabyDestBuf1,
                             nXSize, 1, GDT_Byte, 0, 0);
-        if (eErr != CE_None)
+        if (eErr == CE_None)
         {
-            VSIFree(pabyPrecomputed);
-            CPLFree(pafSourceBuf);
-            CPLFree(panSourceBuf);
-            CPLFree(pabyDestBuf1);
-            CPLFree(pasColorAssociation);
-
-            return eErr;
+            eErr = GDALRasterIO(hDstBand2, GF_Write, 0, i, nXSize, 1,
+                                pabyDestBuf2, nXSize, 1, GDT_Byte, 0, 0);
         }
-
-        eErr = GDALRasterIO(hDstBand2, GF_Write, 0, i, nXSize, 1, pabyDestBuf2,
-                            nXSize, 1, GDT_Byte, 0, 0);
-        if (eErr != CE_None)
+        if (eErr == CE_None)
         {
-            VSIFree(pabyPrecomputed);
-            CPLFree(pafSourceBuf);
-            CPLFree(panSourceBuf);
-            CPLFree(pabyDestBuf1);
-            CPLFree(pasColorAssociation);
-
-            return eErr;
+            eErr = GDALRasterIO(hDstBand3, GF_Write, 0, i, nXSize, 1,
+                                pabyDestBuf3, nXSize, 1, GDT_Byte, 0, 0);
         }
-
-        eErr = GDALRasterIO(hDstBand3, GF_Write, 0, i, nXSize, 1, pabyDestBuf3,
-                            nXSize, 1, GDT_Byte, 0, 0);
-        if (eErr != CE_None)
-        {
-            VSIFree(pabyPrecomputed);
-            CPLFree(pafSourceBuf);
-            CPLFree(panSourceBuf);
-            CPLFree(pabyDestBuf1);
-            CPLFree(pasColorAssociation);
-
-            return eErr;
-        }
-
-        if (hDstBand4)
+        if (eErr == CE_None && hDstBand4)
         {
             eErr = GDALRasterIO(hDstBand4, GF_Write, 0, i, nXSize, 1,
                                 pabyDestBuf4, nXSize, 1, GDT_Byte, 0, 0);
-            if (eErr != CE_None)
-            {
-                VSIFree(pabyPrecomputed);
-                CPLFree(pafSourceBuf);
-                CPLFree(panSourceBuf);
-                CPLFree(pabyDestBuf1);
-                CPLFree(pasColorAssociation);
-
-                return eErr;
-            }
         }
 
-        if (!pfnProgress(1.0 * (i + 1) / nYSize, nullptr, pProgressData))
+        if (eErr == CE_None &&
+            !pfnProgress(1.0 * (i + 1) / nYSize, nullptr, pProgressData))
         {
             CPLError(CE_Failure, CPLE_UserInterrupt, "User terminated");
-
-            VSIFree(pabyPrecomputed);
-            CPLFree(pafSourceBuf);
-            CPLFree(panSourceBuf);
-            CPLFree(pabyDestBuf1);
-            CPLFree(pasColorAssociation);
-
-            return CE_Failure;
+            eErr = CE_Failure;
+        }
+        if (eErr != CE_None)
+        {
+            return eErr;
         }
     }
 
     pfnProgress(1.0, nullptr, pProgressData);
-
-    VSIFree(pabyPrecomputed);
-    CPLFree(pafSourceBuf);
-    CPLFree(panSourceBuf);
-    CPLFree(pabyDestBuf1);
-    CPLFree(pasColorAssociation);
 
     return CE_None;
 }
@@ -2423,16 +2281,14 @@ static CPLErr GDALGenerateVRTColorRelief(const char *pszDstFilename,
                                          ColorSelectionMode eColorSelectionMode,
                                          bool bAddAlpha)
 {
-    int nColorAssociation = 0;
-    ColorAssociation *pasColorAssociation = GDALColorReliefParseColorFile(
-        hSrcBand, pszColorFilename, &nColorAssociation);
-    if (pasColorAssociation == nullptr)
+    const auto asColorAssociation = GDALColorReliefParseColorFile(
+        hSrcBand, pszColorFilename, eColorSelectionMode);
+    if (asColorAssociation.empty())
         return CE_Failure;
 
     VSILFILE *fp = VSIFOpenL(pszDstFilename, "wt");
     if (fp == nullptr)
     {
-        CPLFree(pasColorAssociation);
         return CE_Failure;
     }
 
@@ -2509,62 +2365,66 @@ static CPLErr GDALGenerateVRTColorRelief(const char *pszDstFilename,
 
         bOK &= VSIFPrintfL(fp, "      <LUT>") > 0;
 
-        for (int iColor = 0; iColor < nColorAssociation; iColor++)
+        for (size_t iColor = 0; iColor < asColorAssociation.size(); iColor++)
         {
-            if (eColorSelectionMode == COLOR_SELECTION_NEAREST_ENTRY)
-            {
-                if (iColor > 1)
-                    bOK &= VSIFPrintfL(fp, ",") > 0;
-            }
-            else if (iColor > 0)
+            const double dfVal = asColorAssociation[iColor].dfVal;
+            if (iColor > 0)
                 bOK &= VSIFPrintfL(fp, ",") > 0;
 
-            const double dfVal = pasColorAssociation[iColor].dfVal;
-
-            if (eColorSelectionMode == COLOR_SELECTION_EXACT_ENTRY)
-            {
-                bOK &= VSIFPrintfL(fp, "%.18g:0,",
-                                   dfVal - fabs(dfVal) * DBL_EPSILON) > 0;
-            }
-            else if (iColor > 0 &&
-                     eColorSelectionMode == COLOR_SELECTION_NEAREST_ENTRY)
+            if (iColor > 0 &&
+                eColorSelectionMode == COLOR_SELECTION_NEAREST_ENTRY &&
+                dfVal !=
+                    std::nextafter(asColorAssociation[iColor - 1].dfVal,
+                                   std::numeric_limits<double>::infinity()))
             {
                 const double dfMidVal =
-                    (dfVal + pasColorAssociation[iColor - 1].dfVal) / 2.0;
+                    (dfVal + asColorAssociation[iColor - 1].dfVal) / 2.0;
                 bOK &=
                     VSIFPrintfL(
-                        fp, "%.18g:%d", dfMidVal - fabs(dfMidVal) * DBL_EPSILON,
-                        (iBand == 0)   ? pasColorAssociation[iColor - 1].nR
-                        : (iBand == 1) ? pasColorAssociation[iColor - 1].nG
-                        : (iBand == 2)
-                            ? pasColorAssociation[iColor - 1].nB
-                            : pasColorAssociation[iColor - 1].nA) > 0;
+                        fp, "%.18g:%d",
+                        std::nextafter(
+                            dfMidVal, -std::numeric_limits<double>::infinity()),
+                        (iBand == 0)   ? asColorAssociation[iColor - 1].nR
+                        : (iBand == 1) ? asColorAssociation[iColor - 1].nG
+                        : (iBand == 2) ? asColorAssociation[iColor - 1].nB
+                                       : asColorAssociation[iColor - 1].nA) > 0;
                 bOK &= VSIFPrintfL(
                            fp, ",%.18g:%d", dfMidVal,
-                           (iBand == 0)   ? pasColorAssociation[iColor].nR
-                           : (iBand == 1) ? pasColorAssociation[iColor].nG
-                           : (iBand == 2) ? pasColorAssociation[iColor].nB
-                                          : pasColorAssociation[iColor].nA) > 0;
+                           (iBand == 0)   ? asColorAssociation[iColor].nR
+                           : (iBand == 1) ? asColorAssociation[iColor].nG
+                           : (iBand == 2) ? asColorAssociation[iColor].nB
+                                          : asColorAssociation[iColor].nA) > 0;
             }
-
-            if (eColorSelectionMode != COLOR_SELECTION_NEAREST_ENTRY)
+            else
             {
+                if (eColorSelectionMode == COLOR_SELECTION_EXACT_ENTRY)
+                {
+                    bOK &=
+                        VSIFPrintfL(
+                            fp, "%.18g:0,",
+                            std::nextafter(
+                                dfVal,
+                                -std::numeric_limits<double>::infinity())) > 0;
+                }
                 if (dfVal != static_cast<double>(static_cast<int>(dfVal)))
                     bOK &= VSIFPrintfL(fp, "%.18g", dfVal) > 0;
                 else
                     bOK &= VSIFPrintfL(fp, "%d", static_cast<int>(dfVal)) > 0;
                 bOK &= VSIFPrintfL(
                            fp, ":%d",
-                           (iBand == 0)   ? pasColorAssociation[iColor].nR
-                           : (iBand == 1) ? pasColorAssociation[iColor].nG
-                           : (iBand == 2) ? pasColorAssociation[iColor].nB
-                                          : pasColorAssociation[iColor].nA) > 0;
+                           (iBand == 0)   ? asColorAssociation[iColor].nR
+                           : (iBand == 1) ? asColorAssociation[iColor].nG
+                           : (iBand == 2) ? asColorAssociation[iColor].nB
+                                          : asColorAssociation[iColor].nA) > 0;
             }
 
             if (eColorSelectionMode == COLOR_SELECTION_EXACT_ENTRY)
             {
-                bOK &= VSIFPrintfL(fp, ",%.18g:0",
-                                   dfVal + fabs(dfVal) * DBL_EPSILON) > 0;
+                bOK &= VSIFPrintfL(
+                           fp, ",%.18g:0",
+                           std::nextafter(
+                               dfVal,
+                               std::numeric_limits<double>::infinity())) > 0;
             }
         }
         bOK &= VSIFPrintfL(fp, "</LUT>\n") > 0;
@@ -2578,8 +2438,6 @@ static CPLErr GDALGenerateVRTColorRelief(const char *pszDstFilename,
     bOK &= VSIFPrintfL(fp, "</VRTDataset>\n") > 0;
 
     VSIFCloseL(fp);
-
-    CPLFree(pasColorAssociation);
 
     return (bOK) ? CE_None : CE_Failure;
 }
@@ -2652,24 +2510,23 @@ template <class T>
 static float GDALRoughnessAlg(const T *afWin, float /*fDstNoDataValue*/,
                               void * /*pData*/)
 {
-    // Roughness is the largest difference
-    //  between any two cells
+    // Roughness is the largest difference between any two cells
 
-    T pafRoughnessMin = afWin[0];
-    T pafRoughnessMax = afWin[0];
+    T fRoughnessMin = afWin[0];
+    T fRoughnessMax = afWin[0];
 
     for (int k = 1; k < 9; k++)
     {
-        if (afWin[k] > pafRoughnessMax)
+        if (afWin[k] > fRoughnessMax)
         {
-            pafRoughnessMax = afWin[k];
+            fRoughnessMax = afWin[k];
         }
-        if (afWin[k] < pafRoughnessMin)
+        if (afWin[k] < fRoughnessMin)
         {
-            pafRoughnessMin = afWin[k];
+            fRoughnessMin = afWin[k];
         }
     }
-    return static_cast<float>(pafRoughnessMax - pafRoughnessMin);
+    return static_cast<float>(fRoughnessMax - fRoughnessMin);
 }
 
 /************************************************************************/
@@ -2693,6 +2550,8 @@ template <class T> class GDALGeneric3x3Dataset : public GDALDataset
     double dfDstNoDataValue;
     int nCurLine;
     bool bComputeAtEdges;
+
+    CPL_DISALLOW_COPY_ASSIGN(GDALGeneric3x3Dataset)
 
   public:
     GDALGeneric3x3Dataset(GDALDatasetH hSrcDS, GDALRasterBandH hSrcBand,
@@ -2825,7 +2684,7 @@ GDALGeneric3x3RasterBand<T>::GDALGeneric3x3RasterBand(
     {
         eReadDT = GDT_Float32;
         fSrcNoDataValue = static_cast<T>(dfNoDataValue);
-        bIsSrcNoDataNan = bSrcHasNoData && CPLIsNan(dfNoDataValue);
+        bIsSrcNoDataNan = bSrcHasNoData && std::isnan(dfNoDataValue);
     }
 }
 
@@ -3171,6 +3030,438 @@ static Algorithm GetAlgorithm(const char *pszProcessing)
 }
 
 /************************************************************************/
+/*                    GDALDEMAppOptionsGetParser()                      */
+/************************************************************************/
+
+static std::unique_ptr<GDALArgumentParser> GDALDEMAppOptionsGetParser(
+    GDALDEMProcessingOptions *psOptions,
+    GDALDEMProcessingOptionsForBinary *psOptionsForBinary)
+{
+    auto argParser = std::make_unique<GDALArgumentParser>(
+        "gdaldem", /* bForBinary=*/psOptionsForBinary != nullptr);
+
+    argParser->add_description(_("Tools to analyze and visualize DEMs."));
+
+    argParser->add_epilog(_("For more details, consult "
+                            "https://gdal.org/programs/gdaldem.html"));
+
+    // Common options (for all modes)
+    auto addCommonOptions =
+        [psOptions, psOptionsForBinary](GDALArgumentParser *subParser)
+    {
+        subParser->add_output_format_argument(psOptions->osFormat);
+
+        subParser->add_argument("-compute_edges")
+            .flag()
+            .store_into(psOptions->bComputeAtEdges)
+            .help(_(
+                "Do the computation at raster edges and near nodata values."));
+
+        auto &bandArg = subParser->add_argument("-b")
+                            .metavar("<value>")
+                            .scan<'i', int>()
+                            .store_into(psOptions->nBand)
+                            .help(_("Select an input band."));
+
+        subParser->add_hidden_alias_for(bandArg, "--b");
+
+        subParser->add_creation_options_argument(psOptions->aosCreationOptions);
+
+        if (psOptionsForBinary)
+        {
+            subParser->add_quiet_argument(&psOptionsForBinary->bQuiet);
+        }
+    };
+
+    // Hillshade
+
+    auto subCommandHillshade = argParser->add_subparser(
+        "hillshade", /* bForBinary=*/psOptionsForBinary != nullptr);
+    subCommandHillshade->add_description(_("Compute hillshade."));
+
+    if (psOptionsForBinary)
+    {
+        subCommandHillshade->add_argument("input_dem")
+            .store_into(psOptionsForBinary->osSrcFilename)
+            .help(_("The input DEM raster to be processed."));
+
+        subCommandHillshade->add_argument("output_hillshade")
+            .store_into(psOptionsForBinary->osDstFilename)
+            .help(_("The output raster to be produced."));
+    }
+
+    subCommandHillshade->add_argument("-alg")
+        .metavar("<Horn|ZevenbergenThorne>")
+        .action(
+            [psOptions](const std::string &s)
+            {
+                if (EQUAL(s.c_str(), "ZevenbergenThorne"))
+                {
+                    psOptions->bGradientAlgSpecified = true;
+                    psOptions->eGradientAlg = GradientAlg::ZEVENBERGEN_THORNE;
+                }
+                else if (EQUAL(s.c_str(), "Horn"))
+                {
+                    psOptions->bGradientAlgSpecified = true;
+                    psOptions->eGradientAlg = GradientAlg::HORN;
+                }
+                else
+                {
+                    throw std::invalid_argument(
+                        CPLSPrintf("Invalid value for -alg: %s.", s.c_str()));
+                }
+            })
+        .help(_("Choose between ZevenbergenThorne or Horn algorithms."));
+
+    subCommandHillshade->add_argument("-z")
+        .metavar("<factor>")
+        .scan<'g', double>()
+        .store_into(psOptions->z)
+        .help(_("Vertical exaggeration."));
+
+    auto &scaleHillshadeArg =
+        subCommandHillshade->add_argument("-s")
+            .metavar("<scale>")
+            .scan<'g', double>()
+            .store_into(psOptions->scale)
+            .help(_("Ratio of vertical units to horizontal."));
+
+    subCommandHillshade->add_hidden_alias_for(scaleHillshadeArg, "--s");
+    subCommandHillshade->add_hidden_alias_for(scaleHillshadeArg, "-scale");
+    subCommandHillshade->add_hidden_alias_for(scaleHillshadeArg, "--scale");
+
+    auto &azimuthHillshadeArg =
+        subCommandHillshade->add_argument("-az")
+            .metavar("<azimuth>")
+            .scan<'g', double>()
+            .store_into(psOptions->az)
+            .help(_("Azimuth of the light, in degrees."));
+
+    subCommandHillshade->add_hidden_alias_for(azimuthHillshadeArg, "--az");
+    subCommandHillshade->add_hidden_alias_for(azimuthHillshadeArg, "-azimuth");
+    subCommandHillshade->add_hidden_alias_for(azimuthHillshadeArg, "--azimuth");
+
+    auto &altitudeHillshadeArg =
+        subCommandHillshade->add_argument("-alt")
+            .metavar("<altitude>")
+            .scan<'g', double>()
+            .store_into(psOptions->alt)
+            .help(_("Altitude of the light, in degrees."));
+
+    subCommandHillshade->add_hidden_alias_for(altitudeHillshadeArg, "--alt");
+    subCommandHillshade->add_hidden_alias_for(altitudeHillshadeArg,
+                                              "--altitude");
+    subCommandHillshade->add_hidden_alias_for(altitudeHillshadeArg,
+                                              "-altitude");
+
+    auto &shadingGroup = subCommandHillshade->add_mutually_exclusive_group();
+
+    auto &combinedHillshadeArg = shadingGroup.add_argument("-combined")
+                                     .flag()
+                                     .store_into(psOptions->bCombined)
+                                     .help(_("Use combined shading."));
+
+    subCommandHillshade->add_hidden_alias_for(combinedHillshadeArg,
+                                              "--combined");
+
+    auto &multidirectionalHillshadeArg =
+        shadingGroup.add_argument("-multidirectional")
+            .flag()
+            .store_into(psOptions->bMultiDirectional)
+            .help(_("Use multidirectional shading."));
+
+    subCommandHillshade->add_hidden_alias_for(multidirectionalHillshadeArg,
+                                              "--multidirectional");
+
+    auto &igorHillshadeArg =
+        shadingGroup.add_argument("-igor")
+            .flag()
+            .store_into(psOptions->bIgor)
+            .help(_("Shading which tries to minimize effects on other map "
+                    "features beneath."));
+
+    subCommandHillshade->add_hidden_alias_for(igorHillshadeArg, "--igor");
+
+    addCommonOptions(subCommandHillshade);
+
+    // Slope
+
+    auto subCommandSlope = argParser->add_subparser(
+        "slope", /* bForBinary=*/psOptionsForBinary != nullptr);
+
+    subCommandSlope->add_description(_("Compute slope."));
+
+    if (psOptionsForBinary)
+    {
+        subCommandSlope->add_argument("input_dem")
+            .store_into(psOptionsForBinary->osSrcFilename)
+            .help(_("The input DEM raster to be processed."));
+
+        subCommandSlope->add_argument("output_slope_map")
+            .store_into(psOptionsForBinary->osDstFilename)
+            .help(_("The output raster to be produced."));
+    }
+
+    subCommandSlope->add_argument("-alg")
+        .metavar("Horn|ZevenbergenThorne")
+        .action(
+            [psOptions](const std::string &s)
+            {
+                if (EQUAL(s.c_str(), "ZevenbergenThorne"))
+                {
+                    psOptions->bGradientAlgSpecified = true;
+                    psOptions->eGradientAlg = GradientAlg::ZEVENBERGEN_THORNE;
+                }
+                else if (EQUAL(s.c_str(), "Horn"))
+                {
+                    psOptions->bGradientAlgSpecified = true;
+                    psOptions->eGradientAlg = GradientAlg::HORN;
+                }
+                else
+                {
+                    throw std::invalid_argument(
+                        CPLSPrintf("Invalid value for -alg: %s.", s.c_str()));
+                }
+            })
+        .help(_("Choose between ZevenbergenThorne or Horn algorithms."));
+
+    subCommandSlope->add_inverted_logic_flag(
+        "-p", &psOptions->bSlopeFormatUseDegrees,
+        _("Express slope as a percentage."));
+
+    subCommandSlope->add_argument("-s")
+        .metavar("<scale>")
+        .scan<'g', double>()
+        .store_into(psOptions->scale)
+        .help(_("Ratio of vertical units to horizontal."));
+
+    addCommonOptions(subCommandSlope);
+
+    // Aspect
+
+    auto subCommandAspect = argParser->add_subparser(
+        "aspect", /* bForBinary=*/psOptionsForBinary != nullptr);
+
+    subCommandAspect->add_description(_("Compute aspect."));
+
+    if (psOptionsForBinary)
+    {
+        subCommandAspect->add_argument("input_dem")
+            .store_into(psOptionsForBinary->osSrcFilename)
+            .help(_("The input DEM raster to be processed."));
+
+        subCommandAspect->add_argument("output_aspect_map")
+            .store_into(psOptionsForBinary->osDstFilename)
+            .help(_("The output raster to be produced."));
+    }
+
+    subCommandAspect->add_argument("-alg")
+        .metavar("Horn|ZevenbergenThorne")
+        .action(
+            [psOptions](const std::string &s)
+            {
+                if (EQUAL(s.c_str(), "ZevenbergenThorne"))
+                {
+                    psOptions->bGradientAlgSpecified = true;
+                    psOptions->eGradientAlg = GradientAlg::ZEVENBERGEN_THORNE;
+                }
+                else if (EQUAL(s.c_str(), "Horn"))
+                {
+                    psOptions->bGradientAlgSpecified = true;
+                    psOptions->eGradientAlg = GradientAlg::HORN;
+                }
+                else
+                {
+                    throw std::invalid_argument(
+                        CPLSPrintf("Invalid value for -alg: %s.", s.c_str()));
+                }
+            })
+        .help(_("Choose between ZevenbergenThorne or Horn algorithms."));
+
+    subCommandAspect->add_inverted_logic_flag(
+        "-trigonometric", &psOptions->bAngleAsAzimuth,
+        _("Express aspect in trigonometric format."));
+
+    subCommandAspect->add_argument("-zero_for_flat")
+        .flag()
+        .store_into(psOptions->bZeroForFlat)
+        .help(_("Return 0 for flat areas with slope=0, instead of -9999."));
+
+    addCommonOptions(subCommandAspect);
+
+    // Color-relief
+
+    auto subCommandColorRelief = argParser->add_subparser(
+        "color-relief", /* bForBinary=*/psOptionsForBinary != nullptr);
+
+    subCommandColorRelief->add_description(
+        _("Color relief computed from the elevation and a text-based color "
+          "configuration file."));
+
+    if (psOptionsForBinary)
+    {
+        subCommandColorRelief->add_argument("input_dem")
+            .store_into(psOptionsForBinary->osSrcFilename)
+            .help(_("The input DEM raster to be processed."));
+
+        subCommandColorRelief->add_argument("color_text_file")
+            .store_into(psOptionsForBinary->osColorFilename)
+            .help(_("Text-based color configuration file."));
+
+        subCommandColorRelief->add_argument("output_color_relief_map")
+            .store_into(psOptionsForBinary->osDstFilename)
+            .help(_("The output raster to be produced."));
+    }
+
+    subCommandColorRelief->add_argument("-alpha")
+        .flag()
+        .store_into(psOptions->bAddAlpha)
+        .help(_("Add an alpha channel to the output raster."));
+
+    subCommandColorRelief->add_argument("-exact_color_entry")
+        .nargs(0)
+        .action(
+            [psOptions](const auto &)
+            { psOptions->eColorSelectionMode = COLOR_SELECTION_EXACT_ENTRY; })
+        .help(
+            _("Use strict matching when searching in the configuration file."));
+
+    subCommandColorRelief->add_argument("-nearest_color_entry")
+        .nargs(0)
+        .action(
+            [psOptions](const auto &)
+            { psOptions->eColorSelectionMode = COLOR_SELECTION_NEAREST_ENTRY; })
+        .help(_("Use the RGBA corresponding to the closest entry in the "
+                "configuration file."));
+
+    addCommonOptions(subCommandColorRelief);
+
+    // TRI
+
+    auto subCommandTRI = argParser->add_subparser(
+        "TRI", /* bForBinary=*/psOptionsForBinary != nullptr);
+
+    subCommandTRI->add_description(_("Compute the Terrain Ruggedness Index."));
+
+    if (psOptionsForBinary)
+    {
+
+        subCommandTRI->add_argument("input_dem")
+            .store_into(psOptionsForBinary->osSrcFilename)
+            .help(_("The input DEM raster to be processed."));
+
+        subCommandTRI->add_argument("output_TRI_map")
+            .store_into(psOptionsForBinary->osDstFilename)
+            .help(_("The output raster to be produced."));
+    }
+
+    subCommandTRI->add_argument("-alg")
+        .metavar("Wilson|Riley")
+        .action(
+            [psOptions](const std::string &s)
+            {
+                if (EQUAL(s.c_str(), "Wilson"))
+                {
+                    psOptions->bTRIAlgSpecified = true;
+                    psOptions->eTRIAlg = TRIAlg::WILSON;
+                }
+                else if (EQUAL(s.c_str(), "Riley"))
+                {
+                    psOptions->bTRIAlgSpecified = true;
+                    psOptions->eTRIAlg = TRIAlg::RILEY;
+                }
+                else
+                {
+                    throw std::invalid_argument(
+                        CPLSPrintf("Invalid value for -alg: %s.", s.c_str()));
+                }
+            })
+        .help(_("Choose between Wilson or Riley algorithms."));
+
+    addCommonOptions(subCommandTRI);
+
+    // TPI
+
+    auto subCommandTPI = argParser->add_subparser(
+        "TPI", /* bForBinary=*/psOptionsForBinary != nullptr);
+
+    subCommandTPI->add_description(
+        _("Compute the Topographic Position Index."));
+
+    if (psOptionsForBinary)
+    {
+        subCommandTPI->add_argument("input_dem")
+            .store_into(psOptionsForBinary->osSrcFilename)
+            .help(_("The input DEM raster to be processed."));
+
+        subCommandTPI->add_argument("output_TPI_map")
+            .store_into(psOptionsForBinary->osDstFilename)
+            .help(_("The output raster to be produced."));
+    }
+
+    addCommonOptions(subCommandTPI);
+
+    // Roughness
+
+    auto subCommandRoughness = argParser->add_subparser(
+        "roughness", /* bForBinary=*/psOptionsForBinary != nullptr);
+
+    subCommandRoughness->add_description(
+        _("Compute the roughness of the DEM."));
+
+    if (psOptionsForBinary)
+    {
+        subCommandRoughness->add_argument("input_dem")
+            .store_into(psOptionsForBinary->osSrcFilename)
+            .help(_("The input DEM raster to be processed."));
+
+        subCommandRoughness->add_argument("output_roughness_map")
+            .store_into(psOptionsForBinary->osDstFilename)
+            .help(_("The output raster to be produced."));
+    }
+
+    addCommonOptions(subCommandRoughness);
+
+    return argParser;
+}
+
+/************************************************************************/
+/*                  GDALDEMAppGetParserUsage()                 */
+/************************************************************************/
+
+std::string GDALDEMAppGetParserUsage(const std::string &osProcessingMode)
+{
+    try
+    {
+        GDALDEMProcessingOptions sOptions;
+        GDALDEMProcessingOptionsForBinary sOptionsForBinary;
+        auto argParser =
+            GDALDEMAppOptionsGetParser(&sOptions, &sOptionsForBinary);
+        if (!osProcessingMode.empty())
+        {
+            const auto subParser = argParser->get_subparser(osProcessingMode);
+            if (subParser)
+            {
+                return subParser->usage();
+            }
+            else
+            {
+                CPLError(CE_Failure, CPLE_AppDefined,
+                         "Invalid processing mode: %s",
+                         osProcessingMode.c_str());
+            }
+        }
+        return argParser->usage();
+    }
+    catch (const std::exception &err)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "Unexpected exception: %s",
+                 err.what());
+        return std::string();
+    }
+}
+
+/************************************************************************/
 /*                            GDALDEMProcessing()                       */
 /************************************************************************/
 
@@ -3234,13 +3525,15 @@ GDALDatasetH GDALDEMProcessing(const char *pszDest, GDALDatasetH hSrcDataset,
     Algorithm eUtilityMode = GetAlgorithm(pszProcessing);
     if (eUtilityMode == INVALID)
     {
-        CPLError(CE_Failure, CPLE_IllegalArg, "Invalid processing");
+        CPLError(CE_Failure, CPLE_IllegalArg, "Invalid processing mode: %s",
+                 pszProcessing);
         if (pbUsageError)
             *pbUsageError = TRUE;
         return nullptr;
     }
 
-    if (eUtilityMode == COLOR_RELIEF && pszColorFilename == nullptr)
+    if (eUtilityMode == COLOR_RELIEF &&
+        (pszColorFilename == nullptr || strlen(pszColorFilename) == 0))
     {
         CPLError(CE_Failure, CPLE_AppDefined, "pszColorFilename == NULL.");
 
@@ -3248,7 +3541,8 @@ GDALDatasetH GDALDEMProcessing(const char *pszDest, GDALDatasetH hSrcDataset,
             *pbUsageError = TRUE;
         return nullptr;
     }
-    else if (eUtilityMode != COLOR_RELIEF && pszColorFilename != nullptr)
+    else if (eUtilityMode != COLOR_RELIEF && pszColorFilename != nullptr &&
+             strlen(pszColorFilename) > 0)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "pszColorFilename != NULL.");
 
@@ -3333,7 +3627,7 @@ GDALDatasetH GDALDEMProcessing(const char *pszDest, GDALDatasetH hSrcDataset,
     GDALGetGeoTransform(hSrcDataset, adfGeoTransform);
 
     CPLString osFormat;
-    if (psOptions->pszFormat == nullptr)
+    if (psOptions->osFormat.empty())
     {
         osFormat = GetOutputDriverForRaster(pszDest);
         if (osFormat.empty())
@@ -3344,8 +3638,9 @@ GDALDatasetH GDALDEMProcessing(const char *pszDest, GDALDatasetH hSrcDataset,
     }
     else
     {
-        osFormat = psOptions->pszFormat;
+        osFormat = psOptions->osFormat;
     }
+
     GDALDriverH hDriver = GDALGetDriverByName(osFormat);
     if (hDriver == nullptr ||
         (GDALGetMetadataItem(hDriver, GDAL_DCAP_CREATE, nullptr) == nullptr &&
@@ -3481,7 +3776,7 @@ GDALDatasetH GDALDEMProcessing(const char *pszDest, GDALDatasetH hSrcDataset,
         bDstHasNoData = true;
 
         pData = GDALCreateSlopeData(adfGeoTransform, psOptions->scale,
-                                    psOptions->slopeFormat);
+                                    psOptions->bSlopeFormatUseDegrees);
         if (psOptions->eGradientAlg == GradientAlg::ZEVENBERGEN_THORNE)
         {
             pfnAlgFloat = GDALSlopeZevenbergenThorneAlg<float>;
@@ -3580,11 +3875,11 @@ GDALDatasetH GDALDEMProcessing(const char *pszDest, GDALDatasetH hSrcDataset,
 
     if (EQUAL(osFormat, "GTiff"))
     {
-        if (!EQUAL(CSLFetchNameValueDef(psOptions->papszCreateOptions,
-                                        "COMPRESS", "NONE"),
+        if (!EQUAL(psOptions->aosCreationOptions.FetchNameValueDef("COMPRESS",
+                                                                   "NONE"),
                    "NONE") &&
-            CPLTestBool(CSLFetchNameValueDef(psOptions->papszCreateOptions,
-                                             "TILED", "NO")))
+            CPLTestBool(
+                psOptions->aosCreationOptions.FetchNameValueDef("TILED", "NO")))
         {
             bForceUseIntermediateDataset = true;
         }
@@ -3673,7 +3968,7 @@ GDALDatasetH GDALDEMProcessing(const char *pszDest, GDALDatasetH hSrcDataset,
 
         GDALDatasetH hOutDS = GDALCreateCopy(
             hDriver, pszDest, hIntermediateDataset, TRUE,
-            psOptions->papszCreateOptions, pfnProgress, pProgressData);
+            psOptions->aosCreationOptions.List(), pfnProgress, pProgressData);
 
         GDALClose(hIntermediateDataset);
 
@@ -3688,7 +3983,7 @@ GDALDatasetH GDALDEMProcessing(const char *pszDest, GDALDatasetH hSrcDataset,
 
     GDALDatasetH hDstDataset =
         GDALCreate(hDriver, pszDest, nXSize, nYSize, nDstBands, eDstDataType,
-                   psOptions->papszCreateOptions);
+                   psOptions->aosCreationOptions.List());
 
     if (hDstDataset == nullptr)
     {
@@ -3763,246 +4058,137 @@ GDALDatasetH GDALDEMProcessing(const char *pszDest, GDALDatasetH hSrcDataset,
 GDALDEMProcessingOptions *GDALDEMProcessingOptionsNew(
     char **papszArgv, GDALDEMProcessingOptionsForBinary *psOptionsForBinary)
 {
-    GDALDEMProcessingOptions *psOptions = new GDALDEMProcessingOptions;
-    Algorithm eUtilityMode = INVALID;
-    bool bAzimuthSpecified = false;
-    bool bAltSpecified = false;
 
+    auto psOptions = std::make_unique<GDALDEMProcessingOptions>();
     /* -------------------------------------------------------------------- */
     /*      Handle command line arguments.                                  */
     /* -------------------------------------------------------------------- */
-    int argc = CSLCount(papszArgv);
-    for (int i = 0; papszArgv != nullptr && i < argc; i++)
+    CPLStringList aosArgv;
+
+    if (papszArgv)
     {
-        if (i == 0 && psOptionsForBinary)
+        const int nArgc = CSLCount(papszArgv);
+        for (int i = 0; i < nArgc; i++)
+            aosArgv.AddString(papszArgv[i]);
+    }
+
+    // Ugly hack: papszArgv may not contain the processing mode if coming from SWIG
+    const bool bNoProcessingMode(aosArgv.size() > 0 && aosArgv[0][0] == '-');
+
+    auto argParser =
+        GDALDEMAppOptionsGetParser(psOptions.get(), psOptionsForBinary);
+
+    auto tryHandleArgv = [&]()
+    {
+        argParser->parse_args_without_binary_name(aosArgv);
+        // Validate the parsed options
+
+        if (psOptions->nBand <= 0)
         {
-            eUtilityMode = GetAlgorithm(papszArgv[0]);
-            if (eUtilityMode == INVALID)
-            {
-                CPLError(CE_Failure, CPLE_IllegalArg, "Invalid utility mode");
-                GDALDEMProcessingOptionsFree(psOptions);
-                return nullptr;
-            }
-            psOptionsForBinary->pszProcessing = CPLStrdup(papszArgv[0]);
-            continue;
+            throw std::invalid_argument("Invalid value for -b");
         }
 
-        if (i < argc - 1 &&
-            (EQUAL(papszArgv[i], "-of") || EQUAL(papszArgv[i], "-f")))
+        if (psOptions->z <= 0)
         {
-            ++i;
-            CPLFree(psOptions->pszFormat);
-            psOptions->pszFormat = CPLStrdup(papszArgv[i]);
+            throw std::invalid_argument("Invalid value for -z");
         }
 
-        else if (EQUAL(papszArgv[i], "-q") || EQUAL(papszArgv[i], "-quiet"))
+        if (psOptions->scale <= 0)
         {
-            if (psOptionsForBinary)
-                psOptionsForBinary->bQuiet = TRUE;
+            throw std::invalid_argument("Invalid value for -s");
         }
 
-        else if ((EQUAL(papszArgv[i], "--z") || EQUAL(papszArgv[i], "-z")) &&
-                 i + 1 < argc)
+        if (psOptions->alt <= 0)
         {
-            ++i;
-            if (!ArgIsNumeric(papszArgv[i]))
+            throw std::invalid_argument("Invalid value for -alt");
+        }
+
+        if (psOptions->az <= 0)
+        {
+            throw std::invalid_argument("Invalid value for -az");
+        }
+
+        if (psOptions->bMultiDirectional && argParser->is_used_globally("-az"))
+        {
+            throw std::invalid_argument(
+                "-multidirectional and -az cannot be used together");
+        }
+
+        if (psOptions->bIgor && argParser->is_used_globally("-alt"))
+        {
+            throw std::invalid_argument(
+                "-igor and -alt cannot be used together");
+        }
+
+        if (psOptionsForBinary && aosArgv.size() > 1)
+        {
+            psOptionsForBinary->osProcessing = aosArgv[0];
+        }
+    };
+
+    try
+    {
+
+        // Ugly hack: papszArgv may not contain the processing mode if coming from
+        // SWIG we have not other option than to check them all
+        const static std::list<std::string> processingModes{
+            {"hillshade", "slope", "aspect", "color-relief", "TRI", "TPI",
+             "roughness"}};
+
+        if (bNoProcessingMode)
+        {
+            try
             {
-                CPLError(CE_Failure, CPLE_IllegalArg,
-                         "Numeric value expected for -z");
-                GDALDEMProcessingOptionsFree(psOptions);
-                return nullptr;
+                tryHandleArgv();
             }
-            psOptions->z = CPLAtof(papszArgv[i]);
-        }
-        else if (EQUAL(papszArgv[i], "-p"))
-        {
-            psOptions->slopeFormat = 0;
-        }
-        else if (EQUAL(papszArgv[i], "-alg") && i + 1 < argc)
-        {
-            i++;
-            if (EQUAL(papszArgv[i], "ZevenbergenThorne"))
+            catch (std::exception &)
             {
-                psOptions->bGradientAlgSpecified = true;
-                psOptions->eGradientAlg = GradientAlg::ZEVENBERGEN_THORNE;
+                CPLStringList aosArgvCopy{aosArgv};
+                bool bSuccess = false;
+                for (const auto &processingMode : processingModes)
+                {
+                    aosArgv = aosArgvCopy;
+                    aosArgv.InsertString(0, processingMode.c_str());
+                    try
+                    {
+                        tryHandleArgv();
+                        bSuccess = true;
+                        break;
+                    }
+                    catch (std::runtime_error &)
+                    {
+                        continue;
+                    }
+                    catch (std::invalid_argument &)
+                    {
+                        continue;
+                    }
+                    catch (std::logic_error &)
+                    {
+                        continue;
+                    }
+                }
+
+                if (!bSuccess)
+                {
+                    throw std::invalid_argument(
+                        "Argument(s) are not valid with any processing mode.");
+                }
             }
-            else if (EQUAL(papszArgv[i], "Horn"))
-            {
-                psOptions->bGradientAlgSpecified = true;
-                psOptions->eGradientAlg = GradientAlg::HORN;
-            }
-            else if (EQUAL(papszArgv[i], "Riley"))
-            {
-                psOptions->bTRIAlgSpecified = true;
-                psOptions->eTRIAlg = TRIAlg::RILEY;
-            }
-            else if (EQUAL(papszArgv[i], "Wilson"))
-            {
-                psOptions->bTRIAlgSpecified = true;
-                psOptions->eTRIAlg = TRIAlg::WILSON;
-            }
-            else
-            {
-                CPLError(CE_Failure, CPLE_IllegalArg,
-                         "Invalid value for -alg: %s", papszArgv[i - 1]);
-                GDALDEMProcessingOptionsFree(psOptions);
-                return nullptr;
-            }
-        }
-        else if (EQUAL(papszArgv[i], "-trigonometric"))
-        {
-            psOptions->bAngleAsAzimuth = false;
-        }
-        else if (EQUAL(papszArgv[i], "-zero_for_flat"))
-        {
-            psOptions->bZeroForFlat = true;
-        }
-        else if (EQUAL(papszArgv[i], "-exact_color_entry"))
-        {
-            psOptions->eColorSelectionMode = COLOR_SELECTION_EXACT_ENTRY;
-        }
-        else if (EQUAL(papszArgv[i], "-nearest_color_entry"))
-        {
-            psOptions->eColorSelectionMode = COLOR_SELECTION_NEAREST_ENTRY;
-        }
-        else if ((EQUAL(papszArgv[i], "--s") || EQUAL(papszArgv[i], "-s") ||
-                  EQUAL(papszArgv[i], "--scale") ||
-                  EQUAL(papszArgv[i], "-scale")) &&
-                 i + 1 < argc)
-        {
-            ++i;
-            if (!ArgIsNumeric(papszArgv[i]))
-            {
-                CPLError(CE_Failure, CPLE_IllegalArg,
-                         "Numeric value expected for %s", papszArgv[i - 1]);
-                GDALDEMProcessingOptionsFree(psOptions);
-                return nullptr;
-            }
-            psOptions->scale = CPLAtof(papszArgv[i]);
-        }
-        else if ((EQUAL(papszArgv[i], "--az") || EQUAL(papszArgv[i], "-az") ||
-                  EQUAL(papszArgv[i], "--azimuth") ||
-                  EQUAL(papszArgv[i], "-azimuth")) &&
-                 i + 1 < argc)
-        {
-            ++i;
-            if (!ArgIsNumeric(papszArgv[i]))
-            {
-                CPLError(CE_Failure, CPLE_IllegalArg,
-                         "Numeric value expected for %s", papszArgv[i - 1]);
-                GDALDEMProcessingOptionsFree(psOptions);
-                return nullptr;
-            }
-            bAzimuthSpecified = true;
-            psOptions->az = CPLAtof(papszArgv[i]);
-        }
-        else if ((EQUAL(papszArgv[i], "--alt") || EQUAL(papszArgv[i], "-alt") ||
-                  EQUAL(papszArgv[i], "--altitude") ||
-                  EQUAL(papszArgv[i], "-altitude")) &&
-                 i + 1 < argc)
-        {
-            ++i;
-            if (!ArgIsNumeric(papszArgv[i]))
-            {
-                CPLError(CE_Failure, CPLE_IllegalArg,
-                         "Numeric value expected for %s", papszArgv[i - 1]);
-                GDALDEMProcessingOptionsFree(psOptions);
-                return nullptr;
-            }
-            bAltSpecified = true;
-            psOptions->alt = CPLAtof(papszArgv[i]);
-        }
-        else if ((EQUAL(papszArgv[i], "-combined") ||
-                  EQUAL(papszArgv[i], "--combined")))
-        {
-            psOptions->bCombined = true;
-        }
-        else if ((EQUAL(papszArgv[i], "-igor") ||
-                  EQUAL(papszArgv[i], "--igor")))
-        {
-            psOptions->bIgor = true;
-        }
-        else if (EQUAL(papszArgv[i], "-multidirectional") ||
-                 EQUAL(papszArgv[i], "--multidirectional"))
-        {
-            psOptions->bMultiDirectional = true;
-        }
-        else if (EQUAL(papszArgv[i], "-alpha"))
-        {
-            psOptions->bAddAlpha = true;
-        }
-        else if (EQUAL(papszArgv[i], "-compute_edges"))
-        {
-            psOptions->bComputeAtEdges = true;
-        }
-        else if (i + 1 < argc &&
-                 (EQUAL(papszArgv[i], "--b") || EQUAL(papszArgv[i], "-b")))
-        {
-            psOptions->nBand = atoi(papszArgv[++i]);
-        }
-        else if (EQUAL(papszArgv[i], "-co") && i + 1 < argc)
-        {
-            psOptions->papszCreateOptions =
-                CSLAddString(psOptions->papszCreateOptions, papszArgv[++i]);
-        }
-        else if (papszArgv[i][0] == '-')
-        {
-            CPLError(CE_Failure, CPLE_NotSupported, "Unknown option name '%s'",
-                     papszArgv[i]);
-            GDALDEMProcessingOptionsFree(psOptions);
-            return nullptr;
-        }
-        else if (psOptionsForBinary &&
-                 psOptionsForBinary->pszSrcFilename == nullptr)
-        {
-            psOptionsForBinary->pszSrcFilename = CPLStrdup(papszArgv[i]);
-        }
-        else if (psOptionsForBinary && eUtilityMode == COLOR_RELIEF &&
-                 psOptionsForBinary->pszColorFilename == nullptr)
-        {
-            psOptionsForBinary->pszColorFilename = CPLStrdup(papszArgv[i]);
-        }
-        else if (psOptionsForBinary &&
-                 psOptionsForBinary->pszDstFilename == nullptr)
-        {
-            psOptionsForBinary->pszDstFilename = CPLStrdup(papszArgv[i]);
         }
         else
         {
-            CPLError(CE_Failure, CPLE_NotSupported,
-                     "Too many command options '%s'", papszArgv[i]);
-            GDALDEMProcessingOptionsFree(psOptions);
-            return nullptr;
+            tryHandleArgv();
         }
     }
-
-    if (psOptions->bMultiDirectional + psOptions->bCombined + psOptions->bIgor >
-        1)
+    catch (const std::exception &err)
     {
-        CPLError(
-            CE_Failure, CPLE_NotSupported,
-            "only one of -multidirectional, -combined or -igor can be used");
-        GDALDEMProcessingOptionsFree(psOptions);
+        CPLError(CE_Failure, CPLE_AppDefined, "Unexpected exception: %s",
+                 err.what());
         return nullptr;
     }
 
-    if (psOptions->bMultiDirectional && bAzimuthSpecified)
-    {
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "-multidirectional and -az cannot be used together");
-        GDALDEMProcessingOptionsFree(psOptions);
-        return nullptr;
-    }
-
-    if (psOptions->bIgor && bAltSpecified)
-    {
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "-igor and -alt cannot be used together");
-        GDALDEMProcessingOptionsFree(psOptions);
-        return nullptr;
-    }
-
-    return psOptions;
+    return psOptions.release();
 }
 
 /************************************************************************/
@@ -4019,13 +4205,7 @@ GDALDEMProcessingOptions *GDALDEMProcessingOptionsNew(
 
 void GDALDEMProcessingOptionsFree(GDALDEMProcessingOptions *psOptions)
 {
-    if (psOptions)
-    {
-        CPLFree(psOptions->pszFormat);
-        CSLDestroy(psOptions->papszCreateOptions);
-
-        delete psOptions;
-    }
+    delete psOptions;
 }
 
 /************************************************************************/

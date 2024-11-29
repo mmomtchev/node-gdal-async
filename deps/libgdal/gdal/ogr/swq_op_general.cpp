@@ -10,23 +10,7 @@
  * Copyright (C) 2010 Frank Warmerdam <warmerdam@pobox.com>
  * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -42,6 +26,7 @@
 #include "cpl_error.h"
 #include "cpl_safemaths.hpp"
 #include "cpl_string.h"
+#include "ogr_api.h"
 #include "ogr_geometry.h"
 #include "ogr_p.h"
 #include "utf8.h"
@@ -383,7 +368,7 @@ swq_expr_node *SWQGeneralEvaluator(swq_expr_node *node,
             sub_node_values[1]->float_value =
                 static_cast<double>(sub_node_values[1]->int_value);
 
-        if (node->nOperation != SWQ_ISNULL)
+        if (node->nOperation != SWQ_ISNULL && node->nOperation != SWQ_IN)
         {
             for (int i = 0; i < node->nSubExprCount; i++)
             {
@@ -392,6 +377,7 @@ swq_expr_node *SWQGeneralEvaluator(swq_expr_node *node,
                     if (poRet->field_type == SWQ_BOOLEAN)
                     {
                         poRet->int_value = FALSE;
+                        poRet->is_null = 1;
                         return poRet;
                     }
                     else if (poRet->field_type == SWQ_FLOAT)
@@ -446,13 +432,29 @@ swq_expr_node *SWQGeneralEvaluator(swq_expr_node *node,
             case SWQ_IN:
             {
                 poRet->int_value = 0;
-                for (int i = 1; i < node->nSubExprCount; i++)
+                if (sub_node_values[0]->is_null)
                 {
-                    if (sub_node_values[0]->float_value ==
-                        sub_node_values[i]->float_value)
+                    poRet->is_null = 1;
+                }
+                else
+                {
+                    bool bNullFound = false;
+                    for (int i = 1; i < node->nSubExprCount; i++)
                     {
-                        poRet->int_value = 1;
-                        break;
+                        if (sub_node_values[i]->is_null)
+                        {
+                            bNullFound = true;
+                        }
+                        else if (sub_node_values[0]->float_value ==
+                                 sub_node_values[i]->float_value)
+                        {
+                            poRet->int_value = 1;
+                            break;
+                        }
+                    }
+                    if (bNullFound && !poRet->int_value)
+                    {
+                        poRet->is_null = 1;
                     }
                 }
             }
@@ -518,18 +520,16 @@ swq_expr_node *SWQGeneralEvaluator(swq_expr_node *node,
         poRet = new swq_expr_node(0);
         poRet->field_type = node->field_type;
 
-        if (node->nOperation != SWQ_ISNULL)
+        if (node->nOperation != SWQ_ISNULL && node->nOperation != SWQ_OR &&
+            node->nOperation != SWQ_AND && node->nOperation != SWQ_NOT &&
+            node->nOperation != SWQ_IN)
         {
             for (int i = 0; i < node->nSubExprCount; i++)
             {
                 if (sub_node_values[i]->is_null)
                 {
-                    if (poRet->field_type == SWQ_BOOLEAN)
-                    {
-                        poRet->int_value = FALSE;
-                        return poRet;
-                    }
-                    else if (SWQ_IS_INTEGER(poRet->field_type))
+                    if (poRet->field_type == SWQ_BOOLEAN ||
+                        SWQ_IS_INTEGER(poRet->field_type))
                     {
                         poRet->int_value = 0;
                         poRet->is_null = 1;
@@ -544,15 +544,21 @@ swq_expr_node *SWQGeneralEvaluator(swq_expr_node *node,
             case SWQ_AND:
                 poRet->int_value = sub_node_values[0]->int_value &&
                                    sub_node_values[1]->int_value;
+                poRet->is_null =
+                    sub_node_values[0]->is_null && sub_node_values[1]->is_null;
                 break;
 
             case SWQ_OR:
                 poRet->int_value = sub_node_values[0]->int_value ||
                                    sub_node_values[1]->int_value;
+                poRet->is_null =
+                    sub_node_values[0]->is_null || sub_node_values[1]->is_null;
                 break;
 
             case SWQ_NOT:
-                poRet->int_value = !sub_node_values[0]->int_value;
+                poRet->int_value = !sub_node_values[0]->int_value &&
+                                   !sub_node_values[0]->is_null;
+                poRet->is_null = sub_node_values[0]->is_null;
                 break;
 
             case SWQ_EQ:
@@ -588,13 +594,29 @@ swq_expr_node *SWQGeneralEvaluator(swq_expr_node *node,
             case SWQ_IN:
             {
                 poRet->int_value = 0;
-                for (int i = 1; i < node->nSubExprCount; i++)
+                if (sub_node_values[0]->is_null)
                 {
-                    if (sub_node_values[0]->int_value ==
-                        sub_node_values[i]->int_value)
+                    poRet->is_null = 1;
+                }
+                else
+                {
+                    bool bNullFound = false;
+                    for (int i = 1; i < node->nSubExprCount; i++)
                     {
-                        poRet->int_value = 1;
-                        break;
+                        if (sub_node_values[i]->is_null)
+                        {
+                            bNullFound = true;
+                        }
+                        else if (sub_node_values[0]->int_value ==
+                                 sub_node_values[i]->int_value)
+                        {
+                            poRet->int_value = 1;
+                            break;
+                        }
+                    }
+                    if (bNullFound && !poRet->int_value)
+                    {
+                        poRet->is_null = 1;
                     }
                 }
             }
@@ -698,7 +720,7 @@ swq_expr_node *SWQGeneralEvaluator(swq_expr_node *node,
               node->nOperation == SWQ_LE || node->nOperation == SWQ_IN ||
               node->nOperation == SWQ_BETWEEN))
     {
-        if (node->field_type == SWQ_BOOLEAN)
+        if (node->field_type == SWQ_BOOLEAN && node->nOperation != SWQ_IN)
         {
             for (int i = 0; i < node->nSubExprCount; i++)
             {
@@ -706,16 +728,20 @@ swq_expr_node *SWQGeneralEvaluator(swq_expr_node *node,
                 {
                     poRet = new swq_expr_node(FALSE);
                     poRet->field_type = node->field_type;
+                    poRet->is_null = 1;
                     return poRet;
                 }
             }
         }
 
         OGRField sField0, sField1;
+        OGR_RawField_SetUnset(&sField0);
+        OGR_RawField_SetUnset(&sField1);
         poRet = new swq_expr_node(0);
         poRet->field_type = node->field_type;
 
-        if (!OGRParseDate(sub_node_values[0]->string_value, &sField0, 0))
+        if (!OGRParseDate(sub_node_values[0]->string_value, &sField0, 0) &&
+            node->nOperation != SWQ_IN)
         {
             CPLError(
                 CE_Failure, CPLE_AppDefined,
@@ -724,7 +750,8 @@ swq_expr_node *SWQGeneralEvaluator(swq_expr_node *node,
             delete poRet;
             return nullptr;
         }
-        if (!OGRParseDate(sub_node_values[1]->string_value, &sField1, 0))
+        if (node->nOperation != SWQ_IN &&
+            !OGRParseDate(sub_node_values[1]->string_value, &sField1, 0))
         {
             CPLError(
                 CE_Failure, CPLE_AppDefined,
@@ -777,27 +804,46 @@ swq_expr_node *SWQGeneralEvaluator(swq_expr_node *node,
 
             case SWQ_IN:
             {
-                OGRField sFieldIn;
-                bool bFound = false;
-                for (int i = 1; i < node->nSubExprCount; ++i)
+                poRet->int_value = 0;
+                if (sub_node_values[0]->is_null)
                 {
-                    if (!OGRParseDate(sub_node_values[i]->string_value,
-                                      &sFieldIn, 0))
+                    poRet->is_null = 1;
+                }
+                else
+                {
+                    OGRField sFieldIn;
+                    bool bNullFound = false;
+                    for (int i = 1; i < node->nSubExprCount; i++)
                     {
-                        CPLError(CE_Failure, CPLE_AppDefined,
-                                 "Failed to parse date '%s' evaluating OGR "
-                                 "WHERE expression",
-                                 sub_node_values[i]->string_value);
-                        delete poRet;
-                        return nullptr;
+                        if (sub_node_values[i]->is_null)
+                        {
+                            bNullFound = true;
+                        }
+                        else
+                        {
+                            if (!OGRParseDate(sub_node_values[i]->string_value,
+                                              &sFieldIn, 0))
+                            {
+                                CPLError(
+                                    CE_Failure, CPLE_AppDefined,
+                                    "Failed to parse date '%s' evaluating OGR "
+                                    "WHERE expression",
+                                    sub_node_values[i]->string_value);
+                                delete poRet;
+                                return nullptr;
+                            }
+                            if (OGRCompareDate(&sField0, &sFieldIn) == 0)
+                            {
+                                poRet->int_value = 1;
+                                break;
+                            }
+                        }
                     }
-                    if (OGRCompareDate(&sField0, &sFieldIn) == 0)
+                    if (bNullFound && !poRet->int_value)
                     {
-                        bFound = true;
-                        break;
+                        poRet->is_null = 1;
                     }
                 }
-                poRet->int_value = bFound;
             }
             break;
 
@@ -817,7 +863,7 @@ swq_expr_node *SWQGeneralEvaluator(swq_expr_node *node,
         poRet = new swq_expr_node(0);
         poRet->field_type = node->field_type;
 
-        if (node->nOperation != SWQ_ISNULL)
+        if (node->nOperation != SWQ_ISNULL && node->nOperation != SWQ_IN)
         {
             for (int i = 0; i < node->nSubExprCount; i++)
             {
@@ -826,6 +872,7 @@ swq_expr_node *SWQGeneralEvaluator(swq_expr_node *node,
                     if (poRet->field_type == SWQ_BOOLEAN)
                     {
                         poRet->int_value = FALSE;
+                        poRet->is_null = 1;
                         return poRet;
                     }
                     else if (poRet->field_type == SWQ_STRING)
@@ -989,14 +1036,34 @@ swq_expr_node *SWQGeneralEvaluator(swq_expr_node *node,
             case SWQ_IN:
             {
                 poRet->int_value = 0;
-                for (int i = 1; i < node->nSubExprCount; i++)
+                if (sub_node_values[0]->is_null)
                 {
-                    if (sub_node_values[i]->string_value &&
-                        strcasecmp(sub_node_values[0]->string_value,
-                                   sub_node_values[i]->string_value) == 0)
+                    poRet->is_null = 1;
+                }
+                else
+                {
+                    bool bNullFound = false;
+                    for (int i = 1; i < node->nSubExprCount; i++)
                     {
-                        poRet->int_value = 1;
-                        break;
+                        if (sub_node_values[i]->is_null ||
+                            !sub_node_values[i]->string_value)
+                        {
+                            bNullFound = true;
+                        }
+                        else
+                        {
+                            if (strcasecmp(sub_node_values[0]->string_value,
+                                           sub_node_values[i]->string_value) ==
+                                0)
+                            {
+                                poRet->int_value = 1;
+                                break;
+                            }
+                        }
+                    }
+                    if (bNullFound && !poRet->int_value)
+                    {
+                        poRet->is_null = 1;
                     }
                 }
             }

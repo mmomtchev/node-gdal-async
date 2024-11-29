@@ -6,23 +6,7 @@
  * ****************************************************************************
  * Copyright (c) 2024, Even Rouault <even.rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "gdal_version_full/gdal_version.h"
@@ -50,10 +34,10 @@ GDALArgumentParser::GDALArgumentParser(const std::string &program_name,
         add_argument("-h", "--help")
             .flag()
             .action(
-                [this, program_name](const auto &)
+                [this](const auto &)
                 {
                     std::cout << usage() << std::endl << std::endl;
-                    std::cout << _("Note: ") << program_name
+                    std::cout << _("Note: ") << m_program_name
                               << _(" --long-usage for full help.") << std::endl;
                     std::exit(0);
                 })
@@ -77,11 +61,11 @@ GDALArgumentParser::GDALArgumentParser(const std::string &program_name,
             .flag()
             .hidden()
             .action(
-                [program_name](const auto &)
+                [this](const auto &)
                 {
                     printf("%s was compiled against GDAL %s and "
                            "is running against GDAL %s\n",
-                           program_name.c_str(), GDAL_RELEASE_NAME,
+                           m_program_name.c_str(), GDAL_RELEASE_NAME,
                            GDALVersionInfo("RELEASE_NAME"));
                     std::exit(0);
                 })
@@ -104,10 +88,36 @@ void GDALArgumentParser::display_error_and_usage(const std::exception &err)
 }
 
 /************************************************************************/
+/*                                usage()                               */
+/************************************************************************/
+
+std::string GDALArgumentParser::usage() const
+{
+    std::string ret(ArgumentParser::usage());
+    if (!m_osExtraUsageHint.empty())
+    {
+        ret += '\n';
+        ret += '\n';
+        ret += m_osExtraUsageHint;
+    }
+    return ret;
+}
+
+/************************************************************************/
+/*                          add_extra_usage_hint()                      */
+/************************************************************************/
+
+void GDALArgumentParser::add_extra_usage_hint(
+    const std::string &osExtraUsageHint)
+{
+    m_osExtraUsageHint = osExtraUsageHint;
+}
+
+/************************************************************************/
 /*                         add_quiet_argument()                         */
 /************************************************************************/
 
-void GDALArgumentParser::add_quiet_argument(bool *pVar)
+Argument &GDALArgumentParser::add_quiet_argument(bool *pVar)
 {
     auto &arg =
         this->add_argument("-q", "--quiet")
@@ -117,15 +127,17 @@ void GDALArgumentParser::add_quiet_argument(bool *pVar)
                   "output."));
     if (pVar)
         arg.store_into(*pVar);
+
+    return arg;
 }
 
 /************************************************************************/
 /*                      add_input_format_argument()                     */
 /************************************************************************/
 
-void GDALArgumentParser::add_input_format_argument(CPLStringList *pvar)
+Argument &GDALArgumentParser::add_input_format_argument(CPLStringList *pvar)
 {
-    add_argument("-if")
+    return add_argument("-if")
         .append()
         .metavar("<format>")
         .action(
@@ -149,22 +161,23 @@ void GDALArgumentParser::add_input_format_argument(CPLStringList *pvar)
 /*                      add_output_format_argument()                    */
 /************************************************************************/
 
-void GDALArgumentParser::add_output_format_argument(std::string &var)
+Argument &GDALArgumentParser::add_output_format_argument(std::string &var)
 {
     auto &arg = add_argument("-of")
                     .metavar("<output_format>")
                     .store_into(var)
                     .help(_("Output format."));
     add_hidden_alias_for(arg, "-f");
+    return arg;
 }
 
 /************************************************************************/
 /*                     add_creation_options_argument()                  */
 /************************************************************************/
 
-void GDALArgumentParser::add_creation_options_argument(CPLStringList &var)
+Argument &GDALArgumentParser::add_creation_options_argument(CPLStringList &var)
 {
-    add_argument("-co")
+    return add_argument("-co")
         .metavar("<NAME>=<VALUE>")
         .append()
         .action([&var](const std::string &s) { var.AddString(s.c_str()); })
@@ -175,9 +188,10 @@ void GDALArgumentParser::add_creation_options_argument(CPLStringList &var)
 /*                   add_metadata_item_options_argument()               */
 /************************************************************************/
 
-void GDALArgumentParser::add_metadata_item_options_argument(CPLStringList &var)
+Argument &
+GDALArgumentParser::add_metadata_item_options_argument(CPLStringList &var)
 {
-    add_argument("-mo")
+    return add_argument("-mo")
         .metavar("<NAME>=<VALUE>")
         .append()
         .action([&var](const std::string &s) { var.AddString(s.c_str()); })
@@ -188,16 +202,16 @@ void GDALArgumentParser::add_metadata_item_options_argument(CPLStringList &var)
 /*                       add_open_options_argument()                    */
 /************************************************************************/
 
-void GDALArgumentParser::add_open_options_argument(CPLStringList &var)
+Argument &GDALArgumentParser::add_open_options_argument(CPLStringList &var)
 {
-    add_open_options_argument(&var);
+    return add_open_options_argument(&var);
 }
 
 /************************************************************************/
 /*                       add_open_options_argument()                    */
 /************************************************************************/
 
-void GDALArgumentParser::add_open_options_argument(CPLStringList *pvar)
+Argument &GDALArgumentParser::add_open_options_argument(CPLStringList *pvar)
 {
     auto &arg = add_argument("-oo")
                     .metavar("<NAME>=<VALUE>")
@@ -208,15 +222,17 @@ void GDALArgumentParser::add_open_options_argument(CPLStringList *pvar)
         arg.action([pvar](const std::string &s)
                    { pvar->AddString(s.c_str()); });
     }
+
+    return arg;
 }
 
 /************************************************************************/
 /*                       add_output_type_argument()                     */
 /************************************************************************/
 
-void GDALArgumentParser::add_output_type_argument(GDALDataType &eDT)
+Argument &GDALArgumentParser::add_output_type_argument(GDALDataType &eDT)
 {
-    add_argument("-ot")
+    return add_argument("-ot")
         .metavar("Byte|Int8|[U]Int{16|32|64}|CInt{16|32}|[C]Float{32|64}")
         .action(
             [&eDT](const std::string &s)
@@ -229,6 +245,26 @@ void GDALArgumentParser::add_output_type_argument(GDALDataType &eDT)
                 }
             })
         .help(_("Output data type."));
+}
+
+Argument &
+GDALArgumentParser::add_layer_creation_options_argument(CPLStringList &var)
+{
+    return add_argument("-lco")
+        .metavar("<NAME>=<VALUE>")
+        .append()
+        .action([&var](const std::string &s) { var.AddString(s.c_str()); })
+        .help(_("Layer creation options (format specific)."));
+}
+
+Argument &
+GDALArgumentParser::add_dataset_creation_options_argument(CPLStringList &var)
+{
+    return add_argument("-dsco")
+        .metavar("<NAME>=<VALUE>")
+        .append()
+        .action([&var](const std::string &s) { var.AddString(s.c_str()); })
+        .help(_("Dataset creation options (format specific)."));
 }
 
 /************************************************************************/
@@ -355,6 +391,58 @@ Argument &GDALArgumentParser::add_inverted_logic_flag(const std::string &name,
         .help(help);
 }
 
+GDALArgumentParser *
+GDALArgumentParser::add_subparser(const std::string &description,
+                                  bool bForBinary)
+{
+    auto parser = std::make_unique<GDALArgumentParser>(description, bForBinary);
+    ArgumentParser::add_subparser(*parser.get());
+    aoSubparsers.emplace_back(std::move(parser));
+    return aoSubparsers.back().get();
+}
+
+GDALArgumentParser *GDALArgumentParser::get_subparser(const std::string &name)
+{
+    auto it = std::find_if(
+        aoSubparsers.begin(), aoSubparsers.end(),
+        [&name](const auto &parser)
+        { return EQUAL(name.c_str(), parser->m_program_name.c_str()); });
+    return it != aoSubparsers.end() ? it->get() : nullptr;
+}
+
+bool GDALArgumentParser::is_used_globally(const std::string &name)
+{
+    try
+    {
+        return ArgumentParser::is_used(name);
+    }
+    catch (std::logic_error &)
+    {
+        // ignore
+    }
+
+    // Check if it is used by a subparser
+    // loop through subparsers
+    for (const auto &subparser : aoSubparsers)
+    {
+        // convert subparser name to lower case
+        std::string subparser_name = subparser->m_program_name;
+        std::transform(subparser_name.begin(), subparser_name.end(),
+                       subparser_name.begin(),
+                       [](int c) -> char
+                       { return static_cast<char>(::tolower(c)); });
+        if (m_subparser_used.find(subparser_name) != m_subparser_used.end())
+        {
+            if (subparser->is_used_globally(name))
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 /************************************************************************/
 /*                           parse_args()                               */
 /************************************************************************/
@@ -405,6 +493,28 @@ void GDALArgumentParser::parse_args(const CPLStringList &aosArgs)
             }
             else
             {
+                // Check sub-parsers
+                auto subparser = get_subparser(current_argument);
+                if (subparser)
+                {
+
+                    // build list of remaining args
+                    const auto unprocessed_arguments =
+                        CPLStringList(std::vector<std::string>(it, end));
+
+                    // invoke subparser
+                    m_is_parsed = true;
+                    // convert to lower case
+                    std::string current_argument_lower = current_argument;
+                    std::transform(current_argument_lower.begin(),
+                                   current_argument_lower.end(),
+                                   current_argument_lower.begin(),
+                                   [](int c) -> char
+                                   { return static_cast<char>(::tolower(c)); });
+                    m_subparser_used[current_argument_lower] = true;
+                    return subparser->parse_args(unprocessed_arguments);
+                }
+
                 if (m_positional_arguments.empty())
                 {
                     throw std::runtime_error(

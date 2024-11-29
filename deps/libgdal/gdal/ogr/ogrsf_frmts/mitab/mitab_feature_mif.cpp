@@ -10,23 +10,7 @@
  **********************************************************************
  * Copyright (c) 1999-2002, Stephane Villeneuve
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  **********************************************************************/
 
 #include "cpl_port.h"
@@ -101,10 +85,9 @@ int TABFeature::ReadRecordFromMIDFile(MIDDATAFile *fp)
         return -1;
     }
 
-    OGRFieldDefn *poFDefn = nullptr;
     for (int i = 0; i < nFields; i++)
     {
-        poFDefn = GetFieldDefnRef(i);
+        const auto poFDefn = GetFieldDefnRef(i);
         switch (poFDefn->GetType())
         {
 #ifdef MITAB_USE_OFTDATETIME
@@ -141,6 +124,22 @@ int TABFeature::ReadRecordFromMIDFile(MIDDATAFile *fp)
                 break;
             }
 #endif
+            case OFTInteger:
+            {
+                if (poFDefn->GetSubType() == OFSTBoolean)
+                {
+                    char ch = papszToken[i][0];
+                    SetField(i, (ch == 'T' || ch == 't' || ch == 'Y' ||
+                                 ch == 'y' || ch == '1')
+                                    ? 1
+                                    : 0);
+                }
+                else
+                {
+                    SetField(i, papszToken[i]);
+                }
+                break;
+            }
             case OFTString:
             {
                 CPLString osValue(papszToken[i]);
@@ -289,6 +288,18 @@ int TABFeature::WriteRecordToMIDFile(MIDDATAFile *fp)
                 break;
             }
 #endif
+            case OFTInteger:
+            {
+                if (poFDefn->GetSubType() == OFSTBoolean)
+                {
+                    fp->WriteLine("%c", GetFieldAsInteger(iField) ? 'T' : 'F');
+                }
+                else
+                {
+                    fp->WriteLine("%s", GetFieldAsString(iField));
+                }
+                break;
+            }
             default:
                 fp->WriteLine("%s", GetFieldAsString(iField));
         }

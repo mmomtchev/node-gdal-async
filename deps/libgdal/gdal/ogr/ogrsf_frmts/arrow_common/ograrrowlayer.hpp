@@ -7,23 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2022, Planet Labs
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #ifndef OGARROWLAYER_HPP_INCLUDED
@@ -244,10 +228,17 @@ inline bool OGRArrowLayer::IsHandledListOrMapType(
            itemTypeId == arrow::Type::HALF_FLOAT ||
            itemTypeId == arrow::Type::FLOAT ||
            itemTypeId == arrow::Type::DOUBLE ||
+#if ARROW_VERSION_MAJOR >= 18
+           itemTypeId == arrow::Type::DECIMAL32 ||
+           itemTypeId == arrow::Type::DECIMAL64 ||
+#endif
            itemTypeId == arrow::Type::DECIMAL128 ||
            itemTypeId == arrow::Type::DECIMAL256 ||
            itemTypeId == arrow::Type::STRING ||
            itemTypeId == arrow::Type::LARGE_STRING ||
+#if ARROW_VERSION_MAJOR >= 15
+           itemTypeId == arrow::Type::STRING_VIEW ||
+#endif
            itemTypeId == arrow::Type::STRUCT ||
            (itemTypeId == arrow::Type::MAP &&
             IsHandledMapType(
@@ -276,7 +267,12 @@ inline bool OGRArrowLayer::IsHandledListType(
 inline bool
 OGRArrowLayer::IsHandledMapType(const std::shared_ptr<arrow::MapType> &mapType)
 {
-    return mapType->key_type()->id() == arrow::Type::STRING &&
+    const auto typeId = mapType->key_type()->id();
+    return (typeId == arrow::Type::STRING
+#if ARROW_VERSION_MAJOR >= 15
+            || typeId == arrow::Type::STRING_VIEW
+#endif
+            ) &&
            IsHandledListOrMapType(mapType->item_type());
 }
 
@@ -304,16 +300,13 @@ inline bool OGRArrowLayer::MapArrowTypeToOGR(
     }
     else if (const auto &field_kv_metadata = field->metadata())
     {
-        auto extension_name = field_kv_metadata->Get("ARROW:extension:name");
+        auto extension_name = field_kv_metadata->Get(ARROW_EXTENSION_NAME_KEY);
         if (extension_name.ok())
         {
             osExtensionName = *extension_name;
         }
     }
 
-    // Preliminary/in-advance read support for future JSON Canonical Extension
-    // Cf https://github.com/apache/arrow/pull/41257 and
-    // https://github.com/apache/arrow/pull/13901
     if (!osExtensionName.empty() &&
         osExtensionName != EXTENSION_NAME_ARROW_JSON)
     {
@@ -372,6 +365,9 @@ inline bool OGRArrowLayer::MapArrowTypeToOGR(
             break;
         case arrow::Type::STRING:
         case arrow::Type::LARGE_STRING:
+#if ARROW_VERSION_MAJOR >= 15
+        case arrow::Type::STRING_VIEW:
+#endif
             bTypeOK = true;
             eType = OFTString;
             if (osExtensionName == EXTENSION_NAME_ARROW_JSON)
@@ -379,6 +375,9 @@ inline bool OGRArrowLayer::MapArrowTypeToOGR(
             break;
         case arrow::Type::BINARY:
         case arrow::Type::LARGE_BINARY:
+#if ARROW_VERSION_MAJOR >= 15
+        case arrow::Type::BINARY_VIEW:
+#endif
             bTypeOK = true;
             eType = OFTBinary;
             break;
@@ -427,6 +426,10 @@ inline bool OGRArrowLayer::MapArrowTypeToOGR(
                                    // nanosecond accuracy
             break;
 
+#if ARROW_VERSION_MAJOR >= 18
+        case arrow::Type::DECIMAL32:
+        case arrow::Type::DECIMAL64:
+#endif
         case arrow::Type::DECIMAL128:
         case arrow::Type::DECIMAL256:
         {
@@ -473,12 +476,19 @@ inline bool OGRArrowLayer::MapArrowTypeToOGR(
                     eSubType = OFSTFloat32;
                     break;
                 case arrow::Type::DOUBLE:
+#if ARROW_VERSION_MAJOR >= 18
+                case arrow::Type::DECIMAL32:
+                case arrow::Type::DECIMAL64:
+#endif
                 case arrow::Type::DECIMAL128:
                 case arrow::Type::DECIMAL256:
                     eType = OFTRealList;
                     break;
                 case arrow::Type::STRING:
                 case arrow::Type::LARGE_STRING:
+#if ARROW_VERSION_MAJOR >= 15
+                case arrow::Type::STRING_VIEW:
+#endif
                     eType = OFTStringList;
                     break;
                 default:
@@ -541,8 +551,6 @@ inline bool OGRArrowLayer::MapArrowTypeToOGR(
         case arrow::Type::RUN_END_ENCODED:
 #endif
 #if ARROW_VERSION_MAJOR >= 15
-        case arrow::Type::STRING_VIEW:
-        case arrow::Type::BINARY_VIEW:
         case arrow::Type::LIST_VIEW:
         case arrow::Type::LARGE_LIST_VIEW:
 #endif
@@ -683,8 +691,23 @@ inline std::unique_ptr<OGRFieldDomain> OGRArrowLayer::BuildDomainFromBatch(
         eType = OFTInteger64;
     auto values = std::static_pointer_cast<arrow::StringArray>(dict);
     std::vector<OGRCodedValue> asValues;
-    asValues.reserve(values->length());
-    for (int i = 0; i < values->length(); ++i)
+    if (values->length() > INT_MAX)
+    {
+        CPLError(CE_Failure, CPLE_OutOfMemory,
+                 "BuildDomainFromBatch(): too many values");
+        return nullptr;
+    }
+    try
+    {
+        asValues.reserve(static_cast<size_t>(values->length()));
+    }
+    catch (const std::bad_alloc &)
+    {
+        CPLError(CE_Failure, CPLE_OutOfMemory,
+                 "BuildDomainFromBatch(): out of memory");
+        return nullptr;
+    }
+    for (int i = 0; i < static_cast<int>(values->length()); ++i)
     {
         if (!values->IsNull(i))
         {
@@ -1279,6 +1302,23 @@ static void AddToArray(CPLJSONArray &oArray, const arrow::Array *array,
                 static_cast<const arrow::DoubleArray *>(array)->Value(nIdx));
             break;
         }
+
+#if ARROW_VERSION_MAJOR >= 18
+        case arrow::Type::DECIMAL32:
+        {
+            oArray.Add(CPLAtof(static_cast<const arrow::Decimal32Array *>(array)
+                                   ->FormatValue(nIdx)
+                                   .c_str()));
+            break;
+        }
+        case arrow::Type::DECIMAL64:
+        {
+            oArray.Add(CPLAtof(static_cast<const arrow::Decimal64Array *>(array)
+                                   ->FormatValue(nIdx)
+                                   .c_str()));
+            break;
+        }
+#endif
         case arrow::Type::DECIMAL128:
         {
             oArray.Add(
@@ -1309,6 +1349,15 @@ static void AddToArray(CPLJSONArray &oArray, const arrow::Array *array,
                     nIdx));
             break;
         }
+#if ARROW_VERSION_MAJOR >= 15
+        case arrow::Type::STRING_VIEW:
+        {
+            oArray.Add(
+                static_cast<const arrow::StringViewArray *>(array)->GetString(
+                    nIdx));
+            break;
+        }
+#endif
         case arrow::Type::LIST:
         case arrow::Type::LARGE_LIST:
         case arrow::Type::FIXED_SIZE_LIST:
@@ -1345,7 +1394,8 @@ static CPLJSONArray GetListAsJSON(const ArrowType *array,
         if (values->IsNull(nIdxStart + k))
             oArray.AddNull();
         else
-            AddToArray(oArray, values.get(), nIdxStart + k);
+            AddToArray(oArray, values.get(),
+                       static_cast<size_t>(nIdxStart + k));
     }
     return oArray;
 }
@@ -1449,6 +1499,25 @@ static void AddToDict(CPLJSONObject &oDict, const std::string &osKey,
                 static_cast<const arrow::DoubleArray *>(array)->Value(nIdx));
             break;
         }
+
+#if ARROW_VERSION_MAJOR >= 18
+        case arrow::Type::DECIMAL32:
+        {
+            oDict.Add(osKey,
+                      CPLAtof(static_cast<const arrow::Decimal32Array *>(array)
+                                  ->FormatValue(nIdx)
+                                  .c_str()));
+            break;
+        }
+        case arrow::Type::DECIMAL64:
+        {
+            oDict.Add(osKey,
+                      CPLAtof(static_cast<const arrow::Decimal64Array *>(array)
+                                  ->FormatValue(nIdx)
+                                  .c_str()));
+            break;
+        }
+#endif
         case arrow::Type::DECIMAL128:
         {
             oDict.Add(osKey,
@@ -1478,6 +1547,14 @@ static void AddToDict(CPLJSONObject &oDict, const std::string &osKey,
                                  ->GetString(nIdx));
             break;
         }
+#if ARROW_VERSION_MAJOR >= 15
+        case arrow::Type::STRING_VIEW:
+        {
+            oDict.Add(osKey, static_cast<const arrow::StringViewArray *>(array)
+                                 ->GetString(nIdx));
+            break;
+        }
+#endif
         case arrow::Type::LIST:
         case arrow::Type::LARGE_LIST:
         case arrow::Type::FIXED_SIZE_LIST:
@@ -1501,12 +1578,12 @@ static void AddToDict(CPLJSONObject &oDict, const std::string &osKey,
 /*                         GetMapAsJSON()                               */
 /************************************************************************/
 
+template <class KeyArrayType>
 static CPLJSONObject GetMapAsJSON(const arrow::Array *array,
                                   const size_t nIdxInArray)
 {
     const auto mapArray = static_cast<const arrow::MapArray *>(array);
-    const auto keys =
-        std::static_pointer_cast<arrow::StringArray>(mapArray->keys());
+    const auto keys = std::static_pointer_cast<KeyArrayType>(mapArray->keys());
     const auto values = mapArray->items();
     const auto nIdxStart = mapArray->value_offset(nIdxInArray);
     const int nCount = mapArray->value_length(nIdxInArray);
@@ -1523,6 +1600,24 @@ static CPLJSONObject GetMapAsJSON(const arrow::Array *array,
         }
     }
     return oRoot;
+}
+
+static CPLJSONObject GetMapAsJSON(const arrow::Array *array,
+                                  const size_t nIdxInArray)
+{
+    const auto mapArray = static_cast<const arrow::MapArray *>(array);
+    const auto eKeyType = mapArray->keys()->type()->id();
+    if (eKeyType == arrow::Type::STRING)
+        return GetMapAsJSON<arrow::StringArray>(array, nIdxInArray);
+#if ARROW_VERSION_MAJOR >= 15
+    else if (eKeyType == arrow::Type::STRING_VIEW)
+        return GetMapAsJSON<arrow::StringViewArray>(array, nIdxInArray);
+#endif
+    else
+    {
+        CPLAssert(false);
+        return CPLJSONObject();
+    }
 }
 
 /************************************************************************/
@@ -1710,6 +1805,48 @@ static void ReadList(OGRFeature *poFeature, int i, int64_t nIdxInArray,
             break;
         }
 
+#if ARROW_VERSION_MAJOR >= 18
+        case arrow::Type::DECIMAL32:
+        {
+            const auto values = std::static_pointer_cast<arrow::Decimal32Array>(
+                array->values());
+            const auto nIdxStart = array->value_offset(nIdxInArray);
+            const int nCount = array->value_length(nIdxInArray);
+            std::vector<double> aValues;
+            aValues.reserve(nCount);
+            for (int k = 0; k < nCount; k++)
+            {
+                if (values->IsNull(nIdxStart + k))
+                    aValues.push_back(std::numeric_limits<double>::quiet_NaN());
+                else
+                    aValues.push_back(
+                        CPLAtof(values->FormatValue(nIdxStart + k).c_str()));
+            }
+            poFeature->SetField(i, nCount, aValues.data());
+            break;
+        }
+
+        case arrow::Type::DECIMAL64:
+        {
+            const auto values = std::static_pointer_cast<arrow::Decimal64Array>(
+                array->values());
+            const auto nIdxStart = array->value_offset(nIdxInArray);
+            const int nCount = array->value_length(nIdxInArray);
+            std::vector<double> aValues;
+            aValues.reserve(nCount);
+            for (int k = 0; k < nCount; k++)
+            {
+                if (values->IsNull(nIdxStart + k))
+                    aValues.push_back(std::numeric_limits<double>::quiet_NaN());
+                else
+                    aValues.push_back(
+                        CPLAtof(values->FormatValue(nIdxStart + k).c_str()));
+            }
+            poFeature->SetField(i, nCount, aValues.data());
+            break;
+        }
+#endif
+
         case arrow::Type::DECIMAL128:
         {
             const auto values =
@@ -1789,16 +1926,37 @@ static void ReadList(OGRFeature *poFeature, int i, int64_t nIdxInArray,
             poFeature->SetField(i, aosList.List());
             break;
         }
+#if ARROW_VERSION_MAJOR >= 15
+        case arrow::Type::STRING_VIEW:
+        {
+            const auto values =
+                std::static_pointer_cast<arrow::StringViewArray>(
+                    array->values());
+            const auto nIdxStart = array->value_offset(nIdxInArray);
+            const int nCount = array->value_length(nIdxInArray);
+            CPLStringList aosList;
+            for (int k = 0; k < nCount; k++)
+            {
+                if (values->IsNull(nIdxStart + k))
+                    aosList.AddString(
+                        "");  // we cannot have null strings in a list
+                else
+                    aosList.AddString(values->GetString(nIdxStart + k).c_str());
+            }
+            poFeature->SetField(i, aosList.List());
+            break;
+        }
+#endif
         case arrow::Type::LIST:
         case arrow::Type::LARGE_LIST:
         case arrow::Type::FIXED_SIZE_LIST:
         case arrow::Type::MAP:
         case arrow::Type::STRUCT:
         {
-            poFeature->SetField(i,
-                                GetListAsJSON(array, nIdxInArray)
-                                    .Format(CPLJSONObject::PrettyFormat::Plain)
-                                    .c_str());
+            poFeature->SetField(
+                i, GetListAsJSON(array, static_cast<size_t>(nIdxInArray))
+                       .Format(CPLJSONObject::PrettyFormat::Plain)
+                       .c_str());
             break;
         }
 
@@ -2231,6 +2389,31 @@ inline OGRFeature *OGRArrowLayer::ReadFeature(
                 poFeature->SetField(i, out_length, data);
                 break;
             }
+#if ARROW_VERSION_MAJOR >= 15
+            case arrow::Type::BINARY_VIEW:
+            {
+                const auto castArray =
+                    static_cast<const arrow::BinaryViewArray *>(array);
+                const auto view = castArray->GetView(nIdxInBatch);
+                poFeature->SetField(i, static_cast<int>(view.size()),
+                                    view.data());
+                break;
+            }
+#endif
+#if ARROW_VERSION_MAJOR >= 15
+            case arrow::Type::STRING_VIEW:
+            {
+                const auto castArray =
+                    static_cast<const arrow::StringViewArray *>(array);
+                const auto strView = castArray->GetView(nIdxInBatch);
+                char *pszString =
+                    static_cast<char *>(CPLMalloc(strView.length() + 1));
+                memcpy(pszString, strView.data(), strView.length());
+                pszString[strView.length()] = 0;
+                poFeature->SetFieldSameTypeUnsafe(i, pszString);
+                break;
+            }
+#endif
             case arrow::Type::FIXED_SIZE_BINARY:
             {
                 const auto castArray =
@@ -2313,6 +2496,26 @@ inline OGRFeature *OGRArrowLayer::ReadFeature(
                 break;
             }
 
+#if ARROW_VERSION_MAJOR >= 18
+            case arrow::Type::DECIMAL32:
+            {
+                const auto castArray =
+                    static_cast<const arrow::Decimal32Array *>(array);
+                poFeature->SetField(
+                    i, CPLAtof(castArray->FormatValue(nIdxInBatch).c_str()));
+                break;
+            }
+
+            case arrow::Type::DECIMAL64:
+            {
+                const auto castArray =
+                    static_cast<const arrow::Decimal64Array *>(array);
+                poFeature->SetField(
+                    i, CPLAtof(castArray->FormatValue(nIdxInBatch).c_str()));
+                break;
+            }
+#endif
+
             case arrow::Type::DECIMAL128:
             {
                 const auto castArray =
@@ -2369,8 +2572,9 @@ inline OGRFeature *OGRArrowLayer::ReadFeature(
                 arrow::LargeBinaryArray::offset_type out_length = 0;
                 const uint8_t *data =
                     castArray->GetValue(nIdxInBatch, &out_length);
-                if (out_length <= INT_MAX)
+                if (out_length >= 0 && out_length <= INT_MAX - 1)
                 {
+                    // coverity[overflow_sink]
                     poFeature->SetField(i, static_cast<int>(out_length), data);
                 }
                 else
@@ -2389,7 +2593,7 @@ inline OGRFeature *OGRArrowLayer::ReadFeature(
                 const auto castArray =
                     static_cast<const arrow::MapArray *>(array);
                 poFeature->SetField(
-                    i, GetMapAsJSON(castArray, nIdxInBatch)
+                    i, GetMapAsJSON(castArray, static_cast<size_t>(nIdxInBatch))
                            .Format(CPLJSONObject::PrettyFormat::Plain)
                            .c_str());
                 break;
@@ -2410,8 +2614,6 @@ inline OGRFeature *OGRArrowLayer::ReadFeature(
             case arrow::Type::RUN_END_ENCODED:
 #endif
 #if ARROW_VERSION_MAJOR >= 15
-            case arrow::Type::STRING_VIEW:
-            case arrow::Type::BINARY_VIEW:
             case arrow::Type::LIST_VIEW:
             case arrow::Type::LARGE_LIST_VIEW:
 #endif
@@ -3130,7 +3332,9 @@ inline void OGRArrowLayer::ResetReading()
 /*                        GetColumnSubNode()                           */
 /***********************************************************************/
 
-static const swq_expr_node *GetColumnSubNode(const swq_expr_node *poNode)
+/* static*/
+inline const swq_expr_node *
+OGRArrowLayer::GetColumnSubNode(const swq_expr_node *poNode)
 {
     if (poNode->eNodeType == SNT_OPERATION && poNode->nSubExprCount == 2)
     {
@@ -3146,7 +3350,9 @@ static const swq_expr_node *GetColumnSubNode(const swq_expr_node *poNode)
 /*                        GetConstantSubNode()                         */
 /***********************************************************************/
 
-static const swq_expr_node *GetConstantSubNode(const swq_expr_node *poNode)
+/* static */
+inline const swq_expr_node *
+OGRArrowLayer::GetConstantSubNode(const swq_expr_node *poNode)
 {
     if (poNode->eNodeType == SNT_OPERATION && poNode->nSubExprCount == 2)
     {
@@ -3162,7 +3368,8 @@ static const swq_expr_node *GetConstantSubNode(const swq_expr_node *poNode)
 /*                           IsComparisonOp()                          */
 /***********************************************************************/
 
-static bool IsComparisonOp(int op)
+/* static*/
+inline bool OGRArrowLayer::IsComparisonOp(int op)
 {
     return (op == SWQ_EQ || op == SWQ_NE || op == SWQ_LT || op == SWQ_LE ||
             op == SWQ_GT || op == SWQ_GE);
@@ -3803,6 +4010,34 @@ inline bool OGRArrowLayer::SkipToNextFeatureDueToAttributeFilter() const
                 break;
             }
 
+#if ARROW_VERSION_MAJOR >= 18
+            case arrow::Type::DECIMAL32:
+            {
+                const auto castArray =
+                    static_cast<const arrow::Decimal32Array *>(array);
+                if (!ConstraintEvaluator(
+                        constraint,
+                        CPLAtof(castArray->FormatValue(m_nIdxInBatch).c_str())))
+                {
+                    return true;
+                }
+                break;
+            }
+
+            case arrow::Type::DECIMAL64:
+            {
+                const auto castArray =
+                    static_cast<const arrow::Decimal64Array *>(array);
+                if (!ConstraintEvaluator(
+                        constraint,
+                        CPLAtof(castArray->FormatValue(m_nIdxInBatch).c_str())))
+                {
+                    return true;
+                }
+                break;
+            }
+#endif
+
             case arrow::Type::DECIMAL128:
             {
                 const auto castArray =
@@ -3858,9 +4093,12 @@ OGRArrowLayer::SetBatch(const std::shared_ptr<arrow::RecordBatch> &poBatch)
     m_poArrayYMaxFloat = nullptr;
 
     if (m_poBatch)
+    {
         m_poBatchColumns = m_poBatch->columns();
+        SanityCheckOfSetBatch();
+    }
 
-    if (m_poBatch && m_poFilterGeom)
+    if (m_poBatch && m_poFilterGeom && !m_bBaseArrowIgnoreSpatialFilterRect)
     {
         int iCol;
         if (m_bIgnoredFields)
@@ -3897,66 +4135,130 @@ OGRArrowLayer::SetBatch(const std::shared_ptr<arrow::RecordBatch> &poBatch)
             {
                 const int idx = m_bIgnoredFields ? oIter->second.iArrayIdx
                                                  : oIter->second.iArrowCol;
-                CPLAssert(idx >= 0);
-                CPLAssert(static_cast<size_t>(idx) < m_poBatchColumns.size());
-                m_poArrayBBOX = m_poBatchColumns[idx].get();
-                CPLAssert(m_poArrayBBOX->type_id() == arrow::Type::STRUCT);
-                const auto castArray =
-                    static_cast<const arrow::StructArray *>(m_poArrayBBOX);
-                const auto &subArrays = castArray->fields();
-                CPLAssert(
-                    static_cast<size_t>(oIter->second.iArrowSubfieldXMin) <
-                    subArrays.size());
-                const auto xminArray =
-                    subArrays[oIter->second.iArrowSubfieldXMin].get();
-                CPLAssert(
-                    static_cast<size_t>(oIter->second.iArrowSubfieldYMin) <
-                    subArrays.size());
-                const auto yminArray =
-                    subArrays[oIter->second.iArrowSubfieldYMin].get();
-                CPLAssert(
-                    static_cast<size_t>(oIter->second.iArrowSubfieldXMax) <
-                    subArrays.size());
-                const auto xmaxArray =
-                    subArrays[oIter->second.iArrowSubfieldXMax].get();
-                CPLAssert(
-                    static_cast<size_t>(oIter->second.iArrowSubfieldYMax) <
-                    subArrays.size());
-                const auto ymaxArray =
-                    subArrays[oIter->second.iArrowSubfieldYMax].get();
-                if (oIter->second.bIsFloat)
+                if (idx >= 0)
                 {
-                    CPLAssert(xminArray->type_id() == arrow::Type::FLOAT);
-                    m_poArrayXMinFloat =
-                        static_cast<const arrow::FloatArray *>(xminArray);
-                    CPLAssert(yminArray->type_id() == arrow::Type::FLOAT);
-                    m_poArrayYMinFloat =
-                        static_cast<const arrow::FloatArray *>(yminArray);
-                    CPLAssert(xmaxArray->type_id() == arrow::Type::FLOAT);
-                    m_poArrayXMaxFloat =
-                        static_cast<const arrow::FloatArray *>(xmaxArray);
-                    CPLAssert(ymaxArray->type_id() == arrow::Type::FLOAT);
-                    m_poArrayYMaxFloat =
-                        static_cast<const arrow::FloatArray *>(ymaxArray);
-                }
-                else
-                {
-                    CPLAssert(xminArray->type_id() == arrow::Type::DOUBLE);
-                    m_poArrayXMinDouble =
-                        static_cast<const arrow::DoubleArray *>(xminArray);
-                    CPLAssert(yminArray->type_id() == arrow::Type::DOUBLE);
-                    m_poArrayYMinDouble =
-                        static_cast<const arrow::DoubleArray *>(yminArray);
-                    CPLAssert(xmaxArray->type_id() == arrow::Type::DOUBLE);
-                    m_poArrayXMaxDouble =
-                        static_cast<const arrow::DoubleArray *>(xmaxArray);
-                    CPLAssert(ymaxArray->type_id() == arrow::Type::DOUBLE);
-                    m_poArrayYMaxDouble =
-                        static_cast<const arrow::DoubleArray *>(ymaxArray);
+                    CPLAssert(static_cast<size_t>(idx) <
+                              m_poBatchColumns.size());
+                    m_poArrayBBOX = m_poBatchColumns[idx].get();
+                    CPLAssert(m_poArrayBBOX->type_id() == arrow::Type::STRUCT);
+                    const auto castArray =
+                        static_cast<const arrow::StructArray *>(m_poArrayBBOX);
+                    const auto &subArrays = castArray->fields();
+                    CPLAssert(
+                        static_cast<size_t>(oIter->second.iArrowSubfieldXMin) <
+                        subArrays.size());
+                    const auto xminArray =
+                        subArrays[oIter->second.iArrowSubfieldXMin].get();
+                    CPLAssert(
+                        static_cast<size_t>(oIter->second.iArrowSubfieldYMin) <
+                        subArrays.size());
+                    const auto yminArray =
+                        subArrays[oIter->second.iArrowSubfieldYMin].get();
+                    CPLAssert(
+                        static_cast<size_t>(oIter->second.iArrowSubfieldXMax) <
+                        subArrays.size());
+                    const auto xmaxArray =
+                        subArrays[oIter->second.iArrowSubfieldXMax].get();
+                    CPLAssert(
+                        static_cast<size_t>(oIter->second.iArrowSubfieldYMax) <
+                        subArrays.size());
+                    const auto ymaxArray =
+                        subArrays[oIter->second.iArrowSubfieldYMax].get();
+                    if (oIter->second.bIsFloat)
+                    {
+                        CPLAssert(xminArray->type_id() == arrow::Type::FLOAT);
+                        m_poArrayXMinFloat =
+                            static_cast<const arrow::FloatArray *>(xminArray);
+                        CPLAssert(yminArray->type_id() == arrow::Type::FLOAT);
+                        m_poArrayYMinFloat =
+                            static_cast<const arrow::FloatArray *>(yminArray);
+                        CPLAssert(xmaxArray->type_id() == arrow::Type::FLOAT);
+                        m_poArrayXMaxFloat =
+                            static_cast<const arrow::FloatArray *>(xmaxArray);
+                        CPLAssert(ymaxArray->type_id() == arrow::Type::FLOAT);
+                        m_poArrayYMaxFloat =
+                            static_cast<const arrow::FloatArray *>(ymaxArray);
+                    }
+                    else
+                    {
+                        CPLAssert(xminArray->type_id() == arrow::Type::DOUBLE);
+                        m_poArrayXMinDouble =
+                            static_cast<const arrow::DoubleArray *>(xminArray);
+                        CPLAssert(yminArray->type_id() == arrow::Type::DOUBLE);
+                        m_poArrayYMinDouble =
+                            static_cast<const arrow::DoubleArray *>(yminArray);
+                        CPLAssert(xmaxArray->type_id() == arrow::Type::DOUBLE);
+                        m_poArrayXMaxDouble =
+                            static_cast<const arrow::DoubleArray *>(xmaxArray);
+                        CPLAssert(ymaxArray->type_id() == arrow::Type::DOUBLE);
+                        m_poArrayYMaxDouble =
+                            static_cast<const arrow::DoubleArray *>(ymaxArray);
+                    }
                 }
             }
         }
     }
+}
+
+/************************************************************************/
+/*                      SanityCheckOfSetBatch()                         */
+/************************************************************************/
+
+inline void OGRArrowLayer::SanityCheckOfSetBatch() const
+{
+#ifdef DEBUG
+    CPLAssert(m_poBatch);
+
+    const auto &poColumns = m_poBatch->columns();
+
+    // Sanity checks
+    CPLAssert(m_poBatch->num_columns() == (m_bIgnoredFields
+                                               ? m_nExpectedBatchColumns
+                                               : m_poSchema->num_fields()));
+    const auto &fields = m_poSchema->fields();
+
+    for (int i = 0; i < m_poFeatureDefn->GetFieldCount(); ++i)
+    {
+        int iCol;
+        if (m_bIgnoredFields)
+        {
+            iCol = m_anMapFieldIndexToArrayIndex[i];
+            if (iCol < 0)
+                continue;
+        }
+        else
+        {
+            iCol = m_anMapFieldIndexToArrowColumn[i][0];
+        }
+        CPL_IGNORE_RET_VAL(iCol);  // to make cppcheck happy
+
+        CPLAssert(iCol < static_cast<int>(poColumns.size()));
+        CPLAssert(fields[m_anMapFieldIndexToArrowColumn[i][0]]->type()->id() ==
+                  poColumns[iCol]->type_id());
+    }
+
+    for (int i = 0; i < m_poFeatureDefn->GetGeomFieldCount(); ++i)
+    {
+        int iCol;
+        if (m_bIgnoredFields)
+        {
+            iCol = m_anMapGeomFieldIndexToArrayIndex[i];
+            if (iCol < 0)
+                continue;
+        }
+        else
+        {
+            iCol = m_anMapGeomFieldIndexToArrowColumn[i];
+        }
+        CPL_IGNORE_RET_VAL(iCol);  // to make cppcheck happy
+
+        CPLAssert(iCol < static_cast<int>(poColumns.size()));
+        CPLAssert(fields[m_anMapGeomFieldIndexToArrowColumn[i]]->type()->id() ==
+                  poColumns[iCol]->type_id());
+    }
+#else
+    CPL_IGNORE_RET_VAL(m_nExpectedBatchColumns);
+#endif
 }
 
 /************************************************************************/
@@ -3977,7 +4279,7 @@ inline OGRFeature *OGRArrowLayer::GetNextRawFeature()
 
     // Evaluate spatial filter by computing the bounding box of each geometry
     // but without creating a OGRGeometry
-    if (m_poFilterGeom)
+    if (m_poFilterGeom && !m_bBaseArrowIgnoreSpatialFilterRect)
     {
         int iCol;
         if (m_bIgnoredFields)
@@ -3989,7 +4291,7 @@ inline OGRFeature *OGRArrowLayer::GetNextRawFeature()
             iCol = m_anMapGeomFieldIndexToArrowColumn[m_iGeomFieldFilter];
         }
 
-        if (m_poArrayXMinFloat || m_poArrayXMinDouble)
+        if (iCol >= 0 && (m_poArrayXMinFloat || m_poArrayXMinDouble))
         {
             OGREnvelope sEnvelopeSkipToNextFeatureDueToBBOX;
             const auto IntersectsBBOX =
@@ -4813,13 +5115,8 @@ inline void OGRArrowLayer::SetSpatialFilter(int iGeomField,
                                             OGRGeometry *poGeomIn)
 
 {
-    if (iGeomField < 0 || (iGeomField >= GetLayerDefn()->GetGeomFieldCount() &&
-                           !(iGeomField == 0 && poGeomIn == nullptr)))
-    {
-        CPLError(CE_Failure, CPLE_AppDefined,
-                 "Invalid geometry field index : %d", iGeomField);
+    if (!ValidateGeometryFieldIndexForSetSpatialFilter(iGeomField, poGeomIn))
         return;
-    }
 
     // When changing filters, we need to invalidate cached batches, as
     // PostFilterArrowArray() has potentially modified array contents
@@ -5315,7 +5612,8 @@ OGRArrowLayer::GetArrowSchemaInternal(struct ArrowSchema *out_schema) const
     };
 
     // cppcheck-suppress unreadVariable
-    std::vector<FieldDesc> fieldDesc(out_schema->n_children);
+    std::vector<FieldDesc> fieldDesc(
+        static_cast<size_t>(out_schema->n_children));
     for (size_t i = 0; i < m_anMapFieldIndexToArrowColumn.size(); i++)
     {
         const int nArrowCol = m_anMapFieldIndexToArrowColumn[i][0];
@@ -5365,8 +5663,7 @@ OGRArrowLayer::GetArrowSchemaInternal(struct ArrowSchema *out_schema) const
                 out_schema->children[j] = out_schema->children[i];
                 ++j;
             }
-            else if (m_oSetBBoxArrowColumns.find(i) !=
-                     m_oSetBBoxArrowColumns.end())
+            else if (cpl::contains(m_oSetBBoxArrowColumns, i))
             {
                 // Remove bounding box columns from exported schema
                 out_schema->children[i]->release(out_schema->children[i]);
@@ -5518,6 +5815,10 @@ inline int OGRArrowLayer::GetNextArrowArray(struct ArrowArrayStream *stream,
             }
         }
 
+        const bool bNeedsPostFilter =
+            (m_poAttrQuery && !m_bBaseArrowIgnoreAttributeFilter) ||
+            (m_poFilterGeom && !m_bBaseArrowIgnoreSpatialFilter);
+
         struct ArrowSchema schema;
         memset(&schema, 0, sizeof(schema));
         auto status = arrow::ExportRecordBatch(*m_poBatch, out_array, &schema);
@@ -5538,7 +5839,7 @@ inline int OGRArrowLayer::GetNextArrowArray(struct ArrowArrayStream *stream,
             int j = 0;
             for (int i = 0; i < static_cast<int>(schema.n_children); ++i)
             {
-                if (oSetBBoxArrayIndex.find(i) != oSetBBoxArrayIndex.end() ||
+                if (cpl::contains(oSetBBoxArrayIndex, i) ||
                     IsSilentlyIgnoredFormatForGetArrowSchemaArray(
                         schema.children[i]->format))
                 {
@@ -5635,7 +5936,7 @@ inline int OGRArrowLayer::GetNextArrowArray(struct ArrowArrayStream *stream,
         for (int64_t i = 0; i < m_nIdxInBatch; ++i)
             IncrFeatureIdx();
 
-        if (m_poAttrQuery || m_poFilterGeom)
+        if (bNeedsPostFilter)
         {
             CPLStringList aosOptions;
             if (m_iFIDArrowColumn < 0)
@@ -5827,7 +6128,7 @@ OGRArrowLayer::CreateWKBArrayFromWKTArray(const struct ArrowArray *sourceArray)
 
         const size_t nWKBSize = oTranslator.TranslateWKT(
             sourceBytes + sourceOffsets[i],
-            sourceOffsets[i + 1] - sourceOffsets[i],
+            static_cast<size_t>(sourceOffsets[i + 1] - sourceOffsets[i]),
             sourceOffsets[i + 1] < sourceOffsets[nLength]);
         if (nWKBSize == static_cast<size_t>(-1))
         {

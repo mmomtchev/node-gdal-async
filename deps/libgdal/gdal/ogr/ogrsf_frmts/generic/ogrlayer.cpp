@@ -8,23 +8,7 @@
  * Copyright (c) 1999,  Les Technologies SoftMap Inc.
  * Copyright (c) 2008-2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "ogrsf_frmts.h"
@@ -38,6 +22,7 @@
 
 #include "cpl_time.h"
 #include <cassert>
+#include <cmath>
 #include <limits>
 #include <set>
 
@@ -348,8 +333,8 @@ OGRErr OGRLayer::GetExtentInternal(int iGeomField, OGREnvelope *psExtent,
         else if (!bExtentSet)
         {
             poGeom->getEnvelope(psExtent);
-            if (!(CPLIsNan(psExtent->MinX) || CPLIsNan(psExtent->MinY) ||
-                  CPLIsNan(psExtent->MaxX) || CPLIsNan(psExtent->MaxY)))
+            if (!(std::isnan(psExtent->MinX) || std::isnan(psExtent->MinY) ||
+                  std::isnan(psExtent->MaxX) || std::isnan(psExtent->MaxY)))
             {
                 bExtentSet = true;
             }
@@ -1680,42 +1665,7 @@ int OGRLayer::InstallFilter(OGRGeometry *poFilter)
     m_pPreparedFilterGeom =
         OGRCreatePreparedGeometry(OGRGeometry::ToHandle(m_poFilterGeom));
 
-    /* -------------------------------------------------------------------- */
-    /*      Now try to determine if the filter is really a rectangle.       */
-    /* -------------------------------------------------------------------- */
-    if (wkbFlatten(m_poFilterGeom->getGeometryType()) != wkbPolygon)
-        return TRUE;
-
-    OGRPolygon *poPoly = m_poFilterGeom->toPolygon();
-
-    if (poPoly->getNumInteriorRings() != 0)
-        return TRUE;
-
-    OGRLinearRing *poRing = poPoly->getExteriorRing();
-    if (poRing == nullptr)
-        return TRUE;
-
-    if (poRing->getNumPoints() > 5 || poRing->getNumPoints() < 4)
-        return TRUE;
-
-    // If the ring has 5 points, the last should be the first.
-    if (poRing->getNumPoints() == 5 && (poRing->getX(0) != poRing->getX(4) ||
-                                        poRing->getY(0) != poRing->getY(4)))
-        return TRUE;
-
-    // Polygon with first segment in "y" direction.
-    if (poRing->getX(0) == poRing->getX(1) &&
-        poRing->getY(1) == poRing->getY(2) &&
-        poRing->getX(2) == poRing->getX(3) &&
-        poRing->getY(3) == poRing->getY(0))
-        m_bFilterIsEnvelope = TRUE;
-
-    // Polygon with first segment in "x" direction.
-    if (poRing->getY(0) == poRing->getY(1) &&
-        poRing->getX(1) == poRing->getX(2) &&
-        poRing->getY(2) == poRing->getY(3) &&
-        poRing->getX(3) == poRing->getX(0))
-        m_bFilterIsEnvelope = TRUE;
+    m_bFilterIsEnvelope = m_poFilterGeom->IsRectangle();
 
     return TRUE;
 }
@@ -1879,22 +1829,38 @@ bool OGRLayer::FilterWKBGeometry(const GByte *pabyWKB, size_t nWKBSize,
                                  bool bEnvelopeAlreadySet,
                                  OGREnvelope &sEnvelope) const
 {
-    if (!m_poFilterGeom)
+    OGRPreparedGeometry *pPreparedFilterGeom = m_pPreparedFilterGeom;
+    bool bRet = FilterWKBGeometry(
+        pabyWKB, nWKBSize, bEnvelopeAlreadySet, sEnvelope, m_poFilterGeom,
+        m_bFilterIsEnvelope, m_sFilterEnvelope, pPreparedFilterGeom);
+    const_cast<OGRLayer *>(this)->m_pPreparedFilterGeom = pPreparedFilterGeom;
+    return bRet;
+}
+
+/* static */
+bool OGRLayer::FilterWKBGeometry(const GByte *pabyWKB, size_t nWKBSize,
+                                 bool bEnvelopeAlreadySet,
+                                 OGREnvelope &sEnvelope,
+                                 const OGRGeometry *poFilterGeom,
+                                 bool bFilterIsEnvelope,
+                                 const OGREnvelope &sFilterEnvelope,
+                                 OGRPreparedGeometry *&pPreparedFilterGeom)
+{
+    if (!poFilterGeom)
         return true;
 
     if ((bEnvelopeAlreadySet ||
          OGRWKBGetBoundingBox(pabyWKB, nWKBSize, sEnvelope)) &&
-        m_sFilterEnvelope.Intersects(sEnvelope))
+        sFilterEnvelope.Intersects(sEnvelope))
     {
-        if (m_bFilterIsEnvelope && m_sFilterEnvelope.Contains(sEnvelope))
+        if (bFilterIsEnvelope && sFilterEnvelope.Contains(sEnvelope))
         {
             return true;
         }
         else
         {
-            if (m_bFilterIsEnvelope &&
-                OGRWKBIntersectsPessimistic(pabyWKB, nWKBSize,
-                                            m_sFilterEnvelope))
+            if (bFilterIsEnvelope &&
+                OGRWKBIntersectsPessimistic(pabyWKB, nWKBSize, sFilterEnvelope))
             {
                 return true;
             }
@@ -1905,12 +1871,19 @@ bool OGRLayer::FilterWKBGeometry(const GByte *pabyWKB, size_t nWKBSize,
                 if (OGRGeometryFactory::createFromWkb(pabyWKB, nullptr, &poGeom,
                                                       nWKBSize) == OGRERR_NONE)
                 {
-                    if (m_pPreparedFilterGeom)
+                    if (!pPreparedFilterGeom)
+                    {
+                        pPreparedFilterGeom =
+                            OGRCreatePreparedGeometry(OGRGeometry::ToHandle(
+                                const_cast<OGRGeometry *>(poFilterGeom)));
+                    }
+                    if (pPreparedFilterGeom)
                         ret = OGRPreparedGeometryIntersects(
-                            m_pPreparedFilterGeom,
-                            OGRGeometry::ToHandle(poGeom));
+                            pPreparedFilterGeom,
+                            OGRGeometry::ToHandle(
+                                const_cast<OGRGeometry *>(poGeom)));
                     else
-                        ret = m_poFilterGeom->Intersects(poGeom);
+                        ret = poFilterGeom->Intersects(poGeom);
                 }
                 delete poGeom;
                 return CPL_TO_BOOL(ret);
@@ -1954,9 +1927,11 @@ void OGR_L_ResetReading(OGRLayerH hLayer)
 /************************************************************************/
 
 //! @cond Doxygen_Suppress
-OGRErr OGRLayer::InitializeIndexSupport(const char *pszFilename)
+OGRErr
+OGRLayer::InitializeIndexSupport([[maybe_unused]] const char *pszFilename)
 
 {
+#ifdef HAVE_MITAB
     OGRErr eErr;
 
     if (m_poAttrIndex != nullptr)
@@ -1972,6 +1947,9 @@ OGRErr OGRLayer::InitializeIndexSupport(const char *pszFilename)
     }
 
     return eErr;
+#else
+    return OGRERR_FAILURE;
+#endif
 }
 
 //! @endcond
@@ -5674,7 +5652,7 @@ OGRLayer::GetSupportedSRSList(CPL_UNUSED int iGeomField)
  * @param hLayer Layer.
  * @param iGeomField Geometry field index.
  * @param[out] pnCount Number of values in returned array. Must not be null.
- * @return list of supported SRS, to be freeds with OSRFreeSRSArray(), or
+ * @return list of supported SRS, to be freed with OSRFreeSRSArray(), or
  * nullptr
  * @since GDAL 3.7
  */

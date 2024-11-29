@@ -7,23 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -454,7 +438,7 @@ bool OGROpenFileGDBDataSource::Open(const GDALOpenInfo *poOpenInfo,
         for (const auto &oIter : m_osMapNameToIdx)
         {
             // test if layer is already added
-            if (OGRDataSource::GetLayerByName(oIter.first.c_str()))
+            if (GDALDataset::GetLayerByName(oIter.first.c_str()))
                 continue;
 
             if (bListAllTables || !IsPrivateLayerName(oIter.first))
@@ -462,8 +446,7 @@ bool OGROpenFileGDBDataSource::Open(const GDALOpenInfo *poOpenInfo,
                 const int idx = oIter.second;
                 CPLString osFilename(CPLFormFilename(
                     m_osDirName, CPLSPrintf("a%08x", idx), "gdbtable"));
-                if (oSetIgnoredRasterLayerTableNum.find(idx) ==
-                        oSetIgnoredRasterLayerTableNum.end() &&
+                if (!cpl::contains(oSetIgnoredRasterLayerTableNum, idx) &&
                     FileExists(osFilename))
                 {
                     m_apoLayers.emplace_back(
@@ -524,18 +507,17 @@ bool OGROpenFileGDBDataSource::Open(const GDALOpenInfo *poOpenInfo,
 
 OGRLayer *OGROpenFileGDBDataSource::AddLayer(
     const CPLString &osName, int nInterestTable, int &nCandidateLayers,
-    int &nLayersSDCOrCDF, const CPLString &osDefinition,
+    int &nLayersCDF, const CPLString &osDefinition,
     const CPLString &osDocumentation, OGRwkbGeometryType eGeomType,
     const std::string &osParentDefinition)
 {
-    std::map<std::string, int>::const_iterator oIter =
-        m_osMapNameToIdx.find(osName);
+    const auto oIter = m_osMapNameToIdx.find(osName);
     int idx = 0;
     if (oIter != m_osMapNameToIdx.end())
         idx = oIter->second;
     if (idx > 0 && (nInterestTable <= 0 || nInterestTable == idx))
     {
-        m_osMapNameToIdx.erase(osName);
+        m_osMapNameToIdx.erase(oIter);
 
         CPLString osFilename =
             CPLFormFilename(m_osDirName, CPLSPrintf("a%08x", idx), "gdbtable");
@@ -545,27 +527,74 @@ OGRLayer *OGROpenFileGDBDataSource::AddLayer(
 
             if (m_papszFiles != nullptr)
             {
-                CPLString osSDC = CPLResetExtension(osFilename, "gdbtable.sdc");
-                CPLString osCDF = CPLResetExtension(osFilename, "gdbtable.cdf");
-                if (FileExists(osSDC) || FileExists(osCDF))
+                const CPLString osSDC =
+                    CPLResetExtension(osFilename, "gdbtable.sdc");
+                const CPLString osCDF =
+                    CPLResetExtension(osFilename, "gdbtable.cdf");
+                if (FileExists(osCDF))
                 {
-                    nLayersSDCOrCDF++;
-                    if (GDALGetDriverByName("FileGDB") == nullptr)
-                    {
-                        CPLError(
-                            CE_Warning, CPLE_AppDefined,
-                            "%s layer has a %s file whose format is unhandled",
-                            osName.c_str(),
-                            FileExists(osSDC) ? osSDC.c_str() : osCDF.c_str());
-                    }
-                    else
+                    nLayersCDF++;
+
+                    if (GDALGetDriverByName("FileGDB"))
                     {
                         CPLDebug(
                             "OpenFileGDB",
-                            "%s layer has a %s file whose format is unhandled",
-                            osName.c_str(),
-                            FileExists(osSDC) ? osSDC.c_str() : osCDF.c_str());
+                            "%s layer has a %s file using Compressed Data "
+                            "Format (CDF) that is unhandled by the OpenFileGDB "
+                            "driver, but could be handled by the FileGDB "
+                            "driver (which will be attempted).",
+                            osName.c_str(), osCDF.c_str());
                     }
+                    else
+                    {
+                        // Look into hidden drivers, that is drivers that have
+                        // been built as plugins, but are not currently available
+                        // on the system.
+                        std::string osFileGDBDriverMsg;
+                        auto poDM = GetGDALDriverManager();
+                        const int nAllDrivercount =
+                            poDM->GetDriverCount(/* bIncludeHidden = */ true);
+                        for (int i = 0; i < nAllDrivercount; ++i)
+                        {
+                            auto poMissingPluginDriver =
+                                poDM->GetDriver(i, /* bIncludeHidden = */ true);
+                            if (EQUAL(poMissingPluginDriver->GetDescription(),
+                                      "FileGDB"))
+                            {
+                                osFileGDBDriverMsg += " However the plugin ";
+                                osFileGDBDriverMsg +=
+                                    poMissingPluginDriver->GetMetadataItem(
+                                        "MISSING_PLUGIN_FILENAME");
+                                osFileGDBDriverMsg +=
+                                    " is not available in your "
+                                    "installation.";
+                                if (const char *pszInstallationMsg =
+                                        poMissingPluginDriver->GetMetadataItem(
+                                            GDAL_DMD_PLUGIN_INSTALLATION_MESSAGE))
+                                {
+                                    osFileGDBDriverMsg += " ";
+                                    osFileGDBDriverMsg += pszInstallationMsg;
+                                }
+                                break;
+                            }
+                        }
+                        CPLError(CE_Warning, CPLE_AppDefined,
+                                 "%s layer has a %s file using Compressed Data "
+                                 "Format (CDF) that is unhandled by the "
+                                 "OpenFileGDB driver, but could be handled by "
+                                 "the FileGDB driver.%s",
+                                 osName.c_str(), osCDF.c_str(),
+                                 osFileGDBDriverMsg.c_str());
+                    }
+                    return nullptr;
+                }
+                else if (FileExists(osSDC))
+                {
+                    // SDC is not handled by the FileGDB driver
+                    CPLError(CE_Warning, CPLE_AppDefined,
+                             "%s layer has a %s file using Smart Data "
+                             "Compression (SDC) that is unhandled.",
+                             osName.c_str(), osSDC.c_str());
                     return nullptr;
                 }
             }
@@ -747,7 +776,7 @@ bool OGROpenFileGDBDataSource::OpenFileGDBv10(
 
     // Now collect layers
     int nCandidateLayers = 0;
-    int nLayersSDCOrCDF = 0;
+    int nLayersCDF = 0;
     bool bRet = true;
     for (int i = 0; i < oTable.GetTotalRecordCount(); i++)
     {
@@ -803,7 +832,7 @@ bool OGROpenFileGDBDataSource::OpenFileGDBv10(
             {
                 OGRLayer *poLayer = AddLayer(
                     psField->String, nInterestTable, nCandidateLayers,
-                    nLayersSDCOrCDF, osDefinition, osDocumentation, wkbUnknown,
+                    nLayersCDF, osDefinition, osDocumentation, wkbUnknown,
                     poParent ? poParent->GetDefinition() : std::string());
 
                 if (poLayer)
@@ -930,7 +959,7 @@ bool OGROpenFileGDBDataSource::OpenFileGDBv10(
 
     // If there's at least one .cdf layer and the FileGDB driver is present,
     // retry with it.
-    if (nLayersSDCOrCDF > 0 && GDALGetDriverByName("FileGDB") != nullptr)
+    if (nLayersCDF > 0 && GDALGetDriverByName("FileGDB") != nullptr)
     {
         bRetryFileGDBOut = true;
         return false;
@@ -969,7 +998,7 @@ int OGROpenFileGDBDataSource::OpenFileGDBv9(
     }
 
     std::vector<std::string> aosName;
-    int nCandidateLayers = 0, nLayersSDCOrCDF = 0;
+    int nCandidateLayers = 0, nLayersCDF = 0;
     for (int i = 0; i < poTable->GetTotalRecordCount(); i++)
     {
         if (!poTable->SelectRow(i))
@@ -993,7 +1022,7 @@ int OGROpenFileGDBDataSource::OpenFileGDBv9(
                 {
                     aosName.push_back("");
                     AddLayer(osName, nInterestTable, nCandidateLayers,
-                             nLayersSDCOrCDF, "", "", wkbNone, std::string());
+                             nLayersCDF, "", "", wkbNone, std::string());
                 }
                 else
                 {
@@ -1119,14 +1148,14 @@ int OGROpenFileGDBDataSource::OpenFileGDBv9(
             }
             else
             {
-                AddLayer(osName, nInterestTable, nCandidateLayers,
-                         nLayersSDCOrCDF, "", "", eGeomType, std::string());
+                AddLayer(osName, nInterestTable, nCandidateLayers, nLayersCDF,
+                         "", "", eGeomType, std::string());
             }
         }
     }
 
     if (m_apoLayers.empty() && nCandidateLayers > 0 &&
-        nCandidateLayers == nLayersSDCOrCDF)
+        nCandidateLayers == nLayersCDF)
         return FALSE;
 
     return bRet;
@@ -1179,11 +1208,10 @@ std::unique_ptr<OGROpenFileGDBLayer>
 OGROpenFileGDBDataSource::BuildLayerFromName(const char *pszName)
 {
 
-    std::map<std::string, int>::const_iterator oIter =
-        m_osMapNameToIdx.find(pszName);
+    const auto oIter = m_osMapNameToIdx.find(pszName);
     if (oIter != m_osMapNameToIdx.end())
     {
-        int idx = oIter->second;
+        const int idx = oIter->second;
         CPLString osFilename(
             CPLFormFilename(m_osDirName, CPLSPrintf("a%08x", idx), "gdbtable"));
         if (FileExists(osFilename))
@@ -1258,7 +1286,7 @@ char **OGROpenFileGDBDataSource::GetMetadata(const char *pszDomain)
 {
     if (pszDomain && EQUAL(pszDomain, "SUBDATASETS"))
         return m_aosSubdatasets.List();
-    return OGRDataSource::GetMetadata(pszDomain);
+    return GDALDataset::GetMetadata(pszDomain);
 }
 
 /************************************************************************/
@@ -1463,7 +1491,7 @@ OGRFeature *OGROpenFileGDBSimpleSQLLayer::GetNextFeature()
         if (m_nLimit >= 0 && m_nIterated == m_nLimit)
             return nullptr;
 
-        int nRow = poIter->GetNextRowSortedByValue();
+        const int64_t nRow = poIter->GetNextRowSortedByValue();
         if (nRow < 0)
             return nullptr;
         OGRFeature *poFeature = GetFeature(nRow + 1);
@@ -1672,6 +1700,13 @@ OGRLayer *OGROpenFileGDBDataSource::ExecuteSQL(const char *pszSQLCommand,
                 const std::string osLayerName = afterOn.substr(0, nOpenParPos);
                 const std::string osExpression = afterOn.substr(
                     nOpenParPos + 1, afterOn.size() - nOpenParPos - 2);
+                if (osExpression.find(',') != std::string::npos)
+                {
+                    CPLError(
+                        CE_Failure, CPLE_NotSupported,
+                        "Creation of multiple-column indices is not supported");
+                    return nullptr;
+                }
                 auto poLayer = GetLayerByName(osLayerName.c_str());
                 if (poLayer)
                 {
@@ -2038,8 +2073,7 @@ OGRLayer *OGROpenFileGDBDataSource::ExecuteSQL(const char *pszSQLCommand,
         }
     }
 
-    return OGRDataSource::ExecuteSQL(pszSQLCommand, poSpatialFilter,
-                                     pszDialect);
+    return GDALDataset::ExecuteSQL(pszSQLCommand, poSpatialFilter, pszDialect);
 }
 
 /***********************************************************************/

@@ -5,7 +5,7 @@
  * Author:   Even Rouault, even dot rouault at spatialys.com
  *
  ******************************************************************************
- * Copyright (c) 2012-2014, Even Rouault <even dot rouault at spatialys.com>
+ * Copyright (c) 2012-2024, Even Rouault <even dot rouault at spatialys.com>
  *
  * SPDX-License-Identifier: MIT OR LGPL-2.0-or-later
  ******************************************************************************/
@@ -670,7 +670,7 @@ static bool SBNSearchDiskInternal(SearchStruct *psSearch, int nDepth,
             {
                 free(psNode->pabyShapeDesc);
                 psNode->pabyShapeDesc = SHPLIB_NULLPTR;
-                char szMessage[128];
+                char szMessage[192];
                 snprintf(
                     szMessage, sizeof(szMessage),
                     "Inconsistent shape count for bin idx=%d of node %d. "

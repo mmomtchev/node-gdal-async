@@ -1,6 +1,6 @@
---- libgdal/gdal/port/cpl_zlib_header.h.orig	2024-08-13 18:05:09.000000000 +0200
-+++ libgdal/gdal/port/cpl_zlib_header.h	2024-08-16 21:33:23.430350140 +0200
-@@ -39,4 +39,11 @@
+--- libgdal/gdal/port/cpl_zlib_header.h.orig	2024-11-01 16:47:25.000000000 +0100
++++ libgdal/gdal/port/cpl_zlib_header.h	2024-11-29 15:09:43.879324405 +0100
+@@ -23,4 +23,11 @@
  #include "infback9.h"
  #endif
  

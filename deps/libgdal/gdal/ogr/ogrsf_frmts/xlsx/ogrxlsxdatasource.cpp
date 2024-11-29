@@ -7,23 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2012-2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "ogr_xlsx.h"
@@ -832,14 +816,22 @@ void OGRXLSXDataSource::startElementTable(const char *pszNameIn,
         apoCurLineValues.clear();
         apoCurLineTypes.clear();
 
-        int nNewCurLine = atoi(GetAttributeValue(ppszAttr, "r", "0"));
-        if (nNewCurLine <= 0)
+        int nNewCurLine;
+        if (const char *pszR = GetAttributeValue(ppszAttr, "r", nullptr))
         {
-            CPLError(CE_Failure, CPLE_AppDefined, "Invalid row: %d",
-                     nNewCurLine);
-            return;
+            nNewCurLine = atoi(pszR);
+            if (nNewCurLine <= 0)
+            {
+                CPLError(CE_Failure, CPLE_AppDefined, "Invalid row: %d",
+                         nNewCurLine);
+                return;
+            }
+            nNewCurLine--;
         }
-        nNewCurLine--;
+        else
+        {
+            nNewCurLine = nCurLine;
+        }
         const int nFields = std::max(
             static_cast<int>(apoFirstLineValues.size()),
             poCurLayer != nullptr ? poCurLayer->GetLayerDefn()->GetFieldCount()
@@ -1316,7 +1308,7 @@ void OGRXLSXDataSource::BuildLayer(OGRXLSXLayer *poLayer)
         nDataHandlerCounter = 0;
         unsigned int nLen =
             (unsigned int)VSIFReadL(aBuf.data(), 1, aBuf.size(), fp);
-        nDone = VSIFEofL(fp);
+        nDone = (nLen < aBuf.size());
         if (XML_Parse(oParser, aBuf.data(), nLen, nDone) == XML_STATUS_ERROR)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
@@ -1505,7 +1497,7 @@ void OGRXLSXDataSource::AnalyseSharedStrings(VSILFILE *fpSharedStrings)
         nDataHandlerCounter = 0;
         unsigned int nLen = (unsigned int)VSIFReadL(aBuf.data(), 1, aBuf.size(),
                                                     fpSharedStrings);
-        nDone = VSIFEofL(fpSharedStrings);
+        nDone = (nLen < aBuf.size());
         if (XML_Parse(oParser, aBuf.data(), nLen, nDone) == XML_STATUS_ERROR)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
@@ -1589,7 +1581,7 @@ void OGRXLSXDataSource::AnalyseWorkbookRels(VSILFILE *fpWorkbookRels)
         nDataHandlerCounter = 0;
         unsigned int nLen = (unsigned int)VSIFReadL(aBuf.data(), 1, aBuf.size(),
                                                     fpWorkbookRels);
-        nDone = VSIFEofL(fpWorkbookRels);
+        nDone = (nLen < aBuf.size());
         if (XML_Parse(oParser, aBuf.data(), nLen, nDone) == XML_STATUS_ERROR)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
@@ -1694,7 +1686,7 @@ void OGRXLSXDataSource::AnalyseWorkbook(VSILFILE *fpWorkbook)
         nDataHandlerCounter = 0;
         unsigned int nLen =
             (unsigned int)VSIFReadL(aBuf.data(), 1, aBuf.size(), fpWorkbook);
-        nDone = VSIFEofL(fpWorkbook);
+        nDone = (nLen < aBuf.size());
         if (XML_Parse(oParser, aBuf.data(), nLen, nDone) == XML_STATUS_ERROR)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
@@ -1862,7 +1854,7 @@ void OGRXLSXDataSource::AnalyseStyles(VSILFILE *fpStyles)
         nDataHandlerCounter = 0;
         unsigned int nLen =
             (unsigned int)VSIFReadL(aBuf.data(), 1, aBuf.size(), fpStyles);
-        nDone = VSIFEofL(fpStyles);
+        nDone = (nLen < aBuf.size());
         if (XML_Parse(oParser, aBuf.data(), nLen, nDone) == XML_STATUS_ERROR)
         {
             CPLError(CE_Failure, CPLE_AppDefined,

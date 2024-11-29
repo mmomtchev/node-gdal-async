@@ -7,29 +7,15 @@
  ******************************************************************************
  * Copyright (c) 2022, Planet Labs
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #ifndef OGR_PARQUET_H
 #define OGR_PARQUET_H
 
 #include "ogrsf_frmts.h"
+
+#include "cpl_json.h"
 
 #include <functional>
 #include <map>
@@ -57,11 +43,22 @@ class OGRParquetLayerBase CPL_NON_FINAL : public OGRArrowLayer
     CPLStringList m_aosGeomPossibleNames{};
     std::string m_osCRS{};
 
+    static int GetNumCPUs();
+
     void LoadGeoMetadata(
         const std::shared_ptr<const arrow::KeyValueMetadata> &kv_metadata);
     bool DealWithGeometryColumn(
         int iFieldIdx, const std::shared_ptr<arrow::Field> &field,
         std::function<OGRwkbGeometryType(void)> computeGeometryTypeFun);
+
+    void InvalidateCachedBatches() override;
+
+    static bool ParseGeometryColumnCovering(const CPLJSONObject &oJSONDef,
+                                            std::string &osBBOXColumn,
+                                            std::string &osXMin,
+                                            std::string &osYMin,
+                                            std::string &osXMax,
+                                            std::string &osYMax);
 
   public:
     int TestCapability(const char *) override;
@@ -97,11 +94,6 @@ class OGRParquetLayer final : public OGRParquetLayerBase
     int64_t m_nFeatureIdxSelected = 0;
     std::vector<int> m_anRequestedParquetColumns{};  // only valid when
                                                      // m_bIgnoredFields is set
-#ifdef DEBUG
-    int m_nExpectedBatchColumns =
-        0;  // Should be equal to m_poBatch->num_columns() (when
-            // m_bIgnoredFields is set)
-#endif
     CPLStringList m_aosFeatherMetadata{};
 
     //! Describe the bbox column of a geometry column
@@ -224,9 +216,24 @@ class OGRParquetLayer final : public OGRParquetLayerBase
 
 class OGRParquetDatasetLayer final : public OGRParquetLayerBase
 {
+    bool m_bIsVSI = false;
+    bool m_bRebuildScanner = true;
+    bool m_bSkipFilterGeometry = false;
+    std::shared_ptr<arrow::dataset::Dataset> m_poDataset{};
     std::shared_ptr<arrow::dataset::Scanner> m_poScanner{};
+    std::vector<std::string> m_aosProjectedFields{};
 
     void EstablishFeatureDefn();
+    void
+    ProcessGeometryColumnCovering(const std::shared_ptr<arrow::Field> &field,
+                                  const CPLJSONObject &oJSONGeometryColumn);
+
+    void BuildScanner();
+
+    //! Translate a OGR SQL expression into an Arrow one
+    // bFullyTranslated should be set to true before calling this method.
+    arrow::compute::Expression BuildArrowFilter(const swq_expr_node *poNode,
+                                                bool &bFullyTranslated);
 
   protected:
     std::string GetDriverUCName() const override
@@ -236,21 +243,33 @@ class OGRParquetDatasetLayer final : public OGRParquetLayerBase
 
     bool ReadNextBatch() override;
 
-    void InvalidateCachedBatches() override;
-
     bool FastGetExtent(int iGeomField, OGREnvelope *psExtent) const override;
 
   public:
     OGRParquetDatasetLayer(
-        OGRParquetDataset *poDS, const char *pszLayerName,
-        const std::shared_ptr<arrow::dataset::Scanner> &scanner,
-        const std::shared_ptr<arrow::Schema> &schema,
+        OGRParquetDataset *poDS, const char *pszLayerName, bool bIsVSI,
+        const std::shared_ptr<arrow::dataset::Dataset> &dataset,
         CSLConstList papszOpenOptions);
+
+    OGRFeature *GetNextFeature() override;
 
     GIntBig GetFeatureCount(int bForce) override;
     OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
     OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                      int bForce = TRUE) override;
+
+    void SetSpatialFilter(OGRGeometry *poGeom) override
+    {
+        SetSpatialFilter(0, poGeom);
+    }
+
+    void SetSpatialFilter(int iGeomField, OGRGeometry *poGeom) override;
+
+    OGRErr SetAttributeFilter(const char *pszFilter) override;
+
+    OGRErr SetIgnoredFields(CSLConstList papszFields) override;
+
+    int TestCapability(const char *) override;
 
     // TODO
     std::unique_ptr<OGRFieldDomain>
@@ -269,9 +288,12 @@ class OGRParquetDatasetLayer final : public OGRParquetLayerBase
 
 class OGRParquetDataset final : public OGRArrowDataset
 {
+    std::shared_ptr<arrow::fs::FileSystem> m_poFS{};
+
   public:
     explicit OGRParquetDataset(
         const std::shared_ptr<arrow::MemoryPool> &poMemoryPool);
+    ~OGRParquetDataset();
 
     OGRLayer *ExecuteSQL(const char *pszSQLCommand,
                          OGRGeometry *poSpatialFilter,
@@ -279,6 +301,11 @@ class OGRParquetDataset final : public OGRArrowDataset
     void ReleaseResultSet(OGRLayer *poResultsSet) override;
 
     int TestCapability(const char *) override;
+
+    void SetFileSystem(const std::shared_ptr<arrow::fs::FileSystem> &fs)
+    {
+        m_poFS = fs;
+    }
 };
 
 /************************************************************************/

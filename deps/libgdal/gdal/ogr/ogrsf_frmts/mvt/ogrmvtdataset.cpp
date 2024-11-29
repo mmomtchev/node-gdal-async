@@ -7,23 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2018, Even Rouault <even dot rouault at spatialys dot com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #if defined(HAVE_SQLITE) && defined(HAVE_GEOS)
@@ -2804,7 +2788,7 @@ GDALDataset *OGRMVTDataset::OpenDirectory(GDALOpenInfo *poOpenInfo)
     OGRMVTDataset *poDS = new OGRMVTDataset(nullptr);
 
     const CPLString osMetadataMemFilename =
-        CPLSPrintf("/vsimem/%p_metadata.json", poDS);
+        VSIMemGenerateHiddenFilename("mvt_metadata.json");
     if (!LoadMetadata(osMetadataFile, osMetadataContent, oVectorLayers,
                       oTileStatLayers, oBounds, poDS->m_poSRS,
                       poDS->m_dfTopXOrigin, poDS->m_dfTopYOrigin,
@@ -4265,26 +4249,35 @@ OGRErr OGRMVTWriterDataset::PreGenerateForTileReal(
     oBuffer.assign(static_cast<char *>(pCompressed), nCompressedSize);
     CPLFree(pCompressed);
 
-    if (m_bThreadPoolOK)
-        m_oDBMutex.lock();
+    const auto InsertIntoDb = [&]()
+    {
+        m_nTempTiles++;
+        sqlite3_bind_int(m_hInsertStmt, 1, nZ);
+        sqlite3_bind_int(m_hInsertStmt, 2, nTileX);
+        sqlite3_bind_int(m_hInsertStmt, 3, nTileY);
+        sqlite3_bind_text(m_hInsertStmt, 4, osTargetName.c_str(), -1,
+                          SQLITE_STATIC);
+        sqlite3_bind_int64(m_hInsertStmt, 5, nSerial);
+        sqlite3_bind_blob(m_hInsertStmt, 6, oBuffer.data(),
+                          static_cast<int>(oBuffer.size()), SQLITE_STATIC);
+        sqlite3_bind_int(m_hInsertStmt, 7,
+                         static_cast<int>(poGPBFeature->getType()));
+        sqlite3_bind_double(m_hInsertStmt, 8, dfAreaOrLength);
+        int rc = sqlite3_step(m_hInsertStmt);
+        sqlite3_reset(m_hInsertStmt);
+        return rc;
+    };
 
-    m_nTempTiles++;
-    sqlite3_bind_int(m_hInsertStmt, 1, nZ);
-    sqlite3_bind_int(m_hInsertStmt, 2, nTileX);
-    sqlite3_bind_int(m_hInsertStmt, 3, nTileY);
-    sqlite3_bind_text(m_hInsertStmt, 4, osTargetName.c_str(), -1,
-                      SQLITE_STATIC);
-    sqlite3_bind_int64(m_hInsertStmt, 5, nSerial);
-    sqlite3_bind_blob(m_hInsertStmt, 6, oBuffer.data(),
-                      static_cast<int>(oBuffer.size()), SQLITE_STATIC);
-    sqlite3_bind_int(m_hInsertStmt, 7,
-                     static_cast<int>(poGPBFeature->getType()));
-    sqlite3_bind_double(m_hInsertStmt, 8, dfAreaOrLength);
-    int rc = sqlite3_step(m_hInsertStmt);
-    sqlite3_reset(m_hInsertStmt);
-
+    int rc;
     if (m_bThreadPoolOK)
-        m_oDBMutex.unlock();
+    {
+        std::lock_guard<std::mutex> oLock(m_oDBMutex);
+        rc = InsertIntoDb();
+    }
+    else
+    {
+        rc = InsertIntoDb();
+    }
 
     if (!(rc == SQLITE_OK || rc == SQLITE_DONE))
     {
@@ -4326,9 +4319,8 @@ void OGRMVTWriterDataset::WriterTaskFunc(void *pParam)
         poTask->nSerial, poTask->poGeom.get(), poTask->sEnvelope);
     if (eErr != OGRERR_NONE)
     {
-        poTask->poDS->m_oDBMutex.lock();
+        std::lock_guard oLock(poTask->poDS->m_oDBMutex);
         poTask->poDS->m_bWriteFeatureError = true;
-        poTask->poDS->m_oDBMutex.unlock();
     }
     delete poTask;
 }
@@ -4367,6 +4359,7 @@ OGRErr OGRMVTWriterDataset::PreGenerateForTile(
         // Do not queue more than 1000 jobs to avoid memory exhaustion
         m_oThreadPool.WaitCompletion(1000);
 
+        std::lock_guard oLock(m_oDBMutex);
         return m_bWriteFeatureError ? OGRERR_FAILURE : OGRERR_NONE;
     }
 }
@@ -4475,7 +4468,8 @@ static void GZIPCompress(std::string &oTileBuffer)
 {
     if (!oTileBuffer.empty())
     {
-        CPLString osTmpFilename(CPLSPrintf("/vsimem/%p.gz", &oTileBuffer));
+        const CPLString osTmpFilename(
+            VSIMemGenerateHiddenFilename("mvt_temp.gz"));
         CPLString osTmpGZipFilename("/vsigzip/" + osTmpFilename);
         VSILFILE *fpGZip = VSIFOpenL(osTmpGZipFilename, "wb");
         if (fpGZip)
@@ -5383,7 +5377,7 @@ static bool WriteMetadataItem(const char *pszKey, int nValue,
 static bool WriteMetadataItem(const char *pszKey, double dfValue,
                               sqlite3 *hDBMBTILES, CPLJSONObject &oRoot)
 {
-    return WriteMetadataItemT(pszKey, dfValue, "%.18g", hDBMBTILES, oRoot);
+    return WriteMetadataItemT(pszKey, dfValue, "%.17g", hDBMBTILES, oRoot);
 }
 
 /************************************************************************/

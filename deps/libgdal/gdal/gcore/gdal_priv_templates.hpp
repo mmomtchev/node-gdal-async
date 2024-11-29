@@ -8,23 +8,7 @@
  ******************************************************************************
  * Copyright (c) 2009, Phil Vachon, <philippe at cowpig.ca>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #ifndef GDAL_PRIV_TEMPLATES_HPP_INCLUDED
@@ -149,12 +133,12 @@ template <class T> inline bool GDALIsValueInRange(double dfValue)
 
 template <> inline bool GDALIsValueInRange<double>(double dfValue)
 {
-    return !CPLIsNan(dfValue);
+    return !std::isnan(dfValue);
 }
 
 template <> inline bool GDALIsValueInRange<float>(double dfValue)
 {
-    return CPLIsInf(dfValue) ||
+    return std::isinf(dfValue) ||
            (dfValue >= -std::numeric_limits<float>::max() &&
             dfValue <= std::numeric_limits<float>::max());
 }
@@ -288,7 +272,7 @@ template <class Tout> struct sGDALCopyWord<float, Tout>
 {
     static inline void f(const float fValueIn, Tout &tValueOut)
     {
-        if (CPLIsNan(fValueIn))
+        if (std::isnan(fValueIn))
         {
             tValueOut = 0;
             return;
@@ -304,7 +288,7 @@ template <> struct sGDALCopyWord<float, short>
 {
     static inline void f(const float fValueIn, short &nValueOut)
     {
-        if (CPLIsNan(fValueIn))
+        if (std::isnan(fValueIn))
         {
             nValueOut = 0;
             return;
@@ -321,7 +305,7 @@ template <> struct sGDALCopyWord<float, signed char>
 {
     static inline void f(const float fValueIn, signed char &nValueOut)
     {
-        if (CPLIsNan(fValueIn))
+        if (std::isnan(fValueIn))
         {
             nValueOut = 0;
             return;
@@ -338,7 +322,7 @@ template <class Tout> struct sGDALCopyWord<double, Tout>
 {
     static inline void f(const double dfValueIn, Tout &tValueOut)
     {
-        if (CPLIsNan(dfValueIn))
+        if (std::isnan(dfValueIn))
         {
             tValueOut = 0;
             return;
@@ -354,7 +338,7 @@ template <> struct sGDALCopyWord<double, int>
 {
     static inline void f(const double dfValueIn, int &nValueOut)
     {
-        if (CPLIsNan(dfValueIn))
+        if (std::isnan(dfValueIn))
         {
             nValueOut = 0;
             return;
@@ -417,7 +401,7 @@ template <> struct sGDALCopyWord<double, short>
 {
     static inline void f(const double dfValueIn, short &nValueOut)
     {
-        if (CPLIsNan(dfValueIn))
+        if (std::isnan(dfValueIn))
         {
             nValueOut = 0;
             return;
@@ -434,7 +418,7 @@ template <> struct sGDALCopyWord<double, signed char>
 {
     static inline void f(const double dfValueIn, signed char &nValueOut)
     {
-        if (CPLIsNan(dfValueIn))
+        if (std::isnan(dfValueIn))
         {
             nValueOut = 0;
             return;

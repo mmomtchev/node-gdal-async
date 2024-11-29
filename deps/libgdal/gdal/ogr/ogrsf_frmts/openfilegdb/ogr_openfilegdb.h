@@ -8,23 +8,7 @@
  ******************************************************************************
  * Copyright (c) 2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #ifndef OGR_OPENFILEGDB_H_INCLUDED
@@ -138,7 +122,7 @@ class OGROpenFileGDBLayer final : public OGRLayer
     int m_iGeomFieldIdx = -1;
     int m_iAreaField = -1;    // index of Shape_Area field
     int m_iLengthField = -1;  // index of Shape_Length field
-    int m_iCurFeat = 0;
+    int64_t m_iCurFeat = 0;
     int m_iFIDAsRegularColumnIndex = -1;
     std::string m_osDefinition{};
     std::string m_osDocumentation{};
@@ -239,7 +223,7 @@ class OGROpenFileGDBLayer final : public OGRLayer
                                    int &eOutType);
     int GetMinMaxSumCount(OGRFieldDefn *poFieldDefn, double &dfMin,
                           double &dfMax, double &dfSum, int &nCount);
-    int HasIndexForField(const char *pszFieldName);
+    bool HasIndexForField(const char *pszFieldName);
     FileGDBIterator *BuildIndex(const char *pszFieldName, int bAscending,
                                 int op, swq_expr_node *poValue);
 
@@ -438,7 +422,7 @@ class OGROpenFileGDBFeatureDefn : public OGRFeatureDefn
 /*                       OGROpenFileGDBDataSource                       */
 /************************************************************************/
 
-class OGROpenFileGDBDataSource final : public OGRDataSource
+class OGROpenFileGDBDataSource final : public GDALDataset
 {
     friend class OGROpenFileGDBLayer;
     friend class GDALOpenFileGDBRasterBand;
@@ -514,7 +498,7 @@ class OGROpenFileGDBDataSource final : public OGRDataSource
     std::unique_ptr<OGROpenFileGDBLayer>
     BuildLayerFromName(const char *pszName);
     OGRLayer *AddLayer(const CPLString &osName, int nInterestTable,
-                       int &nCandidateLayers, int &nLayersSDCOrCDF,
+                       int &nCandidateLayers, int &nLayersCDF,
                        const CPLString &osDefinition,
                        const CPLString &osDocumentation,
                        OGRwkbGeometryType eGeomType,
@@ -544,11 +528,6 @@ class OGROpenFileGDBDataSource final : public OGRDataSource
     bool Create(const char *pszName);
 
     virtual CPLErr FlushCache(bool bAtClosing = false) override;
-
-    virtual const char *GetName() override
-    {
-        return m_osDirName.c_str();
-    }
 
     virtual int GetLayerCount() override
     {

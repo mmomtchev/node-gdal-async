@@ -7,23 +7,7 @@
  **********************************************************************
  * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -103,6 +87,7 @@ class VSIStdoutHandle final : public VSIVirtualHandle
     CPL_DISALLOW_COPY_ASSIGN(VSIStdoutHandle)
 
     vsi_l_offset m_nOffset = 0;
+    bool m_bError = false;
 
   public:
     VSIStdoutHandle() = default;
@@ -112,7 +97,22 @@ class VSIStdoutHandle final : public VSIVirtualHandle
     vsi_l_offset Tell() override;
     size_t Read(void *pBuffer, size_t nSize, size_t nMemb) override;
     size_t Write(const void *pBuffer, size_t nSize, size_t nMemb) override;
-    int Eof() override;
+
+    void ClearErr() override
+    {
+        m_bError = false;
+    }
+
+    int Error() override
+    {
+        return m_bError;
+    }
+
+    int Eof() override
+    {
+        return FALSE;
+    }
+
     int Flush() override;
     int Close() override;
 };
@@ -158,10 +158,14 @@ int VSIStdoutHandle::Flush()
 /*                                Read()                                */
 /************************************************************************/
 
-size_t VSIStdoutHandle::Read(void * /* pBuffer */, size_t /* nSize */,
-                             size_t /* nCount */)
+size_t VSIStdoutHandle::Read(void * /* pBuffer */, size_t nSize, size_t nCount)
 {
-    CPLError(CE_Failure, CPLE_NotSupported, "Read() unsupported on /vsistdout");
+    if (nSize > 0 && nCount > 0)
+    {
+        CPLError(CE_Failure, CPLE_NotSupported,
+                 "Read() unsupported on /vsistdout");
+        m_bError = true;
+    }
     return 0;
 }
 
@@ -175,16 +179,6 @@ size_t VSIStdoutHandle::Write(const void *pBuffer, size_t nSize, size_t nCount)
     size_t nRet = pWriteFunction(pBuffer, nSize, nCount, pWriteStream);
     m_nOffset += nSize * nRet;
     return nRet;
-}
-
-/************************************************************************/
-/*                                Eof()                                 */
-/************************************************************************/
-
-int VSIStdoutHandle::Eof()
-
-{
-    return 0;
 }
 
 /************************************************************************/
@@ -270,6 +264,7 @@ class VSIStdoutRedirectFilesystemHandler final : public VSIFilesystemHandler
 class VSIStdoutRedirectHandle final : public VSIVirtualHandle
 {
     VSIVirtualHandle *m_poHandle = nullptr;
+    bool m_bError = false;
 
     CPL_DISALLOW_COPY_ASSIGN(VSIStdoutRedirectHandle)
 
@@ -281,7 +276,22 @@ class VSIStdoutRedirectHandle final : public VSIVirtualHandle
     vsi_l_offset Tell() override;
     size_t Read(void *pBuffer, size_t nSize, size_t nMemb) override;
     size_t Write(const void *pBuffer, size_t nSize, size_t nMemb) override;
-    int Eof() override;
+
+    void ClearErr() override
+    {
+        m_bError = false;
+    }
+
+    int Error() override
+    {
+        return m_bError;
+    }
+
+    int Eof() override
+    {
+        return FALSE;
+    }
+
     int Flush() override;
     int Close() override;
 };
@@ -338,11 +348,15 @@ int VSIStdoutRedirectHandle::Flush()
 /*                                Read()                                */
 /************************************************************************/
 
-size_t VSIStdoutRedirectHandle::Read(void * /* pBuffer */, size_t /* nSize */,
-                                     size_t /* nCount */)
+size_t VSIStdoutRedirectHandle::Read(void * /* pBuffer */, size_t nSize,
+                                     size_t nCount)
 {
-    CPLError(CE_Failure, CPLE_NotSupported,
-             "Read() unsupported on /vsistdout_redirect");
+    if (nSize > 0 && nCount > 0)
+    {
+        CPLError(CE_Failure, CPLE_NotSupported,
+                 "Read() unsupported on /vsistdout");
+        m_bError = true;
+    }
     return 0;
 }
 
@@ -355,16 +369,6 @@ size_t VSIStdoutRedirectHandle::Write(const void *pBuffer, size_t nSize,
 
 {
     return m_poHandle->Write(pBuffer, nSize, nCount);
-}
-
-/************************************************************************/
-/*                                Eof()                                 */
-/************************************************************************/
-
-int VSIStdoutRedirectHandle::Eof()
-
-{
-    return m_poHandle->Eof();
 }
 
 /************************************************************************/

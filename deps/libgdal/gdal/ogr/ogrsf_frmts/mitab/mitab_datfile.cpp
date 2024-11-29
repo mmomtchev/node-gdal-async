@@ -11,23 +11,7 @@
  * Copyright (c) 1999-2001, Daniel Morissette
  * Copyright (c) 2014, Even Rouault <even.rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  **********************************************************************/
 
 #include "cpl_port.h"
@@ -1464,7 +1448,8 @@ int TABDATFile::AlterFieldDefn(int iField, const OGRFieldDefn *poSrcFieldDefn,
             else if (m_pasFieldDef[iField].eTABType == TABFLogical)
             {
                 strncpy(pabyNewField,
-                        ReadLogicalField(m_pasFieldDef[iField].byLength),
+                        ReadLogicalField(m_pasFieldDef[iField].byLength) ? "T"
+                                                                         : "F",
                         sFieldDef.byLength);
             }
             else if (m_pasFieldDef[iField].eTABType == TABFDate)
@@ -1767,25 +1752,22 @@ double TABDATFile::ReadFloatField(int nWidth)
  * Read the logical field value at the current position in the data
  * block.
  *
- * The file contains either 0 or 1, and we return a string with
- * "F" (false) or "T" (true)
- *
  * Note: nWidth is used only with TABTableDBF types.
  *
  * CPLError() will have been called if something fails.
  **********************************************************************/
-const char *TABDATFile::ReadLogicalField(int nWidth)
+bool TABDATFile::ReadLogicalField(int nWidth)
 {
     // If current record has been deleted, then return an acceptable
     // default value.
     if (m_bCurRecordDeletedFlag)
-        return "F";
+        return false;
 
     if (m_poRecordBlock == nullptr)
     {
         CPLError(CE_Failure, CPLE_AssertionFailed,
                  "Can't read field value: file is not opened.");
-        return "";
+        return false;
     }
 
     bool bValue = false;
@@ -1800,7 +1782,7 @@ const char *TABDATFile::ReadLogicalField(int nWidth)
         bValue = CPL_TO_BOOL(m_poRecordBlock->ReadByte());
     }
 
-    return bValue ? "T" : "F";
+    return bValue;
 }
 
 /**********************************************************************
@@ -2239,12 +2221,11 @@ int TABDATFile::WriteFloatField(double dValue, TABINDFile *poINDFile,
  * Write the logical field value at the current position in the data
  * block.
  *
- * The value written to the file is either 0 or 1, but this function
- * takes as input a string with "F" (false) or "T" (true)
+ * The value written to the file is either 0 or 1.
  *
  * CPLError() will have been called if something fails.
  **********************************************************************/
-int TABDATFile::WriteLogicalField(const char *pszValue, TABINDFile *poINDFile,
+int TABDATFile::WriteLogicalField(bool bValue, TABINDFile *poINDFile,
                                   int nIndexNo)
 {
     if (m_poRecordBlock == nullptr)
@@ -2255,18 +2236,17 @@ int TABDATFile::WriteLogicalField(const char *pszValue, TABINDFile *poINDFile,
         return -1;
     }
 
-    // TODO(schwehr): bValue should be a bool.
-    const GByte bValue = STARTS_WITH_CI(pszValue, "T") ? 1 : 0;
+    const GByte byValue = bValue ? 1 : 0;
 
     // Update Index
     if (poINDFile && nIndexNo > 0)
     {
-        GByte *pKey = poINDFile->BuildKey(nIndexNo, static_cast<int>(bValue));
+        GByte *pKey = poINDFile->BuildKey(nIndexNo, static_cast<int>(byValue));
         if (poINDFile->AddEntry(nIndexNo, pKey, m_nCurRecordId) != 0)
             return -1;
     }
 
-    return m_poRecordBlock->WriteByte(bValue);
+    return m_poRecordBlock->WriteByte(byValue);
 }
 
 /**********************************************************************
