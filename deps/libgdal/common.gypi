@@ -33,6 +33,10 @@
 			"GDAL_COMPILATION=1",
 			"PAM_ENABLED=1",
 			"OGR_ENABLED=1",
+			"HAVE_DECL_NAN=1",
+			"HAVE_DECL_ISNAN=1",
+			"HAVE_DECL_INFINITY=1",
+			"HAVE_DECL_ISINF=1",
 			"HAVE_EXPAT=1",
 			"HAVE_LIBPROJ=1",
 			"HAVE_GEOS=1",
@@ -48,6 +52,7 @@
 			"HAVE_LIBZ=1",
 			"JPEG_SUPPORT=1",
 			"RENAME_INTERNAL_SHAPELIB_SYMBOLS=1",
+			"GDAL_USE_SHAPELIB_INTERNAL=1",
 			"flatbuffers=gdal_flatbuffers"
 		],
 		"dependencies": [

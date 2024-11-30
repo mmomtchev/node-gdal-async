@@ -21,9 +21,7 @@
 				"../gdal/ogr/ogrsf_frmts/avc/avc_bin.cpp",
 				"../gdal/ogr/ogrsf_frmts/avc/ogravcbindatasource.cpp",
 				"../gdal/ogr/ogrsf_frmts/avc/ogravce00layer.cpp",
-				"../gdal/ogr/ogrsf_frmts/avc/ogravcbinlayer.cpp",
-				"../gdal/ogr/ogrsf_frmts/avc/avc_binwr.cpp",
-				"../gdal/ogr/ogrsf_frmts/avc/avc_e00gen.cpp"
+				"../gdal/ogr/ogrsf_frmts/avc/ogravcbinlayer.cpp"
 			],
 			"include_dirs": [
 				"../gdal/ogr/ogrsf_frmts/avc"
