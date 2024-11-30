@@ -66,6 +66,7 @@
 			"./gyp-formats/netcdf.gyp:libgdal_netcdf_frmt",
 			"./gyp-formats/wcs.gyp:libgdal_wcs_frmt",
 			"./gyp-formats/zlib.gyp:libgdal_zlib_frmt",
+			"./gyp-formats/gti.gyp:libgdal_gti_frmt",
 			"./gyp-formats/ogr_shape.gyp:libgdal_ogr_shape_frmt",
 			"./gyp-formats/ogr_vrt.gyp:libgdal_ogr_vrt_frmt",
 			"./gyp-formats/ogr_avc.gyp:libgdal_ogr_avc_frmt",
@@ -103,7 +104,7 @@
 			"./gyp-formats/ogr_pmtiles.gyp:libgdal_ogr_pmtiles_frmt"
 		],
 		"gdal_format_defs": [
-			"GDAL_FORMATS=gtiff hfa aigrid aaigrid ceos ceos2 iso8211 xpm sdts raw dted mem jdem envisat elas fit vrt usgsdem l1b nitf bmp pcidsk airsar rs2 ilwis rmf leveller sgi srtmhgt idrisi gsg ers jaxapalsar dimap gff cosar pds adrg coasp tsx terragen blx til r northwood saga xyz hf2 kmlsuperoverlay ctg zmap ngsgeoid iris map jpeg openjpeg png mbtiles wms wmts hdf5 grib netcdf wcs zlib ",
+			"GDAL_FORMATS=gtiff hfa aigrid aaigrid ceos ceos2 iso8211 xpm sdts raw dted mem jdem envisat elas fit vrt usgsdem l1b nitf bmp pcidsk airsar rs2 ilwis rmf leveller sgi srtmhgt idrisi gsg ers jaxapalsar dimap gff cosar pds adrg coasp tsx terragen blx til r northwood saga xyz hf2 kmlsuperoverlay ctg zmap ngsgeoid iris map jpeg openjpeg png mbtiles wms wmts hdf5 grib netcdf wcs zlib gti ",
 			"FRMT_gtiff=1",
 			"FRMT_hfa=1",
 			"FRMT_aigrid=1",
@@ -169,6 +170,7 @@
 			"FRMT_netcdf=1",
 			"FRMT_wcs=1",
 			"FRMT_zlib=1",
+			"FRMT_gti=1",
 			"SHAPE_ENABLED=1",
 			"VRT_ENABLED=1",
 			"AVC_ENABLED=1",

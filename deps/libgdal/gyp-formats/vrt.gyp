@@ -20,8 +20,7 @@
 				"../gdal/frmts/vrt/vrtmultidim.cpp",
 				"../gdal/frmts/vrt/vrtpansharpened.cpp",
 				"../gdal/frmts/vrt/vrtprocesseddataset.cpp",
-				"../gdal/frmts/vrt/vrtprocesseddatasetfunctions.cpp",
-				"../gdal/frmts/vrt/gdaltileindexdataset.cpp"
+				"../gdal/frmts/vrt/vrtprocesseddatasetfunctions.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/vrt",

@@ -27,8 +27,8 @@ mv $dir_gdal/gcore/gdal_version.h.in $dir_gdal/gcore/gdal_version.h
 #
 
 for PATCH in patches/*.diff; do
-  echo "Applying ${PATCH}"
-  patch -p1 < $PATCH
+	echo "Applying ${PATCH}"
+	patch -p1 < $PATCH
 done
 
 #
@@ -42,14 +42,14 @@ GDAL_FORMATS="gtiff hfa aigrid aaigrid ceos ceos2 iso8211 xpm
 	coasp tsx terragen blx til r northwood saga xyz hf2
 	kmlsuperoverlay ctg zmap ngsgeoid iris map
 	jpeg openjpeg png mbtiles wms wmts hdf5 grib netcdf wcs
-  zlib
+	zlib gti
 	${OPT_GDAL_FORMATS:-}"
 
 OGR_FORMATS="shape vrt avc geojson mem mitab kml gpx
 	dxf csv edigeo geoconcept georss gml gmt gpsbabel
 	idrisi dgn openfilegdb pds pgdump s57 sdts
 	svg sxf ntf wasp sqlite gpkg mvt osm flatgeobuf carto
-  jsonfg pmtiles"
+	jsonfg pmtiles"
 
 mkdir -p $dir_formats_gyp
 
