@@ -15,7 +15,7 @@
         '/std:c++17'
       ],
       'AdditionalOptions/': [
-        ['exclude', '^[/-]std:(?!c\+\+17)']
+        ['exclude', '^[/\-]std:(?!c\+\+17)']
       ]
 		}
 	}
