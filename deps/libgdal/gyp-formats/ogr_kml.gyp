@@ -13,7 +13,7 @@
 				"../gdal/ogr/ogrsf_frmts/kml/kmlnode.cpp",
 				"../gdal/ogr/ogrsf_frmts/kml/kml.cpp",
 				"../gdal/ogr/ogrsf_frmts/kml/ogrkmldriver.cpp",
-				"../gdal/ogr/ogrsf_frmts/kml/ogr2kmlgeometry.cpp"
+				"../gdal/ogr/ogr2kmlgeometry.cpp"
 			],
 			"include_dirs": [
 				"../gdal/ogr/ogrsf_frmts/kml"
