@@ -21,7 +21,8 @@
 				"../gdal/frmts/wcs",
 				"../gdal/frmts/gcore",
 				"../gdal/ogr",
-				"../gdal/ogr/ogrsf_frmts/gml"
+				"../gdal/ogr/ogrsf_frmts/gml",
+				"../gdal/ogr/ogrsf_frmts/gmlutils"
 			]
 		}
 	]
