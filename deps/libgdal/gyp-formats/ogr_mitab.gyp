@@ -24,7 +24,6 @@
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_feature.cpp",
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_mapheaderblock.cpp",
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_geometry.cpp",
-				"../gdal/ogr/mitab_bounds.cpp",
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_tabview.cpp",
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_ogr_driver.cpp",
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_miffile.cpp",
