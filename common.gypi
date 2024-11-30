@@ -38,10 +38,10 @@
 				#"Optimization": 0, # 0:/Od disable, 1:/O1 min size, 2:/O2 max speed, 3:/Ox full optimization
 				#"InlineFunctionExpansion": 0, #0:/Ob0: disable, 1:/Ob1 inline only marked funtions, 2:/Ob2 inline anything eligible
 				"AdditionalOptions": [
-					"/MP",				# compile across multiple CPUs
-					"/GR",				# force RTTI
-					"/EHsc",			# same for ExceptionHandling
-					"/permissive" # for the new MSVC in Github Actions, mostly related to const char to char conversions
+					"/MP",				 # compile across multiple CPUs
+					"/GR",				 # force RTTI
+					"/EHsc",			 # same for ExceptionHandling
+					"/permissive-" # for the new MSVC in Github Actions, mostly related to const char to char conversions
 				],
 				# see https://github.com/nodejs/node-gyp/issues/2412
 				"AdditionalOptions/": [
