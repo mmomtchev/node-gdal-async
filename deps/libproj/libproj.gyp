@@ -1,6 +1,7 @@
 {
 	"includes": [
-		"../../common.gypi"
+		"../../common.gypi",
+		"../../cpp_17.gypi"
 	],
 	"targets": [
 		{
