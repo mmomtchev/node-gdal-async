@@ -5,7 +5,7 @@ import * as chaiAsPromised from 'chai-as-promised'
 chai.use(chaiAsPromised)
 
 describe('Open', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('vsicurl w/Net', () => {
     let ds: gdal.Dataset

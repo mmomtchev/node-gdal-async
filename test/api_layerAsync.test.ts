@@ -8,7 +8,7 @@ import * as semver from 'semver'
 chai.use(chaiAsPromised)
 
 describe('gdal.LayerAsync', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('instance', () => {
     const cleanupWrite = (ds: gdal.Dataset, file: string) => {

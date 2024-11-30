@@ -4,7 +4,7 @@ import * as gdal from 'gdal-async'
 import * as fileUtils from './utils/file'
 
 describe('gdal.RasterBand', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   it('should not be instantiable', () => {
     assert.throws(() => {

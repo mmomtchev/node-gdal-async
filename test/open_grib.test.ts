@@ -7,7 +7,7 @@ describe('Open', () => {
   if (!semver.gte(gdal.version, '2.3.0')) {
     return
   }
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('GRIB', () => {
     let filename, ds: gdal.Dataset

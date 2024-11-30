@@ -3,7 +3,7 @@ import * as path from 'path'
 import { assert } from 'chai'
 
 describe('Open', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('SDTS (DDF)', () => {
     let filename, ds: gdal.Dataset

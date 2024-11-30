@@ -7,7 +7,7 @@ import * as path from 'path'
 import * as semver from 'semver'
 
 describe('gdal_utils', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('translate', () => {
     it('should be equivalent to gdal_translate', () => {

@@ -7,7 +7,7 @@ const assert: Chai.Assert = chai.assert
 chai.use(chaiAsPromised)
 
 describe('Open', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('vsimem/open', () => {
     let filename, ds: gdal.Dataset, buffer: Buffer
@@ -57,7 +57,7 @@ describe('Open', () => {
       r.close()
           global.gc!()
     }))
-    afterEach(global.gc!)
+    afterEach(() => void global.gc!())
 
     it('should not throw', () => {
       filename = path.join(__dirname, 'data/park.geo.json')
@@ -86,7 +86,7 @@ describe('Open', () => {
 })
 
 describe('gdal.vsimem', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('set()', () => {
     it('should create a vsimem file from a Buffer', () => {

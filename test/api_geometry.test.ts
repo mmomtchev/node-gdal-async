@@ -11,7 +11,7 @@ const WGS84 =
   'GEOGCS["WGS_84",DATUM["WGS_1984",SPHEROID["WGS_84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.0174532925199433],AXIS["Longitude",EAST],AXIS["Latitude",NORTH]]'
 
 describe('gdal.Geometry', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('toJSON()', () => {
     it('should return valid result', () => {

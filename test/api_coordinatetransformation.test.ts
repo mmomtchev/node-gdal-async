@@ -2,7 +2,7 @@ import * as gdal from 'gdal-async'
 import { assert } from 'chai'
 
 describe('gdal.CoordinateTransformation', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   it('should be exposed', () => {
     assert.ok(gdal.CoordinateTransformation)

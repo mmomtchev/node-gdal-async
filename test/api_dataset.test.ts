@@ -20,7 +20,7 @@ const NAD83_WKT =
   'UNIT["Meter",1.0]]'
 
 describe('gdal.Dataset', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   let ds: gdal.Dataset
   before(() => {

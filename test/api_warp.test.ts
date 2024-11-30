@@ -3,7 +3,7 @@ import { assert } from 'chai'
 import * as semver from 'semver'
 
 describe('gdal', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('suggestedWarpOutput()', () => {
     let src: gdal.Dataset

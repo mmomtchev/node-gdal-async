@@ -11,7 +11,7 @@ describe('Open', () => {
     return
   }
 
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('JSONFG', () => {
     let ds: gdal.Dataset

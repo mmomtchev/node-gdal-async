@@ -3,7 +3,7 @@ import { assert } from 'chai'
 import * as gdal from 'gdal-async'
 
 describe('gdal.Envelope', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   it('should be instantiable', () => {
     new gdal.Envelope()

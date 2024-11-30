@@ -10,7 +10,7 @@ import * as semver from 'semver'
 // http://spatialreference.org/ref/
 
 describe('gdal.SpatialReference', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   it('should be exposed', () => {
     assert.ok(gdal.SpatialReference)

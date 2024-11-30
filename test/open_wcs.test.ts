@@ -8,7 +8,7 @@ chai.use(chaiAsPromised)
 const wcsURL = 'WCS:https://demo.mapserver.org/cgi-bin/wcs?VERSION=1.0.0&COVERAGE=ndvi'
 
 describe('Open', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   // System-installed versions do not always have the WCS driver
   if (!gdal.bundled && gdal.drivers.get('WCS') === null) {

@@ -7,7 +7,7 @@ import * as chaiAsPromised from 'chai-as-promised'
 chai.use(chaiAsPromised)
 
 describe('gdal', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('contourGenerate()', () => {
     let src: gdal.Dataset, srcband: gdal.RasterBand, dst: gdal.Dataset, lyr: gdal.Layer

@@ -10,7 +10,7 @@ describe('Open', () => {
     return
   }
 
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
   before(() => {
     gdal.config.set('AWS_NO_SIGN_REQUEST', 'YES')
   })

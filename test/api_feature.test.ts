@@ -3,7 +3,7 @@ import { assert } from 'chai'
 import * as path from 'path'
 
 describe('gdal.Feature', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   let ds: gdal.Dataset, lyr: gdal.Layer, defn: gdal.FeatureDefn, fields: gdal.FieldDefn[]
   before(() => {

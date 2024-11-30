@@ -7,7 +7,7 @@ import * as semver from 'semver'
 chai.use(chaiAsPromised)
 
 describe('gdal.RasterBandAsync', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   it('should not be instantiable', () => {
     assert.throws(() => {

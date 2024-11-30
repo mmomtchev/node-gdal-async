@@ -4,7 +4,7 @@ import * as assert from 'assert'
 import * as semver from 'semver'
 
 describe('Open', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   it('should throw when invalid file', () => {
     const filename = path.join(__dirname, 'data/invalid')

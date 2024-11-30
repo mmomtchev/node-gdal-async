@@ -58,7 +58,7 @@ const create31 = {
 }
 
 describe('Class semantics', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   const klasses = create
   if (semver.gte(gdal.version, '3.1.0')) {

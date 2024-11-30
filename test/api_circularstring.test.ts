@@ -2,7 +2,7 @@ import { assert } from 'chai'
 import * as gdal from 'gdal-async'
 
 describe('gdal.CircularString', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   it('should be instantiable', () => {
     new gdal.CircularString()

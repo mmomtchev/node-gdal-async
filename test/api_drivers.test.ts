@@ -6,7 +6,7 @@ import * as gdal from 'gdal-async'
 chai.use(chaiAsPromised)
 
 describe('gdal.drivers', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('count()', () => {
     it('should return the number of drivers', () => {

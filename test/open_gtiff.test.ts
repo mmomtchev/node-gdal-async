@@ -3,7 +3,7 @@ import * as path from 'path'
 import { assert } from 'chai'
 
 describe('Open', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   before(() => {
     gdal.config.set('GDAL_PAM_ENABLED', 'NO')

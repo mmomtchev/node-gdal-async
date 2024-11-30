@@ -6,7 +6,7 @@ chai.use(chaiAsPromised)
 import * as semver from 'semver'
 
 describe('gdal', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('suggestedWarpOutputAsync()', () => {
     let src: gdal.Dataset

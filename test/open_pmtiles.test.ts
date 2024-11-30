@@ -11,7 +11,7 @@ describe('Open', () => {
     return
   }
 
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('PMTiles', () => {
     let ds: gdal.Dataset

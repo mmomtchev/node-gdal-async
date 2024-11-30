@@ -4,7 +4,7 @@ import { assert } from 'chai'
 import * as semver from 'semver'
 
 describe('Open', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('OpenJPEG', () => {
     let filename, ds: gdal.Dataset

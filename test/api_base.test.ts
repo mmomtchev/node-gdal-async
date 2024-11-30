@@ -11,7 +11,7 @@ if (process.env.GDAL_DATA !== undefined) {
 }
 
 describe('gdal', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('"lastError" property', () => {
     describe('get()', () => {

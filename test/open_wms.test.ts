@@ -9,7 +9,7 @@ chai.use(chaiAsPromised)
 const magosm = 'https://magosm.magellium.com/geoserver/ows?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=magosm%3Afrance_telecom_fibre_connection_point&CRS=CRS:84&BBOX=2,48,3,49'
 
 describe('Open', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('WMS w/Net', () => {
     let ds: gdal.Dataset

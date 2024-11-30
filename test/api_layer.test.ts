@@ -4,7 +4,7 @@ import * as fileUtils from './utils/file'
 import * as semver from 'semver'
 
 describe('gdal.Layer', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   describe('instance', () => {
     type prepareCb = (ds: gdal.Dataset, l: gdal.Layer) => void

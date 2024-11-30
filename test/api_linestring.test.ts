@@ -2,7 +2,7 @@ import * as gdal from 'gdal-async'
 import { assert } from 'chai'
 
 describe('gdal.LineString', () => {
-  afterEach(global.gc!)
+  afterEach(() => void global.gc!())
 
   it('should be instantiable', () => {
     new gdal.LineString()
