@@ -10,11 +10,13 @@
     'OTHER_CPLUSPLUSFLAGS/': [ ['exclude', '^-std=(?!gnu\+\+17)'] ],
   },
   'msvs_settings': {
-    'AdditionalOptions': [
-      '/std:c++17'
-    ],
-    'AdditionalOptions/': [
-      ['exclude', '^[/\-]std:(?!c\+\+17)']
-    ]
+    'VCCLCompilerTool': {
+      'AdditionalOptions': [
+        '/std:c++17'
+      ],
+      'AdditionalOptions/': [
+        ['exclude', '^[/\-]std:(?!c\+\+17)']
+      ]
+    }
   }
 }
