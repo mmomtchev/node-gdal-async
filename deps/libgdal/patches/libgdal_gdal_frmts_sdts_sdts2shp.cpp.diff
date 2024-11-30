@@ -1,0 +1,29 @@
+--- libgdal/gdal/frmts/sdts/sdts2shp.cpp.orig	2024-11-30 18:04:35.196334605 +0100
++++ libgdal/gdal/frmts/sdts/sdts2shp.cpp	2024-11-30 18:08:16.196188001 +0100
+@@ -54,7 +54,7 @@
+         int i;
+         const char *pszCATDFilename = NULL;
+         const char *pszMODN = "LE01";
+-        char *pszShapefile = "sdts_out.shp";
++        const char *szShapefile = "sdts_out.shp";
+         SDTSTransfer oTransfer;
+ 
+         /* --------------------------------------------------------------------
+@@ -72,7 +72,7 @@
+             if (EQUAL(papszArgv[i], "-m") && i + 1 < nArgc)
+                 pszMODN = papszArgv[++i];
+             else if (EQUAL(papszArgv[i], "-o") && i + 1 < nArgc)
+-                pszShapefile = papszArgv[++i];
++                szShapefile = papszArgv[++i];
+             else if (EQUAL(papszArgv[i], "-v"))
+                 bVerbose = TRUE;
+             else
+@@ -88,7 +88,7 @@
+         /*      Massage shapefile name to have no extension. */
+         /* --------------------------------------------------------------------
+          */
+-        pszShapefile = CPLStrdup(pszShapefile);
++        char *pszShapefile = CPLStrdup(szShapefile);
+         for (i = strlen(pszShapefile) - 1; i >= 0; i--)
+         {
+             if (pszShapefile[i] == '.')
