@@ -1,10 +1,10 @@
 {
 	"includes": [
 		"../../common.gypi",
-		"../../cpp_17.gypi"
 	],
 	"targets": [
 		{
+			"includes": [ "../../cpp_17.gypi" ],
 			"target_name": "libproj",
 			"type": "static_library",
 			"cflags_cc": ["-Wno-attributes"],
