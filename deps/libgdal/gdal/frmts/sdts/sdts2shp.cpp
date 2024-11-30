@@ -54,7 +54,7 @@ int main(int nArgc, char **papszArgv)
         int i;
         const char *pszCATDFilename = NULL;
         const char *pszMODN = "LE01";
-        char *pszShapefile = "sdts_out.shp";
+        const char *szShapefile = "sdts_out.shp";
         SDTSTransfer oTransfer;
 
         /* --------------------------------------------------------------------
@@ -72,7 +72,7 @@ int main(int nArgc, char **papszArgv)
             if (EQUAL(papszArgv[i], "-m") && i + 1 < nArgc)
                 pszMODN = papszArgv[++i];
             else if (EQUAL(papszArgv[i], "-o") && i + 1 < nArgc)
-                pszShapefile = papszArgv[++i];
+                szShapefile = papszArgv[++i];
             else if (EQUAL(papszArgv[i], "-v"))
                 bVerbose = TRUE;
             else
@@ -88,7 +88,7 @@ int main(int nArgc, char **papszArgv)
         /*      Massage shapefile name to have no extension. */
         /* --------------------------------------------------------------------
          */
-        pszShapefile = CPLStrdup(pszShapefile);
+        char *pszShapefile = CPLStrdup(szShapefile);
         for (i = strlen(pszShapefile) - 1; i >= 0; i--)
         {
             if (pszShapefile[i] == '.')

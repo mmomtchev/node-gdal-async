@@ -7,10 +7,6 @@
 		"default_configuration": "Release",
 		"cflags_cc!": ["-fno-rtti", "-fno-exceptions"],
 		"cflags!": ["-fno-rtti", "-fno-exceptions"],
-		# node-gyp sets the standard for us and ensures that its include file comes last
-		# this is the only reliable way to override it
-		'cflags_cc/': [ ['exclude', '^-std=(?!gnu\+\+17)'] ],
-		'cflags_cc':[ '-std=gnu++17' ],
 		"variables": {
 			"debug_extra_ccflags_cc%": [],
 			"debug_extra_ldflags%" : [],
@@ -31,29 +27,25 @@
 				"-Wno-unused-const-variable"
 			],
 			"OTHER_CPLUSPLUSFLAGS": [
-				"-std=gnu++17",
 				"-Wno-deprecated-register",
 				"-Wno-unused-const-variable",
 				"-frtti",
 				"-fexceptions"
 			],
-			'OTHER_CPLUSPLUSFLAGS/': [ ['exclude', '^-std=(?!gnu\+\+17)'] ],
 		},
 		"msvs_settings": {
 			"VCCLCompilerTool": {
 				#"Optimization": 0, # 0:/Od disable, 1:/O1 min size, 2:/O2 max speed, 3:/Ox full optimization
 				#"InlineFunctionExpansion": 0, #0:/Ob0: disable, 1:/Ob1 inline only marked funtions, 2:/Ob2 inline anything eligible
 				"AdditionalOptions": [
-					"/std:c++17",
-					"/MP",				# compile across multiple CPUs
-					"/GR",				# force RTTI
-					"/EHsc",			# same for ExceptionHandling
-					"/permissive" # for the new MSVC in Github Actions, mostly related to const char to char conversions
+					"/MP",				 # compile across multiple CPUs
+					"/GR",				 # force RTTI
+					"/EHsc",			 # same for ExceptionHandling
+					"/permissive-" # for the new MSVC in Github Actions, mostly related to const char to char conversions
 				],
 				# see https://github.com/nodejs/node-gyp/issues/2412
 				"AdditionalOptions/": [
-					['exclude', '^/GR-$' ],
-					['exclude', '^[/-]std:(?!c\+\+17)']
+					['exclude', '^/GR-$' ]
 				],
 				"ExceptionHandling": 1,
 				"RuntimeTypeInfo": "true"
