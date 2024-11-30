@@ -267,7 +267,7 @@ jobs:
     - run: npm install --ignore-scripts
     - run: npx @mapbox/node-pre-gyp configure --debug
     - name: Build from sources
-      run: npx @mapbox/node-pre-gyp build -j max
+      run: npx @mapbox/node-pre-gyp build -j max -v
     - name: Run unit tests
       run: npm test
       env:
