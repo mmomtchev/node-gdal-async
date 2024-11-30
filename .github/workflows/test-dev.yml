@@ -61,6 +61,7 @@ jobs:
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false
       matrix:
         linux-version:
           - ubuntu:20.04
@@ -91,6 +92,7 @@ jobs:
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false
       matrix:
         linux-version: [ 'amazonlinux:2022', 'ubuntu:24.04' ]
 
@@ -115,6 +117,7 @@ jobs:
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false
       matrix:
         node-version: [ 18, 20, 22, 23 ]
         gdal-version: [ 'shared', 'bundled' ]
@@ -160,6 +163,7 @@ jobs:
     runs-on: macos-12
 
     strategy:
+      fail-fast: false
       matrix:
         node-version: [ 18.x, 20.x, 22.x, 23.x ]
 
@@ -230,6 +234,7 @@ jobs:
     runs-on: windows-2019
 
     strategy:
+      fail-fast: false
       matrix:
         node-version: [ 18.x, 20.x, 22.x, 23.x ]
 
