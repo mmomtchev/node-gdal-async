@@ -24,15 +24,13 @@
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_feature.cpp",
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_mapheaderblock.cpp",
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_geometry.cpp",
-				"../gdal/ogr/ogrsf_frmts/mitab/mitab_bounds.cpp",
+				"../gdal/ogr/mitab_bounds.cpp",
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_tabview.cpp",
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_ogr_driver.cpp",
-				"../gdal/ogr/ogrsf_frmts/mitab/mitab_spatialref.cpp",
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_miffile.cpp",
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_rawbinblock.cpp",
 				"../gdal/ogr/ogrsf_frmts/mitab/mitab_tooldef.cpp",
-				"../gdal/ogr/ogrsf_frmts/mitab/mitab_mapindexblock.cpp",
-				"../gdal/ogr/ogrsf_frmts/mitab/mitab_coordsys.cpp"
+				"../gdal/ogr/ogrsf_frmts/mitab/mitab_mapindexblock.cpp"
 			],
 			"include_dirs": [
 				"../gdal/ogr/ogrsf_frmts/mitab"
