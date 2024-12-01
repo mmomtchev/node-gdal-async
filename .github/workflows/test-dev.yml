@@ -160,7 +160,7 @@ jobs:
 
   test_mac:
 
-    runs-on: macos-12
+    runs-on: macos-13
 
     strategy:
       fail-fast: false
@@ -198,7 +198,7 @@ jobs:
 
   test_mac_debug:
 
-    runs-on: macos-12
+    runs-on: macos-13
 
     steps:
     - uses: actions/checkout@v4

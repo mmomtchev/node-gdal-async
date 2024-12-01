@@ -50,7 +50,7 @@ jobs:
 
     strategy:
       matrix:
-        platforms: [ windows-2019, macos-12 ]
+        platforms: [ windows-2019, macos-13 ]
         node-version: [ 18.x, 20.x, 22.x, 23.x ]
 
     steps:
