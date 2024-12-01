@@ -529,6 +529,20 @@ describe('gdal.RasterBandAsync', () => {
         })
       })
     })
+    describe('threadSafe', () => {
+      it('should support opening in threadsafe mode with GDAL >= 3.10', () => {
+        const ds = gdal.open(`${__dirname}/data/sample.tif`, 'r')
+        assert.isFalse(ds.threadSafe)
+        if (semver.gte(gdal.version, '3.10.0')) {
+          const ds = gdal.open(`${__dirname}/data/sample.tif`, 'rt')
+          assert.isTrue(ds.threadSafe)
+        } else {
+          assert.throws(() => {
+            gdal.open(`${__dirname}/data/sample.tif`, 'rt')
+          }, /requires GDAL 3.10/)
+        }
+      })
+    })
     describe('flushAsync()', () => {
       it('should flush the written data', () => {
         const file = `/vsimem/write_flushAsync_test.${String(

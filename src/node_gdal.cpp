@@ -214,9 +214,17 @@ GDAL_ASYNCABLE_DEFINE(gdal_open) {
       } else {
         flags |= GDAL_OF_READONLY;
       }
-#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
     } else if (mode[i] == 'm') {
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
       flags |= GDAL_OF_MULTIDIM_RASTER;
+#else
+      Nan::ThrowError("Multidimensional support requires GDAL 3.1");
+#endif
+    } else if (mode[i] == 't') {
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 10)
+      flags |= GDAL_OF_THREAD_SAFE | GDAL_OF_RASTER;
+#else
+      Nan::ThrowError("Thread-safe read-only reading requires GDAL 3.10");
 #endif
     } else {
       Nan::ThrowError("Invalid open mode. Must contain only \"r\" or \"r+\" and \"m\" ");

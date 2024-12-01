@@ -41,6 +41,7 @@ void Dataset::Initialize(Local<Object> target) {
   ATTR(lcons, "layers", layersGetter, READ_ONLY_SETTER);
   ATTR_ASYNCABLE(lcons, "rasterSize", rasterSizeGetter, READ_ONLY_SETTER);
   ATTR(lcons, "driver", driverGetter, READ_ONLY_SETTER);
+  ATTR(lcons, "threadSafe", threadSafeGetter, READ_ONLY_SETTER);
   ATTR(lcons, "root", rootGetter, READ_ONLY_SETTER);
   ATTR_ASYNCABLE(lcons, "srs", srsGetter, srsSetter);
   ATTR_ASYNCABLE(lcons, "geoTransform", geoTransformGetter, geoTransformSetter);
@@ -924,6 +925,30 @@ NAN_GETTER(Dataset::driverGetter) {
 
   GDALDataset *raw = ds->get();
   if (raw->GetDriver() != nullptr) { info.GetReturnValue().Set(Driver::New(raw->GetDriver())); }
+}
+
+/**
+ * @readonly
+ * @kind member
+ * @name threadSafe
+ * @instance
+ * @memberof Dataset
+ * @type {boolean}
+ */
+NAN_GETTER(Dataset::threadSafeGetter) {
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 10)
+  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+
+  if (!ds->isAlive()) {
+    Nan::ThrowError("Dataset object has already been destroyed");
+    return;
+  }
+
+  GDALDataset *raw = ds->get();
+  if (raw->GetDriver() != nullptr) { info.GetReturnValue().Set(Nan::New<Boolean>(raw->IsThreadSafe(GDAL_OF_RASTER))); }
+#else
+  info.GetReturnValue().Set(Nan::New<Boolean>(false));
+#endif
 }
 
 NAN_SETTER(Dataset::srsSetter) {
