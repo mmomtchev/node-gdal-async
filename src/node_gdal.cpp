@@ -225,9 +225,10 @@ GDAL_ASYNCABLE_DEFINE(gdal_open) {
       flags |= GDAL_OF_THREAD_SAFE | GDAL_OF_RASTER;
 #else
       Nan::ThrowError("Thread-safe read-only reading requires GDAL 3.10");
+      return;
 #endif
     } else {
-      Nan::ThrowError("Invalid open mode. Must contain only \"r\" or \"r+\" and \"m\" ");
+      Nan::ThrowError("Invalid open mode. Must contain only \"r\" or \"r+\" and \"m\" or \"t\" ");
       return;
     }
   }
