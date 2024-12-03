@@ -108,7 +108,7 @@ If a raster datasets is opened in threadsafe mode, by specifying the `t` flag:
 
 ```js
 const ds = gdal.open(`${__dirname}/data/sample.tif`, 'rt')
-assert.isTrue(ds.threadSafe)
+assert(ds.threadSafe)
 ```
 
 then all asynchronous operations can run in parallel and can be freely mixed with synchronous operations without ever blocking the event loop.

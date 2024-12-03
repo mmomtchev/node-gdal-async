@@ -563,6 +563,7 @@ describe('gdal.RasterBandAsync', () => {
               // should produce a console warning about blocking the event loop
               // if the dataset is actually locked
               assert.isNumber(ds.rasterSize.x)
+              assert.instanceOf(ds.bands.get(1).pixels.read(x * 10, y * 10, 10, 10), Uint8Array)
             }
           }
           assert.lengthOf(data, 25)
