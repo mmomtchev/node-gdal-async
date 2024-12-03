@@ -100,3 +100,15 @@ SQL layers present a unique challenge when implementing asynchronous bindings - 
 
 Alas, there are no simple solutions for this issue. `gdal-async`prints a warning to stderr when this happens.
  
+## RFC101 thread-safe datasets with GDAL >= 3.10
+
+GDAL 3.10 introduces a major performance improvement when accessing raster datasets in read-only *threadsafe* mode.
+
+If a raster datasets is opened in threadsafe mode, by specifying the `t` flag:
+
+```js
+const ds = gdal.open(`${__dirname}/data/sample.tif`, 'rt')
+assert.isTrue(ds.threadSafe)
+```
+
+then all asynchronous operations can run in parallel and can be freely mixed with synchronous operations without ever blocking the event loop.

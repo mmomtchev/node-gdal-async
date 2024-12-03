@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
  - GDAL 3.10.0
  - Node.js 23 support
+ - Implement RFC101 support, see [`ASYNCIO.md`](https://github.com/mmomtchev/node-gdal-async/blob/main/ASYNCIO.md) for more information
 
 ### Removed
  - Drop Node.js 16 support
