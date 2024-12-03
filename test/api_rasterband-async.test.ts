@@ -546,15 +546,9 @@ describe('gdal.RasterBandAsync', () => {
         const file = `/vsimem/write_threadSafe_test.${String(
           Math.random()
         ).substring(2)}.tmp.tif`
-        if (semver.gte(gdal.version, '3.10.0')) {
-          assert.throws(() => {
-            gdal.open(file, 'r+t', 'GTiff', 64, 64, 1, gdal.GDT_Byte)
-          })
-        } else {
-          assert.throws(() => {
-            gdal.open(file, 'r+t', 'GTiff', 64, 64, 1, gdal.GDT_Byte)
-          }, /requires GDAL 3.10/)
-        }
+        assert.throws(() => {
+          gdal.open(file, 'r+t', 'GTiff', 64, 64, 1, gdal.GDT_Byte)
+        })
       })
       it('should support reading in threadsafe mode with GDAL >= 3.10', function () {
         if (semver.gte(gdal.version, '3.10.0')) {
