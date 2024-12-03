@@ -80,8 +80,8 @@ class ObjectStore {
   }
   AsyncLock lockDataset(long uid);
   vector<AsyncLock> lockDatasets(vector<long> uids);
-  AsyncLock tryLockDataset(long uid);
-  vector<AsyncLock> tryLockDatasets(vector<long> uids);
+  AsyncLock tryLockDataset(long uid, bool &result);
+  vector<AsyncLock> tryLockDatasets(vector<long> uids, bool &result);
 
   template <typename GDALPTR> bool has(GDALPTR ptr);
   template <typename GDALPTR> Local<Object> get(GDALPTR ptr);
@@ -96,7 +96,7 @@ class ObjectStore {
   long uid;
   uv_mutex_t master_lock;
   uv_cond_t master_sleep;
-  vector<AsyncLock> _tryLockDatasets(vector<long> uids);
+  vector<AsyncLock> _tryLockDatasets(vector<long> uids, bool &result);
   template <typename GDALPTR> void dispose(shared_ptr<ObjectStoreItem<GDALPTR>> item, bool manual);
   void do_dispose(long uid, bool manual = false);
 };

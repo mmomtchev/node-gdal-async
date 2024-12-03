@@ -542,6 +542,41 @@ describe('gdal.RasterBandAsync', () => {
           }, /requires GDAL 3.10/)
         }
       })
+      it('should disallow opening in threadsafe writing mode with GDAL >= 3.10', () => {
+        const file = `/vsimem/write_threadSafe_test.${String(
+          Math.random()
+        ).substring(2)}.tmp.tif`
+        if (semver.gte(gdal.version, '3.10.0')) {
+          assert.throws(() => {
+            gdal.open(file, 'r+t', 'GTiff', 64, 64, 1, gdal.GDT_Byte)
+          })
+        } else {
+          assert.throws(() => {
+            gdal.open(file, 'r+t', 'GTiff', 64, 64, 1, gdal.GDT_Byte)
+          }, /requires GDAL 3.10/)
+        }
+      })
+      it('should support reading in threadsafe mode with GDAL >= 3.10', function () {
+        if (semver.gte(gdal.version, '3.10.0')) {
+          const ds = gdal.open(`${__dirname}/data/sample.tif`, 'rt')
+          assert.isTrue(ds.threadSafe)
+          const data: Promise<gdal.TypedArray>[] = []
+          for (let x = 0; x < 5; x++) {
+            for (let y = 0; y < 5; y++) {
+              const array = ds.bands.getAsync(1).then((b) => b.pixels.readAsync(x * 10, y * 10, 10, 10))
+              data.push(array)
+              // Synchronously accessing datasets on which async operations are running
+              // should produce a console warning about blocking the event loop
+              // if the dataset is actually locked
+              assert.isNumber(ds.rasterSize.x)
+            }
+          }
+          assert.lengthOf(data, 25)
+          return Promise.all(data)
+            .then((arrays) => arrays.forEach((a) => void assert.instanceOf(a, Uint8Array)))
+        }
+        this.skip()
+      })
     })
     describe('flushAsync()', () => {
       it('should flush the written data', () => {

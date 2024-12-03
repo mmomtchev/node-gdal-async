@@ -99,14 +99,15 @@ class AsyncGuard {
       locks = make_shared<vector<AsyncLock>>(object_store.lockDatasets(uids));
   }
   inline AsyncGuard(vector<long> uids, bool warning) : lock(nullptr), locks(nullptr) {
+    bool locked = true;
     if (uids.size() == 1) {
       if (uids[0] == 0) return;
-      lock = warning ? object_store.tryLockDataset(uids[0]) : object_store.lockDataset(uids[0]);
-      if (lock == nullptr) { MEASURE_EXECUTION_TIME(eventLoopWarning, lock = object_store.lockDataset(uids[0])); }
+      lock = warning ? object_store.tryLockDataset(uids[0], locked) : object_store.lockDataset(uids[0]);
+      if (!locked) { MEASURE_EXECUTION_TIME(eventLoopWarning, lock = object_store.lockDataset(uids[0])); }
     } else {
-      locks = warning ? make_shared<vector<AsyncLock>>(object_store.tryLockDatasets(uids))
+      locks = warning ? make_shared<vector<AsyncLock>>(object_store.tryLockDatasets(uids, locked))
                       : make_shared<vector<AsyncLock>>(object_store.lockDatasets(uids));
-      if (locks->size() == 0) {
+      if (!locked) {
         MEASURE_EXECUTION_TIME(
           eventLoopWarning, locks = make_shared<vector<AsyncLock>>(object_store.lockDatasets(uids)));
       }
@@ -392,9 +393,9 @@ template <class GDALType> class GDALAsyncableJob {
   GDALRValFunc rval;
   Nan::Callback *progress;
 
-  GDALAsyncableJob(long ds_uid) : main(), rval(), progress(nullptr), persistent(), ds_uids({ds_uid}), autoIndex(0){};
+  GDALAsyncableJob(long ds_uid) : main(), rval(), progress(nullptr), persistent(), ds_uids({ds_uid}), autoIndex(0) {};
   GDALAsyncableJob(std::vector<long> ds_uids)
-    : main(), rval(), progress(nullptr), persistent(), ds_uids(ds_uids), autoIndex(0){};
+    : main(), rval(), progress(nullptr), persistent(), ds_uids(ds_uids), autoIndex(0) {};
 
   inline void persist(const std::string &key, const v8::Local<v8::Object> &obj) {
     persistent[key] = obj;
