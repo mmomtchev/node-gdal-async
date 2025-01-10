@@ -94,7 +94,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        linux-version: [ 'amazonlinux:2022', 'ubuntu:24.04' ]
+        linux-version: [ 'amazonlinux:2023', 'ubuntu:24.04' ]
 
     steps:
     - uses: actions/checkout@v4
