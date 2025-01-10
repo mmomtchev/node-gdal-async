@@ -107,7 +107,7 @@ jobs:
       with:
         max-size: 1000M
         key: distros-bundled-${{ matrix.linux-version }}
-    - run: npm run container dev ${{ matrix.linux-version }} 18 bundled
+    - run: npm run container dev ${{ matrix.linux-version }} 22 bundled
       env:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
 
