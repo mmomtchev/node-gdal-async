@@ -7,7 +7,7 @@ ENV GDAL=${GDAL}
 
 RUN \
   yum install -y gcc-c++ make && \
-  yum install -y nodejs22 npm && \
+  yum install -y nodejs npm && \
   yum install -y git rsync python3 byacc && \
   alternatives --install /usr/bin/python python /usr/bin/python3 60 && \
   mkdir -p /target && chmod 777 /target
