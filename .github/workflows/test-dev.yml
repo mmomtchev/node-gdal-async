@@ -160,11 +160,12 @@ jobs:
 
   test_mac:
 
-    runs-on: macos-13
+    runs-on: ${{ matrix.mac-version }}
 
     strategy:
       fail-fast: false
       matrix:
+        mac-version: [ macos-13, macos-15 ]
         node-version: [ 18.x, 20.x, 22.x, 23.x ]
 
     steps:

@@ -152,8 +152,8 @@
 			"target_name": "libcurl",
 			"type": "static_library",
 			"sources": [
-				'<!@(python ../glob-files.py "curl/lib/*.c")',
-				'<!@(python ../glob-files.py "curl/lib/**/*.c")'
+				'<!@(<(python) ../glob-files.py "curl/lib/*.c")',
+				'<!@(<(python) ../glob-files.py "curl/lib/**/*.c")'
 			],
 			"include_dirs": [
 				"./curl/include",

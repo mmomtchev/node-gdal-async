@@ -7,13 +7,13 @@
 			"target_name": "libgeos",
 			"type": "static_library",
 			"sources": [
-				# python 2 doesnt have recursive globs! deepest is 4 levels, so do it hacky
-				'<!@(python ../glob-files.py "geos/capi/*.cpp")',
-				'<!@(python ../glob-files.py "geos/src/*.cpp")',
-				'<!@(python ../glob-files.py "geos/src/*/*.cpp")',
-				'<!@(python ../glob-files.py "geos/src/*/*/*.cpp")',
-				'<!@(python ../glob-files.py "geos/src/*/*/*/*.cpp")',
-				'<!@(python ../glob-files.py "geos/src/deps/*/*.c")'
+				# <(python) 2 doesnt have recursive globs! deepest is 4 levels, so do it hacky
+				'<!@(<(python) ../glob-files.py "geos/capi/*.cpp")',
+				'<!@(<(python) ../glob-files.py "geos/src/*.cpp")',
+				'<!@(<(python) ../glob-files.py "geos/src/*/*.cpp")',
+				'<!@(<(python) ../glob-files.py "geos/src/*/*/*.cpp")',
+				'<!@(<(python) ../glob-files.py "geos/src/*/*/*/*.cpp")',
+				'<!@(<(python) ../glob-files.py "geos/src/deps/*/*.c")'
 			],
 			"include_dirs": [
 				"./include",
