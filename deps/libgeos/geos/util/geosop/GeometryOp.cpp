@@ -27,6 +27,7 @@
 #include <geos/algorithm/construct/LargestEmptyCircle.h>
 #include <geos/algorithm/construct/MaximumInscribedCircle.h>
 #include <geos/algorithm/BoundaryNodeRule.h>
+#include <geos/algorithm/MinimumAreaRectangle.h>
 #include <geos/algorithm/MinimumDiameter.h>
 #include <geos/algorithm/MinimumBoundingCircle.h>
 #include <geos/algorithm/distance/DiscreteHausdorffDistance.h>
@@ -68,6 +69,13 @@
 
 #include <sstream>
 #include <iomanip>
+
+// Quiet MSVC warning we cannot fix without
+// a bunch of function renaming,
+// see https://github.com/libgeos/geos/issues/929
+#ifdef _MSC_VER
+#pragma warning (disable : 4573)
+#endif
 
 using geos::operation::overlayng::OverlayNG;
 using geos::algorithm::distance::DiscreteFrechetDistance;
@@ -372,9 +380,18 @@ std::vector<GeometryOpCreator> opRegistry {
 }},
 {"largestEmptyCircle", [](std::string name) { return GeometryOp::create(name,
     catConst,
-    "compute radius line of largest empty circle of geometry up to a distance tolerance",
+    "compute radius line of largest empty circle between obstacles, up to a distance tolerance",
     [](const std::unique_ptr<Geometry>& geom, double d) {
         geos::algorithm::construct::LargestEmptyCircle lec( geom.get(), d );
+        std::unique_ptr<Geometry> res = lec.getRadiusLine();
+        return new Result( std::move(res) );
+    });
+}},
+{"largestEmptyCircleBdy", [](std::string name) { return GeometryOp::create(name,
+    catConst,
+    "compute radius line of largest empty circle between obstacles with center in a boundary, up to a distance tolerance",
+    [](const std::unique_ptr<Geometry>& geom, const std::unique_ptr<Geometry>& geom2, double d) {
+        geos::algorithm::construct::LargestEmptyCircle lec( geom.get(), geom2.get(), d );
         std::unique_ptr<Geometry> res = lec.getRadiusLine();
         return new Result( std::move(res) );
     });
@@ -385,6 +402,14 @@ std::vector<GeometryOpCreator> opRegistry {
     [](const std::unique_ptr<Geometry>& geom, double d) {
         geos::algorithm::construct::MaximumInscribedCircle mc( geom.get(), d );
         std::unique_ptr<Geometry> res = mc.getRadiusLine();
+        return new Result( std::move(res) );
+    });
+    }},
+{"minAreaRectangle", [](std::string name) { return GeometryOp::create(name,
+    catConst,
+    "compute minimum-area rectangle enclosing geometry",
+    [](const std::unique_ptr<Geometry>& geom) {
+        std::unique_ptr<Geometry> res = geos::algorithm::MinimumAreaRectangle::getMinimumRectangle(geom.get());
         return new Result( std::move(res) );
     });
     }},
@@ -608,7 +633,7 @@ std::vector<GeometryOpCreator> opRegistry {
     catRel, "test if geometry A covers geometry B",
     Result::typeBool,
     [](const std::unique_ptr<Geometry>& geom, const std::unique_ptr<Geometry>& geomB) {
-        return new Result( geom->contains( geomB.get() ) );
+        return new Result( geom->covers( geomB.get() ) );
     });
 }},
 { "crosses", [](std::string name) { return GeometryOp::create(name,
@@ -1058,6 +1083,18 @@ Result::isGeometry() {
 }
 
 bool
+Result::isBool() {
+    return typeCode == typeBool;
+}
+
+bool
+Result::toBool() {
+    if (typeCode == typeBool)
+        return valBool;
+    return false;
+}
+
+bool
 Result::isGeometryList() {
     return typeCode == typeGeomList;
 }
@@ -1108,7 +1145,7 @@ Result::metadata() {
     case typeGeomList:
         return "Geometry[" + std::to_string( valGeomList.size()) + "]";
     }
-    return "Unknonwn type";
+    return "Unknown type";
 }
 
 std::string

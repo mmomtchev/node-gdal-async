@@ -134,17 +134,6 @@ public:
         precisionModel = newPM;
     }
 
-    /// Compute the intersection of a point p and the line p1-p2.
-    ///
-    /// This function computes the boolean value of the hasIntersection test.
-    /// The actual value of the intersection (if there is one)
-    /// is equal to the value of <code>p</code>.
-    ///
-    void computeIntersection(const geom::CoordinateXY& p, const geom::CoordinateXY& p1, const geom::CoordinateXY& p2);
-
-    /// Same as above but doesn't compute intersection point. Faster.
-    static bool hasIntersection(const geom::CoordinateXY& p, const geom::CoordinateXY& p1, const geom::CoordinateXY& p2);
-
     enum intersection_type : uint8_t {
         /// Indicates that line segments do not intersect
         NO_INTERSECTION = 0,
@@ -600,8 +589,20 @@ private:
     {
         geom::CoordinateXYZM ptInt(Intersection::intersection(p1, p2, q1, q2));
         if (ptInt.isNull()) {
-            // FIXME need to cast to correct type in mixed-dimensionality case
-            ptInt = static_cast<const C1&>(nearestEndpoint(p1, p2, q1, q2));
+            const geom::CoordinateXY& nearest = nearestEndpoint(p1, p2, q1, q2);
+#if __cplusplus >= 201703L
+            if constexpr (std::is_same<C1, C2>::value) {
+#else
+            if (std::is_same<C1, C2>::value) {
+#endif
+                ptInt = static_cast<const C1&>(nearest);
+            } else {
+                if (&nearest == static_cast<const geom::CoordinateXY*>(&p1) || &nearest == static_cast<const geom::CoordinateXY*>(&p2)) {
+                    ptInt = static_cast<const C1&>(nearest);
+                } else {
+                    ptInt = static_cast<const C2&>(nearest);
+                }
+            }
         }
         return ptInt;
     }

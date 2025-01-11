@@ -197,20 +197,6 @@ public:
         return m_vect.empty();
     }
 
-    /// Returns <code>true</code> if there is 1 coordinate and if it is null.
-    bool isNullPoint() const {
-        if (size() != 1) {
-            return false;
-        }
-        switch(getCoordinateType()) {
-            case CoordinateType::XY: return getAt<CoordinateXY>(0).isNull();
-            case CoordinateType::XYZ: return getAt<Coordinate>(0).isNull();
-            case CoordinateType::XYZM: return getAt<CoordinateXYZM>(0).isNull();
-            case CoordinateType::XYM: return getAt<CoordinateXYM>(0).isNull();
-            default: return false;
-        }
-    }
-
     /** \brief
     * Tests whether an a {@link CoordinateSequence} forms a ring,
     * by checking length and closure. Self-intersection is not checked.
@@ -635,10 +621,30 @@ public:
     template<typename Filter>
     void apply_rw(const Filter* filter) {
         switch(getCoordinateType()) {
-            case CoordinateType::XY:    for (auto& c : items<CoordinateXY>())   { filter->filter_rw(&c); } break;
-            case CoordinateType::XYZ:   for (auto& c : items<Coordinate>())     { filter->filter_rw(&c); } break;
-            case CoordinateType::XYM:   for (auto& c : items<CoordinateXYM>())  { filter->filter_rw(&c); } break;
-            case CoordinateType::XYZM:  for (auto& c : items<CoordinateXYZM>()) { filter->filter_rw(&c); } break;
+            case CoordinateType::XY:
+                for (auto& c : items<CoordinateXY>()) {
+                    if (filter->isDone()) break;
+                    filter->filter_rw(&c);
+                }
+                break;
+            case CoordinateType::XYZ:
+                for (auto& c : items<Coordinate>()) {
+                    if (filter->isDone()) break;
+                    filter->filter_rw(&c);
+                }
+                break;
+            case CoordinateType::XYM:
+                for (auto& c : items<CoordinateXYM>()) {
+                    if (filter->isDone()) break;
+                    filter->filter_rw(&c);
+                }
+                break;
+            case CoordinateType::XYZM:
+                for (auto& c : items<CoordinateXYZM>()) {
+                    if (filter->isDone()) break;
+                    filter->filter_rw(&c);
+                }
+                break;
         }
         m_hasdim = m_hasz = false; // re-check (see http://trac.osgeo.org/geos/ticket/435)
     }
@@ -646,10 +652,30 @@ public:
     template<typename Filter>
     void apply_ro(Filter* filter) const {
         switch(getCoordinateType()) {
-            case CoordinateType::XY:    for (const auto& c : items<CoordinateXY>())   { filter->filter_ro(&c); } break;
-            case CoordinateType::XYZ:   for (const auto& c : items<Coordinate>())     { filter->filter_ro(&c); } break;
-            case CoordinateType::XYM:   for (const auto& c : items<CoordinateXYM>())  { filter->filter_ro(&c); } break;
-            case CoordinateType::XYZM:  for (const auto& c : items<CoordinateXYZM>()) { filter->filter_ro(&c); } break;
+            case CoordinateType::XY:
+                for (const auto& c : items<CoordinateXY>()) {
+                    if (filter->isDone()) break;
+                    filter->filter_ro(&c);
+                }
+                break;
+            case CoordinateType::XYZ:
+                for (const auto& c : items<Coordinate>()) {
+                    if (filter->isDone()) break;
+                    filter->filter_ro(&c);
+                }
+                break;
+            case CoordinateType::XYM:
+                for (const auto& c : items<CoordinateXYM>()) {
+                    if (filter->isDone()) break;
+                    filter->filter_ro(&c);
+                }
+                break;
+            case CoordinateType::XYZM:
+                for (const auto& c : items<CoordinateXYZM>()) {
+                    if (filter->isDone()) break;
+                    filter->filter_ro(&c);
+                }
+                break;
         }
     }
 

@@ -23,6 +23,7 @@
 #include <geos/io/WKBWriter.h>
 #include <geos/io/GeoJSONReader.h>
 #include <geos/io/GeoJSONWriter.h>
+#include <geos/operation/buffer/BufferParameters.h>
 #include <geos/util/Interrupt.h>
 
 #include <stdexcept>
@@ -32,10 +33,15 @@
 #pragma warning(disable : 4099)
 #endif
 
-// Some extra magic to make type declarations in geos_c.h work - for cross-checking of types in header.
+// Some extra magic to make type declarations in geos_c.h work -
+// for cross-checking of types in header.
+// NOTE: the below defines or struct definition must be kept in exact
+// sync between geos_c.cpp and geos_ts_c.cpp to avoid C++ One Definition Rule
+// violations.
 #define GEOSGeometry geos::geom::Geometry
 #define GEOSPreparedGeometry geos::geom::prep::PreparedGeometry
 #define GEOSCoordSequence geos::geom::CoordinateSequence
+#define GEOSBufferParams geos::operation::buffer::BufferParameters
 #define GEOSSTRtree geos::index::strtree::TemplateSTRtree<void*>
 #define GEOSWKTReader geos::io::WKTReader
 #define GEOSWKTWriter geos::io::WKTWriter
@@ -43,8 +49,12 @@
 #define GEOSWKBWriter geos::io::WKBWriter
 #define GEOSGeoJSONReader geos::io::GeoJSONReader
 #define GEOSGeoJSONWriter geos::io::GeoJSONWriter
-typedef struct GEOSBufParams_t GEOSBufferParams;
-typedef struct GEOSMakeValidParams_t GEOSMakeValidParams;
+
+// Implementation struct for the GEOSMakeValidParams object
+typedef struct {
+    int method;
+    int keepCollapsed;
+} GEOSMakeValidParams;
 
 #include "geos_c.h"
 
@@ -136,7 +146,7 @@ extern "C" {
 
     /****************************************************************
     ** relate()-related functions
-    ** return 0 = false, 1 = true, 2 = error occured
+    ** return 0 = false, 1 = true, 2 = error occurred
     **
     */
     char
@@ -203,15 +213,15 @@ extern "C" {
 //------------------------------------------------------------------
 
     char
-    GEOSRelatePattern(const Geometry* g1, const Geometry* g2, const char* pat)
+    GEOSRelatePattern(const Geometry* g1, const Geometry* g2, const char* imPattern)
     {
-        return GEOSRelatePattern_r(handle, g1, g2, pat);
+        return GEOSRelatePattern_r(handle, g1, g2, imPattern);
     }
 
     char
-    GEOSRelatePatternMatch(const char* mat, const char* pat)
+    GEOSRelatePatternMatch(const char* intMatrix, const char* imPattern)
     {
-        return GEOSRelatePatternMatch_r(handle, mat, pat);
+        return GEOSRelatePatternMatch_r(handle, intMatrix, imPattern);
     }
 
     char*
@@ -1195,6 +1205,24 @@ extern "C" {
     }
 
     Geometry*
+    GEOSGeom_createCircularString(CoordinateSequence* cs)
+    {
+        return GEOSGeom_createCircularString_r(handle, cs);
+    }
+
+    Geometry*
+    GEOSGeom_createCompoundCurve(Geometry** curves, unsigned int ngeoms)
+    {
+        return GEOSGeom_createCompoundCurve_r(handle, curves, ngeoms);
+    }
+
+    Geometry*
+    GEOSGeom_createCurvePolygon(Geometry* shell, Geometry** holes, unsigned int nholes)
+    {
+        return GEOSGeom_createCurvePolygon_r(handle, shell, holes, nholes);
+    }
+
+    Geometry*
     GEOSGeom_clone(const Geometry* g)
     {
         return GEOSGeom_clone_r(handle, g);
@@ -1443,6 +1471,11 @@ extern "C" {
         GEOSWKBWriter_setIncludeSRID_r(handle, writer, newIncludeSRID);
     }
 
+    int
+    GEOS_printDouble(double d, unsigned int precision, char *result) {
+        return WKTWriter::writeTrimmedNumber(d, precision, result);
+    }
+
     /* GeoJSON Reader */
     GeoJSONReader*
     GEOSGeoJSONReader_create()
@@ -1568,6 +1601,18 @@ extern "C" {
     GEOSPreparedWithin(const geos::geom::prep::PreparedGeometry* pg1, const Geometry* g2)
     {
         return GEOSPreparedWithin_r(handle, pg1, g2);
+    }
+
+    char *
+    GEOSPreparedRelate(const geos::geom::prep::PreparedGeometry* pg1, const Geometry* g2)
+    {
+        return GEOSPreparedRelate_r(handle, pg1, g2);
+    }
+
+    char
+    GEOSPreparedRelatePattern(const geos::geom::prep::PreparedGeometry* pg1, const Geometry* g2, const char* imPattern)
+    {
+        return GEOSPreparedRelatePattern_r(handle, pg1, g2, imPattern);
     }
 
     CoordinateSequence*
@@ -1711,6 +1756,24 @@ extern "C" {
     GEOSGeom_createEmptyPolygon()
     {
         return GEOSGeom_createEmptyPolygon_r(handle);
+    }
+
+    geos::geom::Geometry*
+    GEOSGeom_createEmptyCircularString()
+    {
+        return GEOSGeom_createEmptyCircularString_r(handle);
+    }
+
+    geos::geom::Geometry*
+    GEOSGeom_createEmptyCompoundCurve()
+    {
+        return GEOSGeom_createEmptyCompoundCurve_r(handle);
+    }
+
+    geos::geom::Geometry*
+    GEOSGeom_createEmptyCurvePolygon()
+    {
+        return GEOSGeom_createEmptyCurvePolygon_r(handle);
     }
 
     geos::geom::Geometry*

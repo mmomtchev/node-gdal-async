@@ -19,15 +19,15 @@
 #endif
 
 #ifndef GEOS_VERSION_MINOR
-#define GEOS_VERSION_MINOR 10
+#define GEOS_VERSION_MINOR 12
 #endif
 
 #ifndef GEOS_VERSION_PATCH
-#define GEOS_VERSION_PATCH 2
+#define GEOS_VERSION_PATCH 1
 #endif
 
 #ifndef GEOS_VERSION
-#define GEOS_VERSION "3.10.2"
+#define GEOS_VERSION "3.12.1"
 #endif
 
 #ifndef GEOS_JTS_PORT

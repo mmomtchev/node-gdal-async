@@ -197,6 +197,7 @@ private:
 
     /// Owned by this class
     mutable geom::Envelope env;
+
 };
 
 } // namespace geos::index::chain

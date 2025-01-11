@@ -10,6 +10,8 @@
             "${workspaceFolder}/deps/libgdal/gdal/apps",
             "${workspaceFolder}/deps/libgdal/arch/unix",
             "${workspaceFolder}/deps/libproj/proj/src",
+            "${workspaceFolder}/deps/libgeos/include",
+            "${workspaceFolder}/deps/libgeos/geos/include",
             "${workspaceFolder}/node_modules/nan"
         ]
     },

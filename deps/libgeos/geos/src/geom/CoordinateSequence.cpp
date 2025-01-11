@@ -43,7 +43,7 @@ static Profiler* profiler = Profiler::instance();
 // - XYM sequences will be stored as XYZM
 // This prevents incorrect results when an XYZ Coordinate is read from
 // a sequence storing XY or XYM. When GEOS is changed to check
-// coordinate types throughout the libary, this can be undefined to
+// coordinate types throughout the library, this can be undefined to
 // store coordinates efficiently.
 #define GEOS_COORDSEQ_PADZ
 
@@ -151,7 +151,7 @@ CoordinateSequence::initialize()
 void
 CoordinateSequence::add(const CoordinateSequence& cs, std::size_t from, std::size_t to)
 {
-    if (cs.stride() == stride() && cs.hasM() == cs.hasM()) {
+    if (cs.stride() == stride() && cs.hasM() == hasM()) {
         m_vect.insert(m_vect.end(),
                       std::next(cs.m_vect.cbegin(), static_cast<std::ptrdiff_t>(from * stride())),
                       std::next(cs.m_vect.cbegin(), static_cast<std::ptrdiff_t>((to + 1u)*stride())));

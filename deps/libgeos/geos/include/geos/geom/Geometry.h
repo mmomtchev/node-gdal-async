@@ -34,6 +34,7 @@
 #include <geos/geom/Envelope.h>
 #include <geos/geom/Dimension.h> // for Dimension::DimensionType
 #include <geos/geom/GeometryComponentFilter.h> // for inheritance
+#include <geos/geom/CoordinateSequence.h> // to materialize CoordinateSequence
 
 #include <algorithm>
 #include <string>
@@ -70,7 +71,7 @@ namespace geos { // geos
 namespace geom { // geos::geom
 
 /// Geometry types
-enum GeometryTypeId {
+enum GeometryTypeId : int {
     /// a point
     GEOS_POINT,
     /// a linestring
@@ -86,7 +87,12 @@ enum GeometryTypeId {
     /// a collection of polygons
     GEOS_MULTIPOLYGON,
     /// a collection of heterogeneus geometries
-    GEOS_GEOMETRYCOLLECTION
+    GEOS_GEOMETRYCOLLECTION,
+    GEOS_CIRCULARSTRING,
+    GEOS_COMPOUNDCURVE,
+    GEOS_CURVEPOLYGON,
+    GEOS_MULTICURVE,
+    GEOS_MULTISURFACE,
 };
 
 enum GeometrySortIndex {
@@ -97,7 +103,12 @@ enum GeometrySortIndex {
     SORTINDEX_MULTILINESTRING = 4,
     SORTINDEX_POLYGON = 5,
     SORTINDEX_MULTIPOLYGON = 6,
-    SORTINDEX_GEOMETRYCOLLECTION = 7
+    SORTINDEX_GEOMETRYCOLLECTION = 7,
+    SORTINDEX_CIRCULARSTRING = 8,
+    SORTINDEX_COMPOUNDCURVE = 9,
+    SORTINDEX_CURVEPOLYGON = 10,
+    SORTINDEX_MULTICURVE = 11,
+    SORTINDEX_MULTISURFACE = 12,
 };
 
 /**
@@ -299,11 +310,19 @@ public:
     /// Return a string representation of this Geometry type
     virtual std::string getGeometryType() const = 0; //Abstract
 
+    /// Returns whether the Geometry contains curved components
+    virtual bool hasCurvedComponents() const;
+
     /// Return an integer representation of this Geometry type
     virtual GeometryTypeId getGeometryTypeId() const = 0; //Abstract
 
-    /// Returns the number of geometries in this collection
-    /// (or 1 if this is not a collection)
+    /**
+     * \brief Returns the number of geometries in this collection,
+     * or 1 if this is not a collection.
+     *
+     * Empty collection or multi-geometry types return 0,
+     * and empty simple geometry types return 1.
+     */
     virtual std::size_t
     getNumGeometries() const
     {
@@ -593,11 +612,7 @@ public:
      * @see Geometry#within
      * @see Geometry#covers
      */
-    bool
-    coveredBy(const Geometry* g) const
-    {
-        return g->covers(this);
-    }
+    bool coveredBy(const Geometry* g) const;
 
 
     /// Returns the Well-known Text representation of this Geometry.
@@ -914,11 +929,34 @@ protected:
 
     virtual int compareToSameClass(const Geometry* geom) const = 0; //Abstract
 
-    int compare(std::vector<Coordinate> a, std::vector<Coordinate> b) const;
+    template<typename T>
+    static int compare(const T& a, const T& b)
+    {
+        std::size_t i = 0;
+        std::size_t j = 0;
+        while(i < a.size() && j < b.size()) {
+            const auto& aGeom = *a[i];
+            const auto& bGeom = *b[j];
 
-    int compare(std::vector<Geometry*> a, std::vector<Geometry*> b) const;
+            int comparison = aGeom.compareTo(&bGeom);
+            if(comparison != 0) {
+                return comparison;
+            }
 
-    int compare(const std::vector<std::unique_ptr<Geometry>> & a, const std::vector<std::unique_ptr<Geometry>> & b) const;
+            i++;
+            j++;
+        }
+
+        if(i < a.size()) {
+            return 1;
+        }
+
+        if(j < b.size()) {
+            return -1;
+        }
+
+        return 0;
+    }
 
     bool equal(const CoordinateXY& a, const CoordinateXY& b,
                double tolerance) const;

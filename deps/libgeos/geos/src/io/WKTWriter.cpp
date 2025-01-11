@@ -22,8 +22,10 @@
 #include <geos/io/Writer.h>
 #include <geos/io/CLocalizer.h>
 #include <geos/io/CheckOrdinatesFilter.h>
+#include <geos/geom/CircularString.h>
 #include <geos/geom/Coordinate.h>
 #include <geos/geom/CoordinateSequenceFilter.h>
+#include <geos/geom/CompoundCurve.h>
 #include <geos/geom/Point.h>
 #include <geos/geom/LinearRing.h>
 #include <geos/geom/LineString.h>
@@ -31,9 +33,12 @@
 #include <geos/geom/MultiPoint.h>
 #include <geos/geom/MultiLineString.h>
 #include <geos/geom/MultiPolygon.h>
+#include <geos/geom/MultiCurve.h>
+#include <geos/geom/MultiSurface.h>
 #include <geos/geom/CoordinateSequence.h>
 #include <geos/geom/PrecisionModel.h>
 #include <geos/util.h>
+#include <geos/util/string.h>
 #include <geos/util/IllegalArgumentException.h>
 
 #include <ryu/ryu.h>
@@ -58,7 +63,6 @@ WKTWriter::WKTWriter():
     isFormatted(false),
     roundingPrecision(-1),
     trim(true),
-    level(0),
     defaultOutputDimension(4),
     old3D(false)
 {
@@ -103,17 +107,11 @@ WKTWriter::toLineString(const CoordinateSequence& seq)
 
 /*static*/
 std::string
-WKTWriter::toLineString(const Coordinate& p0, const Coordinate& p1)
+WKTWriter::toLineString(const CoordinateXY& p0, const CoordinateXY& p1)
 {
     std::stringstream ret(std::ios_base::in | std::ios_base::out);
     ret << "LINESTRING (" << p0.x << " " << p0.y;
-#if PRINT_Z
-    ret << " " << p0.z;
-#endif
     ret << ", " << p1.x << " " << p1.y;
-#if PRINT_Z
-    ret << " " << p1.z;
-#endif
     ret << ")";
 
     return ret.str();
@@ -208,7 +206,7 @@ WKTWriter::writeFormatted(const Geometry* geometry, bool p_isFormatted,
 void
 WKTWriter::appendGeometryTaggedText(const Geometry& geometry,
                                     OrdinateSet checkOrdinates,
-                                    int p_level,
+                                    int level,
                                     Writer& writer) const
 {
     OrdinateSet outputOrdinates = OrdinateSet::createXY();
@@ -235,17 +233,31 @@ WKTWriter::appendGeometryTaggedText(const Geometry& geometry,
         }
     }
 
-    indent(p_level, &writer);
+    indent(level, &writer);
     switch(geometry.getGeometryTypeId()) {
-        case GEOS_POINT:      appendPointTaggedText(static_cast<const Point&>(geometry), outputOrdinates, p_level, writer); break;
-        case GEOS_LINESTRING: appendLineStringTaggedText(static_cast<const LineString&>(geometry), outputOrdinates, p_level, writer); break;
-        case GEOS_LINEARRING: appendLinearRingTaggedText(static_cast<const LinearRing&>(geometry), outputOrdinates, p_level, writer); break;
-        case GEOS_POLYGON:    appendPolygonTaggedText(static_cast<const Polygon&>(geometry), outputOrdinates, p_level, writer); break;
-        case GEOS_MULTIPOINT: appendMultiPointTaggedText(static_cast<const MultiPoint&>(geometry), outputOrdinates, p_level, writer); break;
-        case GEOS_MULTILINESTRING:    appendMultiLineStringTaggedText(static_cast<const MultiLineString&>(geometry), outputOrdinates, p_level, writer); break;
-        case GEOS_MULTIPOLYGON:       appendMultiPolygonTaggedText(static_cast<const MultiPolygon&>(geometry), outputOrdinates, p_level, writer); break;
-        case GEOS_GEOMETRYCOLLECTION: appendGeometryCollectionTaggedText(static_cast<const GeometryCollection&>(geometry), outputOrdinates, p_level, writer); break;
+        case GEOS_POINT:      appendPointTaggedText(static_cast<const Point&>(geometry), outputOrdinates, level, writer); break;
+        case GEOS_LINESTRING:
+        case GEOS_LINEARRING:
+        case GEOS_CIRCULARSTRING: appendSimpleCurveTaggedText(static_cast<const SimpleCurve&>(geometry), outputOrdinates, level, writer); break;
+        case GEOS_COMPOUNDCURVE: appendCompoundCurveTaggedText(static_cast<const CompoundCurve&>(geometry), outputOrdinates, level, writer); break;
+        case GEOS_CURVEPOLYGON:
+        case GEOS_POLYGON:    appendSurfaceTaggedText(static_cast<const Polygon&>(geometry), outputOrdinates, level, writer); break;
+        case GEOS_MULTIPOINT: appendMultiPointTaggedText(static_cast<const MultiPoint&>(geometry), outputOrdinates, level, writer); break;
+        case GEOS_MULTICURVE:
+        case GEOS_MULTILINESTRING:    appendMultiCurveTaggedText(static_cast<const MultiLineString&>(geometry), outputOrdinates, level, writer); break;
+        case GEOS_MULTISURFACE:
+        case GEOS_MULTIPOLYGON:       appendMultiSurfaceTaggedText(static_cast<const MultiPolygon&>(geometry), outputOrdinates, level, writer); break;
+        case GEOS_GEOMETRYCOLLECTION: appendGeometryCollectionTaggedText(static_cast<const GeometryCollection&>(geometry), outputOrdinates, level, writer); break;
     }
+}
+
+void WKTWriter::appendTag(const Geometry& geometry, OrdinateSet outputOrdinates, Writer& writer) const
+{
+    std::string type = geometry.getGeometryType();
+    util::toUpper(type);
+    writer.write(type);
+    writer.write(" ");
+    appendOrdinateText(outputOrdinates, writer);
 }
 
 /*protected*/
@@ -274,7 +286,7 @@ WKTWriter::appendOrdinateText(OrdinateSet outputOrdinates, Writer& writer) const
 }
 
 void
-WKTWriter::appendPointTaggedText(const Point& point, OrdinateSet outputOrdinates, int p_level,
+WKTWriter::appendPointTaggedText(const Point& point, OrdinateSet outputOrdinates, int level,
                                  Writer& writer) const
 {
     writer.write("POINT ");
@@ -284,73 +296,103 @@ WKTWriter::appendPointTaggedText(const Point& point, OrdinateSet outputOrdinates
     if (coord == nullptr) {
         writer.write("EMPTY");
     } else {
-        appendSequenceText(*point.getCoordinatesRO(), outputOrdinates, p_level, false, writer);
+        appendSequenceText(*point.getCoordinatesRO(), outputOrdinates, level, false, writer);
     }
 }
 
 void
-WKTWriter::appendLineStringTaggedText(const LineString& lineString, OrdinateSet outputOrdinates, int p_level,
-                                      Writer& writer) const
+WKTWriter::appendSimpleCurveTaggedText(const SimpleCurve& curve, OrdinateSet outputOrdinates, int level, Writer& writer) const
 {
-    writer.write("LINESTRING ");
-    appendOrdinateText(outputOrdinates, writer);
-    appendSequenceText(*lineString.getCoordinatesRO(), outputOrdinates, p_level, false, writer);
-}
-
-/**
- * Converts a `LinearRing` to \<LinearRing Tagged Text\>
- * format, then appends it to the writer.
- *
- * @param  linearRing  the `LinearRing` to process
- * @param  writer      the output writer to append to
- */
-void
-WKTWriter::appendLinearRingTaggedText(const LinearRing& linearRing, OrdinateSet outputOrdinates, int p_level, Writer& writer) const
-{
-    writer.write("LINEARRING ");
-    appendOrdinateText(outputOrdinates, writer);
-    appendSequenceText(*linearRing.getCoordinatesRO(), outputOrdinates, p_level, false, writer);
+    appendTag(curve, outputOrdinates, writer);
+    appendSequenceText(*curve.getCoordinatesRO(), outputOrdinates, level, false, writer);
 }
 
 void
-WKTWriter::appendPolygonTaggedText(const Polygon& polygon, OrdinateSet outputOrdinates, int p_level, Writer& writer) const
-{
-    writer.write("POLYGON ");
-    appendOrdinateText(outputOrdinates, writer);
-    appendPolygonText(polygon, outputOrdinates, p_level, false, writer);
+WKTWriter::appendCurveText(const Curve& curve, OrdinateSet outputOrdinates, int level, bool doIndent, Writer& writer) const {
+    if (doIndent) {
+        indent(level, &writer);
+    }
+
+    if (curve.getGeometryTypeId() == GEOS_COMPOUNDCURVE) {
+        appendCompoundCurveTaggedText(static_cast<const CompoundCurve&>(curve), outputOrdinates, level, writer);
+    } else {
+        appendSimpleCurveText(static_cast<const SimpleCurve&>(curve), outputOrdinates, level, false, writer);
+    }
 }
 
 void
-WKTWriter::appendMultiPointTaggedText(const MultiPoint& multipoint, OrdinateSet outputOrdinates, int p_level, Writer& writer) const
+WKTWriter::appendSimpleCurveText(const SimpleCurve& curve, OrdinateSet outputOrdinates, int level, bool doIndent, Writer& writer) const {
+    if (doIndent) {
+        indent(level, &writer);
+    }
+
+    if (curve.getGeometryTypeId() == GEOS_CIRCULARSTRING) {
+        appendSimpleCurveTaggedText(curve, outputOrdinates, level, writer);
+    } else {
+        appendSequenceText(*curve.getCoordinatesRO(), outputOrdinates, level, false, writer);
+    }
+}
+
+
+void
+WKTWriter::appendCompoundCurveTaggedText(const CompoundCurve& curve, OrdinateSet outputOrdinates, int level, Writer& writer) const
+{
+    writer.write("COMPOUNDCURVE ");
+    appendOrdinateText(outputOrdinates, writer);
+
+    if (curve.isEmpty()) {
+        writer.write("EMPTY");
+    } else {
+        writer.write("(");
+        bool indentFirst = false;
+        for (std::size_t i = 0; i < curve.getNumCurves(); i++) {
+            if (i > 0) {
+                writer.write(", ");
+                indentFirst = true;
+            }
+
+            appendSimpleCurveText(*curve.getCurveN(i), outputOrdinates, level + (i > 0), indentFirst, writer);
+        }
+        writer.write(")");
+    }
+}
+
+void
+WKTWriter::appendSurfaceTaggedText(const Surface& surface, OrdinateSet outputOrdinates, int level, Writer& writer) const
+{
+    appendTag(surface, outputOrdinates, writer);
+    appendSurfaceText(surface, outputOrdinates, level, false, writer);
+}
+
+void
+WKTWriter::appendMultiPointTaggedText(const MultiPoint& multipoint, OrdinateSet outputOrdinates, int level, Writer& writer) const
 {
     writer.write("MULTIPOINT ");
     appendOrdinateText(outputOrdinates, writer);
-    appendMultiPointText(multipoint, outputOrdinates, p_level, writer);
+    appendMultiPointText(multipoint, outputOrdinates, level, writer);
 }
 
 void
-WKTWriter::appendMultiLineStringTaggedText(const MultiLineString& multiLineString, OrdinateSet outputOrdinates, int p_level, Writer& writer) const
+WKTWriter::appendMultiCurveTaggedText(const GeometryCollection& multiCurve, OrdinateSet outputOrdinates, int level, Writer& writer) const
 {
-    writer.write("MULTILINESTRING ");
-    appendOrdinateText(outputOrdinates, writer);
-    appendMultiLineStringText(multiLineString, outputOrdinates, p_level, false, writer);
+    appendTag(multiCurve, outputOrdinates, writer);
+    appendMultiCurveText(multiCurve, outputOrdinates, level, false, writer);
 }
 
 void
-WKTWriter::appendMultiPolygonTaggedText(const MultiPolygon& multiPolygon, OrdinateSet outputOrdinates, int p_level, Writer& writer) const
+WKTWriter::appendMultiSurfaceTaggedText(const GeometryCollection& multiPolygon, OrdinateSet outputOrdinates, int level, Writer& writer) const
 {
-    writer.write("MULTIPOLYGON ");
-    appendOrdinateText(outputOrdinates, writer);
-    appendMultiPolygonText(multiPolygon, outputOrdinates, p_level, writer);
+    appendTag(multiPolygon, outputOrdinates, writer);
+    appendMultiSurfaceText(multiPolygon, outputOrdinates, level, writer);
 }
 
 void
-WKTWriter::appendGeometryCollectionTaggedText(const GeometryCollection& geometryCollection, OrdinateSet outputOrdinates, int p_level,
+WKTWriter::appendGeometryCollectionTaggedText(const GeometryCollection& geometryCollection, OrdinateSet outputOrdinates, int level,
         Writer& writer) const
 {
     writer.write("GEOMETRYCOLLECTION ");
     appendOrdinateText(outputOrdinates, writer);
-    appendGeometryCollectionText(geometryCollection, outputOrdinates, p_level, writer);
+    appendGeometryCollectionText(geometryCollection, outputOrdinates, level, writer);
 }
 
 /* protected */
@@ -377,7 +419,7 @@ WKTWriter::appendCoordinate(const CoordinateXYZM& coordinate,
 void
 WKTWriter::appendSequenceText(const CoordinateSequence& seq,
                               OrdinateSet outputOrdinates,
-                              int p_level,
+                              int level,
                               bool doIndent,
                               Writer& writer) const
 {
@@ -386,7 +428,7 @@ WKTWriter::appendSequenceText(const CoordinateSequence& seq,
     }
     else {
         if(doIndent) {
-            indent(p_level, &writer);
+            indent(level, &writer);
         }
         writer.write("(");
         CoordinateXYZM c;
@@ -394,7 +436,7 @@ WKTWriter::appendSequenceText(const CoordinateSequence& seq,
             if(i > 0) {
                 writer.write(", ");
                 if(coordsPerLine > 0 && i % coordsPerLine == 0) {
-                    indent(p_level + 2, &writer);
+                    indent(level + 2, &writer);
                 }
             }
             seq.getAt(i, c);
@@ -404,18 +446,35 @@ WKTWriter::appendSequenceText(const CoordinateSequence& seq,
     }
 }
 
-/* protected */
-std::string
-WKTWriter::writeNumber(double d) const
+int
+WKTWriter::writeTrimmedNumber(double d, uint32_t precision, char* buf)
 {
-    uint32_t precision = decimalPlaces >= 0 ? static_cast<std::uint32_t>(decimalPlaces) : 0;
+    const auto da = std::fabs(d);
+    if ( !std::isfinite(d) || (da == 0.0) )
+        // non-finite or exactly zero
+        return geos_d2sfixed_buffered_n(d, precision, buf);
+    else if ( (da >= 1e+17) || (da < 1e-4) )
+        // very large or small numbers, use scientific notation
+        return geos_d2sexp_buffered_n(d, precision, buf);
+    else {
+        // most real-world coordinates, use positional notation
+        if ( (precision < 4) && (da < 1.0) ) {
+            // adjust precision to avoid rounding to zero
+            precision = static_cast<std::uint32_t>(-floor(log10(da)));
+        }
+        return geos_d2sfixed_buffered_n(d, precision, buf);
+    }
+}
+
+std::string
+WKTWriter::writeNumber(double d, bool trim, uint32_t precision) {
     /*
     * For a "trimmed" result, with no trailing zeros we use
     * the ryu library.
     */
     if (trim) {
-        char buf[128];
-        int len = geos_d2sfixed_buffered_n(d, precision, buf);
+        char buf[28];
+        int len = writeTrimmedNumber(d, precision, buf);
         buf[len] = '\0';
         std::string s(buf);
         return s;
@@ -433,15 +492,16 @@ WKTWriter::writeNumber(double d) const
     }
 }
 
-void
-WKTWriter::appendLineStringText(const LineString& lineString, OrdinateSet outputOrdinates, int p_level,
-                                bool doIndent, Writer& writer) const
+/* protected */
+std::string
+WKTWriter::writeNumber(double d) const
 {
-    appendSequenceText(*lineString.getCoordinatesRO(), outputOrdinates, p_level, doIndent, writer);
+    uint32_t precision = decimalPlaces >= 0 ? static_cast<std::uint32_t>(decimalPlaces) : 0;
+    return writeNumber(d, trim, precision);
 }
 
 void
-WKTWriter::appendPolygonText(const Polygon& polygon, OrdinateSet outputOrdinates, int /*level*/,
+WKTWriter::appendSurfaceText(const Surface& polygon, OrdinateSet outputOrdinates, int level,
                              bool indentFirst, Writer& writer) const
 {
     if(polygon.isEmpty()) {
@@ -452,11 +512,15 @@ WKTWriter::appendPolygonText(const Polygon& polygon, OrdinateSet outputOrdinates
             indent(level, &writer);
         }
         writer.write("(");
-        appendLineStringText(*polygon.getExteriorRing(), outputOrdinates, level, false, writer);
+
+        auto ring = polygon.getExteriorRing();
+        appendCurveText(*ring, outputOrdinates, level, false, writer);
+
         for(std::size_t i = 0, n = polygon.getNumInteriorRing(); i < n; ++i) {
             writer.write(", ");
-            const LineString* ls = polygon.getInteriorRingN(i);
-            appendLineStringText(*ls, outputOrdinates, level + 1, true, writer);
+
+            auto hole = polygon.getInteriorRingN(i);
+            appendCurveText(*hole, outputOrdinates, level + 1, true, writer);
         }
         writer.write(")");
     }
@@ -466,12 +530,13 @@ void
 WKTWriter::appendMultiPointText(const MultiPoint& multiPoint, OrdinateSet outputOrdinates,
                                 int /*level*/, Writer& writer) const
 {
-    if(multiPoint.isEmpty()) {
+    const std::size_t n = multiPoint.getNumGeometries();
+    if(n == 0) {
         writer.write("EMPTY");
     }
     else {
         writer.write("(");
-        for(std::size_t i = 0, n = multiPoint.getNumGeometries(); i < n; ++i) {
+        for(std::size_t i = 0; i < n; ++i) {
             if(i > 0) {
                 writer.write(", ");
             }
@@ -492,49 +557,55 @@ WKTWriter::appendMultiPointText(const MultiPoint& multiPoint, OrdinateSet output
 }
 
 void
-WKTWriter::appendMultiLineStringText(const MultiLineString& multiLineString, OrdinateSet outputOrdinates, int p_level, bool indentFirst,
+WKTWriter::appendMultiCurveText(const GeometryCollection& multiCurve, OrdinateSet outputOrdinates, int level, bool indentFirst,
                                      Writer& writer) const
 {
-    if(multiLineString.isEmpty()) {
+    const std::size_t n = multiCurve.getNumGeometries();
+    if(n == 0) {
         writer.write("EMPTY");
     }
     else {
-        int level2 = p_level;
+        int level2 = level;
         bool doIndent = indentFirst;
         writer.write("(");
-        for(std::size_t i = 0, n = multiLineString.getNumGeometries();
-                i < n; ++i) {
+        for(std::size_t i = 0; i < n; ++i) {
             if(i > 0) {
                 writer.write(", ");
-                level2 = p_level + 1;
+                level2 = level + 1;
                 doIndent = true;
             }
-            const LineString* ls = multiLineString.getGeometryN(i);
-            appendLineStringText(*ls, outputOrdinates, level2, doIndent, writer);
+
+            const Curve* g = static_cast<const Curve*>(multiCurve.getGeometryN(i));
+            appendCurveText(*g, outputOrdinates, level2, doIndent, writer);
         }
         writer.write(")");
     }
 }
 
 void
-WKTWriter::appendMultiPolygonText(const MultiPolygon& multiPolygon, OrdinateSet outputOrdinates, int p_level, Writer& writer) const
+WKTWriter::appendMultiSurfaceText(const GeometryCollection& multiSurface, OrdinateSet outputOrdinates, int level, Writer& writer) const
 {
-    if(multiPolygon.isEmpty()) {
+    const std::size_t n = multiSurface.getNumGeometries();
+    if(n == 0) {
         writer.write("EMPTY");
     }
     else {
-        int level2 = p_level;
+        int level2 = level;
         bool doIndent = false;
         writer.write("(");
-        for(std::size_t i = 0, n = multiPolygon.getNumGeometries();
-                i < n; ++i) {
+        for(std::size_t i = 0; i < n; ++i) {
             if(i > 0) {
                 writer.write(", ");
-                level2 = p_level + 1;
+                level2 = level + 1;
                 doIndent = true;
             }
-            const Polygon* p = multiPolygon.getGeometryN(i);
-            appendPolygonText(*p, outputOrdinates, level2, doIndent, writer);
+            const Surface* p = static_cast<const Surface*>(multiSurface.getGeometryN(i));
+            if (p->getGeometryTypeId() == GEOS_POLYGON) {
+                appendSurfaceText(*p, outputOrdinates, level2, doIndent, writer);
+            } else {
+                // FIXME indent
+                appendSurfaceTaggedText(*p, outputOrdinates, level2, writer);
+            }
         }
         writer.write(")");
     }
@@ -544,35 +615,35 @@ void
 WKTWriter::appendGeometryCollectionText(
     const GeometryCollection& geometryCollection,
     OrdinateSet outputOrdinates,
-    int p_level,
+    int level,
     Writer& writer) const
 {
-    if(geometryCollection.getNumGeometries() > 0) {
-        int level2 = p_level;
+    const std::size_t n = geometryCollection.getNumGeometries();
+    if(n == 0) {
+        writer.write("EMPTY");
+    }
+    else {
+        int level2 = level;
         writer.write("(");
-        for(std::size_t i = 0, n = geometryCollection.getNumGeometries();
-                i < n; ++i) {
+        for(std::size_t i = 0; i < n; ++i) {
             if(i > 0) {
                 writer.write(", ");
-                level2 = p_level + 1;
+                level2 = level + 1;
             }
             appendGeometryTaggedText(*geometryCollection.getGeometryN(i), outputOrdinates, level2, writer);
         }
         writer.write(")");
     }
-    else {
-        writer.write("EMPTY");
-    }
 }
 
 void
-WKTWriter::indent(int p_level, Writer* writer) const
+WKTWriter::indent(int level, Writer* writer) const
 {
-    if(!isFormatted || p_level <= 0) {
+    if(!isFormatted || level <= 0) {
         return;
     }
     writer->write("\n");
-    writer->write(std::string(INDENT * static_cast<std::size_t>(p_level), ' '));
+    writer->write(std::string(INDENT * static_cast<std::size_t>(level), ' '));
 }
 
 } // namespace geos.io

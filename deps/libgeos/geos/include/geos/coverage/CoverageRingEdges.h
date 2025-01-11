@@ -17,6 +17,7 @@
 
 #include <geos/geom/Coordinate.h>
 #include <geos/geom/LineSegment.h>
+#include <geos/coverage/CoverageEdge.h> // to materialize CoverageEdge
 
 #include <set>
 #include <map>
@@ -61,7 +62,7 @@ class GEOS_DLL CoverageRingEdges {
 private:
 
     // Members
-    std::vector<const Geometry*>& m_coverage;
+    const std::vector<const Geometry*>& m_coverage;
     std::map<const LinearRing*, std::vector<CoverageEdge*>> m_ringEdgesMap;
     std::vector<CoverageEdge*> m_edges;
     std::vector<std::unique_ptr<CoverageEdge>> m_edgeStore;
@@ -72,7 +73,7 @@ private:
 
 public:
 
-    CoverageRingEdges(std::vector<const Geometry*>& coverage)
+    CoverageRingEdges(const std::vector<const Geometry*>& coverage)
         : m_coverage(coverage)
     {
         build();
@@ -140,7 +141,7 @@ private:
         const CoordinateSequence& ring);
 
     Coordinate::UnorderedSet findMultiRingNodes(
-        std::vector<const Geometry*>& coverage);
+        const std::vector<const Geometry*>& coverage);
 
     Coordinate::UnorderedSet findBoundaryNodes(
         LineSegment::UnorderedSet& lineSegments);

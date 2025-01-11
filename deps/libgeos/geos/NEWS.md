@@ -1,19 +1,58 @@
+## Changes in 3.13.0
+2024-09-06
 
-## Changes in 3.12.1
-2023-11-11
+- New things:
+  - Add Angle::sinCosSnap to avoid small errors, e.g. with buffer operations (GH-978, Mike Taves)
+  - Add classes for curved geometry types: CircularString, CompoundCurve, CurvedPolygon, MultiCurve,
+    MultiSurface (GH-1046, Dan Baston/German QGIS users group/Canton of Basel-Landschaft/Canton of Zug)
+  - Support curved geometry types in WKT/WKB readers/writers (GH-1046, GH-1104, GH-1106, Dan Baston)
+  - 3D read and write support for GeoJSON (GH-1150, Oreilles)
+  - Port of RelateNG https://github.com/locationtech/jts/pull/1052 (Martin Davis, Paul Ramsey)
+    - Rewrite of boolean predicates and relate matrix calculations
+    - "Prepared" mode now available for all predicates and relate matrix
+    - CAPI functions GEOSPreparedRelate and GEOSPreparedRelatePattern expose new functionality
+    - CAPI implementations of GEOSPreparedTouches, etc, that were previously defaulting 
+      into non-prepared implementations now default into the RelateNG prepared implementation
+    - Prepared implementations for Intersects, Covers, still use the older implementations
+    - https://lin-ear-th-inking.blogspot.com/2024/05/jts-topological-relationships-next.html
+    - https://lin-ear-th-inking.blogspot.com/2024/05/relateng-performance.html 
 
-- Fixes:
-  - Remove undefined behaviour in use of null PrecisionModel (GH-931, Jeff Walton)
-  - Explicitly set endianness for some tests so that output matches expected (GH-934, Paul Ramsey)
+- Breaking Changes
+  - Zero-length linestrings (eg LINESTRING(1 1, 1 1)) are now treated as equivalent to points (POINT(1 1)) in boolean predicates
+  - CMake 3.15 or later is requried (GH-1143, Mike Taves)
+
+- Fixes/Improvements:
+  - WKTReader: Points with all-NaN coordinates are not considered empty anymore (GH-927, Casper van der Wel)
+  - WKTWriter: Points with all-NaN coordinates are written as such (GH-927, Casper van der Wel)
+  - ConvexHull: Performance improvement for larger geometries (JTS-985, Martin Davis)
+  - Distance: Improve performance, especially for point-point distance (GH-1067, Dan Baston)
+  - Intersection: change to using DoubleDouble computation to improve robustness (GH-937, Martin Davis)
+  - Fix LargestEmptyCircle to respect polygonal obstacles (GH-939, Martin Davis)
+  - Fix WKTWriter to emit EMPTY elements in multi-geometries (GH-952, Mike Taves)
   - Fix IncrementalDelaunayTriangulator to ensure triangulation boundary is convex (GH-953, Martin Davis)
-  - Improve scale handling for PrecisionModel (GH-956, Martin Davis)
   - Fix PreparedLineStringDistance for lines within envelope and polygons (GH-959, Martin Davis)
+  - Improve scale handling for PrecisionModel (GH-956, Martin Davis)
   - Fix error in CoordinateSequence::add when disallowing repeated points (GH-963, Dan Baston)
+  - Fix WKTWriter::writeTrimmedNumber for big and small values (GH-973, Mike Taves)
   - Fix InteriorPointPoint to handle empty elements (GH-977, Martin Davis)
-  - Skip over testing empty distances for mixed collections. (GH-979, Paul Ramsey)
   - Fix TopologyPreservingSimplifier endpoint handling to avoid self-intersections (GH-986, Martin Davis)
-  - Build warnings with Visual Studio (GH-929, Jeff Mckenna, Paul Ramsey)
-  - Fix CMake on Windows with Visual Studio (GH-945, Aaron Barany)
+  - Fix spatial predicates for MultiPoint with EMPTY (GH-989, Martin Davis)
+  - Fix DiscreteHausdorffDistance for LinearRing (GH-1000, Martin Davis)
+  - Fix IsSimpleOp for MultiPoint with empty element (GH-1005, Martin Davis)
+  - Fix PreparedPolygonContains for GC with MultiPoint (GH-1008, Martin Davis)
+  - Fix reading WKT with EMPTY token with white space (GH-1025, Mike Taves)
+  - Fix buffer Inverted Ring Removal check (GH-1056, Martin Davis)
+  - Add PointLocation.isOnSegment and remove LineIntersector point methods (GH-1083, Martin Davis)
+  - Densify: Interpolate Z coordinates (GH-1094)
+  - GEOSLineSubstring: Fix crash on NaN length fractions (GH-1088, Dan Baston)
+  - MinimumClearance: Fix crash on NaN inputs (GH-1082, Dan Baston)
+  - Centroid: Fix crash on polygons with empty holes (GH-1075, Dan Baston)
+  - GEOSRelatePatternMatch: Fix crash on invalid DE-9IM pattern (GH-1089, Dan Baston)
+  - CoveragePolygonValidator: add section performance optimization (GH-1099, Martin Davis)
+  - TopologyPreservingSimplifier: fix to remove ring endpoints safely (GH-1110, Martin Davis)
+  - TopologyPreservingSimplifier: fix stack overflow on degenerate inputs (GH-1113, Dan Baston)
+  - DouglasPeuckerSimplifier: fix stack overflow on NaN tolerance (GH-1114, Dan Baston)
+  - GEOSConcaveHullOfPolygons: Avoid crash on zero-area input (GH-1076, Dan Baston) 
 
 ## Changes in 3.12.0
 2023-06-27
@@ -82,13 +121,13 @@
   - MaximumInscribedCircle: Fix infinite loop with non-finite coordinates (GH-843, Dan Baston)
   - DistanceOp: Fix crash on collection containing empty point (GH-842, Dan Baston)
   - OffsetCurve: improve behaviour and add Joined mode (JTS-956, Martin Davis)
-  - GeometryPrecisionReducer: preserve input collection types (GH-846, Paul Ramsey)
   - OffsetCurve: handle zero-distance offsets (GH-850, Martin Davis)
+  - OffsetCurve: fix EndCap parameter handling (GH-899, Martin Davis)
+  - GeometryPrecisionReducer: preserve input collection types (GH-846, Paul Ramsey)
   - Tri: add exceptions for invalid indexes (GH-853, Martin Davis)
   - LargestEmptyCircle: enhance boundary to allow any polygonal geometry (GH-859, Martin Davis)
   - Fix MaximumInscribedCircle and LargestEmptyCircle performance and memory issues (GH-883, Martin Davis)
   - GEOSHasZ: Fix handling with empty geometries (GH-887, Mike Taves)
-  - OffsetCurve: fix EndCap parameter handling (GH-899, Martin Davis)
   - Reduce artifacts in single-sided Buffers: (GH-665 #810 and #712, Sandro Santilli)
   - GeoJSONReader: Fix 2D empty geometry creation (GH-909, Mike Taves)
   - GEOSClipByRect: Fix case with POINT EMPTY (GH-913, Mike Taves)
@@ -141,6 +180,8 @@
   - Fix BufferOp inverted ring check (JTS-878, Martin Davis)
   - Fix OverlayNG geomunion to avoid lines in result (Martin Davis)
 
+- Changes:
+  - Offset curves now have the same direction as the input line, for both positive and negative offsets.
 
 ## Changes in 3.10.0
 2021-10-20
@@ -189,7 +230,7 @@
   - Autoconf build system is dropped in favour of CMake
     See README.md and INSTALL.md for examples of usage
   - Libtool is no longer used for in favour of CMake
-    Therefor libgeos.la is no longer built/installed
+    Therefore libgeos.la is no longer built/installed
   - #1094, #1090: Drop inlines.cpp to address duplicate symbols on many platforms
     (Regina Obe)
   - GH475: Do not return NaN from GEOSProjectNormalized_r (Paul Ramsey)
@@ -214,7 +255,7 @@
   - Update geos-config tool for consistency
     and escape paths (https://git.osgeo.org/gitea/geos/geos/pulls/99)
     changes mostly affect CMake MSVC builds (#1015, Mike Taves)
-  - Testing on Rasberry Pi 32-bit (berrie) (#1017, Bruce Rindahl, Regina Obe)
+  - Testing on Raspberry Pi 32-bit (berrie) (#1017, Bruce Rindahl, Regina Obe)
   - Replace ttmath with JTS DD double-double implementation (Paul Ramsey)
   - Fix bug in DistanceOp for geometries with empty components (#1026, Paul Ramsey)
   - Remove undefined behaviour in CAPI (#1021, Greg Troxel)
@@ -466,7 +507,7 @@ See 3.7.0 notes
     - Fix area boundary return from GEOSPointOnSurface (#623)
     - Speedup GEOSWKBReader_read (#621)
     - Fix RobustLineIntersector handling of invalid intersection points (#622)
-    - Reduce likelyhood of invalid output from snap operation (#629, #501)
+    - Reduce likelihood of invalid output from snap operation (#629, #501)
     - Reduce memory fragmentation of prepared Polygon/Point intersection op
     - Fix mingw64 compile (#630)
     - Fix bug in HotPixel constructor (#635)
@@ -497,7 +538,7 @@ See 3.7.0 notes
 2012-11-15 -- that's Post-GIS day !
 
 - Bug fixes / improvements
-    - Add support for testing with phpunit 3.6 (not loosing support for 3.4)
+    - Add support for testing with phpunit 3.6 (not losing support for 3.4)
     - Segfault from intersection (#586, #598, #599)
 
 ## Changes in 3.3.5
@@ -578,7 +619,7 @@ See 3.7.0 notes
           GEOSGeom_createEmptyPolygon, GEOSGeom_createEmptyCollection
   - CAPI: GEOSGeom_extractUniquePoints
   - CAPI: GEOSGetGeometryN support for single geometries
-  - CAPI: GEOSPolygonize_full to return all informations computed by
+  - CAPI: GEOSPolygonize_full to return all information computed by
           the polygonizer
   - CAPI: GEOSOrientationIndex
   - CAPI: GEOSSharedPaths to find shared paths and their orientation
@@ -671,7 +712,7 @@ See 3.7.0 notes
 	- New operation/predicate package
 	- Added CGAlgorithms::isPointInRing() version working with
 	  Coordinate::ConstVect type (faster!)
-	- Added getAt(int pos, Coordinate &to) funtion to CoordinateSequence
+	- Added getAt(int pos, Coordinate &to) function to CoordinateSequence
 	  class.
 	- Moved GetNumGeometries() and GetGeometryN() interfaces
 	  from GeometryCollection to Geometry class.
@@ -743,12 +784,12 @@ See 3.7.0 notes
 	- Namespaces mapping JTS packages
 	- Renamed classes after JTS names (namespaces use made this possible
 	  w/out name clashes)
-	- Splitted headers, for build speedup and possible API reduction.
+	- Split headers, for build speedup and possible API reduction.
 	- Moved source/bigtest and source/test to tests/bigtest
 	  and test/xmltester
 	- Moved C-API in it's own top-level dir capi/
 	- Reworked automake scripts to produce a static lib for each subdir
-	  and then link all subsystem's libs togheter
+	  and then link all subsystem's libs together
 	- Renamed DefaultCoordinateSequence to CoordinateArraySequence.
 	- Renamed OverlayOp opcodes by prepending the 'op' prefix, and
 	  given the enum a name (OpCode) for type-safety.
@@ -784,7 +825,7 @@ See 3.7.0 notes
 	  	  use unsigned int rather then int
 	- Changed EdgeEndStar to maintain a single container for EdgeEnds
 	- Changed PlanarGraph::addEdges to take a const vector by ref
-	  rathern then a non-const vector by pointer
+	  rather then a non-const vector by pointer
 	- Changed EdgeList::addAll to take a const vector by ref
 	  rather then a non-const vector by pointer
 	- Added apply_rw(CoordinateFilter *) and apply_ro(CoordinateFilter *)
