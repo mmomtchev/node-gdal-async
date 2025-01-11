@@ -39,6 +39,8 @@ class Coordinate;
 class CoordinateXY;
 class CoordinateXYZM;
 class CoordinateSequence;
+class Curve;
+class CompoundCurve;
 class Geometry;
 class GeometryCollection;
 class Point;
@@ -49,6 +51,8 @@ class MultiPoint;
 class MultiLineString;
 class MultiPolygon;
 class PrecisionModel;
+class SimpleCurve;
+class Surface;
 }
 namespace io {
 class Writer;
@@ -117,7 +121,7 @@ public:
      *
      * @return the WKT
      */
-    static std::string toLineString(const geom::Coordinate& p0, const geom::Coordinate& p1);
+    static std::string toLineString(const geom::CoordinateXY& p0, const geom::CoordinateXY& p1);
 
     /**
      * Generates the WKT for a <code>Point</code>.
@@ -195,6 +199,9 @@ public:
      */
     void setOutputDimension(uint8_t newOutputDimension);
 
+    static std::string writeNumber(double d, bool trim, uint32_t precision);
+    static int writeTrimmedNumber(double d, uint32_t precision, char* buf);
+
 protected:
 
     int decimalPlaces;
@@ -205,23 +212,28 @@ protected:
             int level,
             Writer& writer) const;
 
+    void appendTag(
+            const geom::Geometry& geometry,
+            OrdinateSet outputOrdinates,
+            Writer& writer) const;
+
     void appendPointTaggedText(
         const geom::Point& point,
         OrdinateSet outputOrdinates,
         int level, Writer& writer) const;
 
-    void appendLineStringTaggedText(
-        const geom::LineString& lineString,
+    void appendSimpleCurveTaggedText(
+        const geom::SimpleCurve& lineString,
         OrdinateSet outputOrdinates,
         int level, Writer& writer) const;
 
-    void appendLinearRingTaggedText(
-        const geom::LinearRing& lineString,
+    void appendCompoundCurveTaggedText(
+        const geom::CompoundCurve& lineString,
         OrdinateSet outputOrdinates,
         int level, Writer& writer) const;
 
-    void appendPolygonTaggedText(
-        const geom::Polygon& polygon,
+    void appendSurfaceTaggedText(
+        const geom::Surface& polygon,
         OrdinateSet outputOrdinates,
         int level, Writer& writer) const;
 
@@ -230,13 +242,13 @@ protected:
         OrdinateSet outputOrdinates,
         int level, Writer& writer) const;
 
-    void appendMultiLineStringTaggedText(
-        const geom::MultiLineString& multiLineString,
+    void appendMultiCurveTaggedText(
+        const geom::GeometryCollection& multiCurve,
         OrdinateSet outputOrdinates,
         int level, Writer& writer) const;
 
-    void appendMultiPolygonTaggedText(
-        const geom::MultiPolygon& multiPolygon,
+    void appendMultiSurfaceTaggedText(
+        const geom::GeometryCollection& multiSurface,
         OrdinateSet outputOrdinates,
         int level, Writer& writer) const;
 
@@ -260,13 +272,18 @@ protected:
 
     std::string writeNumber(double d) const;
 
-    void appendLineStringText(
-        const geom::LineString& lineString,
+    void appendCurveText(
+        const geom::Curve& lineString,
         OrdinateSet outputOrdinates,
         int level, bool doIndent, Writer& writer) const;
 
-    void appendPolygonText(
-        const geom::Polygon& polygon,
+    void appendSimpleCurveText(
+        const geom::SimpleCurve& lineString,
+        OrdinateSet outputOrdinates,
+        int level, bool doIndent, Writer& writer) const;
+
+    void appendSurfaceText(
+        const geom::Surface& polygon,
         OrdinateSet outputOrdinates,
         int level, bool indentFirst, Writer& writer) const;
 
@@ -275,13 +292,13 @@ protected:
         OrdinateSet outputOrdinates,
         int level, Writer& writer) const;
 
-    void appendMultiLineStringText(
-        const geom::MultiLineString& multiLineString,
+    void appendMultiCurveText(
+        const geom::GeometryCollection& multiCurve,
         OrdinateSet outputOrdinates,
         int level, bool indentFirst, Writer& writer) const;
 
-    void appendMultiPolygonText(
-        const geom::MultiPolygon& multiPolygon,
+    void appendMultiSurfaceText(
+        const geom::GeometryCollection& multiSurface,
         OrdinateSet outputOrdinates,
         int level, Writer& writer) const;
 
@@ -296,8 +313,6 @@ private:
         INDENT = 2
     };
 
-//	static const int INDENT = 2;
-
     bool isFormatted;
 
     int roundingPrecision;
@@ -305,8 +320,6 @@ private:
     bool trim;
 
     bool removeEmptyDimensions = false;
-
-    int level;
 
     static constexpr int coordsPerLine = 10;
 

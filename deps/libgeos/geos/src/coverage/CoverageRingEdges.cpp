@@ -71,6 +71,8 @@ CoverageRingEdges::build()
     std::map<LineSegment, CoverageEdge*> uniqueEdgeMap;
     for (const Geometry* geom : m_coverage) {
         for (std::size_t ipoly = 0; ipoly < geom->getNumGeometries(); ipoly++) {
+            util::ensureNoCurvedComponents(geom->getGeometryN(ipoly));
+
             const Polygon* poly = static_cast<const Polygon*>(geom->getGeometryN(ipoly));
 
             //-- skip empty elements. Missing elements are copied in result
@@ -252,7 +254,7 @@ CoverageRingEdges::next(std::size_t index, const CoordinateSequence& ring)
 
 /* private */
 Coordinate::UnorderedSet
-CoverageRingEdges::findMultiRingNodes(std::vector<const Geometry*>& coverage)
+CoverageRingEdges::findMultiRingNodes(const std::vector<const Geometry*>& coverage)
 {
     std::map<Coordinate, std::size_t> vertexRingCount;
     VertexRingCounter::count(coverage, vertexRingCount);

@@ -5,7 +5,7 @@ set -eu
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR/libgeos"
 
-GEOS_VERSION=3.12.1
+GEOS_VERSION=3.13.0
 dir_geos=./geos
 
 #

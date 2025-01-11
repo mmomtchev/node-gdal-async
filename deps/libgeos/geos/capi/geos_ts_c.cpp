@@ -31,8 +31,12 @@
 #include <geos/coverage/CoverageValidator.h>
 #include <geos/coverage/CoverageSimplifier.h>
 #include <geos/coverage/CoverageUnion.h>
+#include <geos/geom/CircularString.h>
+#include <geos/geom/CompoundCurve.h>
 #include <geos/geom/Coordinate.h>
 #include <geos/geom/CoordinateSequence.h>
+#include <geos/geom/Curve.h>
+#include <geos/geom/CurvePolygon.h>
 #include <geos/geom/Envelope.h>
 #include <geos/geom/Geometry.h>
 #include <geos/geom/GeometryCollection.h>
@@ -41,12 +45,15 @@
 #include <geos/geom/LinearRing.h>
 #include <geos/geom/LineSegment.h>
 #include <geos/geom/LineString.h>
+#include <geos/geom/MultiCurve.h>
 #include <geos/geom/MultiLineString.h>
 #include <geos/geom/MultiPoint.h>
 #include <geos/geom/MultiPolygon.h>
+#include <geos/geom/MultiSurface.h>
 #include <geos/geom/Point.h>
 #include <geos/geom/Polygon.h>
 #include <geos/geom/PrecisionModel.h>
+#include <geos/geom/SimpleCurve.h>
 #include <geos/geom/prep/PreparedGeometry.h>
 #include <geos/geom/prep/PreparedGeometryFactory.h>
 #include <geos/geom/util/Densifier.h>
@@ -85,6 +92,9 @@
 #include <geos/operation/valid/IsValidOp.h>
 #include <geos/operation/valid/MakeValid.h>
 #include <geos/operation/valid/RepeatedPointRemover.h>
+
+#include <geos/operation/relateng/RelateNG.h>
+
 #include <geos/precision/GeometryPrecisionReducer.h>
 #include <geos/shape/fractal/HilbertEncoder.h>
 #include <geos/simplify/DouglasPeuckerSimplifier.h>
@@ -119,6 +129,9 @@
 
 // Some extra magic to make type declarations in geos_c.h work -
 // for cross-checking of types in header.
+// NOTE: the below defines or struct definition must be kept in exact
+// sync between geos_c.cpp and geos_ts_c.cpp to avoid C++ One Definition Rule
+// violations.
 #define GEOSGeometry geos::geom::Geometry
 #define GEOSPreparedGeometry geos::geom::prep::PreparedGeometry
 #define GEOSCoordSequence geos::geom::CoordinateSequence
@@ -159,17 +172,21 @@ using geos::geom::CoordinateXY;
 using geos::geom::CoordinateXYM;
 using geos::geom::CoordinateXYZM;
 using geos::geom::CoordinateSequence;
+using geos::geom::Curve;
 using geos::geom::Envelope;
 using geos::geom::Geometry;
 using geos::geom::GeometryCollection;
 using geos::geom::GeometryFactory;
 using geos::geom::LineString;
 using geos::geom::LinearRing;
+using geos::geom::MultiCurve;
 using geos::geom::MultiLineString;
 using geos::geom::MultiPolygon;
 using geos::geom::Point;
 using geos::geom::Polygon;
 using geos::geom::PrecisionModel;
+using geos::geom::SimpleCurve;
+using geos::geom::Surface;
 
 using geos::io::WKTReader;
 using geos::io::WKTWriter;
@@ -191,6 +208,7 @@ using geos::operation::geounion::CascadedPolygonUnion;
 using geos::operation::overlayng::OverlayNG;
 using geos::operation::overlayng::UnaryUnionNG;
 using geos::operation::overlayng::OverlayNGRobust;
+using geos::operation::relateng::RelateNG;
 using geos::operation::valid::TopologyValidationError;
 
 using geos::precision::GeometryPrecisionReducer;
@@ -279,7 +297,7 @@ typedef struct GEOSContextHandle_HS {
     }
 
     void
-    NOTICE_MESSAGE(const char *fmt, ...)
+    NOTICE_MESSAGE(GEOS_PRINTF_FORMAT const char *fmt, ...) GEOS_PRINTF_FORMAT_ATTR(2, 3)
     {
         if(nullptr == noticeMessageOld && nullptr == noticeMessageNew) {
             return;
@@ -287,7 +305,14 @@ typedef struct GEOSContextHandle_HS {
 
         va_list args;
         va_start(args, fmt);
+        #ifdef __MINGW32__
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wsuggest-attribute=format"
+        #endif
         int result = vsnprintf(msgBuffer, sizeof(msgBuffer) - 1, fmt, args);
+        #ifdef __MINGW32__
+        #pragma GCC diagnostic pop
+        #endif
         va_end(args);
 
         if(result > 0) {
@@ -301,7 +326,7 @@ typedef struct GEOSContextHandle_HS {
     }
 
     void
-    ERROR_MESSAGE(const char *fmt, ...)
+    ERROR_MESSAGE(GEOS_PRINTF_FORMAT const char *fmt, ...) GEOS_PRINTF_FORMAT_ATTR(2, 3)
     {
         if(nullptr == errorMessageOld && nullptr == errorMessageNew) {
             return;
@@ -309,7 +334,14 @@ typedef struct GEOSContextHandle_HS {
 
         va_list args;
         va_start(args, fmt);
+        #ifdef __MINGW32__
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wsuggest-attribute=format"
+        #endif
         int result = vsnprintf(msgBuffer, sizeof(msgBuffer) - 1, fmt, args);
+        #ifdef __MINGW32__
+        #pragma GCC diagnostic pop
+        #endif
         va_end(args);
 
         if(result > 0) {
@@ -617,29 +649,37 @@ extern "C" {
         });
     }
 
+    char
+    GEOSEquals_r(GEOSContextHandle_t extHandle, const Geometry* g1, const Geometry* g2)
+    {
+        return execute(extHandle, 2, [&]() {
+            return g1->equals(g2);
+        });
+    }
+
 
 //-------------------------------------------------------------------
 // low-level relate functions
 //------------------------------------------------------------------
 
     char
-    GEOSRelatePattern_r(GEOSContextHandle_t extHandle, const Geometry* g1, const Geometry* g2, const char* pat)
+    GEOSRelatePattern_r(GEOSContextHandle_t extHandle, const Geometry* g1, const Geometry* g2, const char* imPattern)
     {
         return execute(extHandle, 2, [&]() {
-            std::string s(pat);
+            std::string s(imPattern);
             return g1->relate(g2, s);
         });
     }
 
     char
-    GEOSRelatePatternMatch_r(GEOSContextHandle_t extHandle, const char* mat,
-                             const char* pat)
+    GEOSRelatePatternMatch_r(GEOSContextHandle_t extHandle, const char* intMatrix,
+                             const char* imPattern)
     {
         return execute(extHandle, 2, [&]() {
             using geos::geom::IntersectionMatrix;
 
-            std::string m(mat);
-            std::string p(pat);
+            std::string m(intMatrix);
+            std::string p(imPattern);
             IntersectionMatrix im(m);
 
             return im.matches(p);
@@ -673,19 +713,19 @@ extern "C" {
 
             switch (bnr) {
                 case GEOSRELATE_BNR_MOD2: /* same as OGC */
-                    im = RelateOp::relate(g1, g2,
+                    im = RelateNG::relate(g1, g2,
                                           BoundaryNodeRule::getBoundaryRuleMod2());
                     break;
                 case GEOSRELATE_BNR_ENDPOINT:
-                    im = RelateOp::relate(g1, g2,
+                    im = RelateNG::relate(g1, g2,
                                           BoundaryNodeRule::getBoundaryEndPoint());
                     break;
                 case GEOSRELATE_BNR_MULTIVALENT_ENDPOINT:
-                    im = RelateOp::relate(g1, g2,
+                    im = RelateNG::relate(g1, g2,
                                           BoundaryNodeRule::getBoundaryMultivalentEndPoint());
                     break;
                 case GEOSRELATE_BNR_MONOVALENT_ENDPOINT:
-                    im = RelateOp::relate(g1, g2,
+                    im = RelateNG::relate(g1, g2,
                                           BoundaryNodeRule::getBoundaryMonovalentEndPoint());
                     break;
                 default:
@@ -798,14 +838,6 @@ extern "C" {
 //-----------------------------------------------------------------
 // general purpose
 //-----------------------------------------------------------------
-
-    char
-    GEOSEquals_r(GEOSContextHandle_t extHandle, const Geometry* g1, const Geometry* g2)
-    {
-        return execute(extHandle, 2, [&]() {
-            return g1->equals(g2);
-        });
-    }
 
     char
     GEOSEqualsExact_r(GEOSContextHandle_t extHandle, const Geometry* g1, const Geometry* g2, double tolerance)
@@ -1045,8 +1077,7 @@ extern "C" {
     GEOSisRing_r(GEOSContextHandle_t extHandle, const Geometry* g)
     {
         return execute(extHandle, 2, [&]() {
-            // both LineString* and LinearRing* can cast to LineString*
-            const LineString* ls = dynamic_cast<const LineString*>(g);
+            const Curve* ls = dynamic_cast<const Curve*>(g);
             if(ls) {
                 return ls->isRing();
             }
@@ -1184,7 +1215,7 @@ extern "C" {
     {
         return execute(extHandle, [&]() {
             BufferParameters bp;
-            //-- use default cap style ROUND 
+            //-- use default cap style ROUND
             bp.setQuadrantSegments(quadsegs);
 
             if(joinStyle > BufferParameters::JOIN_BEVEL) {
@@ -1598,13 +1629,13 @@ extern "C" {
     Geometry*
     GEOSGeom_transformXY_r(GEOSContextHandle_t handle, const GEOSGeometry* g, GEOSTransformXYCallback callback, void* userdata) {
 
-        struct TransformFilter : public geos::geom::CoordinateFilter {
+        struct TransformFilter final: public geos::geom::CoordinateFilter {
             TransformFilter(GEOSTransformXYCallback p_callback,
                             void* p_userdata) :
                             m_callback(p_callback),
                             m_userdata(p_userdata) {}
 
-            void filter_rw(CoordinateXY* c) const final {
+            void filter_rw(CoordinateXY* c) const override {
                 if (!m_callback(&(c->x), &(c->y), m_userdata)) {
                     throw std::runtime_error(std::string("Failed to transform coordinates."));
                 }
@@ -1689,6 +1720,8 @@ extern "C" {
                     if (g->getGeometryTypeId() == geos::geom::GeometryTypeId::GEOS_POLYGON) {
                         auto p = geos::detail::down_cast<Polygon*>(g);
                         p->orientRings(exteriorCW);
+                    } else if (g->getGeometryTypeId() == geos::geom::GeometryTypeId::GEOS_CURVEPOLYGON) {
+                        throw geos::util::UnsupportedOperationException("Curved geometries not supported.");
                     }
                 }
 
@@ -1707,9 +1740,9 @@ extern "C" {
     GEOSGetNumInteriorRings_r(GEOSContextHandle_t extHandle, const Geometry* g1)
     {
         return execute(extHandle, -1, [&]() {
-            const Polygon* p = dynamic_cast<const Polygon*>(g1);
+            const Surface* p = dynamic_cast<const Surface*>(g1);
             if(!p) {
-                throw IllegalArgumentException("Argument is not a Polygon");
+                throw IllegalArgumentException("Argument is not a Surface");
             }
             return static_cast<int>(p->getNumInteriorRing());
         });
@@ -1799,7 +1832,7 @@ extern "C" {
     GEOSisClosed_r(GEOSContextHandle_t extHandle, const Geometry* g1)
     {
         return execute(extHandle, 2, [&]() {
-            const LineString* ls = dynamic_cast<const LineString*>(g1);
+            const Curve* ls = dynamic_cast<const Curve*>(g1);
             if(ls) {
                 return ls->isClosed();
             }
@@ -1809,7 +1842,12 @@ extern "C" {
                 return mls->isClosed();
             }
 
-            throw IllegalArgumentException("Argument is not a LineString or MultiLineString");
+            const MultiCurve* mc = dynamic_cast<const MultiCurve*>(g1);
+            if(mc) {
+                return mc->isClosed();
+            }
+
+            throw IllegalArgumentException("Argument is not a Curve, MultiLineString, or MultiCurve");
         });
     }
 
@@ -1837,9 +1875,9 @@ extern "C" {
     GEOSGeomGetNumPoints_r(GEOSContextHandle_t extHandle, const Geometry* g1)
     {
         return execute(extHandle, -1, [&]() {
-            const LineString* ls = dynamic_cast<const LineString*>(g1);
+            const SimpleCurve* ls = dynamic_cast<const SimpleCurve*>(g1);
             if(!ls) {
-                throw IllegalArgumentException("Argument is not a LineString");
+                throw IllegalArgumentException("Argument is not a SimpleCurve");
             }
             return static_cast<int>(ls->getNumPoints());
         });
@@ -1923,9 +1961,9 @@ extern "C" {
     GEOSGetExteriorRing_r(GEOSContextHandle_t extHandle, const Geometry* g1)
     {
         return execute(extHandle, [&]() {
-            const Polygon* p = dynamic_cast<const Polygon*>(g1);
+            const Surface* p = dynamic_cast<const Surface*>(g1);
             if(!p) {
-                throw IllegalArgumentException("Invalid argument (must be a Polygon)");
+                throw IllegalArgumentException("Invalid argument (must be a Surface)");
             }
             return p->getExteriorRing();
         });
@@ -1939,9 +1977,9 @@ extern "C" {
     GEOSGetInteriorRingN_r(GEOSContextHandle_t extHandle, const Geometry* g1, int n)
     {
         return execute(extHandle, [&]() {
-            const Polygon* p = dynamic_cast<const Polygon*>(g1);
+            const Surface* p = dynamic_cast<const Surface*>(g1);
             if(!p) {
-                throw IllegalArgumentException("Invalid argument (must be a Polygon)");
+                throw IllegalArgumentException("Invalid argument (must be a Surface)");
             }
             if(n < 0) {
                 throw IllegalArgumentException("Index must be non-negative.");
@@ -2048,6 +2086,12 @@ extern "C" {
             case GEOS_MULTIPOLYGON:
                 g = gf->createMultiPolygon(std::move(vgeoms));
                 break;
+            case GEOS_MULTICURVE:
+                g = gf->createMultiCurve(std::move(vgeoms));
+                break;
+            case GEOS_MULTISURFACE:
+                g = gf->createMultiSurface(std::move(vgeoms));
+                break;
             default:
                 handle->ERROR_MESSAGE("Unsupported type request for GEOSGeom_createCollection_r");
             }
@@ -2069,10 +2113,11 @@ extern "C" {
             GeometryCollection *col = dynamic_cast<GeometryCollection*>(collection);
             if (!col) {
                 handle->ERROR_MESSAGE("Parameter collection of GEOSGeom_releaseCollection_r must not be a collection");
+            } else {
+                *ngeoms = static_cast<unsigned int>(col->getNumGeometries());
             }
 
             // Early exit on empty/null input
-            *ngeoms = static_cast<unsigned int>(col->getNumGeometries());
             if (!col || *ngeoms == 0) {
                 return static_cast<Geometry**>(nullptr);
             }
@@ -2809,7 +2854,7 @@ extern "C" {
     GEOSGeom_getCoordSeq_r(GEOSContextHandle_t extHandle, const Geometry* g)
     {
         return execute(extHandle, [&]() {
-            const LineString* ls = dynamic_cast<const LineString*>(g);
+            const SimpleCurve* ls = dynamic_cast<const SimpleCurve*>(g);
             if(ls) {
                 return ls->getCoordinatesRO();
             }
@@ -2957,6 +3002,113 @@ extern "C" {
             const GeometryFactory* gf = handle->geomFactory;
             Envelope env(xmin, xmax, ymin, ymax);
             return (gf->toGeometry(&env)).release();
+        });
+    }
+
+    Geometry*
+    GEOSGeom_createCircularString_r(GEOSContextHandle_t extHandle, CoordinateSequence* cs)
+    {
+        return execute(extHandle, [&]() {
+            GEOSContextHandleInternal_t* handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
+            const GeometryFactory* gf = handle->geomFactory;
+
+            return gf->createCircularString(std::unique_ptr<CoordinateSequence>(cs)).release();
+        });
+    }
+
+    Geometry*
+    GEOSGeom_createEmptyCircularString_r(GEOSContextHandle_t extHandle)
+    {
+        return execute(extHandle, [&]() {
+            GEOSContextHandleInternal_t* handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
+            const GeometryFactory* gf = handle->geomFactory;
+
+            return gf->createCircularString(false, false).release();
+        });
+    }
+
+    Geometry*
+    GEOSGeom_createCompoundCurve_r(GEOSContextHandle_t extHandle, Geometry** geoms, unsigned int ngeoms)
+    {
+        return execute(extHandle, [&]() -> Geometry* {
+            GEOSContextHandleInternal_t* handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
+            const GeometryFactory* gf = handle->geomFactory;
+
+            bool invalid_input = false;
+            std::vector<std::unique_ptr<SimpleCurve>> geom_vec(ngeoms);
+            for (std::size_t i = 0; i < ngeoms; i++) {
+                if (SimpleCurve* c = dynamic_cast<SimpleCurve*>(geoms[i])) {
+                    geom_vec[i].reset(c);
+                } else {
+                    delete geoms[i];
+                    invalid_input = true;
+                }
+            }
+
+            if (invalid_input) {
+                throw IllegalArgumentException("Input is not a SimpleCurve");
+            }
+
+            return gf->createCompoundCurve(std::move(geom_vec)).release();
+        });
+    }
+
+    Geometry*
+    GEOSGeom_createEmptyCompoundCurve_r(GEOSContextHandle_t extHandle)
+    {
+        return execute(extHandle, [&]() {
+            GEOSContextHandleInternal_t* handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
+            const GeometryFactory* gf = handle->geomFactory;
+
+            return gf->createCompoundCurve().release();
+        });
+    }
+
+    Geometry*
+    GEOSGeom_createCurvePolygon_r(GEOSContextHandle_t extHandle, Geometry* p_shell, Geometry** p_holes, unsigned int nholes)
+    {
+        return execute(extHandle, [&]() {
+            GEOSContextHandleInternal_t* handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
+            const GeometryFactory* gf = handle->geomFactory;
+            bool good_holes = true, good_shell = true;
+
+            std::unique_ptr<Curve> shell;
+            std::vector<std::unique_ptr<Curve>> holes(nholes);
+
+            if (Curve* c = dynamic_cast<Curve*>(p_shell)) {
+                shell.reset(c);
+            } else {
+                good_shell = false;
+                delete p_shell;
+            }
+
+            for (std::size_t i = 0; i < nholes; i++) {
+                if (Curve* c = dynamic_cast<Curve*>(p_holes[i])) {
+                    holes[i].reset(c);
+                } else {
+                    good_shell = false;
+                    delete p_holes[i];
+                }
+            }
+
+            if (good_shell && good_holes) {
+                return gf->createCurvePolygon(std::move(shell), std::move(holes)).release();
+            } else if (!good_shell) {
+                throw IllegalArgumentException("Shell is not a Curve");
+            } else {
+                throw IllegalArgumentException("Hole is not a Curve");
+            }
+        });
+    }
+
+
+    Geometry*
+    GEOSGeom_createEmptyCurvePolygon_r(GEOSContextHandle_t extHandle)
+    {
+        return execute(extHandle, [&]() {
+            GEOSContextHandleInternal_t* handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
+            const GeometryFactory* gf = handle->geomFactory;
+            return gf->createCurvePolygon(false, false).release();
         });
     }
 
@@ -3596,6 +3748,24 @@ extern "C" {
         });
     }
 
+    char *
+    GEOSPreparedRelate_r(GEOSContextHandle_t extHandle,
+                         const geos::geom::prep::PreparedGeometry* pg, const Geometry* g)
+    {
+        return execute(extHandle, [&]() -> char * {
+            return gstrdup(pg->relate(g)->toString());
+        });
+    }
+
+    char
+    GEOSPreparedRelatePattern_r(GEOSContextHandle_t extHandle,
+                         const geos::geom::prep::PreparedGeometry* pg, const Geometry* g, const char* imPattern)
+    {
+        return execute(extHandle, 2, [&]() {
+            return pg->relate(g, std::string(imPattern));
+        });
+    }
+
     CoordinateSequence*
     GEOSPreparedNearestPoints_r(GEOSContextHandle_t extHandle,
                          const geos::geom::prep::PreparedGeometry* pg, const Geometry* g)
@@ -3785,7 +3955,7 @@ extern "C" {
             geos::linearref::LengthIndexedLine lil(g);
             geos::geom::Coordinate coord = lil.extractPoint(d);
             const GeometryFactory* gf = handle->geomFactory;
-            auto point = gf->createPoint(coord);
+            auto point = coord.isNull() ? gf->createPoint(g->getCoordinateDimension()) : gf->createPoint(coord);
             point->setSRID(g->getSRID());
             return point.release();
         });

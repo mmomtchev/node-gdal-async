@@ -39,12 +39,15 @@
 #include <geos/algorithm/InteriorPointLine.h>
 #include <geos/algorithm/InteriorPointArea.h>
 #include <geos/algorithm/ConvexHull.h>
+#include <geos/algorithm/locate/SimplePointInAreaLocator.h>
 #include <geos/geom/prep/PreparedGeometryFactory.h>
 #include <geos/operation/intersection/Rectangle.h>
 #include <geos/operation/intersection/RectangleIntersection.h>
 #include <geos/operation/predicate/RectangleContains.h>
 #include <geos/operation/predicate/RectangleIntersects.h>
 #include <geos/operation/relate/RelateOp.h>
+#include <geos/operation/relateng/RelateNG.h>
+#include <geos/operation/relateng/RelatePredicate.h>
 #include <geos/operation/valid/IsValidOp.h>
 #include <geos/operation/union/UnaryUnionOp.h>
 #include <geos/operation/buffer/BufferOp.h>
@@ -71,6 +74,7 @@
 
 #define SHORTCIRCUIT_PREDICATES 1
 //#define USE_RECTANGLE_INTERSECTION 1
+#define USE_RELATENG 1
 
 using namespace geos::algorithm;
 using namespace geos::operation::valid;
@@ -205,6 +209,8 @@ Geometry::getCentroid(CoordinateXY& ret) const
 std::unique_ptr<Point>
 Geometry::getInteriorPoint() const
 {
+    geos::util::ensureNoCurvedComponents(this);
+
     Coordinate interiorPt;
     int dim = getDimension();
     if(dim == 0) {
@@ -255,7 +261,11 @@ Geometry::getEnvelope() const
 bool
 Geometry::disjoint(const Geometry* g) const
 {
+#if USE_RELATENG
+    return operation::relateng::RelateNG::disjoint(this, g);
+#else
     return !intersects(g);
+#endif
 }
 
 bool
@@ -267,9 +277,14 @@ Geometry::touches(const Geometry* g) const
         return false;
     }
 #endif
+
+#if USE_RELATENG
+    return operation::relateng::RelateNG::touches(this, g);
+#else
     std::unique_ptr<IntersectionMatrix> im(relate(g));
     bool res = im->isTouches(getDimension(), g->getDimension());
     return res;
+#endif
 }
 
 bool
@@ -308,19 +323,35 @@ Geometry::intersects(const Geometry* g) const
         return predicate::RectangleIntersects::intersects(*p, *this);
     }
 
-    if (getGeometryTypeId() == GEOS_GEOMETRYCOLLECTION) {
+    auto typ = getGeometryTypeId();
+    if (typ == GEOS_CURVEPOLYGON && g->getGeometryTypeId() == GEOS_POINT) {
+        auto loc = locate::SimplePointInAreaLocator::locatePointInSurface(*g->getCoordinate(), *detail::down_cast<const Surface*>(this));
+        return loc != Location::EXTERIOR;
+    } else if (typ == GEOS_POINT && g->getGeometryTypeId() == GEOS_CURVEPOLYGON) {
+        auto loc = locate::SimplePointInAreaLocator::locatePointInSurface(*getCoordinate(), *detail::down_cast<const Surface*>(g));
+        return loc != Location::EXTERIOR;
+    }
+
+#if USE_RELATENG
+    return operation::relateng::RelateNG::intersects(this, g);
+#else
+    if (typ == GEOS_GEOMETRYCOLLECTION) {
         auto im = relate(g);
         bool res = im->isIntersects();
         return res;
     } else {
         return prep::PreparedGeometryFactory::prepare(this)->intersects(g);
     }
+#endif
 }
 
 /*public*/
 bool
 Geometry::covers(const Geometry* g) const
 {
+#if USE_RELATENG
+    return operation::relateng::RelateNG::covers(this, g);
+#else
     // optimization - lower dimension cannot cover areas
     if(g->getDimension() == 2 && getDimension() < 2) {
         return false;
@@ -348,12 +379,27 @@ Geometry::covers(const Geometry* g) const
 
     std::unique_ptr<IntersectionMatrix> im(relate(g));
     return im->isCovers();
+#endif
 }
 
+/*public*/
+bool
+Geometry::coveredBy(const Geometry* g) const
+{
+#if USE_RELATENG
+    return operation::relateng::RelateNG::coveredBy(this, g);
+#else
+    return covers(g, this);
+#endif
+}
 
 bool
 Geometry::crosses(const Geometry* g) const
 {
+#if USE_RELATENG
+    return operation::relateng::RelateNG::crosses(this, g);
+#else
+
 #ifdef SHORTCIRCUIT_PREDICATES
     // short-circuit test
     if(! getEnvelopeInternal()->intersects(g->getEnvelopeInternal())) {
@@ -363,17 +409,27 @@ Geometry::crosses(const Geometry* g) const
     std::unique_ptr<IntersectionMatrix> im(relate(g));
     bool res = im->isCrosses(getDimension(), g->getDimension());
     return res;
+
+#endif
 }
 
 bool
 Geometry::within(const Geometry* g) const
 {
+#if USE_RELATENG
+    return operation::relateng::RelateNG::within(this, g);
+#else
     return g->contains(this);
+#endif
 }
 
 bool
 Geometry::contains(const Geometry* g) const
 {
+#if USE_RELATENG
+    return operation::relateng::RelateNG::contains(this, g);
+#else
+
     // optimization - lower dimension cannot contain areas
     if(g->getDimension() == 2 && getDimension() < 2) {
         return false;
@@ -406,11 +462,16 @@ Geometry::contains(const Geometry* g) const
     std::unique_ptr<IntersectionMatrix> im(relate(g));
     bool res = im->isContains();
     return res;
+#endif
 }
 
 bool
 Geometry::overlaps(const Geometry* g) const
 {
+#if USE_RELATENG
+    return operation::relateng::RelateNG::overlaps(this, g);
+#else
+
 #ifdef SHORTCIRCUIT_PREDICATES
     // short-circuit test
     if(! getEnvelopeInternal()->intersects(g->getEnvelopeInternal())) {
@@ -420,19 +481,29 @@ Geometry::overlaps(const Geometry* g) const
     std::unique_ptr<IntersectionMatrix> im(relate(g));
     bool res = im->isOverlaps(getDimension(), g->getDimension());
     return res;
+
+#endif
 }
 
 bool
 Geometry::relate(const Geometry* g, const std::string& intersectionPattern) const
 {
+#if USE_RELATENG
+    return operation::relateng::RelateNG::relate(this, g, intersectionPattern);
+#else
     std::unique_ptr<IntersectionMatrix> im(relate(g));
     bool res = im->matches(intersectionPattern);
     return res;
+#endif
 }
 
 bool
 Geometry::equals(const Geometry* g) const
 {
+#if USE_RELATENG
+    return operation::relateng::RelateNG::equalsTopo(this, g);
+#else
+
 #ifdef SHORTCIRCUIT_PREDICATES
     // short-circuit test
     if(! getEnvelopeInternal()->equals(g->getEnvelopeInternal())) {
@@ -450,12 +521,17 @@ Geometry::equals(const Geometry* g) const
     std::unique_ptr<IntersectionMatrix> im(relate(g));
     bool res = im->isEquals(getDimension(), g->getDimension());
     return res;
+#endif
 }
 
 std::unique_ptr<IntersectionMatrix>
 Geometry::relate(const Geometry* other) const
 {
+#if USE_RELATENG
+    return operation::relateng::RelateNG::relate(this, other);
+#else
     return RelateOp::relate(this, other);
+#endif
 }
 
 std::unique_ptr<IntersectionMatrix>
@@ -689,78 +765,6 @@ Geometry::GeometryChangedFilter::filter_rw(Geometry* geom)
     geom->geometryChangedAction();
 }
 
-int
-Geometry::compare(std::vector<Coordinate> a, std::vector<Coordinate> b) const
-{
-    std::size_t i = 0;
-    std::size_t j = 0;
-    while(i < a.size() && j < b.size()) {
-        Coordinate& aCoord = a[i];
-        Coordinate& bCoord = b[j];
-        int comparison = aCoord.compareTo(bCoord);
-        if(comparison != 0) {
-            return comparison;
-        }
-        i++;
-        j++;
-    }
-    if(i < a.size()) {
-        return 1;
-    }
-    if(j < b.size()) {
-        return -1;
-    }
-    return 0;
-}
-
-int
-Geometry::compare(std::vector<Geometry*> a, std::vector<Geometry*> b) const
-{
-    std::size_t i = 0;
-    std::size_t j = 0;
-    while(i < a.size() && j < b.size()) {
-        Geometry* aGeom = a[i];
-        Geometry* bGeom = b[j];
-        int comparison = aGeom->compareTo(bGeom);
-        if(comparison != 0) {
-            return comparison;
-        }
-        i++;
-        j++;
-    }
-    if(i < a.size()) {
-        return 1;
-    }
-    if(j < b.size()) {
-        return -1;
-    }
-    return 0;
-}
-
-int
-Geometry::compare(const std::vector<std::unique_ptr<Geometry>> & a,
-        const std::vector<std::unique_ptr<Geometry>> & b) const
-{
-    std::size_t i = 0;
-    std::size_t j = 0;
-    while(i < a.size() && j < b.size()) {
-        Geometry* aGeom = a[i].get();
-        Geometry* bGeom = b[j].get();
-        int comparison = aGeom->compareTo(bGeom);
-        if(comparison != 0) {
-            return comparison;
-        }
-        i++;
-        j++;
-    }
-    if(i < a.size()) {
-        return 1;
-    }
-    if(j < b.size()) {
-        return -1;
-    }
-    return 0;
-}
 
 /**
  *  Returns the minimum distance between this Geometry
@@ -866,6 +870,11 @@ const PrecisionModel*
 Geometry::getPrecisionModel() const
 {
     return _factory->getPrecisionModel();
+}
+
+bool
+Geometry::hasCurvedComponents() const {
+    return false;
 }
 
 } // namespace geos::geom

@@ -89,6 +89,8 @@ int main(int argc, char** argv) {
         ("p,precision", "Set number of decimal places in output coordinates", cxxopts::value<int>( cmdArgs.precision ) )
         ("q,quiet", "Disable result output", cxxopts::value<bool>( cmdArgs.isQuiet ) )
         ("r,repeat", "Repeat operation N times", cxxopts::value<int>( cmdArgs.repeatNum ) )
+        ("select", "Select geometries where op result is true", cxxopts::value<bool>( cmdArgs.isSelect ) )
+        ("selectNot", "Select geometries where op result is false", cxxopts::value<bool>( cmdArgs.isSelectNot ) )
         ("t,time", "Print execution time", cxxopts::value<bool>( cmdArgs.isShowTime ) )
         ("v,verbose", "Verbose output", cxxopts::value<bool>( cmdArgs.isVerbose )->default_value("false"))
         ("h,help", "Print help")
@@ -130,7 +132,7 @@ int main(int argc, char** argv) {
         auto fmt = result["format"].as<std::string>();
         // Use lowercase matching
         std::transform(fmt.begin(), fmt.end(), fmt.begin(),
-            [](unsigned char c){ return std::tolower(c); });
+            [](unsigned char c){ return (unsigned char)std::tolower(c); });
         if (fmt == "txt" || fmt == "wkt" ) {
             cmdArgs.format = GeosOpArgs::fmtText;
         }
@@ -187,8 +189,8 @@ public:
       :m_thousands_sep(p_thousands_sep),
        m_grouping(p_grouping){}
 protected:
-   char do_thousands_sep() const {return m_thousands_sep;}
-   std::string do_grouping() const {return m_grouping;}
+   char do_thousands_sep() const override {return m_thousands_sep;}
+   std::string do_grouping() const override {return m_grouping;}
 private:
    char m_thousands_sep;
    std::string m_grouping;
@@ -214,7 +216,12 @@ std::vector<std::unique_ptr<Geometry>> collect( std::vector<std::unique_ptr<Geom
 
 bool isWKTLiteral(std::string s) {
     // check for empty geoms (which do not have parens)
-    if (endsWith(s, " EMPTY")) return true;
+    const size_t slen = s.size();
+    if (slen < 6) return false;
+    auto lastWord = s.substr(slen - 6, slen);
+    for (char& c : lastWord)
+        c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+    if ( lastWord.compare(" EMPTY") == 0 ) return true;
 
     // assume if string contains a ( it is WKT
     auto numLParen = std::count(s.begin(), s.end(), '(');
@@ -434,8 +441,7 @@ void GeosOp::executeUnary(GeometryOp * op, OpArguments& opArgs) {
     for (unsigned i = 0; i < geomA.size(); i++) {
         vertexCount += geomA[i]->getNumPoints();
         Result* result = executeOpRepeat(op, i, geomA[i], 0, nullptr, opArgs);
-
-        output(result);
+        output(result, geomA[i].get());
         delete result;
     }
 }
@@ -447,7 +453,7 @@ void GeosOp::executeBinary(GeometryOp * op, OpArguments& opArgs) {
             vertexCount += geomB[ib]->getNumPoints();
             Result* result = executeOpRepeat(op, ia, geomA[ia], ib, geomB[ib], opArgs);
 
-            output(result);
+            output(result, geomA[ia].get());
             delete result;
         }
     }
@@ -507,7 +513,7 @@ Result* GeosOp::executeOp(GeometryOp * op,
     return result;
 }
 
-void GeosOp::output(Result* result) {
+void GeosOp::output(Result* result, Geometry* geom) {
     //---- print result if format specified
     if (args.isQuiet)
         return;
@@ -522,6 +528,18 @@ void GeosOp::output(Result* result) {
     }
     else if (result->isGeometryList() ) {
         outputGeometryList( result->valGeomList );
+    }
+    else if (result->isBool() ) {
+        if (args.isSelect || args.isSelectNot) {
+            bool isSelected = (args.isSelect && result->toBool())
+                    || (args.isSelectNot && ! result->toBool());
+            if (isSelected) {
+                outputGeometry( geom );
+            }
+        }
+        else {
+            std::cout << result->toString() << std::endl;
+        }
     }
     else {
         // output as text/WKT

@@ -29,6 +29,7 @@ typedef __int64 int64;
 #include <cmath>
 #include <limits>
 #include <cinttypes>
+#include <cstddef> // for std::size_t
 
 namespace geos {
 
@@ -42,6 +43,7 @@ constexpr double DoubleNegInfinity = (-(std::numeric_limits<double>::infinity)()
 constexpr double DoubleEpsilon = std::numeric_limits<double>::epsilon();
 
 constexpr std::size_t NO_COORD_INDEX = std::numeric_limits<std::size_t>::max();
+constexpr std::size_t INDEX_UNKNOWN = std::numeric_limits<std::size_t>::max();
 
 } // namespace geos
 

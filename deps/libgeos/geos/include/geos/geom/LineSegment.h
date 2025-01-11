@@ -246,16 +246,22 @@ public:
         return std::atan2(p1.y - p0.y, p1.x - p0.x);
     };
 
-    /// Computes the midpoint of the segment
-    //
-    /// @param ret will be set to the midpoint of the segment
-    ///
-    void midPoint(Coordinate& ret) const
+    /** \brief
+     * Computes the midpoint of the segment
+     *
+     *  @return the midpoint of the segment
+     */
+    CoordinateXY midPoint() const
     {
-        ret = Coordinate(
-            (p0.x + p1.x) / 2,
-            (p0.y + p1.y) / 2);
+        return midPoint(p0, p1);
     };
+
+    static CoordinateXY midPoint(const CoordinateXY& pt0, const CoordinateXY& pt1)
+    {
+        return CoordinateXY(
+            (pt0.x + pt1.x) / 2,
+            (pt0.y + pt1.y) / 2);        
+    }
 
     /// Computes the distance between this line segment and another one.
     double distance(const LineSegment& ls) const
@@ -316,7 +322,8 @@ public:
     {
         ret = Coordinate(
             p0.x + segmentLengthFraction * (p1.x - p0.x),
-            p0.y + segmentLengthFraction * (p1.y - p0.y));
+            p0.y + segmentLengthFraction * (p1.y - p0.y),
+            p0.z + segmentLengthFraction * (p1.z - p0.z));
     };
 
     /** \brief

@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <memory>
 #include <geos/export.h>
 #include <set>
 #include <string>
@@ -81,7 +82,7 @@ public:
     /** \brief
      * Compute the labelling for all dirEdges in this star, as well as the overall labelling
      */
-    void computeLabelling(std::vector<GeometryGraph*>* geom) override; // throw(TopologyException *);
+    void computeLabelling(const std::vector<std::unique_ptr<GeometryGraph>>&geom) override; // throw(TopologyException *);
 
     /** \brief
      * For each dirEdge in the star, merge the label from the sym dirEdge into the label
@@ -116,7 +117,7 @@ public:
     void linkAllDirectedEdges();
 
     /** \brief
-     * Traverse the star of edges, maintaing the current location in the result
+     * Traverse the star of edges, maintaining the current location in the result
      * area at this node (if any).
      *
      * If any L edges are found in the interior of the result, mark them as covered.

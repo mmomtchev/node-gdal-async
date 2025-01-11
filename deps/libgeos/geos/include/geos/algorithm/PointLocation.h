@@ -19,11 +19,18 @@
 #pragma once
 
 #include <geos/export.h>
-#include <geos/geom/Coordinate.h>
-#include <geos/geom/CoordinateSequence.h>
 #include <geos/geom/Location.h>
+#include <vector>
 
 namespace geos {
+
+namespace geom {
+class Coordinate;
+class CoordinateXY;
+class CoordinateSequence;
+class Curve;
+}
+
 namespace algorithm { // geos::algorithm
 
 /** \brief
@@ -35,6 +42,16 @@ namespace algorithm { // geos::algorithm
  */
 class GEOS_DLL PointLocation {
 public:
+
+    /** \brief
+     * Tests whether a point lies on a line segment.
+     * 
+     * @param p the point to test
+     * @param p0 a point of the line segment
+     * @param p1 a point of the line segment
+     * @return true if the point lies on the line segment
+     */
+    static bool isOnSegment(const geom::CoordinateXY& p, const geom::CoordinateXY& p0, const geom::CoordinateXY& p1);
 
     /** \brief
      * Tests whether a point lies on the line defined by a
@@ -80,6 +97,7 @@ public:
      */
     static geom::Location locateInRing(const geom::CoordinateXY& p, const std::vector<const geom::Coordinate*>& ring);
     static geom::Location locateInRing(const geom::CoordinateXY& p, const geom::CoordinateSequence& ring);
+    static geom::Location locateInRing(const geom::CoordinateXY& p, const geom::Curve& ring);
 
 };
 

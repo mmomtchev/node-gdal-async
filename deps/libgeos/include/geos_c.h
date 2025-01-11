@@ -61,22 +61,22 @@ extern "C" {
 #define GEOS_VERSION_MAJOR 3
 #endif
 #ifndef GEOS_VERSION_MINOR
-#define GEOS_VERSION_MINOR 12
+#define GEOS_VERSION_MINOR 13
 #endif
 #ifndef GEOS_VERSION_PATCH
-#define GEOS_VERSION_PATCH 1
+#define GEOS_VERSION_PATCH 0
 #endif
 #ifndef GEOS_VERSION
-#define GEOS_VERSION "3.12.1"
+#define GEOS_VERSION "3.13.0"
 #endif
 #ifndef GEOS_JTS_PORT
 #define GEOS_JTS_PORT "1.18.0"
 #endif
 
 #define GEOS_CAPI_VERSION_MAJOR 1
-#define GEOS_CAPI_VERSION_MINOR 18
-#define GEOS_CAPI_VERSION_PATCH 1
-#define GEOS_CAPI_VERSION "3.12.1-CAPI-1.18.1"
+#define GEOS_CAPI_VERSION_MINOR 19
+#define GEOS_CAPI_VERSION_PATCH 0
+#define GEOS_CAPI_VERSION "3.13.0-CAPI-1.19.0"
 
 #define GEOS_CAPI_FIRST_INTERFACE GEOS_CAPI_VERSION_MAJOR
 #define GEOS_CAPI_LAST_INTERFACE (GEOS_CAPI_VERSION_MAJOR+GEOS_CAPI_VERSION_MINOR)
@@ -102,7 +102,8 @@ typedef struct GEOSContextHandle_HS *GEOSContextHandle_t;
 *
 * \param fmt the message format template
 */
-typedef void (*GEOSMessageHandler)(const char *fmt, ...);
+typedef void (*GEOSMessageHandler)(GEOS_PRINTF_FORMAT const char *fmt, ...)
+    GEOS_PRINTF_FORMAT_ATTR(1, 2);
 
 /**
 * A GEOS message handler function.
@@ -210,7 +211,12 @@ enum GEOSGeomTypes {
     /** Multipolygon, a homogeneous collection of polygons */
     GEOS_MULTIPOLYGON,
     /** Geometry collection, a heterogeneous collection of geometry */
-    GEOS_GEOMETRYCOLLECTION
+    GEOS_GEOMETRYCOLLECTION,
+    GEOS_CIRCULARSTRING,
+    GEOS_COMPOUNDCURVE,
+    GEOS_CURVEPOLYGON,
+    GEOS_MULTICURVE,
+    GEOS_MULTISURFACE,
 };
 
 /**
@@ -757,6 +763,36 @@ extern GEOSGeometry GEOS_DLL *GEOSGeom_clone_r(
     GEOSContextHandle_t handle,
     const GEOSGeometry* g);
 
+/** \see GEOSGeom_createCircularString */
+extern GEOSGeometry GEOS_DLL *GEOSGeom_createCircularString_r(
+    GEOSContextHandle_t handle,
+    GEOSCoordSequence* s);
+
+/** \see GEOSGeom_createEmptyCircularString */
+extern GEOSGeometry GEOS_DLL *GEOSGeom_createEmptyCircularString_r(
+    GEOSContextHandle_t handle);
+
+/** \see GEOSGeom_createCompoundCurve */
+extern GEOSGeometry GEOS_DLL *GEOSGeom_createCompoundCurve_r(
+    GEOSContextHandle_t handle,
+    GEOSGeometry** curves,
+    unsigned int ncurves);
+
+/** \see GEOSGeom_createEmptyCompoundCurve */
+extern GEOSGeometry GEOS_DLL *GEOSGeom_createEmptyCompoundCurve_r(
+    GEOSContextHandle_t handle);
+
+/** \see GEOSGeom_createCurvePolygon */
+extern GEOSGeometry GEOS_DLL *GEOSGeom_createCurvePolygon_r(
+    GEOSContextHandle_t handle,
+    GEOSGeometry* shell,
+    GEOSGeometry** holes,
+    unsigned int nholes);
+
+/** \see GEOSGeom_createEmptyCurvePolygon */
+extern GEOSGeometry GEOS_DLL *GEOSGeom_createEmptyCurvePolygon_r(
+    GEOSContextHandle_t handle);
+
 /* ========= Memory management ========= */
 
 /** \see GEOSGeom_destroy */
@@ -1245,6 +1281,19 @@ extern char GEOS_DLL GEOSPreparedWithin_r(
     const GEOSPreparedGeometry* pg1,
     const GEOSGeometry* g2);
 
+/** \see GEOSPreparedRelate */
+extern char GEOS_DLL * GEOSPreparedRelate_r(
+    GEOSContextHandle_t handle,
+    const GEOSPreparedGeometry* pg1,
+    const GEOSGeometry* g2);
+
+/** \see GEOSPreparedRelatePattern */
+extern char GEOS_DLL GEOSPreparedRelatePattern_r(
+    GEOSContextHandle_t handle,
+    const GEOSPreparedGeometry* pg1,
+    const GEOSGeometry* g2,
+    const char* im);
+
 /** \see GEOSPreparedNearestPoints */
 extern GEOSCoordSequence GEOS_DLL *GEOSPreparedNearestPoints_r(
     GEOSContextHandle_t handle,
@@ -1381,7 +1430,7 @@ extern char GEOS_DLL GEOSRelatePattern_r(
     GEOSContextHandle_t handle,
     const GEOSGeometry* g1,
     const GEOSGeometry* g2,
-    const char *pat);
+    const char *imPattern);
 
 /** \see GEOSRelate */
 extern char GEOS_DLL *GEOSRelate_r(
@@ -1392,8 +1441,8 @@ extern char GEOS_DLL *GEOSRelate_r(
 /** \see GEOSRelatePatternMatch */
 extern char GEOS_DLL GEOSRelatePatternMatch_r(
     GEOSContextHandle_t handle,
-    const char *mat,
-    const char *pat);
+    const char *intMatrix,
+    const char *imPattern);
 
 /** \see GEOSRelateBoundaryNodeRule */
 extern char GEOS_DLL *GEOSRelateBoundaryNodeRule_r(
@@ -1898,6 +1947,21 @@ extern void GEOS_DLL GEOSWKTWriter_setOld3D_r(
     GEOSWKTWriter *writer,
     int useOld3D);
 
+/** Print the shortest representation of a double. Non-zero absolute values
+ * that are <1e-4 and >=1e+17 are formatted using scientific notation, and
+ * other values are formatted with positional notation with precision used for
+ * the max digits after decimal point.
+ * \param d The number to format.
+ * \param precision The desired precision.
+ * \param result The buffer to write the result to, with a suggested size 28.
+ * \return the length of the written string.
+ */
+extern int GEOS_DLL GEOS_printDouble(
+    double d,
+    unsigned int precision,
+    char *result
+);
+
 /* ========== WKB Reader ========== */
 
 /** \see GEOSWKBReader_create */
@@ -2085,7 +2149,9 @@ extern void GEOS_DLL finishGEOS(void);
 * Free strings and byte buffers returned by functions such
 * as GEOSWKBWriter_write(),
 * GEOSWKBWriter_writeHEX() and GEOSWKTWriter_write(), etc.
-* \param buffer The memory to free
+* If passed a null pointer the function does nothing.
+
+* \param buffer The memory to free (may be null)
 * \since 3.1
 */
 extern void GEOS_DLL GEOSFree(void *buffer);
@@ -2436,6 +2502,68 @@ extern GEOSGeometry GEOS_DLL *GEOSGeom_createPolygon(
     unsigned int nholes);
 
 /**
+* Creates a CircularString geometry.
+* \param s Input coordinate sequence, ownership passes to the geometry
+* \return A newly allocated CircularString geometry. NULL on exception.
+* Caller is responsible for freeing with GEOSGeom_destroy().
+* \since 3.13
+*/
+extern GEOSGeometry GEOS_DLL *GEOSGeom_createCircularString(GEOSCoordSequence* s);
+
+/**
+* Creates an empty CircularString geometry.
+* \return A newly allocated CircularString geometry. NULL on exception.
+* Caller is responsible for freeing with GEOSGeom_destroy().
+* \since 3.13
+*/
+extern GEOSGeometry GEOS_DLL *GEOSGeom_createEmptyCircularString();
+
+/**
+* Creates a CompoundCurve geometry.
+* \param curves A list of geometries that will form the CompoundCurve
+* \param ncurves The number of geometries in the curves list
+* \return A newly allocated CompoundCurve geometry. NULL on exception.
+* Caller is responsible for freeing with GEOSGeom_destroy().
+* \since 3.13
+*/
+extern GEOSGeometry GEOS_DLL *GEOSGeom_createCompoundCurve(GEOSGeometry** curves,
+                                                           unsigned int ncurves);
+
+/**
+* Creates an empty CompoundCurve geometry.
+* \return A newly allocated CompoundCurve geometry. NULL on exception.
+* Caller is responsible for freeing with GEOSGeom_destroy().
+* \since 3.13
+*/
+extern GEOSGeometry GEOS_DLL *GEOSGeom_createEmptyCompoundCurve();
+
+/**
+* Creates a CurvePolygon geometry from ring geometries.
+* \param shell A ring that is the exterior ring of the polygon.
+* \param holes An array of rings that are the holes.
+* \param nholes The number of rings in the holes array.
+* \return A newly allocated geometry. NULL on exception.
+* Caller is responsible for freeing with GEOSGeom_destroy().
+* \note The holes argument is an array of GEOSGeometry* objects.
+*       The caller **retains ownership** of the containing array,
+*       but the ownership of the pointed-to objects is transferred
+*       to the returned \ref GEOSGeometry.
+* \since 3.13
+*/
+extern GEOSGeometry GEOS_DLL *GEOSGeom_createCurvePolygon(
+    GEOSGeometry* shell,
+    GEOSGeometry** holes,
+    unsigned int nholes);
+
+/**
+* Creates an empty CurvePolygon geometry.
+* \return A newly allocated CurvePolygon geometry. NULL on exception.
+* Caller is responsible for freeing with GEOSGeom_destroy().
+* \since 3.13
+*/
+extern GEOSGeometry GEOS_DLL *GEOSGeom_createEmptyCurvePolygon();
+
+/**
 * Create a geometry collection.
 * \param type The geometry type, enumerated by \ref GEOSGeomTypes
 * \param geoms A list of geometries that will form the collection
@@ -2467,7 +2595,7 @@ extern GEOSGeometry GEOS_DLL *GEOSGeom_createCollection(
 *       with GEOSFree() and all the elements with GEOSGeom_destroy().
 *       If called with an empty collection, null will be returned
 *       and ngeoms set to zero.
-* \since 3.4
+* \since 3.12
 */
 extern GEOSGeometry GEOS_DLL ** GEOSGeom_releaseCollection(
     GEOSGeometry * collection,
@@ -2551,7 +2679,7 @@ extern int GEOS_DLL GEOSGetSRID(const GEOSGeometry* g);
 /**
 * Return the anonymous "user data" for this geometry.
 * User data must be managed by the caller, and is not freed when
-* the geometry is destoryed.
+* the geometry is destroyed.
 * \param g Input geometry
 * \return A void* to the user data, caller is responsible for
 *         casting to the appropriate type.
@@ -2565,6 +2693,8 @@ extern void GEOS_DLL *GEOSGeom_getUserData(const GEOSGeometry* g);
 * multi-geometry or collection or 1 for a simple geometry.
 * For nested collections, remember to check if returned
 * sub-geometries are **themselves** also collections.
+* Empty collection or multi-geometry types return 0,
+* and empty simple geometry types return 1.
 * \param g Input geometry
 * \return Number of direct children in this collection
 * \warning For GEOS < 3.2 this function may crash when fed simple geometries
@@ -2930,6 +3060,7 @@ extern int GEOS_DLL GEOSNormalize(GEOSGeometry* g);
 * \param exteriorCW if 1, exterior rings will be clockwise and interior rings
 *                         will be counter-clockwise
 * \return 0 on success or -1 on exception
+* \since 3.12
 */
 extern int GEOS_DLL GEOSOrientPolygons(GEOSGeometry* g,
                                        int exteriorCW);
@@ -3942,7 +4073,7 @@ extern GEOSGeometry GEOS_DLL *GEOSConcaveHull(
 * The concave hull is constructed by removing the longest outer edges
 * of the Delaunay Triangulation of the space between the polygons,
 * until the specified maximm edge length is reached.
-* A large value produces the convex hull, 0 produces the hull of maximim concaveness.
+* A large value produces the convex hull, 0 produces the hull of maximum concaveness.
 *
 * \param g The input geometry
 * \param length The maximum edge length (0 or greater)
@@ -4116,8 +4247,7 @@ extern GEOSGeometry GEOS_DLL *GEOSMaximumInscribedCircle(
 * Constructs the "largest empty circle" (LEC) for a set of obstacle geometries
 * and within a polygonal boundary,
 * with accuracy to to a specified distance tolerance.
-* The obstacles are point and line geometries.
-* Polygonal obstacles are treated as linear features.
+* The obstacles may be any collection of points, lines and polygons.
 * The LEC is the largest circle whose interior does not intersect with any obstacle.
 * and which has its **center** inside the given boundary.
 * If no boundary is provided, the
@@ -4126,15 +4256,21 @@ extern GEOSGeometry GEOS_DLL *GEOSMaximumInscribedCircle(
 * the obstacles (up to the given distance tolerance).
 * The LEC is determined by the center point and a point indicating the circle radius
 * (which will lie on an obstacle).
+* \n
+* To compute an LEC which lies **wholly** within a polygonal boundary,
+* include the boundary of the polygon(s) as a linear obstacle.
+* \n
 * The implementation uses a successive-approximation technique over a grid of square cells covering the obstacles and boundary.
 * The grid is refined using a branch-and-bound algorithm.  Point containment and distance are computed in a performant
 * way by using spatial indexes.
+* \n
 * Returns the LEC radius as a two-point linestring, with the start point at the center of the inscribed circle and the end
 * on the boundary of the circle.
+*
 * \param obstacles The geometries that the LEC must not cross
 * \param boundary The area to contain the LEC center (may be null or empty)
 * \param tolerance Stop the algorithm when the search area is smaller than this tolerance
-* \return A newly allocated geometry of the LEC radius. NULL on exception.
+* \return A newly allocated geometry of the LEC radius line. NULL on exception.
 * Caller is responsible for freeing with GEOSGeom_destroy().
 * \see geos::algorithm::construct::LargestEmptyCircle
 *
@@ -4336,9 +4472,9 @@ extern GEOSGeometry GEOS_DLL *GEOSPolygonize(
     unsigned int ngeoms);
 
 /**
-* Has the same polygonizing behavior as GEOSPolygonize(), 
+* Has the same polygonizing behavior as GEOSPolygonize(),
 * but returns a result which is a valid polygonal geometry.
-* The result will not contain any edge-adjacent elements. 
+* The result will not contain any edge-adjacent elements.
 *
 * \param geoms Array of linear geometries to polygons. Caller retains ownersihp of both array container and objects.
 * \param ngeoms Size of the geoms array.
@@ -4372,7 +4508,7 @@ extern GEOSGeometry GEOS_DLL *GEOSPolygonizer_getCutEdges(
 
 /**
 * Perform the polygonization as GEOSPolygonize() and return the
-* polygonal result as well as all extra ouputs.
+* polygonal result as well as all extra outputs.
 *
 * \param[in] input A single geometry with all the input lines to polygonize.
 * \param[out] cuts Pointer to hold "cut edges", connected on both ends but not part of output. Caller must free.
@@ -4429,10 +4565,12 @@ extern GEOSGeometry GEOS_DLL *GEOSDensify(
     double tolerance);
 
 /**
-* Sews together a set of fully noded LineStrings
-* removing any cardinality 2 nodes in the linework.
+* Merges a set of LineStrings,
+* joining them at nodes which have cardinality 2.
+* Lines may have their direction reversed.
+
 * \param g The input linework
-* \return The merged linework
+* \return The merged linework.
 * Caller is responsible for freeing with GEOSGeom_destroy().
 * \see geos::operation::linemerge::LineMerger
 * \since 2.2
@@ -4440,11 +4578,13 @@ extern GEOSGeometry GEOS_DLL *GEOSDensify(
 extern GEOSGeometry GEOS_DLL *GEOSLineMerge(const GEOSGeometry* g);
 
 /**
-* Sews together a set of fully noded LineStrings
-* removing any cardinality 2 nodes in the linework
-* only if possible without changing order of points.
+* Merges a set of LineStrings,
+* joining them at nodes which have cardinality 2.
+* and where the lines have the same direction.
+* This means that lines do not have their direction reversed.
+
 * \param g The input linework
-* \return The merged linework
+* \return The merged linework.
 * Caller is responsible for freeing with GEOSGeom_destroy().
 * \see geos::operation::linemerge::LineMerger
 *
@@ -4588,7 +4728,7 @@ extern GEOSGeometry GEOS_DLL *GEOSGeom_transformXY(
 * \param input An input geometry
 * \param snap_target A geometry to snap the input to
 * \param tolerance Snapping tolerance
-* \return The snapped verion of the input. NULL on exception.
+* \return The snapped version of the input. NULL on exception.
 * Caller is responsible for freeing with GEOSGeom_destroy().
 *
 * \since 3.3
@@ -4787,25 +4927,29 @@ extern char GEOS_DLL GEOSEqualsIdentical(
         const GEOSGeometry* g2);
 
 /**
-* Calculate the DE9IM pattern for this geometry pair
-* and compare against the provided pattern to check for
-* consistency. If the result and pattern are consistent
-* return true. The pattern may include glob "*" characters
-* for portions that are allowed to match any value.
+* Calculate the [DE9IM](https://en.wikipedia.org/wiki/DE-9IM) string for a geometry pair
+* and compare against a DE9IM pattern to check for
+* consistency. 
+* If the result matches the pattern return true.
+* The pattern is a 9-character string 
+* containing symbols in the set "012TF*".
+* "012F" match the corresponding dimension symbol;
+* "T" matches any non-empty dimension; "*" matches any dimension.
 * \see geos::geom::Geometry::relate
 * \param g1 First geometry in pair
 * \param g2 Second geometry in pair
-* \param pat DE9IM pattern to check
+* \param imPattern DE9IM pattern to match
 * \return 1 on true, 0 on false, 2 on exception
 * \since 2.2
 */
 extern char GEOS_DLL GEOSRelatePattern(
     const GEOSGeometry* g1,
     const GEOSGeometry* g2,
-    const char *pat);
+    const char *imPattern);
 
 /**
-* Calculate and return the DE9IM pattern for this geometry pair.
+* Calculate the [DE9IM](https://en.wikipedia.org/wiki/DE-9IM) string for this geometry pair.
+* The result is a 9-character string containing dimension symbols in the set "012F".
 * \see geos::geom::Geometry::relate
 * \param g1 First geometry in pair
 * \param g2 Second geometry in pair
@@ -4818,21 +4962,21 @@ extern char GEOS_DLL *GEOSRelate(
     const GEOSGeometry* g2);
 
 /**
-* Compare two DE9IM patterns and return true if they
+* Compare a [DE9IM](https://en.wikipedia.org/wiki/DE-9IM) string to a pattern and return true if they
 * are consistent.
-* \param mat Complete DE9IM string (does not have "*")
-* \param pat Pattern to match to (may contain "*")
+* \param intMatrix DE9IM string (contains symbols "012F")
+* \param imPattern Pattern to match to (may also contain symbols "T" and "*")
 * \return 1 on true, 0 on false, 2 on exception
 *
 * \since 3.3
 */
 extern char GEOS_DLL GEOSRelatePatternMatch(
-    const char *mat,
-    const char *pat);
+    const char *intMatrix,
+    const char *imPattern);
 
 /**
-* Calculate and return the DE9IM pattern for this geometry pair.
-* Apply the supplied \ref GEOSRelateBoundaryNodeRules.
+* Calculate the [DE9IM](https://en.wikipedia.org/wiki/DE-9IM) string for this geometry pair,
+* using the supplied \ref GEOSRelateBoundaryNodeRules.
 * \see geos::geom::Geometry::relate
 * \see geos::algorithm::BoundaryNodeRule
 * \param g1 First geometry in pair
@@ -5062,6 +5206,44 @@ extern char GEOS_DLL GEOSPreparedWithin(
     const GEOSGeometry* g2);
 
 /**
+* Use a \ref GEOSPreparedGeometry do a high-performance
+* calculation of the [DE9IM](https://en.wikipedia.org/wiki/DE-9IM) relationship between the
+* prepared and provided geometry.
+* \param pg1 The prepared geometry
+* \param g2 The geometry to test
+* \returns The DE9IM string
+* \see GEOSPrepare
+* \see GEOSRelate
+* \see GEOSPreparedRelatePattern
+*
+* \since 3.13
+*/
+extern char GEOS_DLL * GEOSPreparedRelate(
+    const GEOSPreparedGeometry* pg1,
+    const GEOSGeometry* g2);
+
+/**
+* Use a \ref GEOSPreparedGeometry do a high-performance
+* calculation of the [DE9IM](https://en.wikipedia.org/wiki/DE-9IM) relationship between the
+* prepared and provided geometry, and compare the
+* relationship to the provided DE9IM pattern.
+* Returns true if the patterns are consistent and false otherwise.
+* \param pg1 The prepared geometry
+* \param g2 The geometry to test
+* \param imPattern The DE9IM pattern to test
+* \returns 1 on true, 0 on false, 2 on exception
+* \see GEOSPrepare
+* \see GEOSRelatePattern
+* \see GEOSPreparedRelate
+*
+* \since 3.13
+*/
+extern char GEOS_DLL GEOSPreparedRelatePattern(
+    const GEOSPreparedGeometry* pg1,
+    const GEOSGeometry* g2,
+    const char* imPattern);
+
+/**
 * Use a \ref GEOSPreparedGeometry do a high performance
 * calculation to find the nearest points between the
 * prepared and provided geometry.
@@ -5141,9 +5323,10 @@ extern GEOSSTRtree GEOS_DLL *GEOSSTRtree_create(size_t nodeCapacity);
 * Construct an STRtree from items that have been inserted. Once constructed,
 * no more items may be inserted into the tree. Functions that require a
 * constructed tree will build it automatically, so there is no need to call
-* `GEOSSTRtree_build` unless it is desired to explicity construct the tree
+* `GEOSSTRtree_build` unless it is desired to explicitly construct the tree
 * in a certain section of code or using a certain thread.
 *
+* \param tree the \ref GEOSSTRtree to apply the build to
 * \return 1 on success, 0 on error
 *
 * \since 3.12
@@ -5271,6 +5454,8 @@ extern char GEOS_DLL GEOSSTRtree_remove(
 * Only the tree is freed. The geometries and items fed into
 * GEOSSTRtree_insert() are not owned by the tree, and are
 * still left to the caller to manage.
+*
+* \param tree the \ref GEOSSTRtree to destroy
 *
 * \since 3.2
 */
@@ -5410,7 +5595,10 @@ extern char GEOS_DLL *GEOSWKTWriter_write(
 /**
 * Sets the number trimming option on a \ref GEOSWKTWriter.
 * With trim set to 1, the writer will strip trailing 0's from
-* the output coordinates. With 0, all coordinates will be
+* the output coordinates. With 1 (trimming enabled), big and small
+* absolute coordinates will use scientific notation, otherwise
+* positional notation is used; see \ref GEOS_printDouble for details.
+* With 0 (trimming disabled), all coordinates will be
 * padded with 0's out to the rounding precision.
 * Default since GEOS 3.12 is with trim set to 1 for 'on'.
 * \param writer A \ref GEOSWKTWriter.

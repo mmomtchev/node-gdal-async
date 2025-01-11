@@ -20,6 +20,7 @@
 #include <geos/geom/Geometry.h>
 #include <geos/geom/GeometryFactory.h>
 #include <geos/geom/MultiLineString.h>
+#include <geos/util/IllegalArgumentException.h>
 
 
 using geos::geom::Geometry;
@@ -80,10 +81,15 @@ CoverageSimplifier::simplifyInner(
 
 
 /* public */
-CoverageSimplifier::CoverageSimplifier(std::vector<const Geometry*>& coverage)
+CoverageSimplifier::CoverageSimplifier(const std::vector<const Geometry*>& coverage)
     : m_input(coverage)
     , m_geomFactory(coverage.empty() ? nullptr : coverage[0]->getFactory())
-    {}
+    {
+        for (const Geometry* g: m_input) {
+            if (!g->isPolygonal())
+                throw util::IllegalArgumentException("Argument is non-polygonal");
+        }
+    }
 
 /* public */
 std::vector<std::unique_ptr<Geometry>>
