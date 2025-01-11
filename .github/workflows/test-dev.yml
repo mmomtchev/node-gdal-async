@@ -94,7 +94,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        linux-version: [ 'amazonlinux:2022', 'ubuntu:24.04' ]
+        linux-version: [ 'amazonlinux:2023', 'ubuntu:24.04' ]
 
     steps:
     - uses: actions/checkout@v4
@@ -107,7 +107,7 @@ jobs:
       with:
         max-size: 1000M
         key: distros-bundled-${{ matrix.linux-version }}
-    - run: npm run container dev ${{ matrix.linux-version }} 18 bundled
+    - run: npm run container dev ${{ matrix.linux-version }} 22 bundled
       env:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
 
@@ -160,11 +160,12 @@ jobs:
 
   test_mac:
 
-    runs-on: macos-13
+    runs-on: ${{ matrix.mac-version }}
 
     strategy:
       fail-fast: false
       matrix:
+        mac-version: [ macos-13, macos-15 ]
         node-version: [ 18.x, 20.x, 22.x, 23.x ]
 
     steps:

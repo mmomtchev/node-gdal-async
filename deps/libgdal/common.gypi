@@ -4,7 +4,7 @@
 	],
 	"variables": {
 		"shared_geos%": "false",
-		"endianness": "<!(python -c \"import sys;print(sys.byteorder.upper())\")",
+		"endianness": "<!(<(python) -c \"import sys;print(sys.byteorder.upper())\")",
 	},
 	"target_defaults": {
 		"include_dirs": [

@@ -3,14 +3,14 @@
 		"../../common.gypi"
 	],
 	"variables": {
-		"endianness": "<!(python -c \"import sys;print(sys.byteorder.upper())\")",
+		"endianness": "<!(<(python) -c \"import sys;print(sys.byteorder.upper())\")",
 	},
 	"targets": [
 		{
 			"target_name": "libexpat",
 			"type": "static_library",
 			"sources": [
-				'<!@(python ../glob-files.py "expat/lib/*.c")'
+				'<!@(<(python) ../glob-files.py "expat/lib/*.c")'
 			],
 			"include_dirs": [
 				"./expat/lib"
