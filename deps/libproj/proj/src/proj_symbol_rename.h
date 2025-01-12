@@ -72,11 +72,14 @@
 #define proj_context_set_sqlite3_vfs_name                                      \
     internal_proj_context_set_sqlite3_vfs_name
 #define proj_context_set_url_endpoint internal_proj_context_set_url_endpoint
+#define proj_context_set_user_writable_directory                               \
+    internal_proj_context_set_user_writable_directory
 #define proj_context_use_proj4_init_rules                                      \
     internal_proj_context_use_proj4_init_rules
 #define proj_convert_conversion_to_other_method                                \
     internal_proj_convert_conversion_to_other_method
 #define proj_coord internal_proj_coord
+#define proj_coordinate_metadata_create internal_proj_coordinate_metadata_create
 #define proj_coordinate_metadata_get_epoch                                     \
     internal_proj_coordinate_metadata_get_epoch
 #define proj_coordoperation_create_inverse                                     \
@@ -100,6 +103,8 @@
     internal_proj_coordoperation_has_ballpark_transformation
 #define proj_coordoperation_is_instantiable                                    \
     internal_proj_coordoperation_is_instantiable
+#define proj_coordoperation_requires_per_coordinate_input_time                 \
+    internal_proj_coordoperation_requires_per_coordinate_input_time
 #define proj_create internal_proj_create
 #define proj_create_argv internal_proj_create_argv
 #define proj_create_cartesian_2D_cs internal_proj_create_cartesian_2D_cs
@@ -163,6 +168,8 @@
     internal_proj_create_conversion_lambert_azimuthal_equal_area
 #define proj_create_conversion_lambert_conic_conformal_1sp                     \
     internal_proj_create_conversion_lambert_conic_conformal_1sp
+#define proj_create_conversion_lambert_conic_conformal_1sp_variant_b           \
+    internal_proj_create_conversion_lambert_conic_conformal_1sp_variant_b
 #define proj_create_conversion_lambert_conic_conformal_2sp                     \
     internal_proj_create_conversion_lambert_conic_conformal_2sp
 #define proj_create_conversion_lambert_conic_conformal_2sp_belgium             \
@@ -173,6 +180,8 @@
     internal_proj_create_conversion_lambert_cylindrical_equal_area
 #define proj_create_conversion_lambert_cylindrical_equal_area_spherical        \
     internal_proj_create_conversion_lambert_cylindrical_equal_area_spherical
+#define proj_create_conversion_local_orthographic                              \
+    internal_proj_create_conversion_local_orthographic
 #define proj_create_conversion_mercator_variant_a                              \
     internal_proj_create_conversion_mercator_variant_a
 #define proj_create_conversion_mercator_variant_b                              \
@@ -278,6 +287,8 @@
 #define proj_crs_get_geodetic_crs internal_proj_crs_get_geodetic_crs
 #define proj_crs_get_horizontal_datum internal_proj_crs_get_horizontal_datum
 #define proj_crs_get_sub_crs internal_proj_crs_get_sub_crs
+#define proj_crs_has_point_motion_operation                                    \
+    internal_proj_crs_has_point_motion_operation
 #define proj_crs_info_list_destroy internal_proj_crs_info_list_destroy
 #define proj_crs_is_derived internal_proj_crs_is_derived
 #define proj_crs_promote_to_3D internal_proj_crs_promote_to_3D
@@ -305,6 +316,7 @@
 #define proj_factors internal_proj_factors
 #define proj_geod internal_proj_geod
 #define proj_get_area_of_use internal_proj_get_area_of_use
+#define proj_get_area_of_use_ex internal_proj_get_area_of_use_ex
 #define proj_get_authorities_from_database                                     \
     internal_proj_get_authorities_from_database
 #define proj_get_celestial_body_list_from_database                             \
@@ -317,6 +329,7 @@
     internal_proj_get_crs_list_parameters_create
 #define proj_get_crs_list_parameters_destroy                                   \
     internal_proj_get_crs_list_parameters_destroy
+#define proj_get_domain_count internal_proj_get_domain_count
 #define proj_get_ellipsoid internal_proj_get_ellipsoid
 #define proj_get_geoid_models_from_database                                    \
     internal_proj_get_geoid_models_from_database
@@ -328,6 +341,7 @@
 #define proj_get_prime_meridian internal_proj_get_prime_meridian
 #define proj_get_remarks internal_proj_get_remarks
 #define proj_get_scope internal_proj_get_scope
+#define proj_get_scope_ex internal_proj_get_scope_ex
 #define proj_get_source_crs internal_proj_get_source_crs
 #define proj_get_suggested_operation internal_proj_get_suggested_operation
 #define proj_get_target_crs internal_proj_get_target_crs

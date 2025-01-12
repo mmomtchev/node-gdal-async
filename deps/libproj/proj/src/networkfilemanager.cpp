@@ -179,7 +179,6 @@ class DiskChunkCache {
     PJ_CONTEXT *ctx_ = nullptr;
     std::string path_{};
     sqlite3 *hDB_ = nullptr;
-    std::string thisNamePtr_{};
     std::unique_ptr<SQLite3VFS> vfs_{};
 
     explicit DiskChunkCache(PJ_CONTEXT *ctx, const std::string &path);
@@ -1620,6 +1619,12 @@ CurlFileHandle::CurlFileHandle(PJ_CONTEXT *ctx, const char *url, CURL *handle)
         CHECK_RET(ctx, curl_easy_setopt(handle, CURLOPT_SSL_VERIFYHOST, 0L));
     }
 
+#if defined(SSL_OPTIONS)
+    // https://curl.se/libcurl/c/CURLOPT_SSL_OPTIONS.html
+    auto ssl_options = static_cast<long>(SSL_OPTIONS);
+    CHECK_RET(ctx, curl_easy_setopt(handle, CURLOPT_SSL_OPTIONS, ssl_options));
+#endif
+
     const auto ca_bundle_path = pj_context_get_bundle_path(ctx);
     if (!ca_bundle_path.empty()) {
         CHECK_RET(ctx, curl_easy_setopt(handle, CURLOPT_CAINFO,
@@ -1670,6 +1675,7 @@ static double GetNewRetryDelay(int response_code, double dfOldDelay,
         // S3 sends some client timeout errors as 400 Client Error
         (response_code == 400 && pszErrBuf &&
          strstr(pszErrBuf, "RequestTimeout")) ||
+        (pszCurlError && strstr(pszCurlError, "Connection reset by peer")) ||
         (pszCurlError && strstr(pszCurlError, "Connection timed out"))) {
         // Use an exponential backoff factor of 2 plus some random jitter
         // We don't care about cryptographic quality randomness, hence:
@@ -1949,24 +1955,25 @@ NS_PROJ_END
 // ---------------------------------------------------------------------------
 
 #ifdef WIN32
-static const char dir_chars[] = "/\\";
+static const char nfm_dir_chars[] = "/\\";
 #else
-static const char dir_chars[] = "/";
+static const char nfm_dir_chars[] = "/";
 #endif
 
-static bool is_tilde_slash(const char *name) {
-    return *name == '~' && strchr(dir_chars, name[1]);
+static bool nfm_is_tilde_slash(const char *name) {
+    return *name == '~' && strchr(nfm_dir_chars, name[1]);
 }
 
-static bool is_rel_or_absolute_filename(const char *name) {
-    return strchr(dir_chars, *name) ||
-           (*name == '.' && strchr(dir_chars, name[1])) ||
-           (!strncmp(name, "..", 2) && strchr(dir_chars, name[2])) ||
-           (name[0] != '\0' && name[1] == ':' && strchr(dir_chars, name[2]));
+static bool nfm_is_rel_or_absolute_filename(const char *name) {
+    return strchr(nfm_dir_chars, *name) ||
+           (*name == '.' && strchr(nfm_dir_chars, name[1])) ||
+           (!strncmp(name, "..", 2) && strchr(nfm_dir_chars, name[2])) ||
+           (name[0] != '\0' && name[1] == ':' &&
+            strchr(nfm_dir_chars, name[2]));
 }
 
 static std::string build_url(PJ_CONTEXT *ctx, const char *name) {
-    if (!is_tilde_slash(name) && !is_rel_or_absolute_filename(name) &&
+    if (!nfm_is_tilde_slash(name) && !nfm_is_rel_or_absolute_filename(name) &&
         !starts_with(name, "http://") && !starts_with(name, "https://")) {
         std::string remote_file(proj_context_get_url_endpoint(ctx));
         if (!remote_file.empty()) {

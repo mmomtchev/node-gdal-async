@@ -172,13 +172,13 @@ static void process(FILE *fid) {
             }
 
             if (reverseout) {
-                (void)printf(oform, data.uv.v);
+                limited_fprintf_for_number(stdout, oform, data.uv.v);
                 putchar('\t');
-                (void)printf(oform, data.uv.u);
+                limited_fprintf_for_number(stdout, oform, data.uv.u);
             } else {
-                (void)printf(oform, data.uv.u);
+                limited_fprintf_for_number(stdout, oform, data.uv.u);
                 putchar('\t');
-                (void)printf(oform, data.uv.v);
+                limited_fprintf_for_number(stdout, oform, data.uv.v);
             }
         }
 
@@ -279,7 +279,7 @@ static void vprocess(FILE *fid) {
         }
 
         if (proj_context_errno(nullptr)) {
-            emess(-1, proj_errno_string(proj_context_errno(nullptr)));
+            emess(-1, "%s", proj_errno_string(proj_context_errno(nullptr)));
             continue;
         }
 
@@ -305,11 +305,11 @@ static void vprocess(FILE *fid) {
         (void)printf(" [ %.11g ]\n", dat_ll.phi * RAD_TO_DEG);
         (void)fputs(swapAxisCrs ? "Northing (y):  " : "Easting (x):   ",
                     stdout);
-        (void)printf(oform, dat_xy.x);
+        limited_fprintf_for_number(stdout, oform, dat_xy.x);
         putchar('\n');
         (void)fputs(swapAxisCrs ? "Easting (x):   " : "Northing (y):  ",
                     stdout);
-        (void)printf(oform, dat_xy.y);
+        limited_fprintf_for_number(stdout, oform, dat_xy.y);
         putchar('\n');
         (void)printf("Meridian scale (h) : %.8f  ( %.4g %% error )\n",
                      facs.meridional_scale,
@@ -536,30 +536,64 @@ int main(int argc, char **argv) {
         eargv++;
         eargc--;
         // logic copied from proj_factors function
+        // coverity[tainted_data]
         if (PJ *P = proj_create(nullptr, ocrs.c_str())) {
-            const auto type = proj_get_type(P);
+            auto type = proj_get_type(P);
+            auto ctx = P->ctx;
+            if (type == PJ_TYPE_COMPOUND_CRS) {
+                auto horiz = proj_crs_get_sub_crs(ctx, P, 0);
+                if (horiz) {
+                    if (proj_get_type(horiz) == PJ_TYPE_PROJECTED_CRS) {
+                        proj_destroy(P);
+                        P = horiz;
+                        type = proj_get_type(P);
+                    } else {
+                        proj_destroy(horiz);
+                    }
+                }
+            }
             if (type == PJ_TYPE_PROJECTED_CRS) {
                 try {
                     auto crs = dynamic_cast<const NS_PROJ::crs::ProjectedCRS *>(
                         P->iso_obj.get());
-                    auto dir =
+                    auto &dir =
                         crs->coordinateSystem()->axisList()[0]->direction();
                     swapAxisCrs = dir == NS_PROJ::cs::AxisDirection::NORTH ||
                                   dir == NS_PROJ::cs::AxisDirection::SOUTH;
                 } catch (...) {
                 }
-                auto ctx = P->ctx;
                 auto geodetic_crs = proj_get_source_crs(ctx, P);
                 assert(geodetic_crs);
-                auto datum = proj_crs_get_datum(ctx, geodetic_crs);
-                auto datum_ensemble =
-                    proj_crs_get_datum_ensemble(ctx, geodetic_crs);
+                auto pm = proj_get_prime_meridian(ctx, geodetic_crs);
+                double pm_longitude = 0;
+                proj_prime_meridian_get_parameters(ctx, pm, &pm_longitude,
+                                                   nullptr, nullptr);
+                proj_destroy(pm);
+                PJ *geogCRSNormalized;
                 auto cs = proj_create_ellipsoidal_2D_cs(
                     ctx, PJ_ELLPS2D_LONGITUDE_LATITUDE, "Radian", 1.0);
-                auto geogCRSNormalized = proj_create_geographic_crs_from_datum(
-                    ctx, "unnamed crs", datum ? datum : datum_ensemble, cs);
-                proj_destroy(datum);
-                proj_destroy(datum_ensemble);
+                if (pm_longitude != 0) {
+                    auto ellipsoid = proj_get_ellipsoid(ctx, geodetic_crs);
+                    double semi_major_metre = 0;
+                    double inv_flattening = 0;
+                    proj_ellipsoid_get_parameters(ctx, ellipsoid,
+                                                  &semi_major_metre, nullptr,
+                                                  nullptr, &inv_flattening);
+                    geogCRSNormalized = proj_create_geographic_crs(
+                        ctx, "unname crs", "unnamed datum",
+                        proj_get_name(ellipsoid), semi_major_metre,
+                        inv_flattening, "reference prime meridian", 0, nullptr,
+                        0, cs);
+                    proj_destroy(ellipsoid);
+                } else {
+                    auto datum = proj_crs_get_datum(ctx, geodetic_crs);
+                    auto datum_ensemble =
+                        proj_crs_get_datum_ensemble(ctx, geodetic_crs);
+                    geogCRSNormalized = proj_create_geographic_crs_from_datum(
+                        ctx, "unnamed crs", datum ? datum : datum_ensemble, cs);
+                    proj_destroy(datum);
+                    proj_destroy(datum_ensemble);
+                }
                 proj_destroy(cs);
                 Proj = proj_create_crs_to_crs_from_pj(ctx, geogCRSNormalized, P,
                                                       nullptr, nullptr);
@@ -606,7 +640,7 @@ int main(int argc, char **argv) {
 
     if (!proj_angular_input(Proj, PJ_FWD)) {
         emess(3, "can't initialize operations that take non-angular input "
-                 "coordinates");
+                 "coordinates. Try cct.");
         exit(0);
     }
 
@@ -636,13 +670,15 @@ int main(int argc, char **argv) {
             (void)printf("#Final Earth figure: ");
             if (Proj->es != 0.0) {
                 (void)printf("ellipsoid\n#  Major axis (a): ");
-                (void)printf(oform ? oform : "%.3f", Proj->a);
+                limited_fprintf_for_number(stdout, oform ? oform : "%.3f",
+                                           Proj->a);
                 (void)printf("\n#  1/flattening: %.6f\n",
                              1. / (1. - sqrt(1. - Proj->es)));
                 (void)printf("#  squared eccentricity: %.12f\n", Proj->es);
             } else {
                 (void)printf("sphere\n#  Radius: ");
-                (void)printf(oform ? oform : "%.3f", Proj->a);
+                limited_fprintf_for_number(stdout, oform ? oform : "%.3f",
+                                           Proj->a);
                 (void)putchar('\n');
             }
         }

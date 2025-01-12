@@ -1,6 +1,5 @@
 // Changes to handle +over are: Copyright 2011-2014 Morelli Informatik
 
-#define PJ_LIB_
 #include "proj.h"
 #include "proj_internal.h"
 
@@ -51,6 +50,7 @@ static PJ_XY vandg_s_forward(PJ_LP lp, PJ *P) { /* Spheroidal, forward */
             // https://github.com/OSGeo/PROJ/issues/1906#issuecomment-583168348
             // The choice of p2 is completely arbitrary.
             volatile double p2_tmp = p2;
+            // cppcheck-suppress redundantAssignment
             p2 = p2_tmp;
         }
         xy.x = g - p2; // G - P^2
@@ -129,10 +129,18 @@ static PJ_LP vandg_s_inverse(PJ_XY xy, PJ *P) { /* Spheroidal, inverse */
     return lp;
 }
 
-PJ *PROJECTION(vandg) {
+PJ *PJ_PROJECTION(vandg) {
     P->es = 0.;
     P->inv = vandg_s_inverse;
     P->fwd = vandg_s_forward;
 
     return P;
 }
+
+#undef TOL
+#undef THIRD
+#undef C2_27
+#undef PI4_3
+#undef PISQ
+#undef TPISQ
+#undef HPISQ

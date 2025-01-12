@@ -76,8 +76,6 @@ Engsager
  *
  *****************************************************************************/
 
-#define PJ_LIB_
-
 #include <cassert>
 #include <complex>
 #include <cstdint>
@@ -551,7 +549,7 @@ static int parse_coefs(PJ *P, double *coefs, const char *param, int ncoefs) {
 }
 
 /*********************************************************************/
-PJ *PROJECTION(horner) {
+PJ *PJ_PROJECTION(horner) {
     /*********************************************************************/
     int degree = 0;
     HORNER *Q;
@@ -559,7 +557,7 @@ PJ *PROJECTION(horner) {
     P->inv3d = nullptr;
     P->fwd = nullptr;
     P->inv = nullptr;
-    P->left = P->right = PJ_IO_UNITS_PROJECTED;
+    P->left = P->right = PJ_IO_UNITS_WHATEVER;
     P->destructor = horner_freeup;
 
     /* Polynomial degree specified? */

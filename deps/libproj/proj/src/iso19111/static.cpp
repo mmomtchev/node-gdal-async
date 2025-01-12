@@ -66,6 +66,10 @@ NS_PROJ_START
 
 // ---------------------------------------------------------------------------
 
+const NameSpaceNNPtr NameSpace::GLOBAL(NameSpace::createGLOBAL());
+
+// ---------------------------------------------------------------------------
+
 /** \brief Key to set the authority citation of a metadata::Identifier.
  *
  * The value is to be provided as a string or a metadata::Citation.
@@ -284,6 +288,7 @@ DEFINE_WKT_CONSTANT(EPOCH);
 DEFINE_WKT_CONSTANT(AXISMINVALUE);
 DEFINE_WKT_CONSTANT(AXISMAXVALUE);
 DEFINE_WKT_CONSTANT(RANGEMEANING);
+DEFINE_WKT_CONSTANT(POINTMOTIONOPERATION);
 
 DEFINE_WKT_CONSTANT(GEODETICCRS);
 DEFINE_WKT_CONSTANT(GEODETICDATUM);

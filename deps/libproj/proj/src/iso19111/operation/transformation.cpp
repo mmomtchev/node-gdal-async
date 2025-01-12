@@ -184,12 +184,15 @@ Transformation::demoteTo2D(const std::string &,
  * can be used as the value of the WKT1 TOWGS84 parameter or
  * PROJ +towgs84 parameter.
  *
+ * @param canThrowException if true, an exception is thrown if the method fails,
+ * otherwise an empty vector is returned in case of failure.
  * @return a vector of 7 values if valid, otherwise a io::FormattingException
  * is thrown.
- * @throws io::FormattingException
+ * @throws io::FormattingException in case of error, if canThrowException is
+ * true
  */
-std::vector<double>
-Transformation::getTOWGS84Parameters() const // throw(io::FormattingException)
+std::vector<double> Transformation::getTOWGS84Parameters(
+    bool canThrowException) const // throw(io::FormattingException)
 {
     // GDAL WKT1 assumes EPSG:9606 / Position Vector convention
 
@@ -297,6 +300,8 @@ Transformation::getTOWGS84Parameters() const // throw(io::FormattingException)
              (foundRotX && foundRotY && foundRotZ && foundScale))) {
             return params;
         } else {
+            if (!canThrowException)
+                return {};
             throw io::FormattingException(
                 "Missing required parameter values in transformation");
         }
@@ -321,6 +326,8 @@ Transformation::getTOWGS84Parameters() const // throw(io::FormattingException)
     }
 #endif
 
+    if (!canThrowException)
+        return {};
     throw io::FormattingException(
         "Transformation cannot be formatted as WKT1 TOWGS84 parameters");
 }
@@ -339,7 +346,7 @@ Transformation::getTOWGS84Parameters() const // throw(io::FormattingException)
  * @param values Vector of GeneralOperationParameterNNPtr.
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 TransformationNNPtr Transformation::create(
     const util::PropertyMap &properties, const crs::CRSNNPtr &sourceCRSIn,
@@ -382,7 +389,7 @@ TransformationNNPtr Transformation::create(
  * values.size() == parameters.size()
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 TransformationNNPtr
 Transformation::create(const util::PropertyMap &propertiesTransformation,
@@ -843,7 +850,7 @@ TransformationNNPtr Transformation::createTimeDependentPositionVector(
  * @param referenceEpochYear Parameter reference epoch (in decimal year)
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 TransformationNNPtr Transformation::createTimeDependentCoordinateFrameRotation(
     const util::PropertyMap &properties, const crs::CRSNNPtr &sourceCRSIn,
@@ -932,7 +939,7 @@ static TransformationNNPtr _createMolodensky(
  * the ellipsoids used in the target and source CRS.
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 TransformationNNPtr Transformation::createMolodensky(
     const util::PropertyMap &properties, const crs::CRSNNPtr &sourceCRSIn,
@@ -969,7 +976,7 @@ TransformationNNPtr Transformation::createMolodensky(
  * the ellipsoids used in the target and source CRS.
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 TransformationNNPtr Transformation::createAbridgedMolodensky(
     const util::PropertyMap &properties, const crs::CRSNNPtr &sourceCRSIn,
@@ -996,7 +1003,7 @@ TransformationNNPtr Transformation::createAbridgedMolodensky(
  * or 7 double values (Translation_X,_Y,_Z, Rotation_X,_Y,_Z, Scale_Difference)
  * passed to createPositionVector()
  * @return new Transformation.
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 TransformationNNPtr Transformation::createTOWGS84(
     const crs::CRSNNPtr &sourceCRSIn,
@@ -1273,6 +1280,38 @@ TransformationNNPtr Transformation::createGeographic2DWithHeightOffsets(
 
 // ---------------------------------------------------------------------------
 
+/** \brief Instantiate a transformation with method Cartesian grid offsets
+ *
+ * This method is defined as
+ * <a href="https://epsg.org/coord-operation-method_9656/index.html">
+ * EPSG:9656</a>.
+ *
+ * @param properties See \ref general_properties of the Transformation.
+ * At minimum the name should be defined.
+ * @param sourceCRSIn Source CRS.
+ * @param targetCRSIn Target CRS.
+ * @param eastingOffset Easting offset to add.
+ * @param northingOffset Northing offset to add.
+ * @param accuracies Vector of positional accuracy (might be empty).
+ * @return new Transformation.
+ * @since PROJ 9.5.0
+ */
+TransformationNNPtr Transformation::createCartesianGridOffsets(
+    const util::PropertyMap &properties, const crs::CRSNNPtr &sourceCRSIn,
+    const crs::CRSNNPtr &targetCRSIn, const common::Length &eastingOffset,
+    const common::Length &northingOffset,
+    const std::vector<metadata::PositionalAccuracyNNPtr> &accuracies) {
+    return create(
+        properties, sourceCRSIn, targetCRSIn, nullptr,
+        createMethodMapNameEPSGCode(EPSG_CODE_METHOD_CARTESIAN_GRID_OFFSETS),
+        VectorOfParameters{
+            createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_EASTING_OFFSET),
+            createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_NORTHING_OFFSET)},
+        VectorOfValues{eastingOffset, northingOffset}, accuracies);
+}
+
+// ---------------------------------------------------------------------------
+
 /** \brief Instantiate a transformation with method Vertical Offset.
  *
  * This method is defined as
@@ -1489,6 +1528,8 @@ Transformation::Private::registerInv(const Transformation *thisIn,
     invTransform->d->forwardOperation_ = thisIn->shallowClone().as_nullable();
     invTransform->setHasBallparkTransformation(
         thisIn->hasBallparkTransformation());
+    invTransform->setRequiresPerCoordinateInputTime(
+        thisIn->requiresPerCoordinateInputTime());
     return invTransform;
 }
 //! @endcond
@@ -1577,7 +1618,7 @@ TransformationNNPtr Transformation::inverseAsTransformation() const {
     }
 
     if (isLongitudeRotation()) {
-        auto offset =
+        const auto &offset =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET);
         const common::Angle newOffset(negate(offset.value()), offset.unit());
         return Private::registerInv(
@@ -1587,12 +1628,12 @@ TransformationNNPtr Transformation::inverseAsTransformation() const {
     }
 
     if (methodEPSGCode == EPSG_CODE_METHOD_GEOGRAPHIC2D_OFFSETS) {
-        auto offsetLat =
+        const auto &offsetLat =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LATITUDE_OFFSET);
         const common::Angle newOffsetLat(negate(offsetLat.value()),
                                          offsetLat.unit());
 
-        auto offsetLong =
+        const auto &offsetLong =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET);
         const common::Angle newOffsetLong(negate(offsetLong.value()),
                                           offsetLong.unit());
@@ -1605,17 +1646,17 @@ TransformationNNPtr Transformation::inverseAsTransformation() const {
     }
 
     if (methodEPSGCode == EPSG_CODE_METHOD_GEOGRAPHIC3D_OFFSETS) {
-        auto offsetLat =
+        const auto &offsetLat =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LATITUDE_OFFSET);
         const common::Angle newOffsetLat(negate(offsetLat.value()),
                                          offsetLat.unit());
 
-        auto offsetLong =
+        const auto &offsetLong =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET);
         const common::Angle newOffsetLong(negate(offsetLong.value()),
                                           offsetLong.unit());
 
-        auto offsetHeight =
+        const auto &offsetHeight =
             parameterValueMeasure(EPSG_CODE_PARAMETER_VERTICAL_OFFSET);
         const common::Length newOffsetHeight(negate(offsetHeight.value()),
                                              offsetHeight.unit());
@@ -1628,17 +1669,17 @@ TransformationNNPtr Transformation::inverseAsTransformation() const {
     }
 
     if (methodEPSGCode == EPSG_CODE_METHOD_GEOGRAPHIC2D_WITH_HEIGHT_OFFSETS) {
-        auto offsetLat =
+        const auto &offsetLat =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LATITUDE_OFFSET);
         const common::Angle newOffsetLat(negate(offsetLat.value()),
                                          offsetLat.unit());
 
-        auto offsetLong =
+        const auto &offsetLong =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET);
         const common::Angle newOffsetLong(negate(offsetLong.value()),
                                           offsetLong.unit());
 
-        auto offsetHeight =
+        const auto &offsetHeight =
             parameterValueMeasure(EPSG_CODE_PARAMETER_GEOID_UNDULATION);
         const common::Length newOffsetHeight(negate(offsetHeight.value()),
                                              offsetHeight.unit());
@@ -1650,9 +1691,26 @@ TransformationNNPtr Transformation::inverseAsTransformation() const {
                       newOffsetHeight, coordinateOperationAccuracies()));
     }
 
+    if (methodEPSGCode == EPSG_CODE_METHOD_CARTESIAN_GRID_OFFSETS) {
+        const auto &eastingOffset =
+            parameterValueMeasure(EPSG_CODE_PARAMETER_EASTING_OFFSET);
+        const common::Length newEastingOffset(negate(eastingOffset.value()),
+                                              eastingOffset.unit());
+
+        const auto &northingOffset =
+            parameterValueMeasure(EPSG_CODE_PARAMETER_NORTHING_OFFSET);
+        const common::Length newNorthingOffset(negate(northingOffset.value()),
+                                               northingOffset.unit());
+        return Private::registerInv(
+            this, createCartesianGridOffsets(
+                      createPropertiesForInverse(this, false, false),
+                      l_targetCRS, l_sourceCRS, newEastingOffset,
+                      newNorthingOffset, coordinateOperationAccuracies()));
+    }
+
     if (methodEPSGCode == EPSG_CODE_METHOD_VERTICAL_OFFSET) {
 
-        auto offsetHeight =
+        const auto &offsetHeight =
             parameterValueMeasure(EPSG_CODE_PARAMETER_VERTICAL_OFFSET);
         const common::Length newOffsetHeight(negate(offsetHeight.value()),
                                              offsetHeight.unit());
@@ -1773,7 +1831,7 @@ void Transformation::_exportToJSON(
         !identifiers().empty()));
 
     writer->AddObjKey("name");
-    auto l_name = nameStr();
+    const auto &l_name = nameStr();
     if (l_name.empty()) {
         writer->Add("unnamed");
     } else {
@@ -1851,7 +1909,7 @@ void Transformation::_exportToPROJString(
         return;
     }
 
-    throw io::FormattingException("Unimplemented");
+    throw io::FormattingException("Unimplemented " + nameStr());
 }
 
 } // namespace operation

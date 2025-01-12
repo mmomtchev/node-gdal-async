@@ -46,15 +46,6 @@ namespace operation {
 
 //! @cond Doxygen_Suppress
 
-const ESRIParamMapping paramsESRI_Plate_Carree[] = {
-    {"False_Easting", EPSG_NAME_PARAMETER_FALSE_EASTING,
-     EPSG_CODE_PARAMETER_FALSE_EASTING, "0.0", false},
-    {"False_Northing", EPSG_NAME_PARAMETER_FALSE_NORTHING,
-     EPSG_CODE_PARAMETER_FALSE_NORTHING, "0.0", false},
-    {"Central_Meridian", EPSG_NAME_PARAMETER_LONGITUDE_OF_NATURAL_ORIGIN,
-     EPSG_CODE_PARAMETER_LONGITUDE_OF_NATURAL_ORIGIN, "0.0", false},
-    {nullptr, nullptr, 0, "0.0", false}};
-
 const ESRIParamMapping paramsESRI_Equidistant_Cylindrical[] = {
     {"False_Easting", EPSG_NAME_PARAMETER_FALSE_EASTING,
      EPSG_CODE_PARAMETER_FALSE_EASTING, "0.0", false},
@@ -64,6 +55,15 @@ const ESRIParamMapping paramsESRI_Equidistant_Cylindrical[] = {
      EPSG_CODE_PARAMETER_LONGITUDE_OF_NATURAL_ORIGIN, "0.0", false},
     {"Standard_Parallel_1", EPSG_NAME_PARAMETER_LATITUDE_1ST_STD_PARALLEL,
      EPSG_CODE_PARAMETER_LATITUDE_1ST_STD_PARALLEL, "0.0", false},
+    {nullptr, nullptr, 0, "0.0", false}};
+
+const ESRIParamMapping paramsESRI_Plate_Carree[] = {
+    {"False_Easting", EPSG_NAME_PARAMETER_FALSE_EASTING,
+     EPSG_CODE_PARAMETER_FALSE_EASTING, "0.0", false},
+    {"False_Northing", EPSG_NAME_PARAMETER_FALSE_NORTHING,
+     EPSG_CODE_PARAMETER_FALSE_NORTHING, "0.0", false},
+    {"Central_Meridian", EPSG_NAME_PARAMETER_LONGITUDE_OF_NATURAL_ORIGIN,
+     EPSG_CODE_PARAMETER_LONGITUDE_OF_NATURAL_ORIGIN, "0.0", false},
     {nullptr, nullptr, 0, "0.0", false}};
 
 static const ESRIParamMapping paramsESRI_Miller_Cylindrical[] = {
@@ -221,17 +221,6 @@ static const ESRIParamMapping paramsESRI_Gall_Stereographic[] = {
      EPSG_CODE_PARAMETER_LONGITUDE_OF_NATURAL_ORIGIN, "0.0", false},
     {nullptr, nullptr, 0, "0.0", false}};
 
-static const ESRIParamMapping paramsESRI_Behrmann[] = {
-    {"False_Easting", EPSG_NAME_PARAMETER_FALSE_EASTING,
-     EPSG_CODE_PARAMETER_FALSE_EASTING, "0.0", false},
-    {"False_Northing", EPSG_NAME_PARAMETER_FALSE_NORTHING,
-     EPSG_CODE_PARAMETER_FALSE_NORTHING, "0.0", false},
-    {"Central_Meridian", EPSG_NAME_PARAMETER_LONGITUDE_OF_NATURAL_ORIGIN,
-     EPSG_CODE_PARAMETER_LONGITUDE_OF_NATURAL_ORIGIN, "0.0", true},
-    {"Standard_Parallel_1", EPSG_NAME_PARAMETER_LATITUDE_1ST_STD_PARALLEL,
-     EPSG_CODE_PARAMETER_LATITUDE_1ST_STD_PARALLEL, "30.0", true},
-    {nullptr, nullptr, 0, "0.0", false}};
-
 static const ESRIParamMapping paramsESRI_Winkel_I[] = {
     {"False_Easting", EPSG_NAME_PARAMETER_FALSE_EASTING,
      EPSG_CODE_PARAMETER_FALSE_EASTING, "0.0", false},
@@ -364,8 +353,8 @@ static const ESRIParamMapping
          EPSG_CODE_PARAMETER_NORTHING_PROJECTION_CENTRE, "0.0", false},
         {"Latitude_Of_1st_Point", "Latitude of 1st point", 0, "0.0", false},
         {"Latitude_Of_2nd_Point", "Latitude of 2nd point", 0, "0.0", false},
-        {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_INITIAL_LINE,
-         EPSG_CODE_PARAMETER_SCALE_FACTOR_INITIAL_LINE, "0.0", false},
+        {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE,
+         EPSG_CODE_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE, "0.0", false},
         {"Longitude_Of_1st_Point", "Longitude of 1st point", 0, "0.0", false},
         {"Longitude_Of_2nd_Point", "Longitude of 2nd point", 0, "0.0", false},
         {"Latitude_Of_Center", EPSG_NAME_PARAMETER_LATITUDE_PROJECTION_CENTRE,
@@ -487,6 +476,17 @@ static const ESRIParamMapping paramsESRI_Cylindrical_Equal_Area[] = {
      EPSG_CODE_PARAMETER_LATITUDE_1ST_STD_PARALLEL, "0.0", false},
     {nullptr, nullptr, 0, "0.0", false}};
 
+static const ESRIParamMapping paramsESRI_Behrmann[] = {
+    {"False_Easting", EPSG_NAME_PARAMETER_FALSE_EASTING,
+     EPSG_CODE_PARAMETER_FALSE_EASTING, "0.0", false},
+    {"False_Northing", EPSG_NAME_PARAMETER_FALSE_NORTHING,
+     EPSG_CODE_PARAMETER_FALSE_NORTHING, "0.0", false},
+    {"Central_Meridian", EPSG_NAME_PARAMETER_LONGITUDE_OF_NATURAL_ORIGIN,
+     EPSG_CODE_PARAMETER_LONGITUDE_OF_NATURAL_ORIGIN, "0.0", true},
+    {"Standard_Parallel_1", EPSG_NAME_PARAMETER_LATITUDE_1ST_STD_PARALLEL,
+     EPSG_CODE_PARAMETER_LATITUDE_1ST_STD_PARALLEL, "30.0", true},
+    {nullptr, nullptr, 0, "0.0", false}};
+
 static const ESRIParamMapping
     paramsESRI_Hotine_Oblique_Mercator_Two_Point_Center[] = {
         {"False_Easting", EPSG_NAME_PARAMETER_EASTING_PROJECTION_CENTRE,
@@ -495,8 +495,8 @@ static const ESRIParamMapping
          EPSG_CODE_PARAMETER_NORTHING_PROJECTION_CENTRE, "0.0", false},
         {"Latitude_Of_1st_Point", "Latitude of 1st point", 0, "0.0", false},
         {"Latitude_Of_2nd_Point", "Latitude of 2nd point", 0, "0.0", false},
-        {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_INITIAL_LINE,
-         EPSG_CODE_PARAMETER_SCALE_FACTOR_INITIAL_LINE, "0.0", false},
+        {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE,
+         EPSG_CODE_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE, "0.0", false},
         {"Longitude_Of_1st_Point", "Longitude of 1st point", 0, "0.0", false},
         {"Longitude_Of_2nd_Point", "Longitude of 2nd point", 0, "0.0", false},
         {"Latitude_Of_Origin", EPSG_NAME_PARAMETER_LATITUDE_OF_NATURAL_ORIGIN,
@@ -509,10 +509,10 @@ const ESRIParamMapping
          EPSG_CODE_PARAMETER_FALSE_EASTING, "0.0", false},
         {"False_Northing", EPSG_NAME_PARAMETER_FALSE_NORTHING,
          EPSG_CODE_PARAMETER_FALSE_NORTHING, "0.0", false},
-        {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_INITIAL_LINE,
-         EPSG_CODE_PARAMETER_SCALE_FACTOR_INITIAL_LINE, "0.0", false},
-        {"Azimuth", EPSG_NAME_PARAMETER_AZIMUTH_INITIAL_LINE,
-         EPSG_CODE_PARAMETER_AZIMUTH_INITIAL_LINE, "0.0", false},
+        {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE,
+         EPSG_CODE_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE, "0.0", false},
+        {"Azimuth", EPSG_NAME_PARAMETER_AZIMUTH_PROJECTION_CENTRE,
+         EPSG_CODE_PARAMETER_AZIMUTH_PROJECTION_CENTRE, "0.0", false},
         {"Longitude_Of_Center", EPSG_NAME_PARAMETER_LONGITUDE_PROJECTION_CENTRE,
          EPSG_CODE_PARAMETER_LONGITUDE_PROJECTION_CENTRE, "0.0", false},
         {"Latitude_Of_Center", EPSG_NAME_PARAMETER_LATITUDE_PROJECTION_CENTRE,
@@ -524,10 +524,10 @@ const ESRIParamMapping paramsESRI_Hotine_Oblique_Mercator_Azimuth_Center[] = {
      EPSG_CODE_PARAMETER_EASTING_PROJECTION_CENTRE, "0.0", false},
     {"False_Northing", EPSG_NAME_PARAMETER_NORTHING_PROJECTION_CENTRE,
      EPSG_CODE_PARAMETER_NORTHING_PROJECTION_CENTRE, "0.0", false},
-    {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_INITIAL_LINE,
-     EPSG_CODE_PARAMETER_SCALE_FACTOR_INITIAL_LINE, "0.0", false},
-    {"Azimuth", EPSG_NAME_PARAMETER_AZIMUTH_INITIAL_LINE,
-     EPSG_CODE_PARAMETER_AZIMUTH_INITIAL_LINE, "0.0", false},
+    {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE,
+     EPSG_CODE_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE, "0.0", false},
+    {"Azimuth", EPSG_NAME_PARAMETER_AZIMUTH_PROJECTION_CENTRE,
+     EPSG_CODE_PARAMETER_AZIMUTH_PROJECTION_CENTRE, "0.0", false},
     {"Longitude_Of_Center", EPSG_NAME_PARAMETER_LONGITUDE_PROJECTION_CENTRE,
      EPSG_CODE_PARAMETER_LONGITUDE_PROJECTION_CENTRE, "0.0", false},
     {"Latitude_Of_Center", EPSG_NAME_PARAMETER_LATITUDE_PROJECTION_CENTRE,
@@ -611,16 +611,18 @@ static const ESRIParamMapping paramsESRI_Orthographic[] = {
     {nullptr, nullptr, 0, "0.0", false}};
 
 static const ESRIParamMapping paramsESRI_Local[] = {
-    {"False_Easting", EPSG_NAME_PARAMETER_FALSE_EASTING,
-     EPSG_CODE_PARAMETER_FALSE_EASTING, "0.0", false},
-    {"False_Northing", EPSG_NAME_PARAMETER_FALSE_NORTHING,
-     EPSG_CODE_PARAMETER_FALSE_NORTHING, "0.0", false},
-    {"Scale_Factor", nullptr, 0, "1.0", false},
-    {"Azimuth", nullptr, 0, "0.0", false},
-    {"Longitude_Of_Center", EPSG_NAME_PARAMETER_LONGITUDE_OF_NATURAL_ORIGIN,
-     EPSG_CODE_PARAMETER_LONGITUDE_OF_NATURAL_ORIGIN, "0.0", false},
-    {"Latitude_Of_Center", EPSG_NAME_PARAMETER_LATITUDE_OF_NATURAL_ORIGIN,
-     EPSG_CODE_PARAMETER_LATITUDE_OF_NATURAL_ORIGIN, "0.0", false},
+    {"False_Easting", EPSG_NAME_PARAMETER_EASTING_PROJECTION_CENTRE,
+     EPSG_CODE_PARAMETER_EASTING_PROJECTION_CENTRE, "0.0", false},
+    {"False_Northing", EPSG_NAME_PARAMETER_NORTHING_PROJECTION_CENTRE,
+     EPSG_CODE_PARAMETER_NORTHING_PROJECTION_CENTRE, "0.0", false},
+    {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE,
+     EPSG_CODE_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE, "0.0", false},
+    {"Azimuth", EPSG_NAME_PARAMETER_AZIMUTH_PROJECTION_CENTRE,
+     EPSG_CODE_PARAMETER_AZIMUTH_PROJECTION_CENTRE, "0.0", false},
+    {"Longitude_Of_Center", EPSG_NAME_PARAMETER_LONGITUDE_PROJECTION_CENTRE,
+     EPSG_CODE_PARAMETER_LONGITUDE_PROJECTION_CENTRE, "0.0", false},
+    {"Latitude_Of_Center", EPSG_NAME_PARAMETER_LATITUDE_PROJECTION_CENTRE,
+     EPSG_CODE_PARAMETER_LATITUDE_PROJECTION_CENTRE, "0.0", false},
     {nullptr, nullptr, 0, "0.0", false}};
 
 static const ESRIParamMapping paramsESRI_Winkel_Tripel[] = {
@@ -721,10 +723,10 @@ const ESRIParamMapping paramsESRI_Rectified_Skew_Orthomorphic_Natural_Origin[] =
       EPSG_CODE_PARAMETER_FALSE_EASTING, "0.0", false},
      {"False_Northing", EPSG_NAME_PARAMETER_FALSE_NORTHING,
       EPSG_CODE_PARAMETER_FALSE_NORTHING, "0.0", false},
-     {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_INITIAL_LINE,
-      EPSG_CODE_PARAMETER_SCALE_FACTOR_INITIAL_LINE, "0.0", false},
-     {"Azimuth", EPSG_NAME_PARAMETER_AZIMUTH_INITIAL_LINE,
-      EPSG_CODE_PARAMETER_AZIMUTH_INITIAL_LINE, "0.0", false},
+     {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE,
+      EPSG_CODE_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE, "0.0", false},
+     {"Azimuth", EPSG_NAME_PARAMETER_AZIMUTH_PROJECTION_CENTRE,
+      EPSG_CODE_PARAMETER_AZIMUTH_PROJECTION_CENTRE, "0.0", false},
      {"Longitude_Of_Center", EPSG_NAME_PARAMETER_LONGITUDE_PROJECTION_CENTRE,
       EPSG_CODE_PARAMETER_LONGITUDE_PROJECTION_CENTRE, "0.0", false},
      {"Latitude_Of_Center", EPSG_NAME_PARAMETER_LATITUDE_PROJECTION_CENTRE,
@@ -738,10 +740,10 @@ const ESRIParamMapping paramsESRI_Rectified_Skew_Orthomorphic_Center[] = {
      EPSG_CODE_PARAMETER_EASTING_PROJECTION_CENTRE, "0.0", false},
     {"False_Northing", EPSG_NAME_PARAMETER_NORTHING_PROJECTION_CENTRE,
      EPSG_CODE_PARAMETER_NORTHING_PROJECTION_CENTRE, "0.0", false},
-    {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_INITIAL_LINE,
-     EPSG_CODE_PARAMETER_SCALE_FACTOR_INITIAL_LINE, "0.0", false},
-    {"Azimuth", EPSG_NAME_PARAMETER_AZIMUTH_INITIAL_LINE,
-     EPSG_CODE_PARAMETER_AZIMUTH_INITIAL_LINE, "0.0", false},
+    {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE,
+     EPSG_CODE_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE, "0.0", false},
+    {"Azimuth", EPSG_NAME_PARAMETER_AZIMUTH_PROJECTION_CENTRE,
+     EPSG_CODE_PARAMETER_AZIMUTH_PROJECTION_CENTRE, "0.0", false},
     {"Longitude_Of_Center", EPSG_NAME_PARAMETER_LONGITUDE_PROJECTION_CENTRE,
      EPSG_CODE_PARAMETER_LONGITUDE_PROJECTION_CENTRE, "0.0", false},
     {"Latitude_Of_Center", EPSG_NAME_PARAMETER_LATITUDE_PROJECTION_CENTRE,
@@ -794,10 +796,10 @@ static const ESRIParamMapping paramsESRI_Laborde_Oblique_Mercator[] = {
      EPSG_CODE_PARAMETER_FALSE_EASTING, "0.0", false},
     {"False_Northing", EPSG_NAME_PARAMETER_FALSE_NORTHING,
      EPSG_CODE_PARAMETER_FALSE_NORTHING, "0.0", false},
-    {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_INITIAL_LINE,
-     EPSG_CODE_PARAMETER_SCALE_FACTOR_INITIAL_LINE, "0.0", false},
-    {"Azimuth", EPSG_NAME_PARAMETER_AZIMUTH_INITIAL_LINE,
-     EPSG_CODE_PARAMETER_AZIMUTH_INITIAL_LINE, "0.0", false},
+    {"Scale_Factor", EPSG_NAME_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE,
+     EPSG_CODE_PARAMETER_SCALE_FACTOR_PROJECTION_CENTRE, "0.0", false},
+    {"Azimuth", EPSG_NAME_PARAMETER_AZIMUTH_PROJECTION_CENTRE,
+     EPSG_CODE_PARAMETER_AZIMUTH_PROJECTION_CENTRE, "0.0", false},
     {"Longitude_Of_Center", EPSG_NAME_PARAMETER_LONGITUDE_PROJECTION_CENTRE,
      EPSG_CODE_PARAMETER_LONGITUDE_PROJECTION_CENTRE, "0.0", false},
     {"Latitude_Of_Center", EPSG_NAME_PARAMETER_LATITUDE_PROJECTION_CENTRE,
@@ -988,14 +990,14 @@ static const ESRIParamMapping paramsESRI_Peirce_Quincuncial_alt2[] = {
     {nullptr, nullptr, 0, "0.0", false}};
 
 static const ESRIMethodMapping esriMappings[] = {
+    {"Equidistant_Cylindrical", EPSG_NAME_METHOD_EQUIDISTANT_CYLINDRICAL,
+     EPSG_CODE_METHOD_EQUIDISTANT_CYLINDRICAL,
+     paramsESRI_Equidistant_Cylindrical},
     {"Plate_Carree", EPSG_NAME_METHOD_EQUIDISTANT_CYLINDRICAL,
      EPSG_CODE_METHOD_EQUIDISTANT_CYLINDRICAL, paramsESRI_Plate_Carree},
     {"Plate_Carree", EPSG_NAME_METHOD_EQUIDISTANT_CYLINDRICAL_SPHERICAL,
      EPSG_CODE_METHOD_EQUIDISTANT_CYLINDRICAL_SPHERICAL,
      paramsESRI_Plate_Carree},
-    {"Equidistant_Cylindrical", EPSG_NAME_METHOD_EQUIDISTANT_CYLINDRICAL,
-     EPSG_CODE_METHOD_EQUIDISTANT_CYLINDRICAL,
-     paramsESRI_Equidistant_Cylindrical},
     {"Miller_Cylindrical", PROJ_WKT2_NAME_METHOD_MILLER_CYLINDRICAL, 0,
      paramsESRI_Miller_Cylindrical},
     {"Mercator", EPSG_NAME_METHOD_MERCATOR_VARIANT_B,
@@ -1019,8 +1021,6 @@ static const ESRIMethodMapping esriMappings[] = {
     {"Eckert_VI", PROJ_WKT2_NAME_METHOD_ECKERT_VI, 0, paramsESRI_Eckert_VI},
     {"Gall_Stereographic", PROJ_WKT2_NAME_METHOD_GALL_STEREOGRAPHIC, 0,
      paramsESRI_Gall_Stereographic},
-    {"Behrmann", EPSG_NAME_METHOD_LAMBERT_CYLINDRICAL_EQUAL_AREA,
-     EPSG_CODE_METHOD_LAMBERT_CYLINDRICAL_EQUAL_AREA, paramsESRI_Behrmann},
     {"Winkel_I", "Winkel I", 0, paramsESRI_Winkel_I},
     {"Winkel_II", "Winkel II", 0, paramsESRI_Winkel_II},
     {"Lambert_Conformal_Conic", EPSG_NAME_METHOD_LAMBERT_CONIC_CONFORMAL_1SP,
@@ -1050,8 +1050,8 @@ static const ESRIMethodMapping esriMappings[] = {
      EPSG_NAME_METHOD_POLAR_STEREOGRAPHIC_VARIANT_A,
      EPSG_CODE_METHOD_POLAR_STEREOGRAPHIC_VARIANT_A,
      paramsESRI_Polar_Stereographic_Variant_A},
-    {"Equidistant_Conic", PROJ_WKT2_NAME_METHOD_EQUIDISTANT_CONIC, 0,
-     paramsESRI_Equidistant_Conic},
+    {"Equidistant_Conic", EPSG_NAME_METHOD_EQUIDISTANT_CONIC,
+     EPSG_CODE_METHOD_EQUIDISTANT_CONIC, paramsESRI_Equidistant_Conic},
     {"Cassini", EPSG_NAME_METHOD_CASSINI_SOLDNER,
      EPSG_CODE_METHOD_CASSINI_SOLDNER, paramsESRI_Cassini},
     {"Van_der_Grinten_I", PROJ_WKT2_NAME_METHOD_VAN_DER_GRINTEN, 0,
@@ -1059,9 +1059,8 @@ static const ESRIMethodMapping esriMappings[] = {
     {"Robinson", PROJ_WKT2_NAME_METHOD_ROBINSON, 0, paramsESRI_Robinson},
     {"Two_Point_Equidistant", PROJ_WKT2_NAME_METHOD_TWO_POINT_EQUIDISTANT, 0,
      paramsESRI_Two_Point_Equidistant},
-    {"Azimuthal_Equidistant", EPSG_NAME_METHOD_MODIFIED_AZIMUTHAL_EQUIDISTANT,
-     EPSG_CODE_METHOD_MODIFIED_AZIMUTHAL_EQUIDISTANT,
-     paramsESRI_Azimuthal_Equidistant},
+    {"Azimuthal_Equidistant", EPSG_NAME_METHOD_AZIMUTHAL_EQUIDISTANT,
+     EPSG_CODE_METHOD_AZIMUTHAL_EQUIDISTANT, paramsESRI_Azimuthal_Equidistant},
     {"Lambert_Azimuthal_Equal_Area",
      EPSG_NAME_METHOD_LAMBERT_AZIMUTHAL_EQUAL_AREA,
      EPSG_CODE_METHOD_LAMBERT_AZIMUTHAL_EQUAL_AREA,
@@ -1069,6 +1068,8 @@ static const ESRIMethodMapping esriMappings[] = {
     {"Cylindrical_Equal_Area", EPSG_NAME_METHOD_LAMBERT_CYLINDRICAL_EQUAL_AREA,
      EPSG_CODE_METHOD_LAMBERT_CYLINDRICAL_EQUAL_AREA,
      paramsESRI_Cylindrical_Equal_Area},
+    {"Behrmann", EPSG_NAME_METHOD_LAMBERT_CYLINDRICAL_EQUAL_AREA,
+     EPSG_CODE_METHOD_LAMBERT_CYLINDRICAL_EQUAL_AREA, paramsESRI_Behrmann},
     {"Hotine_Oblique_Mercator_Two_Point_Center",
      PROJ_WKT2_NAME_METHOD_HOTINE_OBLIQUE_MERCATOR_TWO_POINT_NATURAL_ORIGIN, 0,
      paramsESRI_Hotine_Oblique_Mercator_Two_Point_Center},
@@ -1090,8 +1091,8 @@ static const ESRIMethodMapping esriMappings[] = {
      paramsESRI_New_Zealand_Map_Grid},
     {"Orthographic", PROJ_WKT2_NAME_ORTHOGRAPHIC_SPHERICAL, 0,
      paramsESRI_Orthographic},
-    {"Local", EPSG_NAME_METHOD_ORTHOGRAPHIC, EPSG_CODE_METHOD_ORTHOGRAPHIC,
-     paramsESRI_Local},
+    {"Local", EPSG_NAME_METHOD_LOCAL_ORTHOGRAPHIC,
+     EPSG_CODE_METHOD_LOCAL_ORTHOGRAPHIC, paramsESRI_Local},
     {"Winkel_Tripel", "Winkel Tripel", 0, paramsESRI_Winkel_Tripel},
     {"Aitoff", "Aitoff", 0, paramsESRI_Aitoff},
     {"Flat_Polar_Quartic", PROJ_WKT2_NAME_METHOD_FLAT_POLAR_QUARTIC, 0,

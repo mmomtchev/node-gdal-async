@@ -25,7 +25,6 @@
  * DEALINGS IN THE SOFTWARE.
  *****************************************************************************/
 
-#define PJ_LIB_
 #define PROJ_COMPILATION
 
 #include "defmodel.hpp"
@@ -346,6 +345,12 @@ static PJ *destructor(PJ *P, int errlev) {
 static void forward_4d(PJ_COORD &coo, PJ *P) {
     auto *Q = (struct defmodelData *)P->opaque;
 
+    if (coo.xyzt.t == HUGE_VAL) {
+        coo = proj_coord_error();
+        proj_errno_set(P, PROJ_ERR_COORD_TRANSFM_MISSING_TIME);
+        return;
+    }
+
     if (!Q->evaluator->forward(Q->evaluatorIface, coo.xyzt.x, coo.xyzt.y,
                                coo.xyzt.z, coo.xyzt.t, coo.xyzt.x, coo.xyzt.y,
                                coo.xyzt.z)) {
@@ -355,6 +360,12 @@ static void forward_4d(PJ_COORD &coo, PJ *P) {
 
 static void reverse_4d(PJ_COORD &coo, PJ *P) {
     auto *Q = (struct defmodelData *)P->opaque;
+
+    if (coo.xyzt.t == HUGE_VAL) {
+        coo = proj_coord_error();
+        proj_errno_set(P, PROJ_ERR_COORD_TRANSFM_MISSING_TIME);
+        return;
+    }
 
     if (!Q->evaluator->inverse(Q->evaluatorIface, coo.xyzt.x, coo.xyzt.y,
                                coo.xyzt.z, coo.xyzt.t, coo.xyzt.x, coo.xyzt.y,
@@ -374,7 +385,7 @@ static void reassign_context(PJ *P, PJ_CONTEXT *ctx) {
     }
 }
 
-PJ *TRANSFORMATION(defmodel, 1) {
+PJ *PJ_TRANSFORMATION(defmodel, 1) {
     // Pass a dummy ellipsoid definition that will be overridden just afterwards
     auto cart = proj_create(P->ctx, "+proj=cart +a=1");
     if (cart == nullptr)
