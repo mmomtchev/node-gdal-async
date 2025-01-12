@@ -258,6 +258,23 @@ set(SRC_LIBPROJ_CORE
   ${CMAKE_CURRENT_BINARY_DIR}/proj_config.h
 )
 
+# Skip Unity build for specific files
+set(SKIP_UNITY_BUILD_FILES
+  list.cpp # because if sets DO_NOT_DEFINE_PROJ_HEAD
+  transformations/defmodel.cpp # Evaluator class conflict
+  transformations/tinshift.cpp # Evaluator class conflict
+  wkt1_parser.cpp
+  wkt2_parser.cpp
+  wkt1_generated_parser.c
+  wkt2_generated_parser.c
+)
+if(WIN32)
+  list(APPEND SKIP_UNITY_BUILD_FILES
+    networkfilemanager.cpp
+  )
+endif()
+set_property(SOURCE ${SKIP_UNITY_BUILD_FILES} PROPERTY SKIP_UNITY_BUILD_INCLUSION ON)
+
 set(HEADERS_LIBPROJ
   proj.h
   proj_experimental.h
@@ -286,7 +303,9 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 source_group("CMake Files" FILES CMakeLists.txt)
 
 # Embed PROJ_DATA data files location
-add_definitions(-DPROJ_DATA="${PROJ_DATA_PATH}")
+if(EMBED_PROJ_DATA_PATH)
+  add_definitions(-DPROJ_DATA="${PROJ_DATA_PATH}")
+endif()
 
 
 ###########################################################
@@ -327,7 +346,7 @@ add_custom_target(check_wkt2_grammar_md5 ALL
                   COMMAND ${CMAKE_COMMAND}
                       "-DIN_FILE=wkt2_grammar.y"
                       "-DTARGET=generate_wkt2_parser"
-                      "-DEXPECTED_MD5SUM=289572eebe9dab3c7225bd48c445c287"
+                      "-DEXPECTED_MD5SUM=94337ca471caf74688db939009652ddb"
                       -P "${CMAKE_CURRENT_SOURCE_DIR}/check_md5sum.cmake"
                   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
                   DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/wkt2_grammar.y"
@@ -355,7 +374,6 @@ set(ALL_LIBPROJ_SOURCES
 set(ALL_LIBPROJ_HEADERS ${HEADERS_LIBPROJ})
 
 # Configuration for the core target "proj"
-proj_target_output_name(proj PROJ_CORE_TARGET_OUTPUT_NAME)
 
 add_library(proj
   ${ALL_LIBPROJ_SOURCES}
@@ -394,12 +412,36 @@ target_include_directories(proj INTERFACE
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
 if(WIN32)
+    if (MINGW AND BUILD_SHARED_LIBS)
+        option(APPEND_SOVERSION "Whether to include shared object version as a suffix in the name of the PROJ shared library name." OFF)
+    endif()
+    if(MINGW AND BUILD_SHARED_LIBS AND APPEND_SOVERSION)
+        set(PROJ_OUTPUT_NAME "proj" CACHE STRING "Name of the PROJ library")
+    else()
+        # Detect major version update if re-using a CMake build directory where the
+        # PROJ version major number has been updated in the meantime.
+        math(EXPR PROJ_VERSION_MAJOR_MINUS_ONE "${PROJ_VERSION_MAJOR} - 1")
+        if(DEFINED PROJ_OUTPUT_NAME AND PROJ_OUTPUT_NAME STREQUAL "proj_${PROJ_VERSION_MAJOR_MINUS_ONE}")
+            message(WARNING "PROJ_OUTPUT_NAME was set to ${PROJ_OUTPUT_NAME}. Updating it to proj_${PROJ_VERSION_MAJOR}")
+            unset(PROJ_OUTPUT_NAME CACHE)
+        endif()
+        set(PROJ_OUTPUT_NAME "proj_${PROJ_VERSION_MAJOR}" CACHE STRING "Name of the PROJ library")
+    endif()
+else()
+    set(PROJ_OUTPUT_NAME "proj" CACHE STRING "Name of the PROJ library")
+endif()
+
+set_target_properties(proj PROPERTIES OUTPUT_NAME ${PROJ_OUTPUT_NAME})
+
+if(WIN32)
   set_target_properties(proj
     PROPERTIES
     VERSION "${PROJ_VERSION}"
-    OUTPUT_NAME "${PROJ_CORE_TARGET_OUTPUT_NAME}"
     ARCHIVE_OUTPUT_NAME proj
     CLEAN_DIRECT_OUTPUT 1)
+    if (MINGW AND BUILD_SHARED_LIBS AND APPEND_SOVERSION)
+        set_target_properties(proj PROPERTIES SUFFIX "-${PROJ_SOVERSION}${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    endif()
 elseif(BUILD_FRAMEWORKS_AND_BUNDLE)
   set_target_properties(proj
     PROPERTIES
@@ -424,6 +466,13 @@ set_target_properties(proj
 set(PROJ_LIBRARIES proj)
 # hack, required for test/unit
 set(PROJ_LIBRARIES ${PROJ_LIBRARIES} PARENT_SCOPE)
+if(WIN32)
+target_link_libraries (proj
+  PRIVATE
+    shell32.lib
+    ole32.lib
+)
+endif()
 if(UNIX)
   find_library(M_LIB m)
   if(M_LIB)
@@ -438,8 +487,7 @@ if(Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
   target_link_libraries(proj PRIVATE ${CMAKE_THREAD_LIBS_INIT})
 endif()
 
-target_include_directories(proj PRIVATE ${SQLITE3_INCLUDE_DIR})
-target_link_libraries(proj PRIVATE ${SQLITE3_LIBRARY})
+target_link_libraries(proj PRIVATE SQLite::SQLite3)
 
 if(NLOHMANN_JSON STREQUAL "external")
   target_compile_definitions(proj PRIVATE EXTERNAL_NLOHMANN_JSON)
@@ -449,26 +497,12 @@ endif()
 
 if(TIFF_ENABLED)
   target_compile_definitions(proj PRIVATE -DTIFF_ENABLED)
-  if( CMAKE_VERSION VERSION_LESS 3.11 AND CMAKE_CROSSCOMPILING )
-      # Hack needed for ubuntu:18.04 mingw64 cross compiling to avoid
-      # -isystem to be emitted (similar to https://discourse.cmake.org/t/use-of-isystem/1574)
-      target_include_directories(proj PRIVATE ${TIFF_INCLUDE_DIRS})
-      target_link_libraries(proj PRIVATE ${TIFF_LIBRARIES})
-  else()
-      target_link_libraries(proj PRIVATE TIFF::TIFF)
-  endif()
+  target_link_libraries(proj PRIVATE TIFF::TIFF)
 endif()
 
 if(CURL_ENABLED)
   target_compile_definitions(proj PRIVATE -DCURL_ENABLED)
-  if( CMAKE_VERSION VERSION_LESS 3.11 AND CMAKE_CROSSCOMPILING )
-      # Hack needed for ubuntu:18.04 mingw64 cross compiling to avoid
-      # -isystem to be emitted (similar to https://discourse.cmake.org/t/use-of-isystem/1574)
-      target_include_directories(proj PRIVATE ${CURL_INCLUDE_DIRS})
-      target_link_libraries(proj PRIVATE ${CURL_LIBRARIES})
-  else()
-      target_link_libraries(proj PRIVATE CURL::libcurl)
-  endif()
+  target_link_libraries(proj PRIVATE CURL::libcurl)
   target_link_libraries(proj
     PRIVATE
       $<$<CXX_COMPILER_ID:MSVC>:ws2_32>
@@ -504,6 +538,6 @@ endif()
 ##############################################
 # Core configuration summary
 ##############################################
-print_variable(PROJ_CORE_TARGET_OUTPUT_NAME)
+print_variable(PROJ_OUTPUT_NAME)
 print_variable(BUILD_SHARED_LIBS)
 print_variable(PROJ_LIBRARIES)

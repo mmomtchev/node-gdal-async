@@ -44,6 +44,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 
 NS_PROJ_START
 
@@ -200,7 +201,7 @@ class GTXVerticalShiftGrid : public VerticalShiftGrid {
     PJ_CONTEXT *m_ctx;
     std::unique_ptr<File> m_fp;
     std::unique_ptr<FloatLineCache> m_cache;
-    mutable std::vector<float> m_buffer;
+    mutable std::vector<float> m_buffer{};
 
     GTXVerticalShiftGrid(const GTXVerticalShiftGrid &) = delete;
     GTXVerticalShiftGrid &operator=(const GTXVerticalShiftGrid &) = delete;
@@ -484,7 +485,8 @@ class GTiffGrid : public Grid {
     bool valueAt(uint16_t sample, int x, int y, float &out) const;
 
     bool valuesAt(int x_start, int y_start, int x_count, int y_count,
-                  int sample_count, const int *sample_idx, float *out) const;
+                  int sample_count, const int *sample_idx, float *out,
+                  bool &nodataFound) const;
 
     bool isNodata(float val) const;
 
@@ -769,11 +771,12 @@ bool GTiffGrid::valueAt(uint16_t sample, int x, int yFromBottom,
 // ---------------------------------------------------------------------------
 
 bool GTiffGrid::valuesAt(int x_start, int y_start, int x_count, int y_count,
-                         int sample_count, const int *sample_idx,
-                         float *out) const {
+                         int sample_count, const int *sample_idx, float *out,
+                         bool &nodataFound) const {
     const auto getTIFFRow = [this](int y) {
         return m_bottomUp ? y : m_height - 1 - y;
     };
+    nodataFound = false;
     if (m_blockIs256Pixel && m_planarConfig == PLANARCONFIG_CONTIG &&
         m_dt == TIFFDataType::Float32 &&
         (x_start / 256) == (x_start + x_count - 1) / 256 &&
@@ -915,6 +918,9 @@ bool GTiffGrid::valuesAt(int x_start, int y_start, int x_count, int y_count,
                 if (!valueAt(static_cast<uint16_t>(sample_idx[isample]), x, y,
                              *out))
                     return false;
+                if (isNodata(*out)) {
+                    nodataFound = true;
+                }
                 ++out;
             }
         }
@@ -1358,8 +1364,6 @@ class GTiffVGridShiftSet : public VerticalShiftGridSet {
     }
 };
 
-#endif // TIFF_ENABLED
-
 // ---------------------------------------------------------------------------
 
 template <class GridType, class GenericGridType>
@@ -1424,7 +1428,6 @@ insertIntoHierarchy(PJ_CONTEXT *ctx, std::unique_ptr<GridType> &&grid,
     topGrids.emplace_back(std::move(grid));
 }
 
-#ifdef TIFF_ENABLED
 // ---------------------------------------------------------------------------
 
 class GTiffVGrid : public VerticalShiftGrid {
@@ -1613,7 +1616,7 @@ VerticalShiftGridSet::open(PJ_CONTEXT *ctx, const std::string &filename) {
     if (!fp) {
         return nullptr;
     }
-    const auto actualName(fp->name());
+    const auto &actualName(fp->name());
     if (ends_with(actualName, "gtx") || ends_with(actualName, "GTX")) {
         auto grid = GTXVerticalShiftGrid::open(ctx, std::move(fp), actualName);
         if (!grid) {
@@ -1852,7 +1855,9 @@ NTv1Grid *NTv1Grid::open(PJ_CONTEXT *ctx, std::unique_ptr<File> fp,
         swap_words(header + 104, sizeof(double), 1);
     }
 
-    if (*((int *)(header + 8)) != 12) {
+    int recordCount;
+    memcpy(&recordCount, header + 8, sizeof(recordCount));
+    if (recordCount != 12) {
         pj_log(ctx, PJ_LOG_ERROR,
                _("NTv1 grid shift file has wrong record count, corrupt?"));
         proj_context_errno_set(ctx,
@@ -2041,7 +2046,7 @@ bool CTable2Grid::valueAt(int x, int y, bool compensateNTConvention,
 
 class NTv2GridSet : public HorizontalShiftGridSet {
     std::unique_ptr<File> m_fp;
-    std::unique_ptr<FloatLineCache> m_cache;
+    std::unique_ptr<FloatLineCache> m_cache{};
 
     NTv2GridSet(const NTv2GridSet &) = delete;
     NTv2GridSet &operator=(const NTv2GridSet &) = delete;
@@ -2072,7 +2077,7 @@ class NTv2Grid : public HorizontalShiftGrid {
     uint32_t m_gridIdx;
     unsigned long long m_offset;
     bool m_mustSwap;
-    mutable std::vector<float> m_buffer;
+    mutable std::vector<float> m_buffer{};
 
     NTv2Grid(const NTv2Grid &) = delete;
     NTv2Grid &operator=(const NTv2Grid &) = delete;
@@ -2657,7 +2662,7 @@ HorizontalShiftGridSet::open(PJ_CONTEXT *ctx, const std::string &filename) {
     if (!fp) {
         return nullptr;
     }
-    const auto actualName(fp->name());
+    const auto &actualName(fp->name());
 
     char header[160];
     /* -------------------------------------------------------------------- */
@@ -2845,8 +2850,8 @@ class GTiffGenericGrid final : public GenericShiftGrid {
     bool valueAt(int x, int y, int sample, float &out) const override;
 
     bool valuesAt(int x_start, int y_start, int x_count, int y_count,
-                  int sample_count, const int *sample_idx,
-                  float *out) const override;
+                  int sample_count, const int *sample_idx, float *out,
+                  bool &nodataFound) const override;
 
     int samplesPerPixel() const override { return m_grid->samplesPerPixel(); }
 
@@ -2887,6 +2892,10 @@ class GTiffGenericGrid final : public GenericShiftGrid {
     }
 
     bool hasChanged() const override { return m_grid->hasChanged(); }
+
+  private:
+    GTiffGenericGrid(const GTiffGenericGrid &) = delete;
+    GTiffGenericGrid &operator=(const GTiffGenericGrid &) = delete;
 };
 
 // ---------------------------------------------------------------------------
@@ -2917,9 +2926,10 @@ bool GTiffGenericGrid::valueAt(int x, int y, int sample, float &out) const {
 
 bool GTiffGenericGrid::valuesAt(int x_start, int y_start, int x_count,
                                 int y_count, int sample_count,
-                                const int *sample_idx, float *out) const {
+                                const int *sample_idx, float *out,
+                                bool &nodataFound) const {
     return m_grid->valuesAt(x_start, y_start, x_count, y_count, sample_count,
-                            sample_idx, out);
+                            sample_idx, out, nodataFound);
 }
 
 // ---------------------------------------------------------------------------
@@ -3047,7 +3057,9 @@ GenericShiftGrid::~GenericShiftGrid() = default;
 
 bool GenericShiftGrid::valuesAt(int x_start, int y_start, int x_count,
                                 int y_count, int sample_count,
-                                const int *sample_idx, float *out) const {
+                                const int *sample_idx, float *out,
+                                bool &nodataFound) const {
+    nodataFound = false;
     for (int y = y_start; y < y_start + y_count; ++y) {
         for (int x = x_start; x < x_start + x_count; ++x) {
             for (int isample = 0; isample < sample_count; ++isample) {
@@ -3086,7 +3098,6 @@ GenericShiftGridSet::open(PJ_CONTEXT *ctx, const std::string &filename) {
     if (!fp) {
         return nullptr;
     }
-    const auto actualName(fp->name());
 
     /* -------------------------------------------------------------------- */
     /*      Load a header, to determine the file type.                      */
@@ -3100,6 +3111,7 @@ GenericShiftGridSet::open(PJ_CONTEXT *ctx, const std::string &filename) {
 
     if (IsTIFF(header_size, header)) {
 #ifdef TIFF_ENABLED
+        const std::string actualName(fp->name());
         auto set = std::unique_ptr<GenericShiftGridSet>(
             GTiffGenericGridShiftSet::open(ctx, std::move(fp), actualName));
         if (!set)

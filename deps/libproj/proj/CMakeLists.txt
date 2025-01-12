@@ -9,7 +9,7 @@
 ################################################################################
 # General settings
 ################################################################################
-cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.16)
 
 project(PROJ
   DESCRIPTION "PROJ coordinate transformation software library"
@@ -44,27 +44,55 @@ set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 # Set warnings as variables, then store as cache options
 set(PROJ_common_WARN_FLAGS  # common only to GNU/Clang C/C++
   -Wall
+  -Wdate-time
+  -Werror=format-security
+  -Werror=vla
   -Wextra
-  -Wswitch
-  -Wshadow
-  -Wunused-parameter
-  -Wmissing-declarations
   -Wformat
-  -Wformat-security
+  -Wmissing-declarations
+  -Wshadow
+  -Wswitch
+  -Wunused-parameter
 )
 if("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
+  set(PROJ_common_WARN_FLAGS ${PROJ_common_WARN_FLAGS}
+    -Wduplicated-cond
+    -Wduplicated-branches
+    -Wlogical-op
+  )
   set(PROJ_C_WARN_FLAGS ${PROJ_common_WARN_FLAGS}
     -Wmissing-prototypes
   )
-  set(PROJ_CXX_WARN_FLAGS ${PROJ_common_WARN_FLAGS})
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 8)
+        set(PROJ_CXX_WARN_FLAGS ${PROJ_common_WARN_FLAGS} -Wextra-semi)
+  endif()
+  set(PROJ_CXX_WARN_FLAGS ${PROJ_common_WARN_FLAGS}
+    -Weffc++
+    # -Wold-style-cast
+    -Woverloaded-virtual
+    -Wzero-as-null-pointer-constant
+  )
 elseif("${CMAKE_C_COMPILER_ID}" MATCHES "Clang")
+  set(PROJ_common_WARN_FLAGS ${PROJ_common_WARN_FLAGS}
+    -Wcomma
+    -Wdeprecated
+    -Wdocumentation -Wno-documentation-deprecated-sync
+    -Wfloat-conversion
+    -Wlogical-op-parentheses
+    # -Wweak-vtables
+  )
   set(PROJ_C_WARN_FLAGS ${PROJ_common_WARN_FLAGS}
     -Wmissing-prototypes
-    -Wfloat-conversion
     -Wc11-extensions
   )
   set(PROJ_CXX_WARN_FLAGS ${PROJ_common_WARN_FLAGS}
-    -Wfloat-conversion
+    -Weffc++
+    -Wextra-semi
+    # -Wold-style-cast
+    -Woverloaded-virtual
+    -Wshorten-64-to-32
+    -Wunused-private-field
+    -Wzero-as-null-pointer-constant
   )
 elseif("${CMAKE_C_COMPILER_ID}" STREQUAL "MSVC")
   add_definitions(/D_CRT_SECURE_NO_WARNINGS) # Eliminate deprecation warnings
@@ -115,7 +143,7 @@ message(STATUS "Configuring PROJ:")
 #PROJ version information
 ################################################################################
 include(ProjVersion)
-proj_version(MAJOR 9 MINOR 3 PATCH 0)
+proj_version(MAJOR 9 MINOR 5 PATCH 1)
 set(PROJ_SOVERSION 25)
 set(PROJ_BUILD_VERSION "${PROJ_SOVERSION}.${PROJ_VERSION}")
 
@@ -176,15 +204,22 @@ if(NOT EXE_SQLITE3)
   message(SEND_ERROR "sqlite3 binary not found!")
 endif()
 
-find_package(Sqlite3 REQUIRED)
-if(NOT SQLITE3_FOUND)
-  message(SEND_ERROR "sqlite3 dependency not found!")
+# Deprecated variables since PROJ 9.4.0
+if(DEFINED SQLITE3_INCLUDE_DIR)
+  message(DEPRECATION "Use SQLite3_INCLUDE_DIR instead of SQLITE3_INCLUDE_DIR")
+  set(SQLite3_INCLUDE_DIR ${SQLITE3_INCLUDE_DIR})
 endif()
+if(DEFINED SQLITE3_LIBRARY)
+  message(DEPRECATION "Use SQLite3_LIBRARY instead of SQLITE3_LIBRARY")
+  set(SQLite3_LIBRARY ${SQLITE3_LIBRARY})
+endif()
+
+find_package(SQLite3 REQUIRED)
 
 # Would build and run with older versions, but with horrible performance
 # See https://github.com/OSGeo/PROJ/issues/1718
-if("${SQLITE3_VERSION}" VERSION_LESS "3.11")
-  message(SEND_ERROR "sqlite3 >= 3.11 required!")
+if(SQLite3_VERSION VERSION_LESS "3.11")
+  message(SEND_ERROR "SQLite3 >= 3.11 required!")
 endif()
 
 ################################################################################
@@ -219,21 +254,20 @@ if(ENABLE_CURL)
   if(CURL_FOUND)
     set(CURL_ENABLED TRUE)
 
-    # Target CURL::libcurl only defined since CMake 3.12
-    # TODO: remove this when CMake >= 3.12 required
-    if(NOT TARGET CURL::libcurl)
-      add_library(CURL::libcurl INTERFACE IMPORTED)
-      set_target_properties(CURL::libcurl PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES "${CURL_INCLUDE_DIRS}"
-        INTERFACE_LINK_LIBRARIES      "${CURL_LIBRARIES}"
-      )
-    endif()
+    # Curl SSL options are described in
+    #   https://curl.se/libcurl/c/CURLOPT_SSL_OPTIONS.html
+    #set(CURLSSLOPT_NO_REVOKE 2)
+    #set(SSL_OPTIONS ${CURLSSLOPT_NO_REVOKE})
+    #add_compile_definitions(SSL_OPTIONS=${SSL_OPTIONS})
+
   else()
     message(SEND_ERROR "curl dependency not found!")
   endif()
 endif()
 
 ################################################################################
+
+option(EMBED_PROJ_DATA_PATH "Whether the PROJ_DATA_PATH should be embedded" ON)
 
 if(DEFINED PROJ_LIB_ENV_VAR_TRIED_LAST)
   set(PROJ_DATA_ENV_VAR_TRIED_LAST ${PROJ_LIB_ENV_VAR_TRIED_LAST})
@@ -253,14 +287,6 @@ find_package(Threads)
 if(Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
   set(CMAKE_REQUIRED_LIBRARIES
     "${CMAKE_REQUIRED_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT}")
-endif()
-
-include(CheckCSourceCompiles)
-if(MSVC)
-  set(CMAKE_REQUIRED_FLAGS "${CMAKE_C_FLAGS} /WX /W4")
-else()
-  set(CMAKE_REQUIRED_LIBRARIES m)
-  set(CMAKE_REQUIRED_FLAGS "${CMAKE_C_FLAGS} -Werror -Wall")
 endif()
 
 # Set a default build type for single-configuration cmake generators if
@@ -334,7 +360,7 @@ if(BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()
 
-set(docfiles COPYING NEWS AUTHORS)
+set(docfiles COPYING NEWS.md AUTHORS.md)
 install(FILES ${docfiles}
         DESTINATION ${CMAKE_INSTALL_DOCDIR})
 
@@ -373,7 +399,7 @@ set(CPACK_SOURCE_IGNORE_FILES
   /Dockerfile
   /docs/
   /Doxyfile
-  /HOWTO-RELEASE
+  /HOWTO-RELEASE.md
   /m4/lt*
   /m4/libtool*
   /media/
@@ -388,18 +414,10 @@ set(CPACK_SOURCE_IGNORE_FILES
 
 include(CPack)
 
-# Simplify README.md to README
-add_custom_target(README
-  COMMAND ${CMAKE_COMMAND}
-    -D PROJ_SOURCE_DIR=${PROJ_SOURCE_DIR}
-    -P ${PROJ_SOURCE_DIR}/cmake/ProjReadme.cmake
-)
-
 get_property(_is_multi_config_generator GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 if(NOT _is_multi_config_generator)
   add_custom_target(dist
     COMMAND ${CMAKE_MAKE_PROGRAM} package_source
-    DEPENDS README
   )
   message(STATUS "PROJ: Configured 'dist' target")
 endif()

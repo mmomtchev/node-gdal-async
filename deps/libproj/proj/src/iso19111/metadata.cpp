@@ -238,6 +238,27 @@ GeographicBoundingBoxNNPtr GeographicBoundingBox::create(double west,
         throw InvalidValueTypeException(
             "GeographicBoundingBox::create() does not accept NaN values");
     }
+    if (south > north) {
+        throw InvalidValueTypeException(
+            "GeographicBoundingBox::create() does not accept south > north");
+    }
+    // Avoid creating a degenerate bounding box if reduced to a point or a line
+    if (west == east) {
+        if (west > -180)
+            west =
+                std::nextafter(west, -std::numeric_limits<double>::infinity());
+        if (east < 180)
+            east =
+                std::nextafter(east, std::numeric_limits<double>::infinity());
+    }
+    if (south == north) {
+        if (south > -90)
+            south =
+                std::nextafter(south, -std::numeric_limits<double>::infinity());
+        if (north < 90)
+            north =
+                std::nextafter(north, std::numeric_limits<double>::infinity());
+    }
     return GeographicBoundingBox::nn_make_shared<GeographicBoundingBox>(
         west, south, east, north);
 }
@@ -322,14 +343,21 @@ bool GeographicBoundingBox::Private::intersects(const Private &other) const {
     const double oN = other.north_;
     const double oS = other.south_;
 
+    // Check intersection along the latitude axis
     if (N < oS || S > oN) {
         return false;
     }
 
+    // Check world coverage of this bbox, and other bbox overlapping
+    // antimeridian (e.g. oW=175 and oE=-175)
+    // Check oW > oE written for symmetry with the intersection() method.
     if (W == -180.0 && E == 180.0 && oW > oE) {
         return true;
     }
 
+    // Check world coverage of othre bbox, and this bbox overlapping
+    // antimeridian (e.g. W=175 and E=-175)
+    // Check W > E written for symmetry with the intersection() method.
     if (oW == -180.0 && oE == 180.0 && W > E) {
         return true;
     }
@@ -343,10 +371,17 @@ bool GeographicBoundingBox::Private::intersects(const Private &other) const {
             return false;
         }
 
+        // Bail out on longitudes not in [-180,180]. We could probably make
+        // some sense of them, but this check at least avoid potential infinite
+        // recursion.
+        if (oW > 180 || oE < -180) {
+            return false;
+        }
+
         return intersects(Private(oW, oS, 180.0, oN)) ||
                intersects(Private(-180.0, oS, oE, oN));
 
-        // No: crossing antimerian
+        // No: crossing antimeridian
     } else {
         if (oW <= oE) {
             return other.intersects(*this);
@@ -395,15 +430,20 @@ GeographicBoundingBox::Private::intersection(const Private &otherExtent) const {
     const double oN = otherExtent.north_;
     const double oS = otherExtent.south_;
 
+    // Check intersection along the latitude axis
     if (N < oS || S > oN) {
         return nullptr;
     }
 
+    // Check world coverage of this bbox, and other bbox overlapping
+    // antimeridian (e.g. oW=175 and oE=-175)
     if (W == -180.0 && E == 180.0 && oW > oE) {
         return internal::make_unique<Private>(oW, std::max(S, oS), oE,
                                               std::min(N, oN));
     }
 
+    // Check world coverage of othre bbox, and this bbox overlapping
+    // antimeridian (e.g. W=175 and E=-175)
     if (oW == -180.0 && oE == 180.0 && W > E) {
         return internal::make_unique<Private>(W, std::max(S, oS), E,
                                               std::min(N, oN));
@@ -441,7 +481,7 @@ GeographicBoundingBox::Private::intersection(const Private &otherExtent) const {
             return inter1;
         }
         return inter2;
-        // No: crossing antimerian
+        // No: crossing antimeridian
     } else {
         if (oW <= oE) {
             return otherExtent.intersection(*this);
@@ -909,8 +949,8 @@ void Identifier::Private::setProperties(
                                                     AUTHORITY_KEY);
                 }
             } else {
-                if (auto citation =
-                        dynamic_cast<const Citation *>(pVal->get())) {
+                auto citation = dynamic_cast<const Citation *>(pVal->get());
+                if (citation) {
                     authority_ = *citation;
                 } else {
                     throw InvalidValueTypeException("Invalid value type for " +

@@ -1,4 +1,4 @@
-#define PJ_LIB_
+
 
 #include <errno.h>
 #include <mutex>
@@ -11,8 +11,8 @@
 
 PROJ_HEAD(vgridshift, "Vertical grid shift");
 
-static std::mutex gMutex{};
-static std::set<std::string> gKnownGrids{};
+static std::mutex gMutexVGridShift{};
+static std::set<std::string> gKnownGridsVGridShift{};
 
 using namespace NS_PROJ;
 
@@ -23,6 +23,7 @@ struct vgridshiftData {
     double forward_multiplier = 0;
     ListOfVGrids grids{};
     bool defer_grid_opening = false;
+    int error_code_in_defer_grid_opening = 0;
 };
 } // anonymous namespace
 
@@ -51,7 +52,7 @@ static void deal_with_vertcon_gtx_hack(PJ *P) {
     }
 }
 
-static PJ_XYZ forward_3d(PJ_LPZ lpz, PJ *P) {
+static PJ_XYZ pj_vgridshift_forward_3d(PJ_LPZ lpz, PJ *P) {
     struct vgridshiftData *Q = (struct vgridshiftData *)P->opaque;
     PJ_COORD point = {{0, 0, 0, 0}};
     point.lpz = lpz;
@@ -60,9 +61,11 @@ static PJ_XYZ forward_3d(PJ_LPZ lpz, PJ *P) {
         Q->defer_grid_opening = false;
         Q->grids = pj_vgrid_init(P, "grids");
         deal_with_vertcon_gtx_hack(P);
-        if (proj_errno(P)) {
-            return proj_coord_error().xyz;
-        }
+        Q->error_code_in_defer_grid_opening = proj_errno(P);
+    }
+    if (Q->error_code_in_defer_grid_opening) {
+        proj_errno_set(P, Q->error_code_in_defer_grid_opening);
+        return proj_coord_error().xyz;
     }
 
     if (!Q->grids.empty()) {
@@ -75,7 +78,7 @@ static PJ_XYZ forward_3d(PJ_LPZ lpz, PJ *P) {
     return point.xyz;
 }
 
-static PJ_LPZ reverse_3d(PJ_XYZ xyz, PJ *P) {
+static PJ_LPZ pj_vgridshift_reverse_3d(PJ_XYZ xyz, PJ *P) {
     struct vgridshiftData *Q = (struct vgridshiftData *)P->opaque;
     PJ_COORD point = {{0, 0, 0, 0}};
     point.xyz = xyz;
@@ -84,9 +87,11 @@ static PJ_LPZ reverse_3d(PJ_XYZ xyz, PJ *P) {
         Q->defer_grid_opening = false;
         Q->grids = pj_vgrid_init(P, "grids");
         deal_with_vertcon_gtx_hack(P);
-        if (proj_errno(P)) {
-            return proj_coord_error().lpz;
-        }
+        Q->error_code_in_defer_grid_opening = proj_errno(P);
+    }
+    if (Q->error_code_in_defer_grid_opening) {
+        proj_errno_set(P, Q->error_code_in_defer_grid_opening);
+        return proj_coord_error().lpz;
     }
 
     if (!Q->grids.empty()) {
@@ -99,7 +104,7 @@ static PJ_LPZ reverse_3d(PJ_XYZ xyz, PJ *P) {
     return point.lpz;
 }
 
-static void forward_4d(PJ_COORD &coo, PJ *P) {
+static void pj_vgridshift_forward_4d(PJ_COORD &coo, PJ *P) {
     struct vgridshiftData *Q = (struct vgridshiftData *)P->opaque;
 
     /* If transformation is not time restricted, we always call it */
@@ -108,7 +113,7 @@ static void forward_4d(PJ_COORD &coo, PJ *P) {
         // "Overlapping read/write of union is undefined behavior"
         // Cf
         // https://github.com/OSGeo/PROJ/pull/3527#pullrequestreview-1233332710
-        const auto xyz = forward_3d(coo.lpz, P);
+        const auto xyz = pj_vgridshift_forward_3d(coo.lpz, P);
         coo.xyz = xyz;
         return;
     }
@@ -119,12 +124,12 @@ static void forward_4d(PJ_COORD &coo, PJ *P) {
         // "Overlapping read/write of union is undefined behavior"
         // Cf
         // https://github.com/OSGeo/PROJ/pull/3527#pullrequestreview-1233332710
-        const auto xyz = forward_3d(coo.lpz, P);
+        const auto xyz = pj_vgridshift_forward_3d(coo.lpz, P);
         coo.xyz = xyz;
     }
 }
 
-static void reverse_4d(PJ_COORD &coo, PJ *P) {
+static void pj_vgridshift_reverse_4d(PJ_COORD &coo, PJ *P) {
     struct vgridshiftData *Q = (struct vgridshiftData *)P->opaque;
 
     /* If transformation is not time restricted, we always call it */
@@ -133,7 +138,7 @@ static void reverse_4d(PJ_COORD &coo, PJ *P) {
         // "Overlapping read/write of union is undefined behavior"
         // Cf
         // https://github.com/OSGeo/PROJ/pull/3527#pullrequestreview-1233332710
-        const auto lpz = reverse_3d(coo.xyz, P);
+        const auto lpz = pj_vgridshift_reverse_3d(coo.xyz, P);
         coo.lpz = lpz;
         return;
     }
@@ -144,12 +149,12 @@ static void reverse_4d(PJ_COORD &coo, PJ *P) {
         // "Overlapping read/write of union is undefined behavior"
         // Cf
         // https://github.com/OSGeo/PROJ/pull/3527#pullrequestreview-1233332710
-        const auto lpz = reverse_3d(coo.xyz, P);
+        const auto lpz = pj_vgridshift_reverse_3d(coo.xyz, P);
         coo.lpz = lpz;
     }
 }
 
-static PJ *destructor(PJ *P, int errlev) {
+static PJ *pj_vgridshift_destructor(PJ *P, int errlev) {
     if (nullptr == P)
         return nullptr;
 
@@ -159,22 +164,22 @@ static PJ *destructor(PJ *P, int errlev) {
     return pj_default_destructor(P, errlev);
 }
 
-static void reassign_context(PJ *P, PJ_CONTEXT *ctx) {
+static void pj_vgridshift_reassign_context(PJ *P, PJ_CONTEXT *ctx) {
     auto Q = (struct vgridshiftData *)P->opaque;
     for (auto &grid : Q->grids) {
         grid->reassign_context(ctx);
     }
 }
 
-PJ *TRANSFORMATION(vgridshift, 0) {
+PJ *PJ_TRANSFORMATION(vgridshift, 0) {
     auto Q = new vgridshiftData;
     P->opaque = (void *)Q;
-    P->destructor = destructor;
-    P->reassign_context = reassign_context;
+    P->destructor = pj_vgridshift_destructor;
+    P->reassign_context = pj_vgridshift_reassign_context;
 
     if (!pj_param(P->ctx, P->params, "tgrids").i) {
         proj_log_error(P, _("+grids parameter missing."));
-        return destructor(P, PROJ_ERR_INVALID_OP_MISSING_ARG);
+        return pj_vgridshift_destructor(P, PROJ_ERR_INVALID_OP_MISSING_ARG);
     }
 
     /* TODO: Refactor into shared function that can be used  */
@@ -207,10 +212,10 @@ PJ *TRANSFORMATION(vgridshift, 0) {
         Q->defer_grid_opening = true;
     } else {
         const char *gridnames = pj_param(P->ctx, P->params, "sgrids").s;
-        gMutex.lock();
-        const bool isKnownGrid =
-            gKnownGrids.find(gridnames) != gKnownGrids.end();
-        gMutex.unlock();
+        gMutexVGridShift.lock();
+        const bool isKnownGrid = gKnownGridsVGridShift.find(gridnames) !=
+                                 gKnownGridsVGridShift.end();
+        gMutexVGridShift.unlock();
 
         if (isKnownGrid) {
             Q->defer_grid_opening = true;
@@ -222,20 +227,20 @@ PJ *TRANSFORMATION(vgridshift, 0) {
             /* Was gridlist compiled properly? */
             if (proj_errno(P)) {
                 proj_log_error(P, _("could not find required grid(s)."));
-                return destructor(
+                return pj_vgridshift_destructor(
                     P, PROJ_ERR_INVALID_OP_FILE_NOT_FOUND_OR_INVALID);
             }
 
-            gMutex.lock();
-            gKnownGrids.insert(gridnames);
-            gMutex.unlock();
+            gMutexVGridShift.lock();
+            gKnownGridsVGridShift.insert(gridnames);
+            gMutexVGridShift.unlock();
         }
     }
 
-    P->fwd4d = forward_4d;
-    P->inv4d = reverse_4d;
-    P->fwd3d = forward_3d;
-    P->inv3d = reverse_3d;
+    P->fwd4d = pj_vgridshift_forward_4d;
+    P->inv4d = pj_vgridshift_reverse_4d;
+    P->fwd3d = pj_vgridshift_forward_3d;
+    P->inv3d = pj_vgridshift_reverse_3d;
     P->fwd = nullptr;
     P->inv = nullptr;
 
@@ -246,6 +251,6 @@ PJ *TRANSFORMATION(vgridshift, 0) {
 }
 
 void pj_clear_vgridshift_knowngrids_cache() {
-    std::lock_guard<std::mutex> lock(gMutex);
-    gKnownGrids.clear();
+    std::lock_guard<std::mutex> lock(gMutexVGridShift);
+    gKnownGridsVGridShift.clear();
 }

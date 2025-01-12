@@ -30,6 +30,7 @@
 
 #define FROM_PROJ_CPP
 
+#include <cmath>
 #include <cstdlib>
 #include <fstream> // std::ifstream
 #include <iostream>
@@ -119,9 +120,12 @@ struct OutputOptions {
         << "                --dump-db-structure [{object_definition} | "
            "{object_reference}] |"
         << std::endl
-        << "                {object_definition} | {object_reference} | "
-           "(-s {srs_def} -t {srs_def})"
-        << std::endl;
+        << "                {object_definition} | {object_reference} |"
+        << std::endl
+        << "                (-s {srs_def} [--s_epoch {epoch}] "
+           "-t {srs_def} [--t_epoch {epoch}]) |"
+        << std::endl
+        << "                ({srs_def} {srs_def})" << std::endl;
     std::cerr << std::endl;
     std::cerr << "-o: formats is a comma separated combination of: "
                  "all,default,PROJ,WKT_ALL,WKT2:2015,WKT2:2019,WKT1:GDAL,"
@@ -184,9 +188,21 @@ static ExtentPtr makeBboxFilter(DatabaseContextPtr dbContext,
             std::vector<double> bboxValues = {
                 c_locale_stod(bbox[0]), c_locale_stod(bbox[1]),
                 c_locale_stod(bbox[2]), c_locale_stod(bbox[3])};
-            bboxFilter = Extent::createFromBBOX(bboxValues[0], bboxValues[1],
-                                                bboxValues[2], bboxValues[3])
-                             .as_nullable();
+            const double west = bboxValues[0];
+            const double south = bboxValues[1];
+            const double east = bboxValues[2];
+            const double north = bboxValues[3];
+            constexpr double SOME_MARGIN = 10;
+            if (south < -90 - SOME_MARGIN && std::fabs(west) <= 90 &&
+                std::fabs(east) <= 90)
+                std::cerr << "Warning: suspicious south latitude: " << south
+                          << std::endl;
+            if (north > 90 + SOME_MARGIN && std::fabs(west) <= 90 &&
+                std::fabs(east) <= 90)
+                std::cerr << "Warning: suspicious north latitude: " << north
+                          << std::endl;
+            bboxFilter =
+                Extent::createFromBBOX(west, south, east, north).as_nullable();
         } catch (const std::exception &e) {
             std::cerr << "Invalid value for option --bbox: " << bboxStr << ", "
                       << e.what() << std::endl;
@@ -256,8 +272,8 @@ static ExtentPtr makeBboxFilter(DatabaseContextPtr dbContext,
 
 static BaseObjectNNPtr buildObject(
     DatabaseContextPtr dbContext, const std::string &user_string,
-    const std::string &kind, const std::string &context,
-    bool buildBoundCRSToWGS84,
+    const std::string &epoch, const std::string &kind,
+    const std::string &context, bool buildBoundCRSToWGS84,
     CoordinateOperationContext::IntermediateCRSUse allowUseIntermediateCRS,
     bool promoteTo3D, bool normalizeAxisOrder, bool quiet) {
     BaseObjectPtr obj;
@@ -317,10 +333,16 @@ static BaseObjectNNPtr buildObject(
                 wktParser.attachDatabaseContext(dbContext);
                 obj = wktParser.createFromWKT(l_user_string).as_nullable();
                 if (!quiet) {
-                    auto warnings = wktParser.warningList();
+                    const auto warnings = wktParser.warningList();
                     if (!warnings.empty()) {
                         for (const auto &str : warnings) {
                             std::cerr << "Warning: " << str << std::endl;
+                        }
+                    }
+                    const auto grammarErrorList = wktParser.grammarErrorList();
+                    if (!grammarErrorList.empty()) {
+                        for (const auto &str : grammarErrorList) {
+                            std::cerr << "Grammar error: " << str << std::endl;
                         }
                     }
                 }
@@ -386,8 +408,8 @@ static BaseObjectNNPtr buildObject(
             }
         }
     } catch (const std::exception &e) {
-        std::cerr << context << ": parsing of user string failed: " << e.what()
-                  << std::endl;
+        std::cerr << context << ": parsing of '" << l_user_string
+                  << "' failed: " << e.what() << std::endl;
         std::exit(1);
     }
 
@@ -404,6 +426,11 @@ static BaseObjectNNPtr buildObject(
         auto crs = std::dynamic_pointer_cast<CRS>(obj);
         if (crs) {
             obj = crs->promoteTo3D(std::string(), dbContext).as_nullable();
+        } else {
+            auto cm = std::dynamic_pointer_cast<CoordinateMetadata>(obj);
+            if (cm) {
+                obj = cm->promoteTo3D(std::string(), dbContext).as_nullable();
+            }
         }
     }
 
@@ -411,6 +438,19 @@ static BaseObjectNNPtr buildObject(
         auto crs = std::dynamic_pointer_cast<CRS>(obj);
         if (crs) {
             obj = crs->normalizeForVisualization().as_nullable();
+        }
+    }
+
+    if (!epoch.empty()) {
+        auto crs = std::dynamic_pointer_cast<CRS>(obj);
+        if (crs) {
+            obj = CoordinateMetadata::create(NN_NO_CHECK(crs), std::stod(epoch),
+                                             dbContext)
+                      .as_nullable();
+        } else {
+            std::cerr << context << ": applying epoch to a non-CRS object"
+                      << std::endl;
+            std::exit(1);
         }
     }
 
@@ -447,7 +487,7 @@ static void outputObject(
         std::cout << std::endl;
     }
 
-    auto projStringExportable =
+    const auto projStringExportable =
         nn_dynamic_pointer_cast<IPROJStringExportable>(obj);
     bool alreadyOutputted = false;
     if (projStringExportable) {
@@ -749,7 +789,7 @@ static void outputOperationSummary(
 
     std::cout << ", ";
 
-    auto name = op->nameStr();
+    const auto &name = op->nameStr();
     if (!name.empty()) {
         std::cout << name;
     } else {
@@ -758,7 +798,7 @@ static void outputOperationSummary(
 
     std::cout << ", ";
 
-    auto accuracies = op->coordinateOperationAccuracies();
+    const auto &accuracies = op->coordinateOperationAccuracies();
     if (!accuracies.empty()) {
         std::cout << accuracies[0]->value() << " m";
     } else {
@@ -771,7 +811,7 @@ static void outputOperationSummary(
 
     std::cout << ", ";
 
-    auto domains = op->domains();
+    const auto &domains = op->domains();
     if (!domains.empty() && domains[0]->domainOfValidity() &&
         domains[0]->domainOfValidity()->description().has_value()) {
         std::cout << *(domains[0]->domainOfValidity()->description());
@@ -785,7 +825,7 @@ static void outputOperationSummary(
 
     if (dbContext && getenv("PROJINFO_NO_GRID_CHECK") == nullptr) {
         try {
-            auto setGrids = op->gridsNeeded(dbContext, false);
+            const auto setGrids = op->gridsNeeded(dbContext, false);
             for (const auto &grid : setGrids) {
                 if (!grid.available) {
                     std::cout << ", at least one grid missing";
@@ -821,8 +861,9 @@ static bool is3DCRS(const CRSPtr &crs) {
 // ---------------------------------------------------------------------------
 
 static void outputOperations(
-    DatabaseContextPtr dbContext, const std::string &sourceCRSStr,
-    const std::string &targetCRSStr, const ExtentPtr &bboxFilter,
+    const DatabaseContextPtr &dbContext, const std::string &sourceCRSStr,
+    const std::string &sourceEpoch, const std::string &targetCRSStr,
+    const std::string &targetEpoch, const ExtentPtr &bboxFilter,
     CoordinateOperationContext::SpatialCriterion spatialCriterion,
     bool spatialCriterionExplicitlySpecified,
     CoordinateOperationContext::SourceTargetCRSExtentUse crsExtentUse,
@@ -832,10 +873,10 @@ static void outputOperations(
     const std::string &authority, bool usePROJGridAlternatives,
     bool showSuperseded, bool promoteTo3D, bool normalizeAxisOrder,
     double minimumAccuracy, const OutputOptions &outputOpt, bool summary) {
-    auto sourceObj =
-        buildObject(dbContext, sourceCRSStr, "crs", "source CRS", false,
-                    CoordinateOperationContext::IntermediateCRSUse::NEVER,
-                    promoteTo3D, normalizeAxisOrder, outputOpt.quiet);
+    auto sourceObj = buildObject(
+        dbContext, sourceCRSStr, sourceEpoch, "crs", "source CRS", false,
+        CoordinateOperationContext::IntermediateCRSUse::NEVER, promoteTo3D,
+        normalizeAxisOrder, outputOpt.quiet);
     auto sourceCRS = nn_dynamic_pointer_cast<CRS>(sourceObj);
     CoordinateMetadataPtr sourceCoordinateMetadata;
     if (!sourceCRS) {
@@ -853,10 +894,10 @@ static void outputOperations(
         }
     }
 
-    auto targetObj =
-        buildObject(dbContext, targetCRSStr, "crs", "target CRS", false,
-                    CoordinateOperationContext::IntermediateCRSUse::NEVER,
-                    promoteTo3D, normalizeAxisOrder, outputOpt.quiet);
+    auto targetObj = buildObject(
+        dbContext, targetCRSStr, targetEpoch, "crs", "target CRS", false,
+        CoordinateOperationContext::IntermediateCRSUse::NEVER, promoteTo3D,
+        normalizeAxisOrder, outputOpt.quiet);
     auto targetCRS = nn_dynamic_pointer_cast<CRS>(targetObj);
     CoordinateMetadataPtr targetCoordinateMetadata;
     if (!targetCRS) {
@@ -874,14 +915,6 @@ static void outputOperations(
         }
     }
 
-    if (sourceCoordinateMetadata != nullptr &&
-        targetCoordinateMetadata != nullptr) {
-        std::cerr << "CoordinateMetadata with epoch to CoordinateMetadata "
-                     "with epoch not supported currently."
-                  << std::endl;
-        std::exit(1);
-    }
-
     // TODO: handle promotion of CoordinateMetadata
     if (sourceCRS && targetCRS && dbContext && !promoteTo3D) {
         // Auto-promote source/target CRS if it is specified by its name,
@@ -894,7 +927,7 @@ static void outputOperations(
             auto promoted =
                 sourceCRS->promoteTo3D(std::string(), dbContext).as_nullable();
             if (!promoted->identifiers().empty()) {
-                sourceCRS = promoted;
+                sourceCRS = std::move(promoted);
             }
         } else if (is3DCRS(sourceCRS) && !is3DCRS(targetCRS) &&
                    !targetCRS->identifiers().empty() &&
@@ -903,7 +936,7 @@ static void outputOperations(
             auto promoted =
                 targetCRS->promoteTo3D(std::string(), dbContext).as_nullable();
             if (!promoted->identifiers().empty()) {
-                targetCRS = promoted;
+                targetCRS = std::move(promoted);
             }
         }
     }
@@ -922,6 +955,12 @@ static void outputOperations(
 
         const auto createOperations = [&]() {
             if (sourceCoordinateMetadata) {
+                if (targetCoordinateMetadata) {
+                    return CoordinateOperationFactory::create()
+                        ->createOperations(
+                            NN_NO_CHECK(sourceCoordinateMetadata),
+                            NN_NO_CHECK(targetCoordinateMetadata), ctxt);
+                }
                 return CoordinateOperationFactory::create()->createOperations(
                     NN_NO_CHECK(sourceCoordinateMetadata),
                     NN_NO_CHECK(targetCRS), ctxt);
@@ -1017,10 +1056,11 @@ int main(int argc, char **argv) {
         usage();
     }
 
-    std::string user_string;
-    bool user_string_specified = false;
+    std::vector<std::string> positional_args;
     std::string sourceCRSStr;
+    std::string sourceEpoch;
     std::string targetCRSStr;
+    std::string targetEpoch;
     bool outputSwitchSpecified = false;
     OutputOptions outputOpt;
     std::string objectKind;
@@ -1057,7 +1097,7 @@ int main(int argc, char **argv) {
     bool listCRSSpecified = false;
 
     for (int i = 1; i < argc; i++) {
-        std::string arg(argv[i]);
+        const std::string arg(argv[i]);
         if (arg == "-o" && i + 1 < argc) {
             outputSwitchSpecified = true;
             i++;
@@ -1193,9 +1233,15 @@ int main(int argc, char **argv) {
         } else if ((arg == "-s" || arg == "--source-crs") && i + 1 < argc) {
             i++;
             sourceCRSStr = argv[i];
+        } else if (arg == "--s_epoch" && i + 1 < argc) {
+            i++;
+            sourceEpoch = argv[i];
         } else if ((arg == "-t" || arg == "--target-crs") && i + 1 < argc) {
             i++;
             targetCRSStr = argv[i];
+        } else if (arg == "--t_epoch" && i + 1 < argc) {
+            i++;
+            targetEpoch = argv[i];
         } else if (arg == "-q" || arg == "--quiet") {
             outputOpt.quiet = true;
         } else if (arg == "--c-ify") {
@@ -1372,13 +1418,7 @@ int main(int argc, char **argv) {
             std::cerr << "Unrecognized option: " << arg << std::endl;
             usage();
         } else {
-            if (!user_string_specified) {
-                user_string_specified = true;
-                user_string = arg;
-            } else {
-                std::cerr << "Too many parameters: " << arg << std::endl;
-                usage();
-            }
+            positional_args.push_back(arg);
         }
     }
 
@@ -1387,7 +1427,8 @@ int main(int argc, char **argv) {
         std::exit(1);
     }
 
-    if (dumpDbStructure && user_string_specified && !outputSwitchSpecified) {
+    if (dumpDbStructure && positional_args.size() == 1 &&
+        !outputSwitchSpecified) {
         // Implicit settings in --output-db-structure mode + object
         outputSwitchSpecified = true;
         outputOpt.SQL = true;
@@ -1536,6 +1577,19 @@ int main(int argc, char **argv) {
         }
     }
 
+    std::string user_string;
+    if (sourceCRSStr.empty() && targetCRSStr.empty() &&
+        positional_args.size() == 2) {
+        sourceCRSStr = positional_args[0];
+        targetCRSStr = positional_args[1];
+        positional_args.resize(0);
+    } else if (positional_args.size() == 1) {
+        user_string = positional_args.front();
+    } else if (positional_args.size() > 1) {
+        std::cerr << "Too many parameters: " << positional_args[1] << std::endl;
+        usage();
+    }
+
     if (!sourceCRSStr.empty() && targetCRSStr.empty()) {
         std::cerr << "Source CRS specified, but missing target CRS"
                   << std::endl;
@@ -1545,11 +1599,11 @@ int main(int argc, char **argv) {
                   << std::endl;
         usage();
     } else if (!sourceCRSStr.empty() && !targetCRSStr.empty()) {
-        if (user_string_specified) {
+        if (!positional_args.empty()) {
             std::cerr << "Unused extra value" << std::endl;
             usage();
         }
-    } else if (!user_string_specified) {
+    } else if (positional_args.empty()) {
         if (dumpDbStructure || listCRSSpecified) {
             std::exit(0);
         }
@@ -1574,10 +1628,10 @@ int main(int argc, char **argv) {
 
     if (!user_string.empty()) {
         try {
-            auto obj(buildObject(dbContext, user_string, objectKind,
-                                 "input string", buildBoundCRSToWGS84,
-                                 allowUseIntermediateCRS, promoteTo3D,
-                                 normalizeAxisOrder, outputOpt.quiet));
+            auto obj(buildObject(
+                dbContext, user_string, std::string(), objectKind,
+                "input string", buildBoundCRSToWGS84, allowUseIntermediateCRS,
+                promoteTo3D, normalizeAxisOrder, outputOpt.quiet));
             if (guessDialect) {
                 auto dialect = WKTParser().guessDialect(user_string);
                 std::cout << "Guessed WKT dialect: ";
@@ -1671,8 +1725,8 @@ int main(int argc, char **argv) {
     } else {
         auto bboxFilter = makeBboxFilter(dbContext, bboxStr, area, true);
         try {
-            outputOperations(dbContext, sourceCRSStr, targetCRSStr, bboxFilter,
-                             spatialCriterion,
+            outputOperations(dbContext, sourceCRSStr, sourceEpoch, targetCRSStr,
+                             targetEpoch, bboxFilter, spatialCriterion,
                              spatialCriterionExplicitlySpecified, crsExtentUse,
                              gridAvailabilityUse, allowUseIntermediateCRS,
                              pivots, authority, usePROJGridAlternatives,

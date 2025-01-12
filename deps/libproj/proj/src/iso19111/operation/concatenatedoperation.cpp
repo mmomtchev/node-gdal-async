@@ -100,7 +100,14 @@ ConcatenatedOperation::ConcatenatedOperation(const ConcatenatedOperation &other)
 
 ConcatenatedOperation::ConcatenatedOperation(
     const std::vector<CoordinateOperationNNPtr> &operationsIn)
-    : CoordinateOperation(), d(internal::make_unique<Private>(operationsIn)) {}
+    : CoordinateOperation(), d(internal::make_unique<Private>(operationsIn)) {
+    for (const auto &op : operationsIn) {
+        if (op->requiresPerCoordinateInputTime()) {
+            setRequiresPerCoordinateInputTime(true);
+            break;
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 
@@ -154,7 +161,7 @@ static bool areCRSMoreOrLessEquivalent(const crs::CRS *a, const crs::CRS *b) {
  * @param operationsIn Vector of the CoordinateOperation steps.
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 ConcatenatedOperationNNPtr ConcatenatedOperation::create(
     const util::PropertyMap &properties,
@@ -177,7 +184,7 @@ ConcatenatedOperationNNPtr ConcatenatedOperation::create(
         if (interpolationCRSValid) {
             auto subOpInterpCRS = operationsIn[i]->interpolationCRS();
             if (interpolationCRS == nullptr)
-                interpolationCRS = subOpInterpCRS;
+                interpolationCRS = std::move(subOpInterpCRS);
             else if (subOpInterpCRS == nullptr ||
                      !(subOpInterpCRS->isEquivalentTo(
                          interpolationCRS.get(),
@@ -218,7 +225,7 @@ ConcatenatedOperationNNPtr ConcatenatedOperation::create(
                     "Inconsistent chaining of CRS in operations");
             }
         }
-        lastTargetCRS = l_targetCRS;
+        lastTargetCRS = std::move(l_targetCRS);
     }
 
     // When chaining VerticalCRS -> GeographicCRS -> VerticalCRS, use
@@ -306,6 +313,36 @@ void ConcatenatedOperation::fixStepsDirection(
             auto reversedCRS = concatOpTargetCRS->applyAxisOrderReversal(
                 NORMALIZED_AXIS_ORDER_SUFFIX_STR);
             op->setCRSs(reversedCRS, concatOpTargetCRS, nullptr);
+        }
+    }
+
+    // If the first operation is a transformation whose target CRS matches the
+    // source CRS of the concatenated operation, then reverse it.
+    if (operationsInOut.size() >= 2) {
+        auto &op = operationsInOut.front();
+        auto l_sourceCRS = op->sourceCRS();
+        auto l_targetCRS = op->targetCRS();
+        if (l_sourceCRS && l_targetCRS &&
+            !areCRSMoreOrLessEquivalent(l_sourceCRS.get(),
+                                        concatOpSourceCRS.get()) &&
+            areCRSMoreOrLessEquivalent(l_targetCRS.get(),
+                                       concatOpSourceCRS.get())) {
+            op = op->inverse();
+        }
+    }
+
+    // If the last operation is a transformation whose source CRS matches the
+    // target CRS of the concatenated operation, then reverse it.
+    if (operationsInOut.size() >= 2) {
+        auto &op = operationsInOut.back();
+        auto l_sourceCRS = op->sourceCRS();
+        auto l_targetCRS = op->targetCRS();
+        if (l_sourceCRS && l_targetCRS &&
+            !areCRSMoreOrLessEquivalent(l_targetCRS.get(),
+                                        concatOpTargetCRS.get()) &&
+            areCRSMoreOrLessEquivalent(l_sourceCRS.get(),
+                                       concatOpTargetCRS.get())) {
+            op = op->inverse();
         }
     }
 
@@ -431,6 +468,38 @@ void ConcatenatedOperation::fixStepsDirection(
                 } else {
                     op->setCRSs(NN_NO_CHECK(l_sourceCRS),
                                 NN_NO_CHECK(l_targetCRS), nullptr);
+
+                    // Deal with special case of
+                    // https://github.com/OSGeo/PROJ/issues/4116 where EPSG:7989
+                    // -- NAVD88 height to NAVD88 depth conversion is chained
+                    // with "NAD83(FBN)+LMSL to NAD83(FBN)+NAVD88 depth" The
+                    // latter must thus be inversed
+                    const auto nPosTo = conv->nameStr().find(" to ");
+                    const auto nPosToNextOp =
+                        operationsInOut[i + 1]->nameStr().find(" to ");
+                    if (nPosTo != std::string::npos &&
+                        nPosToNextOp != std::string::npos) {
+                        const std::string convTo =
+                            conv->nameStr().substr(nPosTo + strlen(" to "));
+                        const std::string nextOpFrom =
+                            operationsInOut[i + 1]->nameStr().substr(
+                                0, nPosToNextOp);
+                        const std::string nextOpTo =
+                            operationsInOut[i + 1]->nameStr().substr(
+                                nPosToNextOp + strlen(" to "));
+                        if (nextOpTo.find(convTo) != std::string::npos &&
+                            nextOpFrom.find(convTo) == std::string::npos &&
+                            operationsInOut[i + 1]->sourceCRS()) {
+                            operationsInOut[i + 1] =
+                                operationsInOut[i + 1]->inverse();
+
+                            op->setCRSs(
+                                NN_NO_CHECK(l_sourceCRS),
+                                NN_NO_CHECK(
+                                    operationsInOut[i + 1]->sourceCRS()),
+                                nullptr);
+                        }
+                    }
                 }
             } else if (l_sourceCRS && l_targetCRS == nullptr &&
                        conv->method()->getEPSGCode() ==
@@ -590,7 +659,7 @@ void ConcatenatedOperation::fixStepsDirection(
  * @param checkExtent Whether we should check the non-emptiness of the
  * intersection
  * of the extents of the operations
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 CoordinateOperationNNPtr ConcatenatedOperation::createComputeMetadata(
     const std::vector<CoordinateOperationNNPtr> &operationsIn,
@@ -706,6 +775,8 @@ CoordinateOperationNNPtr ConcatenatedOperation::inverse() const {
         create(properties, inversedOperations, coordinateOperationAccuracies());
     op->d->computedName_ = d->computedName_;
     op->setHasBallparkTransformation(hasBallparkTransformation());
+    op->setSourceCoordinateEpoch(targetCoordinateEpoch());
+    op->setTargetCoordinateEpoch(sourceCoordinateEpoch());
     return op;
 }
 
@@ -782,7 +853,7 @@ void ConcatenatedOperation::_exportToJSON(
                                                     !identifiers().empty()));
 
     writer->AddObjKey("name");
-    auto l_name = nameStr();
+    const auto &l_name = nameStr();
     if (l_name.empty()) {
         writer->Add("unnamed");
     } else {
@@ -826,7 +897,7 @@ CoordinateOperationNNPtr ConcatenatedOperation::_shallowClone() const {
     for (const auto &subOp : d->operations_) {
         ops.emplace_back(subOp->shallowClone());
     }
-    op->d->operations_ = ops;
+    op->d->operations_ = std::move(ops);
     op->assignSelf(op);
     op->setCRSs(this, false);
     return util::nn_static_pointer_cast<CoordinateOperation>(op);
@@ -838,8 +909,32 @@ CoordinateOperationNNPtr ConcatenatedOperation::_shallowClone() const {
 void ConcatenatedOperation::_exportToPROJString(
     io::PROJStringFormatter *formatter) const // throw(FormattingException)
 {
+    double sourceYear =
+        sourceCoordinateEpoch().has_value()
+            ? getRoundedEpochInDecimalYear(
+                  sourceCoordinateEpoch()->coordinateEpoch().convertToUnit(
+                      common::UnitOfMeasure::YEAR))
+            : 0;
+    double targetYear =
+        targetCoordinateEpoch().has_value()
+            ? getRoundedEpochInDecimalYear(
+                  targetCoordinateEpoch()->coordinateEpoch().convertToUnit(
+                      common::UnitOfMeasure::YEAR))
+            : 0;
+    if (sourceYear > 0 && targetYear == 0)
+        targetYear = sourceYear;
+    else if (targetYear > 0 && sourceYear == 0)
+        sourceYear = targetYear;
+    if (sourceYear > 0) {
+        formatter->addStep("set");
+        formatter->addParam("v_4", sourceYear);
+    }
     for (const auto &operation : operations()) {
         operation->_exportToPROJString(formatter);
+    }
+    if (targetYear > 0) {
+        formatter->addStep("set");
+        formatter->addParam("v_4", targetYear);
     }
 }
 

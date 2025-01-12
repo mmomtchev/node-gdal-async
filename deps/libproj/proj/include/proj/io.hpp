@@ -118,6 +118,14 @@ using CompoundCRSPtr = std::shared_ptr<CompoundCRS>;
 using CompoundCRSNNPtr = util::nn<CompoundCRSPtr>;
 } // namespace crs
 
+namespace coordinates {
+class CoordinateMetadata;
+/** Shared pointer of CoordinateMetadata */
+using CoordinateMetadataPtr = std::shared_ptr<CoordinateMetadata>;
+/** Non-null shared pointer of CoordinateMetadata */
+using CoordinateMetadataNNPtr = util::nn<CoordinateMetadataPtr>;
+} // namespace coordinates
+
 namespace operation {
 class Conversion;
 using ConversionPtr = std::shared_ptr<Conversion>;
@@ -126,6 +134,10 @@ using ConversionNNPtr = util::nn<ConversionPtr>;
 class CoordinateOperation;
 using CoordinateOperationPtr = std::shared_ptr<CoordinateOperation>;
 using CoordinateOperationNNPtr = util::nn<CoordinateOperationPtr>;
+
+class PointMotionOperation;
+using PointMotionOperationPtr = std::shared_ptr<PointMotionOperation>;
+using PointMotionOperationNNPtr = util::nn<PointMotionOperationPtr>;
 } // namespace operation
 
 /** osgeo.proj.io namespace.
@@ -444,6 +456,8 @@ class PROJ_GCC_DLL PROJStringFormatter {
 
     PROJ_INTERNAL std::set<std::string> getUsedGridNames() const;
 
+    PROJ_INTERNAL bool requiresPerCoordinateInputTime() const;
+
     PROJ_INTERNAL void setTOWGS84Parameters(const std::vector<double> &params);
     PROJ_INTERNAL const std::vector<double> &getTOWGS84Parameters() const;
 
@@ -706,7 +720,7 @@ class PROJ_GCC_DLL IPROJStringExportable {
      *
      * @param formatter PROJ string formatter.
      * @return a PROJ string.
-     * @throw FormattingException */
+     * @throw FormattingException if cannot be exported as a PROJ string */
     PROJ_DLL std::string exportToPROJString(
         PROJStringFormatter *formatter) const; // throw(FormattingException)
 
@@ -780,6 +794,7 @@ class PROJ_GCC_DLL WKTParser {
 
     PROJ_DLL WKTParser &setStrict(bool strict);
     PROJ_DLL std::list<std::string> warningList() const;
+    PROJ_DLL std::list<std::string> grammarErrorList() const;
 
     PROJ_DLL WKTParser &setUnsetIdentifiersIfIncompatibleDef(bool unset);
 
@@ -947,6 +962,11 @@ class PROJ_GCC_DLL DatabaseContext {
     PROJ_DLL std::vector<std::string>
     getVersionedAuthoritiesFromName(const std::string &authName);
 
+    PROJ_FOR_TEST bool
+    toWGS84AutocorrectWrongValues(double &tx, double &ty, double &tz,
+                                  double &rx, double &ry, double &rz,
+                                  double &scale_difference) const;
+
     //! @endcond
 
   protected:
@@ -1033,6 +1053,9 @@ class PROJ_GCC_DLL AuthorityFactory {
 
     PROJ_DLL crs::CRSNNPtr
     createCoordinateReferenceSystem(const std::string &code) const;
+
+    PROJ_DLL coordinates::CoordinateMetadataNNPtr
+    createCoordinateMetadata(const std::string &code) const;
 
     PROJ_DLL operation::CoordinateOperationNNPtr
     createCoordinateOperation(const std::string &code,
@@ -1244,6 +1267,11 @@ class PROJ_GCC_DLL AuthorityFactory {
                                const std::string &datum_code,
                                const std::string &geodetic_crs_type) const;
 
+    PROJ_INTERNAL std::list<crs::GeodeticCRSNNPtr>
+    createGeodeticCRSFromDatum(const datum::GeodeticReferenceFrameNNPtr &datum,
+                               const std::string &preferredAuthName,
+                               const std::string &geodetic_crs_type) const;
+
     PROJ_INTERNAL std::list<crs::VerticalCRSNNPtr>
     createVerticalCRSFromDatum(const std::string &datum_auth_name,
                                const std::string &datum_code) const;
@@ -1286,6 +1314,10 @@ class PROJ_GCC_DLL AuthorityFactory {
                                 std::vector<ObjectType>(),
                             bool approximateMatch = true,
                             size_t limitResultCount = 0) const;
+
+    PROJ_FOR_TEST std::vector<operation::PointMotionOperationNNPtr>
+    getPointMotionOperationsFor(const crs::GeodeticCRSNNPtr &crs,
+                                bool usePROJAlternativeGridNames) const;
 
     //! @endcond
 
