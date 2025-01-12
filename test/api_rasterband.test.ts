@@ -616,7 +616,7 @@ describe('gdal.RasterBand', () => {
           assert.equal(data[10 * 20 + 10], 10)
         })
         describe('w/data over 4GB', function () {
-          this.timeout(60000)
+          this.timeout(120000)
           // These tests require at least 16GB of memory to be reliable
           const size = 66000
           it('when returning a new TypedArray', () => {

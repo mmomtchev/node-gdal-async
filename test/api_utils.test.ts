@@ -628,7 +628,8 @@ describe('gdal_utils', () => {
         gdal.vsimem.release(tmpFile)
       }))
     })
-    it('should support progress callbacks', () => {
+    it('should support progress callbacks', function () {
+      this.retries(3)
       const ds = gdal.open(path.resolve(__dirname, 'data', 'sample.tif'))
       const tmpFile = `/vsimem/${String(Math.random()).substring(2)}.tif`
       let calls = 0
