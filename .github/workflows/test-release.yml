@@ -18,12 +18,15 @@ jobs:
         - ubuntu:20.04
         - ubuntu:22.04
         - ubuntu:24.04
-        - debian:buster
         - debian:bullseye
         - centos:stream9
         - amazonlinux:2023
         node-version: [ 18, 20, 22 ]
         include:
+          - linux-version: debian:buster
+            node-version: 18
+          - linux-version: debian:buster
+            node-version: 20
           - linux-version: ubuntu:24.04
             node-version: 23
           - linux-version: fedora:36
