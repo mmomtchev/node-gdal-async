@@ -108,7 +108,7 @@ Local<Value> MDArray::New(std::shared_ptr<GDALMDArray> raw, GDALDataset *parent_
 
   // add reference to datasource so datasource doesnt get GC'ed while group is
   // alive
-  Local<Object> ds, group;
+  Local<Object> ds;
   if (object_store.has(parent_ds)) {
     ds = object_store.get(parent_ds);
   } else {
