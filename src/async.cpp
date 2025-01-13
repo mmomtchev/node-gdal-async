@@ -55,7 +55,7 @@ void GDALExecutionProgress::Send(GDALProgressInfo *info) const {
 }
 
 // This is the sync execution context, it is the final owner of the progress_callback
-GDALSyncExecutionProgress::GDALSyncExecutionProgress(Nan::Callback *cb) : progress_callback(cb){};
+GDALSyncExecutionProgress::GDALSyncExecutionProgress(Nan::Callback *cb) : progress_callback(cb) {};
 GDALSyncExecutionProgress::~GDALSyncExecutionProgress() {
   delete progress_callback;
 };

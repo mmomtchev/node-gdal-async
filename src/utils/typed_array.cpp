@@ -92,9 +92,8 @@ Local<Value> TypedArray::New(GDALDataType type, void *data, int64_t length) {
   size_t size = GDALGetDataTypeSizeBytes(type);
 
   // make ArrayBuffer with external storage by creating a Node.js Buffer w/ an empty free callback
-  Local<Object> buffer = Nan::NewBuffer(
-                           reinterpret_cast<char *>(data), length * size, [](char *, void *) {}, nullptr)
-                           .ToLocalChecked();
+  Local<Object> buffer =
+    Nan::NewBuffer(reinterpret_cast<char *>(data), length * size, [](char *, void *) {}, nullptr).ToLocalChecked();
 
   if (buffer.IsEmpty() || !buffer->IsObject()) { throw "Error getting creating Node.js Buffer"; }
 
