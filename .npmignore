@@ -3,7 +3,6 @@ yuidoc.json
 .editorconfig
 .eslintrc.json
 *.yml
-scripts
 test
 examples
 build
@@ -12,6 +11,9 @@ yuidocs
 /coverage
 .vscode
 Attic
+
+scripts
+!scripts/motd.js
 
 deps/**/*.sh
 deps/**/*.py
