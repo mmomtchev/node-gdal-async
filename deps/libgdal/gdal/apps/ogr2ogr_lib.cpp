@@ -4073,12 +4073,11 @@ bool SetupTargetLayer::CanUseWriteArrowBatch(
             {
                 return false;
             }
-            auto poSrcSRS = m_poUserSourceSRS ? m_poUserSourceSRS
-                                              : poSrcLayer->GetLayerDefn()
-                                                    ->GetGeomFieldDefn(0)
-                                                    ->GetSpatialRef();
-            if (!poSrcSRS ||
-                !OGRGeometryFactory::isTransformWithOptionsRegularTransform(
+            const auto poSrcSRS = m_poUserSourceSRS ? m_poUserSourceSRS
+                                                    : poSrcLayer->GetLayerDefn()
+                                                          ->GetGeomFieldDefn(0)
+                                                          ->GetSpatialRef();
+            if (!OGRGeometryFactory::isTransformWithOptionsRegularTransform(
                     poSrcSRS, m_poOutputSRS, nullptr))
             {
                 return false;
@@ -4625,6 +4624,8 @@ SetupTargetLayer::Setup(OGRLayer *poSrcLayer, const char *pszNewLayerName,
             oCoordPrec.dfMResolution = psOptions->dfMRes;
         }
 
+        auto poSrcDriver = m_poSrcDS->GetDriver();
+
         // Force FID column as 64 bit if the source feature has a 64 bit FID,
         // the target driver supports 64 bit FID and the user didn't set it
         // manually.
@@ -4667,9 +4668,8 @@ SetupTargetLayer::Setup(OGRLayer *poSrcLayer, const char *pszNewLayerName,
         }
         // Detect scenario of converting from GPX to a format like GPKG
         // Cf https://github.com/OSGeo/gdal/issues/9225
-        else if (!bPreserveFID && !m_bUnsetFid && !bAppend &&
-                 m_poSrcDS->GetDriver() &&
-                 EQUAL(m_poSrcDS->GetDriver()->GetDescription(), "GPX") &&
+        else if (!bPreserveFID && !m_bUnsetFid && !bAppend && poSrcDriver &&
+                 EQUAL(poSrcDriver->GetDescription(), "GPX") &&
                  pszDestCreationOptions &&
                  (strstr(pszDestCreationOptions, "='FID'") != nullptr ||
                   strstr(pszDestCreationOptions, "=\"FID\"") != nullptr) &&
@@ -4759,6 +4759,23 @@ SetupTargetLayer::Setup(OGRLayer *poSrcLayer, const char *pszNewLayerName,
                 CPLDebug("GDALVectorTranslate",
                          "Setting CREATE_SHAPE_AREA_AND_LENGTH_FIELDS=YES");
             }
+        }
+
+        // Use case of https://github.com/OSGeo/gdal/issues/11057#issuecomment-2495479779
+        // Conversion from GPKG to OCI.
+        // OCI distinguishes between TIMESTAMP and TIMESTAMP WITH TIME ZONE
+        // GeoPackage is supposed to have DateTime in UTC, so we set
+        // TIMESTAMP_WITH_TIME_ZONE=YES
+        if (poSrcDriver && pszDestCreationOptions &&
+            strstr(pszDestCreationOptions, "TIMESTAMP_WITH_TIME_ZONE") &&
+            CSLFetchNameValue(m_papszLCO, "TIMESTAMP_WITH_TIME_ZONE") ==
+                nullptr &&
+            EQUAL(poSrcDriver->GetDescription(), "GPKG"))
+        {
+            papszLCOTemp = CSLSetNameValue(papszLCOTemp,
+                                           "TIMESTAMP_WITH_TIME_ZONE", "YES");
+            CPLDebug("GDALVectorTranslate",
+                     "Setting TIMESTAMP_WITH_TIME_ZONE=YES");
         }
 
         OGRGeomFieldDefn oGeomFieldDefn(
@@ -4907,9 +4924,11 @@ SetupTargetLayer::Setup(OGRLayer *poSrcLayer, const char *pszNewLayerName,
     std::map<int, TargetLayerInfo::ResolvedInfo> oMapResolved;
 
     /* Determine if NUMERIC field width narrowing is allowed */
+    auto poSrcDriver = m_poSrcDS->GetDriver();
     const char *pszSrcWidthIncludesDecimalSeparator{
-        m_poSrcDS->GetDriver()->GetMetadataItem(
-            "DMD_NUMERIC_FIELD_WIDTH_INCLUDES_DECIMAL_SEPARATOR")};
+        poSrcDriver ? poSrcDriver->GetMetadataItem(
+                          "DMD_NUMERIC_FIELD_WIDTH_INCLUDES_DECIMAL_SEPARATOR")
+                    : nullptr};
     const bool bSrcWidthIncludesDecimalSeparator{
         pszSrcWidthIncludesDecimalSeparator &&
         EQUAL(pszSrcWidthIncludesDecimalSeparator, "YES")};
@@ -4920,8 +4939,9 @@ SetupTargetLayer::Setup(OGRLayer *poSrcLayer, const char *pszNewLayerName,
         pszDstWidthIncludesDecimalSeparator &&
         EQUAL(pszDstWidthIncludesDecimalSeparator, "YES")};
     const char *pszSrcWidthIncludesMinusSign{
-        m_poSrcDS->GetDriver()->GetMetadataItem(
-            "DMD_NUMERIC_FIELD_WIDTH_INCLUDES_SIGN")};
+        poSrcDriver ? poSrcDriver->GetMetadataItem(
+                          "DMD_NUMERIC_FIELD_WIDTH_INCLUDES_SIGN")
+                    : nullptr};
     const bool bSrcWidthIncludesMinusSign{
         pszSrcWidthIncludesMinusSign &&
         EQUAL(pszSrcWidthIncludesMinusSign, "YES")};
@@ -4953,7 +4973,9 @@ SetupTargetLayer::Setup(OGRLayer *poSrcLayer, const char *pszNewLayerName,
 
     bool bError = false;
     OGRArrowArrayStream streamSrc;
+
     const bool bUseWriteArrowBatch =
+        !EQUAL(m_poDstDS->GetDriver()->GetDescription(), "OCI") &&
         CanUseWriteArrowBatch(poSrcLayer, poDstLayer, bJustCreatedLayer,
                               psOptions, bPreserveFID, bError, streamSrc);
     if (bError)
@@ -5911,10 +5933,42 @@ bool LayerTranslator::TranslateArrow(
         const auto nArrayLength = array.length;
 
         // Coordinate reprojection
-        const void *backupGeomArrayBuffers2 = nullptr;
         if (m_bTransform)
         {
+            struct GeomArrayReleaser
+            {
+                const void *origin_buffers_2 = nullptr;
+                void (*origin_release)(struct ArrowArray *) = nullptr;
+                void *origin_private_data = nullptr;
+
+                static void init(struct ArrowArray *psGeomArray)
+                {
+                    GeomArrayReleaser *releaser = new GeomArrayReleaser();
+                    CPLAssert(psGeomArray->n_buffers >= 3);
+                    releaser->origin_buffers_2 = psGeomArray->buffers[2];
+                    releaser->origin_private_data = psGeomArray->private_data;
+                    releaser->origin_release = psGeomArray->release;
+                    psGeomArray->release = GeomArrayReleaser::release;
+                    psGeomArray->private_data = releaser;
+                }
+
+                static void release(struct ArrowArray *psGeomArray)
+                {
+                    GeomArrayReleaser *releaser =
+                        static_cast<GeomArrayReleaser *>(
+                            psGeomArray->private_data);
+                    psGeomArray->buffers[2] = releaser->origin_buffers_2;
+                    psGeomArray->private_data = releaser->origin_private_data;
+                    psGeomArray->release = releaser->origin_release;
+                    if (psGeomArray->release)
+                        psGeomArray->release(psGeomArray);
+                    delete releaser;
+                }
+            };
+
             auto *psGeomArray = array.children[iArrowGeomFieldIndex];
+            GeomArrayReleaser::init(psGeomArray);
+
             GByte *pabyWKB = static_cast<GByte *>(
                 const_cast<void *>(psGeomArray->buffers[2]));
             const uint32_t *panOffsets =
@@ -5934,7 +5988,6 @@ bool LayerTranslator::TranslateArrow(
                 break;
             }
             memcpy(abyModifiedWKB.data(), pabyWKB, panOffsets[nArrayLength]);
-            backupGeomArrayBuffers2 = psGeomArray->buffers[2];
             psGeomArray->buffers[2] = abyModifiedWKB.data();
 
             std::atomic<bool> atomicRet{true};
@@ -6006,7 +6059,6 @@ bool LayerTranslator::TranslateArrow(
             bRet = atomicRet;
             if (!bRet)
             {
-                psGeomArray->buffers[2] = backupGeomArrayBuffers2;
                 if (array.release)
                     array.release(&array);
                 break;
@@ -6017,23 +6069,15 @@ bool LayerTranslator::TranslateArrow(
         const bool bWriteOK = psInfo->m_poDstLayer->WriteArrowBatch(
             &schema, &array, aosOptionsWriteArrowBatch.List());
 
-        if (backupGeomArrayBuffers2)
-        {
-            auto *psGeomArray = array.children[iArrowGeomFieldIndex];
-            psGeomArray->buffers[2] = backupGeomArrayBuffers2;
-        }
+        if (array.release)
+            array.release(&array);
 
         if (!bWriteOK)
         {
             CPLError(CE_Failure, CPLE_AppDefined, "WriteArrowBatch() failed");
-            if (array.release)
-                array.release(&array);
             bRet = false;
             break;
         }
-
-        if (array.release)
-            array.release(&array);
 
         /* Report progress */
         if (pfnProgress)

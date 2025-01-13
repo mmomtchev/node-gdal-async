@@ -8568,7 +8568,7 @@ GDALDataset *netCDFDataset::Open(GDALOpenInfo *poOpenInfo)
                 if (NCDFIsVarVerticalCoord(cdfid, -1, szDimName3) == false)
                 {
                     CPLError(CE_Warning, CPLE_AppDefined,
-                             "dimension #%d (%s) is not a Time dimension.",
+                             "dimension #%d (%s) is not a Vertical dimension.",
                              nd - 3, szDimName3);
                 }
                 if (NCDFIsVarTimeCoord(cdfid, -1, szDimName4) == false)
@@ -8768,6 +8768,7 @@ GDALDataset *netCDFDataset::Open(GDALOpenInfo *poOpenInfo)
 
         char szDimName[NC_MAX_NAME + 1] = {};
 
+        bool bREPORT_EXTRA_DIM_VALUESWarningEmitted = false;
         for (int j = 0; j < nd; j++)
         {
             if ((poDS->m_anDimIds[j] != poDS->nXDimID) &&
@@ -8812,10 +8813,35 @@ GDALDataset *netCDFDataset::Open(GDALOpenInfo *poOpenInfo)
                         // dimension in its NETCDF_DIM_xxxx band metadata item
                         // Addresses use case of
                         // https://lists.osgeo.org/pipermail/gdal-dev/2023-May/057209.html
-                        if (VSIIsLocal(osFilenameForNCOpen.c_str()) ||
+                        const bool bIsLocal =
+                            VSIIsLocal(osFilenameForNCOpen.c_str());
+                        bool bListDimValues =
+                            bIsLocal || lev_count == 1 ||
                             !NCDFIsUnlimitedDim(poDS->eFormat ==
                                                     NCDF_FORMAT_NC4,
-                                                cdfid, poDS->m_anDimIds[j]))
+                                                cdfid, poDS->m_anDimIds[j]);
+                        const char *pszGDAL_NETCDF_REPORT_EXTRA_DIM_VALUES =
+                            CPLGetConfigOption(
+                                "GDAL_NETCDF_REPORT_EXTRA_DIM_VALUES", nullptr);
+                        if (pszGDAL_NETCDF_REPORT_EXTRA_DIM_VALUES)
+                        {
+                            bListDimValues = CPLTestBool(
+                                pszGDAL_NETCDF_REPORT_EXTRA_DIM_VALUES);
+                        }
+                        else if (!bListDimValues && !bIsLocal &&
+                                 !bREPORT_EXTRA_DIM_VALUESWarningEmitted)
+                        {
+                            bREPORT_EXTRA_DIM_VALUESWarningEmitted = true;
+                            CPLDebug(
+                                "GDAL_netCDF",
+                                "Listing extra dimension values is skipped "
+                                "because this dataset is hosted on a network "
+                                "file system, and such an operation could be "
+                                "slow. If you still want to proceed, set the "
+                                "GDAL_NETCDF_REPORT_EXTRA_DIM_VALUES "
+                                "configuration option to YES");
+                        }
+                        if (bListDimValues)
                         {
                             char *pszTemp = nullptr;
                             if (NCDFGet1DVar(nIdxGroupID, nIdxVarID,

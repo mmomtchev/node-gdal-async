@@ -1658,7 +1658,7 @@ static void CPLAccessConfigOption(const char *pszKey, bool bGet)
  *
  * To override temporary a potentially existing option with a new value, you
  * can use the following snippet :
- * <pre>
+ * \code{.cpp}
  *     // backup old value
  *     const char* pszOldValTmp = CPLGetConfigOption(pszKey, NULL);
  *     char* pszOldVal = pszOldValTmp ? CPLStrdup(pszOldValTmp) : NULL;
@@ -1668,14 +1668,14 @@ static void CPLAccessConfigOption(const char *pszKey, bool bGet)
  *     // restore old value
  *     CPLSetConfigOption(pszKey, pszOldVal);
  *     CPLFree(pszOldVal);
- * </pre>
+ * \endcode
  *
  * @param pszKey the key of the option to retrieve
  * @param pszDefault a default value if the key does not match existing defined
  *     options (may be NULL)
  * @return the value associated to the key, or the default value if not found
  *
- * @see CPLSetConfigOption(), http://trac.osgeo.org/gdal/wiki/ConfigOptions
+ * @see CPLSetConfigOption(), https://gdal.org/user/configoptions.html
  */
 const char *CPL_STDCALL CPLGetConfigOption(const char *pszKey,
                                            const char *pszDefault)
@@ -1925,7 +1925,7 @@ static void NotifyOtherComponentsConfigOptionChanged(const char *pszKey,
  * @param pszKey the key of the option
  * @param pszValue the value of the option, or NULL to clear a setting.
  *
- * @see http://trac.osgeo.org/gdal/wiki/ConfigOptions
+ * @see https://gdal.org/user/configoptions.html
  */
 void CPL_STDCALL CPLSetConfigOption(const char *pszKey, const char *pszValue)
 

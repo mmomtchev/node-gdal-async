@@ -142,7 +142,7 @@ CPLStringList GTiffDataset::GetCompressionFormats(int nXOff, int nYOff,
 
         vsi_l_offset nOffset = 0;
         vsi_l_offset nSize = 0;
-        if (IsBlockAvailable(nBlockId, &nOffset, &nSize) &&
+        if (IsBlockAvailable(nBlockId, &nOffset, &nSize, nullptr) &&
             nSize <
                 static_cast<vsi_l_offset>(std::numeric_limits<tmsize_t>::max()))
         {
@@ -210,7 +210,9 @@ CPLErr GTiffDataset::ReadCompressedData(const char *pszFormat, int nXOff,
               m_nPhotometric != PHOTOMETRIC_SEPARATED)) ||
             (m_nCompression == COMPRESSION_WEBP &&
              EQUAL(aosTokens[0], "WEBP")) ||
-            (m_nCompression == COMPRESSION_JXL && EQUAL(aosTokens[0], "JXL")))
+            ((m_nCompression == COMPRESSION_JXL ||
+              m_nCompression == COMPRESSION_JXL_DNG_1_7) &&
+             EQUAL(aosTokens[0], "JXL")))
         {
             std::string osDetailedFormat = aosTokens[0];
 
@@ -222,7 +224,7 @@ CPLErr GTiffDataset::ReadCompressedData(const char *pszFormat, int nXOff,
 
             vsi_l_offset nOffset = 0;
             vsi_l_offset nSize = 0;
-            if (IsBlockAvailable(nBlockId, &nOffset, &nSize) &&
+            if (IsBlockAvailable(nBlockId, &nOffset, &nSize, nullptr) &&
                 nSize < static_cast<vsi_l_offset>(
                             std::numeric_limits<tmsize_t>::max()))
             {
@@ -987,6 +989,7 @@ bool GTiffDataset::IsMultiThreadedReadCompatible() const
             m_nCompression == COMPRESSION_ZSTD ||
             m_nCompression == COMPRESSION_LERC ||
             m_nCompression == COMPRESSION_JXL ||
+            m_nCompression == COMPRESSION_JXL_DNG_1_7 ||
             m_nCompression == COMPRESSION_WEBP ||
             m_nCompression == COMPRESSION_JPEG);
 }
@@ -1305,6 +1308,7 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
                     nBlockId +=
                         asJobs[iJob].iSrcBandIdxSeparate * m_nBlocksPerBand;
 
+                bool bErrorInIsBlockAvailable = false;
                 if (!sContext.bHasPRead)
                 {
                     // Taking the mutex here is only needed when bHasPRead ==
@@ -1314,13 +1318,22 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
                     std::lock_guard<std::recursive_mutex> oLock(
                         sContext.oMutex);
 
-                    IsBlockAvailable(nBlockId, &asJobs[iJob].nOffset,
-                                     &asJobs[iJob].nSize);
+                    CPL_IGNORE_RET_VAL(IsBlockAvailable(
+                        nBlockId, &asJobs[iJob].nOffset, &asJobs[iJob].nSize,
+                        &bErrorInIsBlockAvailable));
                 }
                 else
                 {
-                    IsBlockAvailable(nBlockId, &asJobs[iJob].nOffset,
-                                     &asJobs[iJob].nSize);
+                    CPL_IGNORE_RET_VAL(IsBlockAvailable(
+                        nBlockId, &asJobs[iJob].nOffset, &asJobs[iJob].nSize,
+                        &bErrorInIsBlockAvailable));
+                }
+                if (bErrorInIsBlockAvailable)
+                {
+                    std::lock_guard<std::recursive_mutex> oLock(
+                        sContext.oMutex);
+                    sContext.bSuccess = false;
+                    return CE_Failure;
                 }
 
                 // Sanity check on block size
@@ -1344,7 +1357,7 @@ CPLErr GTiffDataset::MultiThreadedRead(int nXOff, int nYOff, int nXSize,
                         std::lock_guard<std::recursive_mutex> oLock(
                             sContext.oMutex);
                         sContext.bSuccess = false;
-                        break;
+                        return CE_Failure;
                     }
                 }
 
@@ -5566,7 +5579,8 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
                     m_dfMaxZErrorOverview = CPLAtof(pszValue);
                 }
 #if HAVE_JXL
-                else if (m_nCompression == COMPRESSION_JXL &&
+                else if ((m_nCompression == COMPRESSION_JXL ||
+                          m_nCompression == COMPRESSION_JXL_DNG_1_7) &&
                          EQUAL(pszKey, "COMPRESSION_REVERSIBILITY"))
                 {
                     if (EQUAL(pszValue, "LOSSLESS"))
@@ -5574,7 +5588,8 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
                     else if (EQUAL(pszValue, "LOSSY"))
                         m_bJXLLossless = false;
                 }
-                else if (m_nCompression == COMPRESSION_JXL &&
+                else if ((m_nCompression == COMPRESSION_JXL ||
+                          m_nCompression == COMPRESSION_JXL_DNG_1_7) &&
                          EQUAL(pszKey, "JXL_DISTANCE"))
                 {
                     const double dfVal = CPLAtof(pszValue);
@@ -5587,7 +5602,8 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
                         m_fJXLDistance = static_cast<float>(dfVal);
                     }
                 }
-                else if (m_nCompression == COMPRESSION_JXL &&
+                else if ((m_nCompression == COMPRESSION_JXL ||
+                          m_nCompression == COMPRESSION_JXL_DNG_1_7) &&
                          EQUAL(pszKey, "JXL_ALPHA_DISTANCE"))
                 {
                     const double dfVal = CPLAtof(pszValue);
@@ -5599,7 +5615,8 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
                         m_fJXLAlphaDistance = static_cast<float>(dfVal);
                     }
                 }
-                else if (m_nCompression == COMPRESSION_JXL &&
+                else if ((m_nCompression == COMPRESSION_JXL ||
+                          m_nCompression == COMPRESSION_JXL_DNG_1_7) &&
                          EQUAL(pszKey, "JXL_EFFORT"))
                 {
                     const int nEffort = atoi(pszValue);
@@ -5776,7 +5793,8 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
             }
         }
 #ifdef HAVE_JXL
-        else if (m_nCompression == COMPRESSION_JXL)
+        else if (m_nCompression == COMPRESSION_JXL ||
+                 m_nCompression == COMPRESSION_JXL_DNG_1_7)
         {
             const char *pszReversibility =
                 GetMetadataItem("COMPRESSION_REVERSIBILITY", "IMAGE_STRUCTURE");
@@ -6371,7 +6389,8 @@ const char *GTiffDataset::GetMetadataItem(const char *pszName,
     if (pszDomain != nullptr && EQUAL(pszDomain, "IMAGE_STRUCTURE"))
     {
         if ((m_nCompression == COMPRESSION_WEBP ||
-             m_nCompression == COMPRESSION_JXL) &&
+             m_nCompression == COMPRESSION_JXL ||
+             m_nCompression == COMPRESSION_JXL_DNG_1_7) &&
             EQUAL(pszName, "COMPRESSION_REVERSIBILITY") &&
             m_oGTiffMDMD.GetMetadataItem("COMPRESSION_REVERSIBILITY",
                                          "IMAGE_STRUCTURE") == nullptr)
@@ -6383,7 +6402,7 @@ const char *GTiffDataset::GetMetadataItem(const char *pszName,
             {
                 vsi_l_offset nOffset = 0;
                 vsi_l_offset nSize = 0;
-                IsBlockAvailable(0, &nOffset, &nSize);
+                IsBlockAvailable(0, &nOffset, &nSize, nullptr);
                 if (nSize > 0)
                 {
                     const std::string osSubfile(
