@@ -40,15 +40,17 @@ jobs:
     - name: Install from npm
       run:  npm install --force gdal-async@${{ github.event.inputs.version }}
     - name: Node options
-      run: echo 'NODE_OPTIONS="--expose-gc"' >> $GITHUB_ENV
+      shell: bash
+      run: echo 'MOCHA_NODE_OPTIONS="--v8-expose-gc"' >> $GITHUB_ENV
       if: matrix.node-version != '23.x'
     - name: Node options
-      run: echo 'NODE_OPTIONS=-"--no-experimental-strip-types --expose-gc"' >> $GITHUB_ENV
+      shell: bash
+      run: echo 'MOCHA_NODE_OPTIONS=-"--node-option no-experimental-strip-types --node-option expose-gc"' >> $GITHUB_ENV
       if: matrix.node-version == '23.x'
     - name: Run the unit tests
       run: |
         cd test
-        npx mocha --reporter=tap -r ts-node/register -r _common.ts -r _hooks.ts --timeout 20000 *.test.ts
+        npx mocha ${{ env.MOCHA_NODE_OPTIONS }} --reporter=tap -r ts-node/register -r _common.ts -r _hooks.ts --timeout 20000 *.test.ts
       env:
         TS_NODE_PROJECT: tsconfig.test.json
 
@@ -85,14 +87,16 @@ jobs:
     - name: Rebuild with npm
       run: npm install --verbose --force gdal-async@${{ github.event.inputs.version }} --build-from-source
     - name: Node options
-      run: echo 'NODE_OPTIONS="--expose-gc"' >> $GITHUB_ENV
+      shell: bash
+      run: echo 'MOCHA_NODE_OPTIONS="--v8-expose-gc"' >> $GITHUB_ENV
       if: matrix.node-version != '23.x'
     - name: Node options
-      run: echo 'NODE_OPTIONS=-"--no-experimental-strip-types --expose-gc"' >> $GITHUB_ENV
+      shell: bash
+      run: echo 'MOCHA_NODE_OPTIONS=-"--node-option no-experimental-strip-types --node-option expose-gc"' >> $GITHUB_ENV
       if: matrix.node-version == '23.x'
     - name: Run the unit tests
       run: |
         cd test
-        npx mocha --reporter=tap -r ts-node/register -r _common.ts -r _hooks.ts --timeout 20000 *.test.ts
+        npx mocha ${{ env.MOCHA_NODE_OPTIONS }} --reporter=tap -r ts-node/register -r _common.ts -r _hooks.ts --timeout 20000 *.test.ts
       env:
         TS_NODE_PROJECT: tsconfig.test.json
