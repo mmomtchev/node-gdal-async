@@ -45,7 +45,7 @@ jobs:
       if: matrix.node-version != '23.x'
     - name: Node options
       shell: bash
-      run: echo 'MOCHA_NODE_OPTIONS=--node-option=no-experimental-strip-types,expose-gc' >> $GITHUB_ENV
+      run: echo 'MOCHA_NODE_OPTIONS=--node-option=no-experimental-strip-types --node-option=expose-gc' >> $GITHUB_ENV
       if: matrix.node-version == '23.x'
     - name: Run the unit tests
       run: |
@@ -92,7 +92,7 @@ jobs:
       if: matrix.node-version != '23.x'
     - name: Node options
       shell: bash
-      run: echo 'MOCHA_NODE_OPTIONS=--node-option=no-experimental-strip-types,expose-gc' >> $GITHUB_ENV
+      run: echo 'MOCHA_NODE_OPTIONS=--node-option=no-experimental-strip-types --node-option=expose-gc' >> $GITHUB_ENV
       if: matrix.node-version == '23.x'
     - name: Run the unit tests
       run: |
