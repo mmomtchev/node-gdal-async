@@ -11,6 +11,7 @@ yuidocs
 /coverage
 .vscode
 Attic
+tsconfig.json
 
 scripts
 !scripts/motd.js
