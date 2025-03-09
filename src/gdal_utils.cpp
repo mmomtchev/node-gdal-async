@@ -437,7 +437,6 @@ GDAL_ASYNCABLE_DEFINE(Utils::buildvrt) {
   std::vector<long> uids;
 
   std::string dst_path("");
-  Local<Object> dst_ds;
 
   NODE_ARG_STR(0, "dst_path", dst_path);
 
