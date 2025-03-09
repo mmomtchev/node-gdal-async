@@ -241,7 +241,6 @@ CPLErr GDALReprojectImageMulti(
 GDAL_ASYNCABLE_DEFINE(Warper::reprojectImage) {
 
   Local<Object> obj;
-  Local<Value> prop;
 
   auto options = std::make_shared<WarpOptions>();
   GDALWarpOptions *opts;
