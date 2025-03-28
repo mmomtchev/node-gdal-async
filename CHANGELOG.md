@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
  - Fix the `gdal.info()` example
+ - Fix [mmomtchev/node-gdal-async#204](https://github.com/mmomtchev/node-gdal-async/issues/204), define `HAVE_TIFF` for other drivers using built-in TIFF support
 
 ## [3.10.2] 2025-03-09
 
