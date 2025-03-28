@@ -212,8 +212,8 @@ GDAL_ASYNCABLE_DEFINE(Utils::vectorTranslate) {
  * Library version of gdalinfo.
  *
  * @example
- * const ds = gdal.open('input.tif')
- * const output = gdal.info('/vsimem/temp.tif')
+ * const output = gdal.info(gdal.open('input.tif'))
+ * const output = gdal.info(gdal.open('/vsimem/temp.tif'), ['-json'])
  *
  * @throws {Error}
  * @method info
