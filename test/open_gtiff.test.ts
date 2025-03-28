@@ -69,5 +69,17 @@ describe('Open', () => {
       assert.closeTo(actual_stats.mean, expected_stats.mean, delta)
       assert.closeTo(actual_stats.std_dev, expected_stats.std_dev, delta)
     })
+
+    it('should support generating overviews', () => {
+      gdal.config.set('TIFF_USE_OVR', 'YES')
+      gdal.config.set('COMPRESS_OVERVIEW', 'DEFLATE')
+      const ds = gdal.open(path.join(__dirname, 'data/natural_earth.tif'), 'r+')
+      ds.buildOverviews('NEAREST', [ 2, 4, 8, 16 ])
+      const overviews = Array.from(ds.bands.get(1).overviews)
+      assert.lengthOf(overviews, 4)
+      for (const o of overviews) {
+        assert.instanceOf(o, gdal.RasterBand)
+      }
+    })
   })
 })

@@ -16,6 +16,7 @@ test/data/**/*.aux*
 test/data/**/*.tmp*
 test/data/**/*.gfs
 test/data/**/*.gz.*
+test/data/**/*.ovr
 node_modules
 /.project
 .DS_Store
