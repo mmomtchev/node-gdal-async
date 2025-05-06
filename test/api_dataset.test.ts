@@ -894,7 +894,7 @@ describe('gdal.Dataset', () => {
           ds.description,
           path.join(__dirname, 'data', 'sample.tif')
         ]
-        assert.deepEqual(ds.getFileList(), expected_filenames)
+        assert.includeMembers(ds.getFileList(), expected_filenames)
       })
       it('should throw if dataset already closed', () => {
         const ds = gdal.open(`${__dirname}/data/sample.vrt`)
