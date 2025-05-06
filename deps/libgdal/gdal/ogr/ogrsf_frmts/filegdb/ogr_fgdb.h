@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  OpenGIS Simple Features Reference Implementation
  * Purpose:  Standard includes and class definitions ArcObjects OGR driver.
@@ -18,7 +17,6 @@
 #include <vector>
 #include <set>
 #include "ogrsf_frmts.h"
-#include "ogremulatedtransaction.h"
 
 /* GDAL string utilities */
 #include "cpl_string.h"
@@ -94,26 +92,9 @@ class FGdbLayer final : public FGdbBaseLayer
 
     bool m_bWorkaroundCrashOnCDFWithBinaryField = false;
 
-    int m_bBulkLoadAllowed;
-    int m_bBulkLoadInProgress;
-
     virtual void CloseGDBObjects() override;
-    int EditIndexesForFIDHack(const char *pszRadixTablename);
-    int EditGDBTablX(const CPLString &osGDBTablX,
-                     const CPLString &osNewGDBTablX);
-    int EditATXOrSPX(const CPLString &osIndex);
-    int EditATXOrSPX(VSILFILE *fp, int nThisPage, int &nLastPageVisited,
-                     int nDepth, int nSizeIndexedValue,
-                     GByte *pabyLastIndexedValue, int &bIndexedValueIsValid,
-                     int &nFirstIndexAtThisValue,
-                     std::vector<int> &anPagesAtThisValue, int &bSortThisValue,
-                     int &bInvalidateIndex);
-
-    void StartBulkLoad();
-    void EndBulkLoad();
 
 #ifdef EXTENT_WORKAROUND
-    bool m_bLayerJustCreated;
     OGREnvelope sLayerEnvelope;
     bool m_bLayerEnvelopeValid;
     void WorkAroundExtentProblem();
@@ -124,22 +105,6 @@ class FGdbLayer final : public FGdbBaseLayer
     OGRErr PopulateRowWithFeature(Row &row, OGRFeature *poFeature);
     OGRErr GetRow(EnumRows &enumRows, Row &row, GIntBig nFID);
 
-    char **m_papszOptions;
-
-    int m_bCreateMultipatch;
-
-    std::map<int, int> m_oMapOGRFIDToFGDBFID;
-    std::map<int, int> m_oMapFGDBFIDToOGRFID;
-    int m_nResyncThreshold;
-    void ResyncIDs();
-
-    int m_bSymlinkFlag;
-    int CreateRealCopy();
-
-    char *CreateFieldDefn(OGRFieldDefn &oField, int bApproxOK,
-                          std::string &fieldname_clean,
-                          std::string &gdbFieldType);
-
   public:
     FGdbLayer();
     virtual ~FGdbLayer();
@@ -148,13 +113,6 @@ class FGdbLayer final : public FGdbBaseLayer
     bool Initialize(FGdbDataSource *pParentDataSource, Table *pTable,
                     const std::wstring &wstrTablePath,
                     const std::wstring &wstrType);
-    bool Create(FGdbDataSource *pParentDataSource, const char *pszLayerName,
-                const OGRGeomFieldDefn *poSrcGeomFieldDefn,
-                CSLConstList papszOptions);
-    static bool CreateFeatureDataset(FGdbDataSource *pParentDataSource,
-                                     const std::string &feature_dataset_name,
-                                     const OGRGeomFieldDefn *poSrcGeomFieldDefn,
-                                     CSLConstList papszOptions);
 
     // virtual const char *GetName();
     virtual const char *GetFIDColumn() override
@@ -181,39 +139,14 @@ class FGdbLayer final : public FGdbBaseLayer
         return m_wstrType;
     }
 
-    virtual OGRErr CreateField(const OGRFieldDefn *poField,
-                               int bApproxOK) override;
-    virtual OGRErr DeleteField(int iFieldToDelete) override;
-#ifdef AlterFieldDefn_implemented_but_not_working
-    virtual OGRErr AlterFieldDefn(int iFieldToAlter,
-                                  OGRFieldDefn *poNewFieldDefn, int nFlags);
-#endif
-
-    virtual OGRErr ICreateFeature(OGRFeature *poFeature) override;
-    virtual OGRErr ISetFeature(OGRFeature *poFeature) override;
-    virtual OGRErr DeleteFeature(GIntBig nFID) override;
-
-    virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce) override;
-
-    virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
-                             int bForce) override
-    {
-        return OGRLayer::GetExtent(iGeomField, psExtent, bForce);
-    }
+    virtual OGRErr IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                              bool bForce) override;
 
     virtual GIntBig GetFeatureCount(int bForce) override;
     virtual OGRErr SetAttributeFilter(const char *pszQuery) override;
 
-    virtual void SetSpatialFilter(OGRGeometry *) override;
-
-    virtual void SetSpatialFilter(int iGeomField, OGRGeometry *poGeom) override
-    {
-        OGRLayer::SetSpatialFilter(iGeomField, poGeom);
-    }
-
-    //  virtual OGRErr        StartTransaction( );
-    //  virtual OGRErr        CommitTransaction( );
-    //  virtual OGRErr        RollbackTransaction( );
+    OGRErr ISetSpatialFilter(int iGeomField,
+                             const OGRGeometry *poGeom) override;
 
     OGRFeatureDefn *GetLayerDefn() override
     {
@@ -227,15 +160,8 @@ class FGdbLayer final : public FGdbBaseLayer
     OGRErr GetLayerXML(char **poXml);
     OGRErr GetLayerMetadataXML(char **poXmlMeta);
 
-    void SetSymlinkFlag()
-    {
-        m_bSymlinkFlag = TRUE;
-    }
-
     virtual const char *GetMetadataItem(const char *pszName,
                                         const char *pszDomain) override;
-
-    virtual OGRErr Rename(const char *pszNewName) override;
 
     GDALDataset *GetDataset() override;
 
@@ -310,9 +236,6 @@ class FGdbDataSource final : public GDALDataset
     std::map<std::string, std::unique_ptr<GDALRelationship>>
         m_osMapRelationships{};
 
-    int FixIndexes();
-    int bPerLayerCopyingForTransaction;
-
   public:
     FGdbDataSource(bool bUseDriverMutex, FGdbDatabaseConnection *pConnection,
                    bool bUseOpenFileGDB);
@@ -332,12 +255,6 @@ class FGdbDataSource final : public GDALDataset
 
     OGRLayer *GetLayer(int) override;
 
-    OGRLayer *ICreateLayer(const char *pszName,
-                           const OGRGeomFieldDefn *poGeomFieldDefn,
-                           CSLConstList papszOptions) override;
-
-    virtual OGRErr DeleteLayer(int) override;
-
     virtual OGRLayer *ExecuteSQL(const char *pszSQLCommand,
                                  OGRGeometry *poSpatialFilter,
                                  const char *pszDialect) override;
@@ -349,15 +266,6 @@ class FGdbDataSource final : public GDALDataset
     GetFieldDomain(const std::string &name) const override;
     std::vector<std::string>
     GetFieldDomainNames(CSLConstList papszOptions = nullptr) const override;
-
-    bool AddFieldDomain(std::unique_ptr<OGRFieldDomain> &&domain,
-                        std::string &failureReason) override;
-
-    bool DeleteFieldDomain(const std::string &name,
-                           std::string &failureReason) override;
-
-    bool UpdateFieldDomain(std::unique_ptr<OGRFieldDomain> &&domain,
-                           std::string &failureReason) override;
 
     std::vector<std::string>
     GetRelationshipNames(CSLConstList papszOptions = nullptr) const override;
@@ -373,11 +281,6 @@ class FGdbDataSource final : public GDALDataset
     Geodatabase *GetGDB()
     {
         return m_pGeodatabase;
-    }
-
-    bool GetUpdate()
-    {
-        return m_bUpdate;
     }
 
     FGdbDatabaseConnection *GetConnection()
@@ -396,16 +299,6 @@ class FGdbDataSource final : public GDALDataset
     }
 
     int CloseInternal(int bCloseGeodatabase = FALSE);
-    int ReOpen();
-
-    int HasPerLayerCopyingForTransaction();
-
-    void SetPerLayerCopyingForTransaction(int bFlag)
-    {
-        bPerLayerCopyingForTransaction = bFlag;
-    }
-
-    void SetSymlinkFlagOnAllLayers();
 
     bool UseOpenFileGDB() const
     {
@@ -427,7 +320,6 @@ class FGdbDataSource final : public GDALDataset
     FGdbDatabaseConnection *m_pConnection;
     std::vector<OGRLayer *> m_layers;
     Geodatabase *m_pGeodatabase;
-    bool m_bUpdate;
     GDALDriver *m_poOpenFileGDBDrv;
     std::unique_ptr<GDALDataset> m_poOpenFileGDBDS;
     bool m_bUseOpenFileGDB = false;
@@ -442,7 +334,7 @@ class FGdbDatabaseConnection
   public:
     FGdbDatabaseConnection(const std::string &osName, Geodatabase *pGeodatabase)
         : m_osName(osName), m_pGeodatabase(pGeodatabase), m_nRefCount(1),
-          m_bLocked(FALSE), m_bFIDHackInProgress(FALSE)
+          m_bLocked(FALSE)
     {
     }
 
@@ -450,7 +342,6 @@ class FGdbDatabaseConnection
     Geodatabase *m_pGeodatabase;
     int m_nRefCount;
     int m_bLocked;
-    int m_bFIDHackInProgress;
 
     Geodatabase *GetGDB()
     {
@@ -472,29 +363,8 @@ class FGdbDatabaseConnection
         return m_bLocked;
     }
 
-    int IsFIDHackInProgress() const
-    {
-        return m_bFIDHackInProgress;
-    }
-
-    void SetFIDHackInProgress(int bFlag)
-    {
-        m_bFIDHackInProgress = bFlag;
-    }
-
     int OpenGeodatabase(const char *pszOverriddenName);
     void CloseGeodatabase();
-};
-
-class FGdbTransactionManager final : public IOGRTransactionBehaviour
-{
-  public:
-    virtual OGRErr StartTransaction(GDALDataset *&poDSInOut,
-                                    int &bOutHasReopenedDS) override;
-    virtual OGRErr CommitTransaction(GDALDataset *&poDSInOut,
-                                     int &bOutHasReopenedDS) override;
-    virtual OGRErr RollbackTransaction(GDALDataset *&poDSInOut,
-                                       int &bOutHasReopenedDS) override;
 };
 
 class FGdbDriver final : public GDALDriver
@@ -502,10 +372,7 @@ class FGdbDriver final : public GDALDriver
   public:
     static void Release(const char *pszName);
 
-    static FGdbTransactionManager *GetTransactionManager();
-
     static CPLMutex *hMutex;
-    static FGdbTransactionManager *m_poTransactionManager;
 };
 
 CPL_C_START

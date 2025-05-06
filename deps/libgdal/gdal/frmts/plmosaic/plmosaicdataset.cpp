@@ -328,7 +328,7 @@ PLMosaicDataset::PLMosaicDataset()
     adfGeoTransform[5] = 1;
 
     SetMetadataItem("INTERLEAVE", "PIXEL", "IMAGE_STRUCTURE");
-    osCachePathRoot = CPLGetPath(CPLGenerateTempFilename(""));
+    osCachePathRoot = CPLGetPathSafe(CPLGenerateTempFilenameSafe("").c_str());
 }
 
 /************************************************************************/
@@ -688,9 +688,9 @@ CPLString PLMosaicDataset::GetMosaicCachePath()
     if (!osCachePathRoot.empty())
     {
         const CPLString osCachePath(
-            CPLFormFilename(osCachePathRoot, "plmosaic_cache", nullptr));
+            CPLFormFilenameSafe(osCachePathRoot, "plmosaic_cache", nullptr));
         const CPLString osMosaicPath(
-            CPLFormFilename(osCachePath, osMosaic, nullptr));
+            CPLFormFilenameSafe(osCachePath, osMosaic, nullptr));
 
         return osMosaicPath;
     }
@@ -706,9 +706,9 @@ void PLMosaicDataset::CreateMosaicCachePathIfNecessary()
     if (!osCachePathRoot.empty())
     {
         const CPLString osCachePath(
-            CPLFormFilename(osCachePathRoot, "plmosaic_cache", nullptr));
+            CPLFormFilenameSafe(osCachePathRoot, "plmosaic_cache", nullptr));
         const CPLString osMosaicPath(
-            CPLFormFilename(osCachePath, osMosaic, nullptr));
+            CPLFormFilenameSafe(osCachePath, osMosaic, nullptr));
 
         VSIStatBufL sStatBuf;
         if (VSIStatL(osMosaicPath, &sStatBuf) != 0)
@@ -1266,10 +1266,10 @@ GDALDataset *PLMosaicDataset::GetMetaTile(int tile_x, int tile_y)
 
         const CPLString osMosaicPath(GetMosaicCachePath());
         osTmpFilename =
-            CPLFormFilename(osMosaicPath,
-                            CPLSPrintf("%s_%s.tif", osMosaic.c_str(),
-                                       CPLGetFilename(osTilename)),
-                            nullptr);
+            CPLFormFilenameSafe(osMosaicPath,
+                                CPLSPrintf("%s_%s.tif", osMosaic.c_str(),
+                                           CPLGetFilename(osTilename)),
+                                nullptr);
         VSIStatBufL sStatBuf;
 
         CPLString osURL = osQuadsURL;

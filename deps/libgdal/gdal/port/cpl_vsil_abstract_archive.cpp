@@ -303,31 +303,26 @@ int VSIArchiveFilesystemHandler::FindFileInArchive(
 /*                           CompactFilename()                          */
 /************************************************************************/
 
-static CPLString CompactFilename(const char *pszArchiveInFileNameIn)
+static std::string CompactFilename(const char *pszArchiveInFileNameIn)
 {
-    char *pszArchiveInFileName = CPLStrdup(pszArchiveInFileNameIn);
+    std::string osRet(pszArchiveInFileNameIn);
 
     // Replace a/../b by b and foo/a/../b by foo/b.
     while (true)
     {
-        char *pszPrevDir = strstr(pszArchiveInFileName, "/../");
-        if (pszPrevDir == nullptr || pszPrevDir == pszArchiveInFileName)
+        size_t nSlashDotDot = osRet.find("/../");
+        if (nSlashDotDot == std::string::npos || nSlashDotDot == 0)
             break;
-
-        char *pszPrevSlash = pszPrevDir - 1;
-        while (pszPrevSlash != pszArchiveInFileName && *pszPrevSlash != '/')
-            pszPrevSlash--;
-        if (pszPrevSlash == pszArchiveInFileName)
-            memmove(pszArchiveInFileName, pszPrevDir + 4,
-                    strlen(pszPrevDir + 4) + 1);
+        size_t nPos = nSlashDotDot - 1;
+        while (nPos > 0 && osRet[nPos] != '/')
+            --nPos;
+        if (nPos == 0)
+            osRet = osRet.substr(nSlashDotDot + strlen("/../"));
         else
-            memmove(pszPrevSlash + 1, pszPrevDir + 4,
-                    strlen(pszPrevDir + 4) + 1);
+            osRet = osRet.substr(0, nPos + 1) +
+                    osRet.substr(nSlashDotDot + strlen("/../"));
     }
-
-    CPLString osFileInArchive = pszArchiveInFileName;
-    CPLFree(pszArchiveInFileName);
-    return osFileInArchive;
+    return osRet;
 }
 
 /************************************************************************/
@@ -457,12 +452,7 @@ char *VSIArchiveFilesystemHandler::SplitFilename(const char *pszFilename,
 
     const std::vector<CPLString> oExtensions = GetExtensions();
     int nAttempts = 0;
-    // If we are called with pszFilename being one of the TLS buffers returned
-    // by cpl_path.cpp functions, then a call to Stat() in the loop (and its
-    // cascaded calls to other cpl_path.cpp functions) might lead to altering
-    // the buffer to be altered, hence take a copy
-    const std::string osFilenameCopy(pszFilename);
-    while (i < static_cast<int>(osFilenameCopy.size()))
+    while (pszFilename[i])
     {
         int nToSkip = 0;
 
@@ -470,7 +460,7 @@ char *VSIArchiveFilesystemHandler::SplitFilename(const char *pszFilename,
              iter != oExtensions.end(); ++iter)
         {
             const CPLString &osExtension = *iter;
-            if (EQUALN(osFilenameCopy.c_str() + i, osExtension.c_str(),
+            if (EQUALN(pszFilename + i, osExtension.c_str(),
                        osExtension.size()))
             {
                 nToSkip = static_cast<int>(osExtension.size());
@@ -480,8 +470,7 @@ char *VSIArchiveFilesystemHandler::SplitFilename(const char *pszFilename,
 
 #ifdef DEBUG
         // For AFL, so that .cur_input is detected as the archive filename.
-        if (EQUALN(osFilenameCopy.c_str() + i, ".cur_input",
-                   strlen(".cur_input")))
+        if (EQUALN(pszFilename + i, ".cur_input", strlen(".cur_input")))
         {
             nToSkip = static_cast<int>(strlen(".cur_input"));
         }
@@ -497,7 +486,7 @@ char *VSIArchiveFilesystemHandler::SplitFilename(const char *pszFilename,
                 break;
             }
             VSIStatBufL statBuf;
-            char *archiveFilename = CPLStrdup(osFilenameCopy.c_str());
+            char *archiveFilename = CPLStrdup(pszFilename);
             bool bArchiveFileExists = false;
 
             if (IsEitherSlash(archiveFilename[i + nToSkip]))
@@ -538,11 +527,10 @@ char *VSIArchiveFilesystemHandler::SplitFilename(const char *pszFilename,
 
             if (bArchiveFileExists)
             {
-                if (IsEitherSlash(osFilenameCopy[i + nToSkip]) &&
-                    i + nToSkip + 1 < static_cast<int>(osFilenameCopy.size()))
+                if (IsEitherSlash(pszFilename[i + nToSkip]))
                 {
-                    osFileInArchive = CompactFilename(osFilenameCopy.c_str() +
-                                                      i + nToSkip + 1);
+                    osFileInArchive =
+                        CompactFilename(pszFilename + i + nToSkip + 1);
                 }
                 else
                 {
@@ -554,13 +542,8 @@ char *VSIArchiveFilesystemHandler::SplitFilename(const char *pszFilename,
                 {
                     const char lastC = osFileInArchive.back();
                     if (IsEitherSlash(lastC))
-                        osFileInArchive.pop_back();
+                        osFileInArchive.resize(osFileInArchive.size() - 1);
                 }
-
-                // Messy! Restore the TLS buffer if it has been altered
-                if (osFilenameCopy != pszFilename)
-                    strcpy(const_cast<char *>(pszFilename),
-                           osFilenameCopy.c_str());
 
                 return archiveFilename;
             }
@@ -568,11 +551,6 @@ char *VSIArchiveFilesystemHandler::SplitFilename(const char *pszFilename,
         }
         i++;
     }
-
-    // Messy! Restore the TLS buffer if it has been altered
-    if (osFilenameCopy != pszFilename)
-        strcpy(const_cast<char *>(pszFilename), osFilenameCopy.c_str());
-
     return nullptr;
 }
 
@@ -767,44 +745,6 @@ int VSIArchiveFilesystemHandler::Stat(const char *pszFilename,
 
     CPLFree(archiveFilename);
     return ret;
-}
-
-/************************************************************************/
-/*                              Unlink()                                */
-/************************************************************************/
-
-int VSIArchiveFilesystemHandler::Unlink(const char * /* pszFilename */)
-{
-    return -1;
-}
-
-/************************************************************************/
-/*                             Rename()                                 */
-/************************************************************************/
-
-int VSIArchiveFilesystemHandler::Rename(const char * /* oldpath */,
-                                        const char * /* newpath */)
-{
-    return -1;
-}
-
-/************************************************************************/
-/*                             Mkdir()                                  */
-/************************************************************************/
-
-int VSIArchiveFilesystemHandler::Mkdir(const char * /* pszDirname */,
-                                       long /* nMode */)
-{
-    return -1;
-}
-
-/************************************************************************/
-/*                             Rmdir()                                  */
-/************************************************************************/
-
-int VSIArchiveFilesystemHandler::Rmdir(const char * /* pszDirname */)
-{
-    return -1;
 }
 
 /************************************************************************/

@@ -26,12 +26,6 @@
 
 #include <cctype>
 
-#ifdef _WIN32
-#include <io.h>
-#else
-#include <unistd.h>
-#endif
-
 /************************************************************************/
 /*                             GetSRSAsWKT                              */
 /************************************************************************/
@@ -300,7 +294,7 @@ MAIN_START(argc, argv)
     if (std::isnan(dfGeoX))
     {
         // Is it an interactive terminal ?
-        if (isatty(static_cast<int>(fileno(stdin))))
+        if (CPLIsInteractive(stdin))
         {
             if (!osSourceSRS.empty())
             {
@@ -445,8 +439,9 @@ MAIN_START(argc, argv)
 
         bool bPixelReport = true;
 
-        if (iPixel < 0 || iLine < 0 || iPixel >= GDALGetRasterXSize(hSrcDS) ||
-            iLine >= GDALGetRasterYSize(hSrcDS))
+        if (iPixel < 0 || iLine < 0 ||
+            dfPixel > static_cast<double>(GDALGetRasterXSize(hSrcDS) + 1e-5) ||
+            dfLine > static_cast<double>(GDALGetRasterYSize(hSrcDS) + 1e-5))
         {
             if (bAsXML)
                 osXML += "<Alert>Location is off this file! No further details "

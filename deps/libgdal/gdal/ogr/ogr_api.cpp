@@ -359,6 +359,7 @@ int OGR_G_GetPoints(OGRGeometryH hGeom, void *pabyX, int nXStride, void *pabyY,
 {
     VALIDATE_POINTER1(hGeom, "OGR_G_GetPoints", 0);
 
+    int ret = 0;
     switch (wkbFlatten(ToPointer(hGeom)->getGeometryType()))
     {
         case wkbPoint:
@@ -370,25 +371,27 @@ int OGR_G_GetPoints(OGRGeometryH hGeom, void *pabyX, int nXStride, void *pabyY,
                 *(static_cast<double *>(pabyY)) = poPoint->getY();
             if (pabyZ)
                 *(static_cast<double *>(pabyZ)) = poPoint->getZ();
-            return 1;
+            ret = 1;
+            break;
         }
-        break;
 
         case wkbLineString:
         case wkbCircularString:
         {
             OGRSimpleCurve *poSC = ToPointer(hGeom)->toSimpleCurve();
             poSC->getPoints(pabyX, nXStride, pabyY, nYStride, pabyZ, nZStride);
-            return poSC->getNumPoints();
+            ret = poSC->getNumPoints();
+            break;
         }
-        break;
 
         default:
+        {
             CPLError(CE_Failure, CPLE_NotSupported,
                      "Incompatible geometry for operation");
-            return 0;
             break;
+        }
     }
+    return ret;
 }
 
 /************************************************************************/
@@ -429,6 +432,7 @@ int OGR_G_GetPointsZM(OGRGeometryH hGeom, void *pabyX, int nXStride,
 {
     VALIDATE_POINTER1(hGeom, "OGR_G_GetPointsZM", 0);
 
+    int ret = 0;
     switch (wkbFlatten(ToPointer(hGeom)->getGeometryType()))
     {
         case wkbPoint:
@@ -442,9 +446,9 @@ int OGR_G_GetPointsZM(OGRGeometryH hGeom, void *pabyX, int nXStride,
                 *static_cast<double *>(pabyZ) = poPoint->getZ();
             if (pabyM)
                 *static_cast<double *>(pabyM) = poPoint->getM();
-            return 1;
+            ret = 1;
+            break;
         }
-        break;
 
         case wkbLineString:
         case wkbCircularString:
@@ -452,16 +456,19 @@ int OGR_G_GetPointsZM(OGRGeometryH hGeom, void *pabyX, int nXStride,
             OGRSimpleCurve *poSC = ToPointer(hGeom)->toSimpleCurve();
             poSC->getPoints(pabyX, nXStride, pabyY, nYStride, pabyZ, nZStride,
                             pabyM, nMStride);
-            return poSC->getNumPoints();
+            ret = poSC->getNumPoints();
+            break;
         }
-        break;
 
         default:
+        {
             CPLError(CE_Failure, CPLE_NotSupported,
                      "Incompatible geometry for operation");
-            return 0;
             break;
+        }
     }
+
+    return ret;
 }
 
 /************************************************************************/
@@ -865,6 +872,9 @@ void CPL_DLL OGR_G_SetPointsZM(OGRGeometryH hGeom, int nPointsIn,
  * points in the linestring, the point count will be increased to
  * accommodate the request.
  *
+ * The geometry is promoted to include a Z component, if it does not already
+ * have one.
+ *
  * @param hGeom handle to the geometry to add a vertex to.
  * @param i the index of the vertex to assign (zero based) or
  *  zero for a point.
@@ -986,6 +996,9 @@ void OGR_G_SetPoint_2D(OGRGeometryH hGeom, int i, double dfX, double dfY)
  * points in the linestring, the point count will be increased to
  * accommodate the request.
  *
+ * The geometry is promoted to include a M component, if it does not already
+ * have one.
+ *
  * @param hGeom handle to the geometry to add a vertex to.
  * @param i the index of the vertex to assign (zero based) or
  *  zero for a point.
@@ -1047,6 +1060,9 @@ void OGR_G_SetPointM(OGRGeometryH hGeom, int i, double dfX, double dfY,
  * If iPoint is larger than the number of existing
  * points in the linestring, the point count will be increased to
  * accommodate the request.
+ *
+ * The geometry is promoted to include a Z and M component, if it does not
+ * already have them.
  *
  * @param hGeom handle to the geometry to add a vertex to.
  * @param i the index of the vertex to assign (zero based) or
@@ -1111,6 +1127,9 @@ void OGR_G_SetPointZM(OGRGeometryH hGeom, int i, double dfX, double dfY,
  * The vertex count of the line string is increased by one, and assigned from
  * the passed location value.
  *
+ * The geometry is promoted to include a Z component, if it does not already
+ * have one.
+ *
  * @param hGeom handle to the geometry to add a point to.
  * @param dfX x coordinate of point to add.
  * @param dfY y coordinate of point to add.
@@ -1154,6 +1173,9 @@ void OGR_G_AddPoint(OGRGeometryH hGeom, double dfX, double dfY, double dfZ)
  * The vertex count of the line string is increased by one, and assigned from
  * the passed location value.
  *
+ * If the geometry includes a Z or M component, the value for those components
+ * for the added point will be 0.
+ *
  * @param hGeom handle to the geometry to add a point to.
  * @param dfX x coordinate of point to add.
  * @param dfY y coordinate of point to add.
@@ -1194,6 +1216,9 @@ void OGR_G_AddPoint_2D(OGRGeometryH hGeom, double dfX, double dfY)
  *
  * The vertex count of the line string is increased by one, and assigned from
  * the passed location value.
+ *
+ * The geometry is promoted to include a M component, if it does not already
+ * have one.
  *
  * @param hGeom handle to the geometry to add a point to.
  * @param dfX x coordinate of point to add.
@@ -1237,6 +1262,9 @@ void OGR_G_AddPointM(OGRGeometryH hGeom, double dfX, double dfY, double dfM)
  *
  * The vertex count of the line string is increased by one, and assigned from
  * the passed location value.
+ *
+ * The geometry is promoted to include a Z and M component, if it does not
+ * already have them.
  *
  * @param hGeom handle to the geometry to add a point to.
  * @param dfX x coordinate of point to add.

@@ -8,8 +8,8 @@
 			"type": "static_library",
 			"sources": [
 				"../gdal/ogr/ogrsf_frmts/vrt/ogrvrtlayer.cpp",
-				"../gdal/ogr/ogrsf_frmts/vrt/ogrvrtdatasource.cpp",
-				"../gdal/ogr/ogrsf_frmts/vrt/ogrvrtdriver.cpp"
+				"../gdal/ogr/ogrsf_frmts/vrt/ogrvrtdriver.cpp",
+				"../gdal/ogr/ogrsf_frmts/vrt/ogrvrtdatasource.cpp"
 			],
 			"include_dirs": [
 				"../gdal/ogr/ogrsf_frmts/vrt"

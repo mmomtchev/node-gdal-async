@@ -248,10 +248,6 @@ class VSICurlFilesystemHandlerBase : public VSIFilesystemHandler
 
     int Stat(const char *pszFilename, VSIStatBufL *pStatBuf,
              int nFlags) override;
-    int Unlink(const char *pszFilename) override;
-    int Rename(const char *oldpath, const char *newpath) override;
-    int Mkdir(const char *pszDirname, long nMode) override;
-    int Rmdir(const char *pszDirname) override;
     char **ReadDirEx(const char *pszDirname, int nMaxFiles) override;
     char **SiblingFiles(const char *pszFilename) override;
 
@@ -269,7 +265,7 @@ class VSICurlFilesystemHandlerBase : public VSIFilesystemHandler
 
     char **ReadDirInternal(const char *pszDirname, int nMaxFiles,
                            bool *pbGotFileList);
-    void InvalidateDirContent(const char *pszDirname);
+    void InvalidateDirContent(const std::string &osDirname);
 
     virtual const char *GetDebugKey() const = 0;
 
@@ -406,6 +402,8 @@ class VSICurlHandle : public VSIVirtualHandle
     mutable std::string m_osPlanetaryComputerCollection{};
     void ManagePlanetaryComputerSigning() const;
 
+    void UpdateQueryString() const;
+
     int ReadMultiRangeSingleGet(int nRanges, void **ppData,
                                 const vsi_l_offset *panOffsets,
                                 const size_t *panSizes);
@@ -428,6 +426,7 @@ class VSICurlHandle : public VSIVirtualHandle
 
     std::vector<std::unique_ptr<AdviseReadRange>> m_aoAdviseReadRanges{};
     std::thread m_oThreadAdviseRead{};
+    CURLM *m_hCurlMultiHandleForAdviseRead = nullptr;
 
   protected:
     virtual struct curl_slist *
@@ -614,7 +613,8 @@ class IVSIS3LikeFSHandler : public VSICurlFilesystemHandlerBaseWritable
     int Rmdir(const char *pszDirname) override;
     int Stat(const char *pszFilename, VSIStatBufL *pStatBuf,
              int nFlags) override;
-    int Rename(const char *oldpath, const char *newpath) override;
+    int Rename(const char *oldpath, const char *newpath, GDALProgressFunc,
+               void *) override;
 
     virtual int CopyFile(const char *pszSource, const char *pszTarget,
                          VSILFILE *fpSource, vsi_l_offset nSourceSize,
@@ -1007,6 +1007,49 @@ struct VSIDIRWithMissingDirSynthesis : public VSIDIR
 
     void SynthetizeMissingDirectories(const std::string &osCurSubdir,
                                       bool bAddEntryForThisSubdir);
+};
+
+/************************************************************************/
+/*                          VSIDIRS3Like                                */
+/************************************************************************/
+
+struct VSIDIRS3Like : public VSIDIRWithMissingDirSynthesis
+{
+    int nRecurseDepth = 0;
+
+    std::string osNextMarker{};
+    int nPos = 0;
+
+    std::string osBucket{};
+    std::string osObjectKey{};
+    VSICurlFilesystemHandlerBase *poFS = nullptr;
+    IVSIS3LikeFSHandler *poS3FS = nullptr;
+    std::unique_ptr<IVSIS3LikeHandleHelper> poHandleHelper{};
+    int nMaxFiles = 0;
+    bool bCacheEntries = true;
+    bool m_bSynthetizeMissingDirectories = false;
+    std::string m_osFilterPrefix{};
+
+    // used when listing only the file system prefix
+    std::unique_ptr<VSIDIR, decltype(&VSICloseDir)> m_subdir{nullptr,
+                                                             VSICloseDir};
+
+    explicit VSIDIRS3Like(IVSIS3LikeFSHandler *poFSIn)
+        : poFS(poFSIn), poS3FS(poFSIn)
+    {
+    }
+
+    explicit VSIDIRS3Like(VSICurlFilesystemHandlerBase *poFSIn) : poFS(poFSIn)
+    {
+    }
+
+    VSIDIRS3Like(const VSIDIRS3Like &) = delete;
+    VSIDIRS3Like &operator=(const VSIDIRS3Like &) = delete;
+
+    const VSIDIREntry *NextDirEntry() override;
+
+    virtual bool IssueListDir() = 0;
+    void clear();
 };
 
 /************************************************************************/

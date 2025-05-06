@@ -156,6 +156,7 @@ static void ReportFieldDomain(CPLString &osRet, CPLJSONObject &oDomains,
                    osDesc.c_str());
     }
     const char *pszType = "";
+    CPL_IGNORE_RET_VAL(pszType);  // Make CSA happy
     switch (poDomain->GetDomainType())
     {
         case OFDT_CODED:
@@ -197,6 +198,7 @@ static void ReportFieldDomain(CPLString &osRet, CPLJSONObject &oDomains,
     }
 
     const char *pszSplitPolicy = "";
+    CPL_IGNORE_RET_VAL(pszSplitPolicy);  // Make CSA happy
     switch (poDomain->GetSplitPolicy())
     {
         case OFDSP_DEFAULT_VALUE:
@@ -220,6 +222,7 @@ static void ReportFieldDomain(CPLString &osRet, CPLJSONObject &oDomains,
     }
 
     const char *pszMergePolicy = "";
+    CPL_IGNORE_RET_VAL(pszMergePolicy);  // Make CSA happy
     switch (poDomain->GetMergePolicy())
     {
         case OFDMP_DEFAULT_VALUE:
@@ -467,6 +470,7 @@ static void ReportRelationships(CPLString &osRet, CPLJSONObject &oRoot,
             continue;
 
         const char *pszType = "";
+        CPL_IGNORE_RET_VAL(pszType);  // Make CSA happy
         switch (poRelationship->GetType())
         {
             case GRT_COMPOSITE:
@@ -481,6 +485,7 @@ static void ReportRelationships(CPLString &osRet, CPLJSONObject &oRoot,
         }
 
         const char *pszCardinality = "";
+        CPL_IGNORE_RET_VAL(pszCardinality);  // Make CSA happy
         switch (poRelationship->GetCardinality())
         {
             case GRC_ONE_TO_ONE:
@@ -1825,6 +1830,10 @@ char *GDALVectorInfo(GDALDatasetH hDataset,
     if (poDS == nullptr)
         return nullptr;
 
+    const GDALVectorInfoOptions sDefaultOptions;
+    if (!psOptions)
+        psOptions = &sDefaultOptions;
+
     GDALDriver *poDriver = poDS->GetDriver();
 
     CPLString osRet;
@@ -2414,6 +2423,12 @@ static std::unique_ptr<GDALArgumentParser> GDALVectorInfoOptionsGetParser(
             })
         .help(_("Format/driver name(s) to try when opening the input file."));
 
+    argParser->add_argument("-stdout")
+        .flag()
+        .store_into(psOptions->bStdoutOutput)
+        .hidden()
+        .help(_("Directly output on stdout (format=text mode only)"));
+
     auto &argFilename = argParser->add_argument("filename")
                             .action(
                                 [psOptionsForBinary](const std::string &s)
@@ -2580,7 +2595,7 @@ GDALVectorInfoOptionsNew(char **papszArgv,
                 GDALRemoveBOM(pabyRet);
                 char *pszSQLStatement = reinterpret_cast<char *>(pabyRet);
                 psOptions->osSQLStatement =
-                    GDALRemoveSQLComments(pszSQLStatement);
+                    CPLRemoveSQLComments(pszSQLStatement);
                 VSIFree(pabyRet);
             }
             else

@@ -551,14 +551,15 @@ int TABFile::Open(const char *pszFname, TABAccess eAccess,
         {
             if (!bHasIndex)
             {
-                const char *pszIndFilename = CPLFormCIFilename(
-                    CPLGetPath(pszFname), CPLGetBasename(pszFname),
-                    (bUpperCase) ? "IND" : "ind");
+                const std::string osIndFilename =
+                    CPLFormCIFilenameSafe(CPLGetPathSafe(pszFname).c_str(),
+                                          CPLGetBasenameSafe(pszFname).c_str(),
+                                          (bUpperCase) ? "IND" : "ind");
                 VSIStatBufL sStat;
-                if (VSIStatL(pszIndFilename, &sStat) == 0)
+                if (VSIStatL(osIndFilename.c_str(), &sStat) == 0)
                 {
                     CPLCreateXMLElementAndValue(psRoot, "MIIDFilename",
-                                                pszIndFilename);
+                                                osIndFilename.c_str());
                 }
                 else
                 {
@@ -2530,7 +2531,7 @@ int TABFile::GetBounds(double &dXMin, double &dYMin, double &dXMax,
 }
 
 /**********************************************************************
- *                   TABFile::GetExtent()
+ *                   TABFile::IGetExtent()
  *
  * Fetch extent of the data currently stored in the dataset.
  *
@@ -2539,7 +2540,8 @@ int TABFile::GetBounds(double &dXMin, double &dYMin, double &dXMax,
  *
  * Returns OGRERR_NONE/OGRRERR_FAILURE.
  **********************************************************************/
-OGRErr TABFile::GetExtent(OGREnvelope *psExtent, CPL_UNUSED int bForce)
+OGRErr TABFile::IGetExtent(int /*iGeomField*/, OGREnvelope *psExtent,
+                           bool /* bForce */)
 {
     TABMAPHeaderBlock *poHeader = nullptr;
 

@@ -162,7 +162,8 @@ void ZarrV3Array::Serialize(const CPLJSONObject &oAttrs)
 
     if (m_pabyNoData == nullptr)
     {
-        if (m_oType.GetNumericDataType() == GDT_Float32 ||
+        if (m_oType.GetNumericDataType() == GDT_Float16 ||
+            m_oType.GetNumericDataType() == GDT_Float32 ||
             m_oType.GetNumericDataType() == GDT_Float64)
         {
             oRoot.Add("fill_value", "NaN");
@@ -174,7 +175,8 @@ void ZarrV3Array::Serialize(const CPLJSONObject &oAttrs)
     }
     else
     {
-        if (m_oType.GetNumericDataType() == GDT_CFloat32 ||
+        if (m_oType.GetNumericDataType() == GDT_CFloat16 ||
+            m_oType.GetNumericDataType() == GDT_CFloat32 ||
             m_oType.GetNumericDataType() == GDT_CFloat64)
         {
             double adfNoDataValue[2];
@@ -423,6 +425,7 @@ bool ZarrV3Array::LoadTileData(const uint64_t *tileIndices, bool bUseMutex,
     constexpr uint64_t MAX_TILES_ALLOWED_FOR_DIRECTORY_LISTING = 1000;
     const char *const apszOpenOptions[] = {"IGNORE_FILENAME_RESTRICTIONS=YES",
                                            nullptr};
+    const auto nErrorBefore = CPLGetErrorCounter();
     if ((m_osDimSeparator == "/" && !m_anBlockSize.empty() &&
          m_anBlockSize.back() > MAX_TILES_ALLOWED_FOR_DIRECTORY_LISTING) ||
         (m_osDimSeparator != "/" &&
@@ -439,11 +442,18 @@ bool ZarrV3Array::LoadTileData(const uint64_t *tileIndices, bool bUseMutex,
     }
     if (fp == nullptr)
     {
-        // Missing files are OK and indicate nodata_value
-        CPLDebugOnly(ZARR_DEBUG_KEY, "Tile %s missing (=nodata)",
-                     osFilename.c_str());
-        bMissingTileOut = true;
-        return true;
+        if (nErrorBefore != CPLGetErrorCounter())
+        {
+            return false;
+        }
+        else
+        {
+            // Missing files are OK and indicate nodata_value
+            CPLDebugOnly(ZARR_DEBUG_KEY, "Tile %s missing (=nodata)",
+                         osFilename.c_str());
+            bMissingTileOut = true;
+            return true;
+        }
     }
 
     bMissingTileOut = false;
@@ -768,7 +778,7 @@ bool ZarrV3Array::FlushDirtyTile() const
 
     if (m_osDimSeparator == "/")
     {
-        std::string osDir = CPLGetDirname(osFilename.c_str());
+        std::string osDir = CPLGetDirnameSafe(osFilename.c_str());
         VSIStatBufL sStat;
         if (VSIStatL(osDir.c_str(), &sStat) != 0)
         {
@@ -815,12 +825,13 @@ std::string ZarrV3Array::BuildTileFilename(const uint64_t *tileIndices) const
 {
     if (m_aoDims.empty())
     {
-        return CPLFormFilename(CPLGetDirname(m_osFilename.c_str()),
-                               m_bV2ChunkKeyEncoding ? "0" : "c", nullptr);
+        return CPLFormFilenameSafe(
+            CPLGetDirnameSafe(m_osFilename.c_str()).c_str(),
+            m_bV2ChunkKeyEncoding ? "0" : "c", nullptr);
     }
     else
     {
-        std::string osFilename(CPLGetDirname(m_osFilename.c_str()));
+        std::string osFilename(CPLGetDirnameSafe(m_osFilename.c_str()));
         osFilename += '/';
         if (!m_bV2ChunkKeyEncoding)
         {
@@ -842,7 +853,7 @@ std::string ZarrV3Array::BuildTileFilename(const uint64_t *tileIndices) const
 
 std::string ZarrV3Array::GetDataDirectory() const
 {
-    return std::string(CPLGetDirname(m_osFilename.c_str()));
+    return std::string(CPLGetDirnameSafe(m_osFilename.c_str()));
 }
 
 /************************************************************************/
@@ -933,10 +944,13 @@ static GDALExtendedDataType ParseDtypeV3(const CPLJSONObject &obj,
             }
             else if (str == "float16")
             {
+                // elt.nativeType = DtypeElt::NativeType::IEEEFP;
+                // elt.nativeSize = 2;
+                // elt.gdalTypeIsApproxOfNative = true;
+                // eDT = GDT_Float32;
                 elt.nativeType = DtypeElt::NativeType::IEEEFP;
                 elt.nativeSize = 2;
-                elt.gdalTypeIsApproxOfNative = true;
-                eDT = GDT_Float32;
+                eDT = GDT_Float16;
             }
             else if (str == "float32")
             {
@@ -1239,10 +1253,11 @@ ZarrV3Group::LoadArray(const std::string &osArrayName,
             std::string osDirName = m_osDirectoryName;
             while (true)
             {
-                const std::string osArrayFilenameDim =
-                    CPLFormFilename(CPLFormFilename(osDirName.c_str(),
-                                                    osDimName.c_str(), nullptr),
-                                    "zarr.json", nullptr);
+                const std::string osArrayFilenameDim = CPLFormFilenameSafe(
+                    CPLFormFilenameSafe(osDirName.c_str(), osDimName.c_str(),
+                                        nullptr)
+                        .c_str(),
+                    "zarr.json", nullptr);
                 VSIStatBufL sStat;
                 if (VSIStatL(osArrayFilenameDim.c_str(), &sStat) == 0)
                 {
@@ -1258,7 +1273,7 @@ ZarrV3Group::LoadArray(const std::string &osArrayName,
                     // Recurse to upper level for datasets such as
                     // /vsis3/hrrrzarr/sfc/20210809/20210809_00z_anl.zarr/0.1_sigma_level/HAIL_max_fcst/0.1_sigma_level/HAIL_max_fcst
                     const std::string osDirNameNew =
-                        CPLGetPath(osDirName.c_str());
+                        CPLGetPathSafe(osDirName.c_str());
                     if (!osDirNameNew.empty() && osDirNameNew != osDirName)
                     {
                         osDirName = osDirNameNew;
@@ -1430,6 +1445,13 @@ ZarrV3Group::LoadArray(const std::string &osArrayName,
                 CPLError(CE_Failure, CPLE_AppDefined, "Invalid fill_value");
                 return nullptr;
             }
+            else if (oType.GetNumericDataType() == GDT_Float16)
+            {
+                const GFloat16 hfNoDataValue =
+                    static_cast<GFloat16>(dfNoDataValue);
+                abyNoData.resize(sizeof(hfNoDataValue));
+                memcpy(&abyNoData[0], &hfNoDataValue, sizeof(hfNoDataValue));
+            }
             else if (oType.GetNumericDataType() == GDT_Float32)
             {
                 const float fNoDataValue = static_cast<float>(dfNoDataValue);
@@ -1571,6 +1593,12 @@ ZarrV3Group::LoadArray(const std::string &osArrayName,
     poArray->ParseSpecialAttributes(m_pSelf.lock(), oAttributes);
     poArray->SetAttributes(oAttributes);
     poArray->SetDtype(oDtype);
+    if (oCodecs.Size() > 0 &&
+        oCodecs[oCodecs.Size() - 1].GetString("name") != "bytes")
+    {
+        poArray->SetStructuralInfo(
+            "COMPRESSOR", oCodecs[oCodecs.Size() - 1].ToString().c_str());
+    }
     if (poCodecs)
         poArray->SetCodecs(std::move(poCodecs));
     RegisterArray(poArray);

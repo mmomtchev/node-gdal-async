@@ -26,7 +26,7 @@
 #include "ogr_core.h"
 #include "ogr_feature.h"
 #include "ogr_geometry.h"
-#include "ogr_mem.h"
+#include "memdataset.h"
 #include "ogrsf_frmts.h"
 
 // Emulation of gettimeofday() for Windows.
@@ -34,6 +34,7 @@
 
 #include <time.h>
 #include <windows.h>
+#include <winsock.h>
 
 // Recent mingw define struct timezone.
 #if !(defined(__GNUC__) && defined(_TIMEZONE_DEFINED))
@@ -240,7 +241,7 @@ OGRGeocodingSessionH OGRGeocodeCreateSession(char **papszOptions)
 
     const char *pszCacheFilename = OGRGeocodeGetParameter(
         papszOptions, "CACHE_FILE", DEFAULT_CACHE_SQLITE);
-    CPLString osExt = CPLGetExtension(pszCacheFilename);
+    CPLString osExt = CPLGetExtensionSafe(pszCacheFilename);
     if (!(STARTS_WITH_CI(pszCacheFilename, "PG:") || EQUAL(osExt, "csv") ||
           EQUAL(osExt, "sqlite")))
     {
@@ -394,7 +395,7 @@ static OGRLayer *OGRGeocodeGetCacheLayer(OGRGeocodingSessionH hSession,
                                          int *pnIdxBlob)
 {
     GDALDataset *poDS = hSession->poDS;
-    CPLString osExt = CPLGetExtension(hSession->pszCacheFilename);
+    CPLString osExt = CPLGetExtensionSafe(hSession->pszCacheFilename);
 
     if (poDS == nullptr)
     {

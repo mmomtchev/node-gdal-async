@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  CPL - Common Portability Library
  * Author:   Frank Warmerdam, warmerdam@pobox.com
@@ -122,6 +121,13 @@
 
 #if !defined(_WIN32)
 #include <strings.h>
+#endif
+
+#ifdef __cplusplus
+extern "C++"
+{
+#include <cmath>
+}
 #endif
 
 /* ==================================================================== */
@@ -552,8 +558,8 @@ static inline char *CPL_afl_friendly_strstr(const char *haystack,
 #endif
 /*! @endcond */
 
-#ifndef GDAL_COMPILATION
 /*! @cond Doxygen_Suppress */
+#ifndef __cplusplus
 /* -------------------------------------------------------------------- */
 /*      Handle isnan() and isinf().  Note that isinf() and isnan()      */
 /*      are supposed to be macros according to C99, defined in math.h   */
@@ -575,99 +581,25 @@ static inline char *CPL_afl_friendly_strstr(const char *haystack,
 #define CPLIsNan(x) __builtin_isnan(x)
 #define CPLIsInf(x) __builtin_isinf(x)
 #define CPLIsFinite(x) __builtin_isfinite(x)
-#elif defined(__cplusplus) && defined(HAVE_STD_IS_NAN) && HAVE_STD_IS_NAN
-extern "C++"
-{
-#ifndef DOXYGEN_SKIP
-#include <cmath>
-#endif
-    static inline int CPLIsNan(float f)
-    {
-        return std::isnan(f);
-    }
-
-    static inline int CPLIsNan(double f)
-    {
-        return std::isnan(f);
-    }
-
-    static inline int CPLIsInf(float f)
-    {
-        return std::isinf(f);
-    }
-
-    static inline int CPLIsInf(double f)
-    {
-        return std::isinf(f);
-    }
-
-    static inline int CPLIsFinite(float f)
-    {
-        return std::isfinite(f);
-    }
-
-    static inline int CPLIsFinite(double f)
-    {
-        return std::isfinite(f);
-    }
-}
-#else
-/** Return whether a floating-pointer number is NaN */
-#if defined(__cplusplus) && defined(__GNUC__) && defined(__linux) &&           \
-    !defined(__ANDROID__) && !defined(CPL_SUPRESS_CPLUSPLUS)
-/* so to not get warning about conversion from double to float with */
-/* gcc -Wfloat-conversion when using isnan()/isinf() macros */
-extern "C++"
-{
-    static inline int CPLIsNan(float f)
-    {
-        return __isnanf(f);
-    }
-
-    static inline int CPLIsNan(double f)
-    {
-        return __isnan(f);
-    }
-
-    static inline int CPLIsInf(float f)
-    {
-        return __isinff(f);
-    }
-
-    static inline int CPLIsInf(double f)
-    {
-        return __isinf(f);
-    }
-
-    static inline int CPLIsFinite(float f)
-    {
-        return !__isnanf(f) && !__isinff(f);
-    }
-
-    static inline int CPLIsFinite(double f)
-    {
-        return !__isnan(f) && !__isinf(f);
-    }
-}
-#else
+#elif defined(isinf) || defined(__FreeBSD__)
+/** Return whether a floating-pointer number is nan */
 #define CPLIsNan(x) isnan(x)
-#if defined(isinf) || defined(__FreeBSD__)
 /** Return whether a floating-pointer number is +/- infinity */
 #define CPLIsInf(x) isinf(x)
 /** Return whether a floating-pointer number is finite */
 #define CPLIsFinite(x) (!isnan(x) && !isinf(x))
 #elif defined(__sun__)
 #include <ieeefp.h>
+#define CPLIsNan(x) isnan(x)
 #define CPLIsInf(x) (!finite(x) && !isnan(x))
 #define CPLIsFinite(x) finite(x)
 #else
+#define CPLIsNan(x) ((x) != (x))
 #define CPLIsInf(x) (0)
 #define CPLIsFinite(x) (!isnan(x))
 #endif
 #endif
-#endif
 /*! @endcond */
-#endif  // GDAL_COMPILATION
 
 /*! @cond Doxygen_Suppress */
 /*---------------------------------------------------------------------
@@ -1177,6 +1109,17 @@ typedef const char *const *CSLConstList;
 /** Type of a constant null-terminated list of nul terminated strings.
  * Seen as char** from C and const char* const* from C++ */
 typedef char **CSLConstList;
+#endif
+
+#if defined(__cplusplus) && defined(GDAL_COMPILATION)
+#if defined(__GNUC__) && !defined(DOXYGEN_SKIP)
+/** Macro that evaluates to (cond), and possibly gives a hint to the compiler
+ * than (cond) is unlikely to be true.
+ */
+#define CPL_UNLIKELY(cond) __builtin_expect(static_cast<bool>(cond), 0)
+#else
+#define CPL_UNLIKELY(cond) (cond)
+#endif
 #endif
 
 #endif /* ndef CPL_BASE_H_INCLUDED */

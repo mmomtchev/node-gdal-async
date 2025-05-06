@@ -37,7 +37,13 @@
 #include "gdal_thread_pool.h"
 #include "gdal_utils.h"
 
-#if defined(__SSE2__) || defined(_M_X64)
+#include "gdalalg_raster_index.h"
+
+#ifdef USE_NEON_OPTIMIZATIONS
+#define USE_SSE2_OPTIM
+#define USE_SSE41_OPTIM
+#include "include_sse2neon.h"
+#elif defined(__SSE2__) || defined(_M_X64)
 #define USE_SSE2_OPTIM
 #include <emmintrin.h>
 // MSVC doesn't define __SSE4_1__, but if -arch:AVX2 is enabled, we do have SSE4.1
@@ -45,6 +51,10 @@
 #define USE_SSE41_OPTIM
 #include <smmintrin.h>
 #endif
+#endif
+
+#ifndef _
+#define _(x) (x)
 #endif
 
 // Semantincs of indices of a GeoTransform (double[6]) matrix
@@ -370,11 +380,11 @@ class GDALTileIndexDataset final : public GDALPamDataset
     {
         std::atomic<int> *pnCompletedJobs = nullptr;
         std::atomic<bool> *pbSuccess = nullptr;
+        CPLErrorAccumulator *poErrorAccumulator = nullptr;
         GDALTileIndexDataset *poDS = nullptr;
         GDALTileIndexDataset::QueueWorkingStates *poQueueWorkingStates =
             nullptr;
         int nBandNrMax = 0;
-        std::string *posErrorMsg = nullptr;
 
         int nXOff = 0;
         int nYOff = 0;
@@ -587,15 +597,17 @@ static std::string GetAbsoluteFileName(const char *pszTileName,
             const std::string osRet =
                 CPLIsFilenameRelative(osPath.c_str())
                     ? oSubDSInfo->ModifyPathComponent(
-                          CPLProjectRelativeFilename(CPLGetPath(pszVRTName),
-                                                     osPath.c_str()))
+                          CPLProjectRelativeFilenameSafe(
+                              CPLGetPathSafe(pszVRTName).c_str(),
+                              osPath.c_str()))
                     : std::string(pszTileName);
             GDALDestroySubdatasetInfo(oSubDSInfo);
             return osRet;
         }
 
         const std::string osRelativeMadeAbsolute =
-            CPLProjectRelativeFilename(CPLGetPath(pszVRTName), pszTileName);
+            CPLProjectRelativeFilenameSafe(CPLGetPathSafe(pszVRTName).c_str(),
+                                           pszTileName);
         VSIStatBufL sStat;
         if (VSIStatL(osRelativeMadeAbsolute.c_str(), &sStat) == 0)
             return osRelativeMadeAbsolute;
@@ -2451,7 +2463,7 @@ static int GDALTileIndexDatasetIdentify(GDALOpenInfo *poOpenInfo)
             return GDAL_IDENTIFY_UNKNOWN;
         }
         else if (poOpenInfo->IsSingleAllowedDriver("GTI") &&
-                 EQUAL(CPLGetExtension(poOpenInfo->pszFilename), "gpkg"))
+                 poOpenInfo->IsExtensionEqualToCI("gpkg"))
         {
             return true;
         }
@@ -2468,8 +2480,8 @@ static int GDALTileIndexDatasetIdentify(GDALOpenInfo *poOpenInfo)
             return true;
         }
         else if (poOpenInfo->IsSingleAllowedDriver("GTI") &&
-                 (EQUAL(CPLGetExtension(poOpenInfo->pszFilename), "fgb") ||
-                  EQUAL(CPLGetExtension(poOpenInfo->pszFilename), "parquet")))
+                 (poOpenInfo->IsExtensionEqualToCI("fgb") ||
+                  poOpenInfo->IsExtensionEqualToCI("parquet")))
         {
             return true;
         }
@@ -4118,6 +4130,7 @@ void GDALTileIndexDataset::InitBuffer(void *pData, int nBufXSize, int nBufYSize,
             nBandNr == 0
                 ? m_poMaskBand.get()
                 : cpl::down_cast<GDALTileIndexBand *>(papoBands[nBandNr - 1]);
+        CPLAssert(poVRTBand);
         const double dfNoData = poVRTBand->m_dfNoDataValue;
         if (dfNoData == 0.0)
         {
@@ -4617,6 +4630,7 @@ CPLErr GDALTileIndexDataset::IRasterIO(
 
         if (m_bLastMustUseMultiThreading)
         {
+            CPLErrorAccumulator oErrorAccumulator;
             std::atomic<bool> bSuccess = true;
             const int nContributingSources =
                 static_cast<int>(m_aoSourceDesc.size());
@@ -4647,16 +4661,15 @@ CPLErr GDALTileIndexDataset::IRasterIO(
 
             auto oQueue = psThreadPool->CreateJobQueue();
             std::atomic<int> nCompletedJobs = 0;
-            std::string osErrorMsg;
             for (auto &oSourceDesc : m_aoSourceDesc)
             {
                 auto psJob = new RasterIOJob();
                 psJob->poDS = this;
                 psJob->pbSuccess = &bSuccess;
+                psJob->poErrorAccumulator = &oErrorAccumulator;
                 psJob->pnCompletedJobs = &nCompletedJobs;
                 psJob->poQueueWorkingStates = &m_oQueueWorkingStates;
                 psJob->nBandNrMax = nBandNrMax;
-                psJob->posErrorMsg = &osErrorMsg;
                 psJob->nXOff = nXOff;
                 psJob->nYOff = nYOff;
                 psJob->nXSize = nXSize;
@@ -4695,10 +4708,7 @@ CPLErr GDALTileIndexDataset::IRasterIO(
                 }
             }
 
-            if (!osErrorMsg.empty())
-            {
-                CPLError(CE_Failure, CPLE_AppDefined, "%s", osErrorMsg.c_str());
-            }
+            oErrorAccumulator.ReplayErrors();
 
             if (bSuccess && psExtraArg->pfnProgress)
             {
@@ -4747,22 +4757,16 @@ void GDALTileIndexDataset::RasterIOJob::Func(void *pData)
 
         SourceDesc oSourceDesc;
 
-        std::vector<CPLErrorHandlerAccumulatorStruct> aoErrors;
-        CPLInstallErrorHandlerAccumulator(aoErrors);
+        auto oAccumulator = psJob->poErrorAccumulator->InstallForCurrentScope();
+        CPL_IGNORE_RET_VAL(oAccumulator);
+
         const bool bCanOpenSource =
             psJob->poDS->GetSourceDesc(osTileName, oSourceDesc,
                                        &psJob->poQueueWorkingStates->oMutex) &&
             oSourceDesc.poDS;
-        CPLUninstallErrorHandlerAccumulator();
 
         if (!bCanOpenSource)
         {
-            if (!aoErrors.empty())
-            {
-                std::lock_guard oLock(psJob->poQueueWorkingStates->oMutex);
-                if (psJob->posErrorMsg->empty())
-                    *(psJob->posErrorMsg) = aoErrors.back().msg;
-            }
             *psJob->pbSuccess = false;
         }
         else
@@ -4792,8 +4796,6 @@ void GDALTileIndexDataset::RasterIOJob::Func(void *pData)
                 dfYSize = psJob->psExtraArg->dfYSize;
             }
 
-            aoErrors.clear();
-            CPLInstallErrorHandlerAccumulator(aoErrors);
             const bool bRenderOK =
                 psJob->poDS->RenderSource(
                     oSourceDesc, /*bNeedInitBuffer = */ true, psJob->nBandNrMax,
@@ -4803,16 +4805,9 @@ void GDALTileIndexDataset::RasterIOJob::Func(void *pData)
                     psJob->nBandCount, psJob->panBandMap, psJob->nPixelSpace,
                     psJob->nLineSpace, psJob->nBandSpace, &sArg,
                     *(poWorkingState.get())) == CE_None;
-            CPLUninstallErrorHandlerAccumulator();
 
             if (!bRenderOK)
             {
-                if (!aoErrors.empty())
-                {
-                    std::lock_guard oLock(psJob->poQueueWorkingStates->oMutex);
-                    if (psJob->posErrorMsg->empty())
-                        *(psJob->posErrorMsg) = aoErrors.back().msg;
-                }
                 *psJob->pbSuccess = false;
             }
 
@@ -4825,6 +4820,236 @@ void GDALTileIndexDataset::RasterIOJob::Func(void *pData)
     }
 
     ++(*psJob->pnCompletedJobs);
+}
+
+/************************************************************************/
+/*                     GDALGTICreateAlgorithm                           */
+/************************************************************************/
+
+class GDALGTICreateAlgorithm final : public GDALRasterIndexAlgorithm
+{
+  public:
+    static constexpr const char *NAME = "create";
+    static constexpr const char *DESCRIPTION =
+        "Create an index of raster datasets compatible of the GDAL Tile Index "
+        "(GTI) driver.";
+    static constexpr const char *HELP_URL =
+        "/programs/gdal_driver_gti_create.html";
+
+    GDALGTICreateAlgorithm();
+
+  protected:
+    bool AddExtraOptions(CPLStringList &aosOptions) override;
+
+  private:
+    std::string m_xmlFilename{};
+    std::vector<double> m_resolution{};
+    std::vector<double> m_bbox{};
+    std::string m_dataType{};
+    int m_bandCount = 0;
+    std::vector<double> m_nodata{};
+    std::vector<std::string> m_colorInterpretation{};
+    bool m_mask = false;
+    std::vector<std::string> m_fetchedMetadata{};
+};
+
+/************************************************************************/
+/*          GDALGTICreateAlgorithm::GDALGTICreateAlgorithm()            */
+/************************************************************************/
+
+GDALGTICreateAlgorithm::GDALGTICreateAlgorithm()
+    : GDALRasterIndexAlgorithm(NAME, DESCRIPTION, HELP_URL)
+{
+    AddProgressArg();
+    AddInputDatasetArg(&m_inputDatasets, GDAL_OF_RASTER)
+        .SetAutoOpenDataset(false);
+    GDALVectorOutputAbstractAlgorithm::AddAllOutputArgs();
+
+    AddCommonOptions();
+
+    AddArg("xml-filename", 0,
+           _("Filename of the XML Virtual Tile Index file to generate, that "
+             "can be used as an input for the GDAL GTI / Virtual Raster Tile "
+             "Index driver"),
+           &m_xmlFilename)
+        .SetMinCharCount(1);
+
+    AddArg("resolution", 0,
+           _("Resolution (in destination CRS units) of the virtual mosaic"),
+           &m_resolution)
+        .SetMinCount(2)
+        .SetMaxCount(2)
+        .SetMinValueExcluded(0)
+        .SetRepeatedArgAllowed(false)
+        .SetDisplayHintAboutRepetition(false)
+        .SetMetaVar("<xres>,<yres>");
+
+    AddBBOXArg(
+        &m_bbox,
+        _("Bounding box (in destination CRS units) of the virtual mosaic"));
+    AddOutputDataTypeArg(&m_dataType, _("Datatype of the virtual mosaic"));
+    AddArg("band-count", 0, _("Number of bands of the virtual mosaic"),
+           &m_bandCount)
+        .SetMinValueIncluded(1);
+    AddArg("nodata", 0, _("Nodata value(s) of the bands of the virtual mosaic"),
+           &m_nodata);
+    AddArg("color-interpretation", 0,
+           _("Color interpretation(s) of the bands of the virtual mosaic"),
+           &m_colorInterpretation)
+        .SetChoices("red", "green", "blue", "alpha", "gray", "undefined");
+    AddArg("mask", 0, _("Defines that the virtual mosaic has a mask band"),
+           &m_mask);
+    AddArg("fetch-metadata", 0,
+           _("Fetch a metadata item from source rasters and write it as a "
+             "field in the index."),
+           &m_fetchedMetadata)
+        .SetMetaVar("<gdal-metadata-name>,<field-name>,<field-type>")
+        .SetPackedValuesAllowed(false)
+        .AddValidationAction(
+            [this]()
+            {
+                for (const std::string &s : m_fetchedMetadata)
+                {
+                    const CPLStringList aosTokens(
+                        CSLTokenizeString2(s.c_str(), ",", 0));
+                    if (aosTokens.size() != 3)
+                    {
+                        ReportError(
+                            CE_Failure, CPLE_IllegalArg,
+                            "'%s' is not of the form "
+                            "<gdal-metadata-name>,<field-name>,<field-type>",
+                            s.c_str());
+                        return false;
+                    }
+                    bool ok = false;
+                    for (const char *type : {"String", "Integer", "Integer64",
+                                             "Real", "Date", "DateTime"})
+                    {
+                        if (EQUAL(aosTokens[2], type))
+                            ok = true;
+                    }
+                    if (!ok)
+                    {
+                        ReportError(CE_Failure, CPLE_IllegalArg,
+                                    "'%s' has an invalid field type '%s'. It "
+                                    "should be one of 'String', 'Integer', "
+                                    "'Integer64', 'Real', 'Date', 'DateTime'.",
+                                    s.c_str(), aosTokens[2]);
+                        return false;
+                    }
+                }
+                return true;
+            });
+}
+
+/************************************************************************/
+/*            GDALGTICreateAlgorithm::AddExtraOptions()                 */
+/************************************************************************/
+
+bool GDALGTICreateAlgorithm::AddExtraOptions(CPLStringList &aosOptions)
+{
+    if (!m_xmlFilename.empty())
+    {
+        aosOptions.push_back("-gti_filename");
+        aosOptions.push_back(m_xmlFilename);
+    }
+    if (!m_resolution.empty())
+    {
+        aosOptions.push_back("-tr");
+        aosOptions.push_back(CPLSPrintf("%.17g", m_resolution[0]));
+        aosOptions.push_back(CPLSPrintf("%.17g", m_resolution[1]));
+    }
+    if (!m_bbox.empty())
+    {
+        aosOptions.push_back("-te");
+        aosOptions.push_back(CPLSPrintf("%.17g", m_bbox[0]));
+        aosOptions.push_back(CPLSPrintf("%.17g", m_bbox[1]));
+        aosOptions.push_back(CPLSPrintf("%.17g", m_bbox[2]));
+        aosOptions.push_back(CPLSPrintf("%.17g", m_bbox[3]));
+    }
+    if (!m_dataType.empty())
+    {
+        aosOptions.push_back("-ot");
+        aosOptions.push_back(m_dataType);
+    }
+    if (m_bandCount > 0)
+    {
+        aosOptions.push_back("-bandcount");
+        aosOptions.push_back(CPLSPrintf("%d", m_bandCount));
+
+        if (!m_nodata.empty() && m_nodata.size() != 1 &&
+            static_cast<int>(m_nodata.size()) != m_bandCount)
+        {
+            ReportError(CE_Failure, CPLE_IllegalArg,
+                        "%d nodata values whereas one or %d were expected",
+                        static_cast<int>(m_nodata.size()), m_bandCount);
+            return false;
+        }
+
+        if (!m_colorInterpretation.empty() &&
+            m_colorInterpretation.size() != 1 &&
+            static_cast<int>(m_colorInterpretation.size()) != m_bandCount)
+        {
+            ReportError(
+                CE_Failure, CPLE_IllegalArg,
+                "%d color interpretations whereas one or %d were expected",
+                static_cast<int>(m_colorInterpretation.size()), m_bandCount);
+            return false;
+        }
+    }
+    if (!m_nodata.empty())
+    {
+        std::string val;
+        for (double v : m_nodata)
+        {
+            if (!val.empty())
+                val += ',';
+            val += CPLSPrintf("%.17g", v);
+        }
+        aosOptions.push_back("-nodata");
+        aosOptions.push_back(val);
+    }
+    if (!m_colorInterpretation.empty())
+    {
+        std::string val;
+        for (const std::string &s : m_colorInterpretation)
+        {
+            if (!val.empty())
+                val += ',';
+            val += s;
+        }
+        aosOptions.push_back("-colorinterp");
+        aosOptions.push_back(val);
+    }
+    if (m_mask)
+        aosOptions.push_back("-mask");
+    for (const std::string &s : m_fetchedMetadata)
+    {
+        aosOptions.push_back("-fetch_md");
+        const CPLStringList aosTokens(CSLTokenizeString2(s.c_str(), ",", 0));
+        for (const char *token : aosTokens)
+        {
+            aosOptions.push_back(token);
+        }
+    }
+    return true;
+}
+
+/************************************************************************/
+/*                 GDALTileIndexInstantiateAlgorithm()                  */
+/************************************************************************/
+
+static GDALAlgorithm *
+GDALTileIndexInstantiateAlgorithm(const std::vector<std::string> &aosPath)
+{
+    if (aosPath.size() == 1 && aosPath[0] == "create")
+    {
+        return std::make_unique<GDALGTICreateAlgorithm>().release();
+    }
+    else
+    {
+        return nullptr;
+    }
 }
 
 /************************************************************************/
@@ -4869,6 +5094,9 @@ void GDALRegister_GTI()
         "'Number of worker threads for reading. Can be set to ALL_CPUS' "
         "default='ALL_CPUS'/>"
         "</OpenOptionList>");
+
+    poDriver->DeclareAlgorithm({"create"});
+    poDriver->pfnInstantiateAlgorithm = GDALTileIndexInstantiateAlgorithm;
 
 #ifdef BUILT_AS_PLUGIN
     // Used by gdaladdo and test_gdaladdo.py

@@ -29,6 +29,7 @@
 
 #include "cpl_conv.h"
 #include "cpl_error.h"
+#include "cpl_error_internal.h"
 #include "cpl_hash_set.h"
 #include "cpl_minixml.h"
 #include "cpl_progress.h"
@@ -124,6 +125,25 @@ bool VRTSourcedRasterBand::CanIRasterIOBeForwardedToEachSource(
     GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSize, int nYSize,
     int nBufXSize, int nBufYSize, GDALRasterIOExtraArg *psExtraArg) const
 {
+    const auto IsNonNearestInvolved = [this, psExtraArg]
+    {
+        if (psExtraArg->eResampleAlg != GRIORA_NearestNeighbour)
+        {
+            return true;
+        }
+        for (int i = 0; i < nSources; i++)
+        {
+            if (papoSources[i]->GetType() == VRTComplexSource::GetTypeStatic())
+            {
+                auto *const poSource =
+                    static_cast<VRTComplexSource *>(papoSources[i]);
+                if (!poSource->GetResampling().empty())
+                    return true;
+            }
+        }
+        return false;
+    };
+
     // If resampling with non-nearest neighbour, we need to be careful
     // if the VRT band exposes a nodata value, but the sources do not have it.
     // To also avoid edge effects on sources when downsampling, use the
@@ -131,7 +151,7 @@ bool VRTSourcedRasterBand::CanIRasterIOBeForwardedToEachSource(
     // nominal resolution, and then downsampling), but only if none of the
     // contributing sources have overviews.
     if (eRWFlag == GF_Read && (nXSize != nBufXSize || nYSize != nBufYSize) &&
-        psExtraArg->eResampleAlg != GRIORA_NearestNeighbour && nSources != 0)
+        nSources != 0 && IsNonNearestInvolved())
     {
         bool bSourceHasOverviews = false;
         const bool bIsDownsampling = (nBufXSize < nXSize && nBufYSize < nYSize);
@@ -147,6 +167,27 @@ bool VRTSourcedRasterBand::CanIRasterIOBeForwardedToEachSource(
             {
                 VRTSimpleSource *const poSource =
                     static_cast<VRTSimpleSource *>(papoSources[i]);
+
+                if (poSource->GetType() == VRTComplexSource::GetTypeStatic())
+                {
+                    auto *const poComplexSource =
+                        static_cast<VRTComplexSource *>(poSource);
+                    if (!poComplexSource->GetResampling().empty())
+                    {
+                        const int lMaskFlags =
+                            const_cast<VRTSourcedRasterBand *>(this)
+                                ->GetMaskFlags();
+                        if ((lMaskFlags != GMF_ALL_VALID &&
+                             lMaskFlags != GMF_NODATA) ||
+                            IsMaskBand())
+                        {
+                            // Unfortunately this will prevent using overviews
+                            // of the sources, but it is unpractical to use
+                            // them without serious implementation complications
+                            return false;
+                        }
+                    }
+                }
 
                 double dfXOff = nXOff;
                 double dfYOff = nYOff;
@@ -324,6 +365,82 @@ bool VRTSourcedRasterBand::CanMultiThreadRasterIO(
 }
 
 /************************************************************************/
+/*                 VRTSourcedRasterBandRasterIOJob                      */
+/************************************************************************/
+
+/** Structure used to declare a threaded job to satisfy IRasterIO()
+ * on a given source.
+ */
+struct VRTSourcedRasterBandRasterIOJob
+{
+    std::atomic<int> *pnCompletedJobs = nullptr;
+    std::atomic<bool> *pbSuccess = nullptr;
+    VRTDataset::QueueWorkingStates *poQueueWorkingStates = nullptr;
+    CPLErrorAccumulator *poErrorAccumulator = nullptr;
+
+    GDALDataType eVRTBandDataType = GDT_Unknown;
+    int nXOff = 0;
+    int nYOff = 0;
+    int nXSize = 0;
+    int nYSize = 0;
+    void *pData = nullptr;
+    int nBufXSize = 0;
+    int nBufYSize = 0;
+    GDALDataType eBufType = GDT_Unknown;
+    GSpacing nPixelSpace = 0;
+    GSpacing nLineSpace = 0;
+    GDALRasterIOExtraArg *psExtraArg = nullptr;
+    VRTSimpleSource *poSource = nullptr;
+
+    static void Func(void *pData);
+};
+
+/************************************************************************/
+/*                 VRTSourcedRasterBandRasterIOJob::Func()              */
+/************************************************************************/
+
+void VRTSourcedRasterBandRasterIOJob::Func(void *pData)
+{
+    auto psJob = std::unique_ptr<VRTSourcedRasterBandRasterIOJob>(
+        static_cast<VRTSourcedRasterBandRasterIOJob *>(pData));
+    if (*psJob->pbSuccess)
+    {
+        GDALRasterIOExtraArg sArg = *(psJob->psExtraArg);
+        sArg.pfnProgress = nullptr;
+        sArg.pProgressData = nullptr;
+
+        std::unique_ptr<VRTSource::WorkingState> poWorkingState;
+        {
+            std::lock_guard oLock(psJob->poQueueWorkingStates->oMutex);
+            poWorkingState =
+                std::move(psJob->poQueueWorkingStates->oStates.back());
+            psJob->poQueueWorkingStates->oStates.pop_back();
+            CPLAssert(poWorkingState.get());
+        }
+
+        auto oAccumulator = psJob->poErrorAccumulator->InstallForCurrentScope();
+        CPL_IGNORE_RET_VAL(oAccumulator);
+
+        if (psJob->poSource->RasterIO(
+                psJob->eVRTBandDataType, psJob->nXOff, psJob->nYOff,
+                psJob->nXSize, psJob->nYSize, psJob->pData, psJob->nBufXSize,
+                psJob->nBufYSize, psJob->eBufType, psJob->nPixelSpace,
+                psJob->nLineSpace, &sArg, *(poWorkingState.get())) != CE_None)
+        {
+            *psJob->pbSuccess = false;
+        }
+
+        {
+            std::lock_guard oLock(psJob->poQueueWorkingStates->oMutex);
+            psJob->poQueueWorkingStates->oStates.push_back(
+                std::move(poWorkingState));
+        }
+    }
+
+    ++(*psJob->pnCompletedJobs);
+}
+
+/************************************************************************/
 /*                             IRasterIO()                              */
 /************************************************************************/
 
@@ -388,9 +505,41 @@ CPLErr VRTSourcedRasterBand::IRasterIO(
             // recursion
             l_poDS->SetEnableOverviews(false);
         }
+
+        const auto eResampleAlgBackup = psExtraArg->eResampleAlg;
+        if (psExtraArg->eResampleAlg == GRIORA_NearestNeighbour)
+        {
+            std::string osResampling;
+            for (int i = 0; i < nSources; i++)
+            {
+                if (papoSources[i]->GetType() ==
+                    VRTComplexSource::GetTypeStatic())
+                {
+                    auto *const poComplexSource =
+                        static_cast<VRTComplexSource *>(papoSources[i]);
+                    if (!poComplexSource->GetResampling().empty())
+                    {
+                        if (i == 0)
+                            osResampling = poComplexSource->GetResampling();
+                        else if (osResampling !=
+                                 poComplexSource->GetResampling())
+                        {
+                            osResampling.clear();
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!osResampling.empty())
+                psExtraArg->eResampleAlg =
+                    GDALRasterIOGetResampleAlg(osResampling.c_str());
+        }
+
         const auto eErr = GDALRasterBand::IRasterIO(
             eRWFlag, nXOff, nYOff, nXSize, nYSize, pData, nBufXSize, nBufYSize,
             eBufType, nPixelSpace, nLineSpace, psExtraArg);
+
+        psExtraArg->eResampleAlg = eResampleAlgBackup;
         l_poDS->SetEnableOverviews(bBackupEnabledOverviews);
         return eErr;
     }
@@ -493,6 +642,7 @@ CPLErr VRTSourcedRasterBand::IRasterIO(
         l_poDS->m_bMultiThreadedRasterIOLastUsed = true;
         l_poDS->m_oMapSharedSources.InitMutex();
 
+        CPLErrorAccumulator errorAccumulator;
         std::atomic<bool> bSuccess = true;
         CPLWorkerThreadPool *psThreadPool = GDALGetGlobalThreadPool(
             std::min(nContributingSources, nMaxThreads));
@@ -530,10 +680,11 @@ CPLErr VRTSourcedRasterBand::IRasterIO(
             if (poSimpleSource->DstWindowIntersects(dfXOff, dfYOff, dfXSize,
                                                     dfYSize))
             {
-                auto psJob = new RasterIOJob();
+                auto psJob = new VRTSourcedRasterBandRasterIOJob();
                 psJob->pbSuccess = &bSuccess;
                 psJob->pnCompletedJobs = &nCompletedJobs;
                 psJob->poQueueWorkingStates = &(l_poDS->m_oQueueWorkingStates);
+                psJob->poErrorAccumulator = &errorAccumulator;
                 psJob->eVRTBandDataType = eDataType;
                 psJob->nXOff = nXOff;
                 psJob->nYOff = nYOff;
@@ -548,7 +699,8 @@ CPLErr VRTSourcedRasterBand::IRasterIO(
                 psJob->psExtraArg = psExtraArg;
                 psJob->poSource = poSimpleSource;
 
-                if (!oQueue->SubmitJob(RasterIOJob::Func, psJob))
+                if (!oQueue->SubmitJob(VRTSourcedRasterBandRasterIOJob::Func,
+                                       psJob))
                 {
                     delete psJob;
                     bSuccess = false;
@@ -569,6 +721,7 @@ CPLErr VRTSourcedRasterBand::IRasterIO(
             }
         }
 
+        errorAccumulator.ReplayErrors();
         eErr = bSuccess ? CE_None : CE_Failure;
     }
     else
@@ -604,48 +757,6 @@ CPLErr VRTSourcedRasterBand::IRasterIO(
     }
 
     return eErr;
-}
-
-/************************************************************************/
-/*                 VRTSourcedRasterBand::RasterIOJob::Func()            */
-/************************************************************************/
-
-void VRTSourcedRasterBand::RasterIOJob::Func(void *pData)
-{
-    auto psJob =
-        std::unique_ptr<RasterIOJob>(static_cast<RasterIOJob *>(pData));
-    if (*psJob->pbSuccess)
-    {
-        GDALRasterIOExtraArg sArg = *(psJob->psExtraArg);
-        sArg.pfnProgress = nullptr;
-        sArg.pProgressData = nullptr;
-
-        std::unique_ptr<VRTSource::WorkingState> poWorkingState;
-        {
-            std::lock_guard oLock(psJob->poQueueWorkingStates->oMutex);
-            poWorkingState =
-                std::move(psJob->poQueueWorkingStates->oStates.back());
-            psJob->poQueueWorkingStates->oStates.pop_back();
-            CPLAssert(poWorkingState.get());
-        }
-
-        if (psJob->poSource->RasterIO(
-                psJob->eVRTBandDataType, psJob->nXOff, psJob->nYOff,
-                psJob->nXSize, psJob->nYSize, psJob->pData, psJob->nBufXSize,
-                psJob->nBufYSize, psJob->eBufType, psJob->nPixelSpace,
-                psJob->nLineSpace, &sArg, *(poWorkingState.get())) != CE_None)
-        {
-            *psJob->pbSuccess = false;
-        }
-
-        {
-            std::lock_guard oLock(psJob->poQueueWorkingStates->oMutex);
-            psJob->poQueueWorkingStates->oStates.push_back(
-                std::move(poWorkingState));
-        }
-    }
-
-    ++(*psJob->pnCompletedJobs);
 }
 
 /************************************************************************/

@@ -12,11 +12,13 @@
 
 #include "zarr.h"
 #include "zarrdrivercore.h"
+#include "vsikerchunk.h"
 
 #include "cpl_minixml.h"
 
 #include <algorithm>
 #include <cassert>
+#include <cinttypes>
 #include <limits>
 
 #ifdef HAVE_BLOSC
@@ -43,6 +45,28 @@ GDALDataset *ZarrDataset::OpenMultidim(const char *pszFilename,
     CPLString osFilename(pszFilename);
     if (osFilename.back() == '/')
         osFilename.pop_back();
+
+    // Syntaxic sugar to detect Parquet reference files automatically
+    if (!STARTS_WITH(pszFilename, "/vsikerchunk"))
+    {
+        const std::string osZmetadataFilename(
+            CPLFormFilenameSafe(osFilename.c_str(), ".zmetadata", nullptr));
+        CPLJSONDocument oDoc;
+        bool bOK;
+        {
+            CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
+            bOK = oDoc.Load(osZmetadataFilename);
+        }
+        if (bOK && oDoc.GetRoot().GetObj("record_size").IsValid())
+        {
+            const std::string osKerchunkParquetRefFilename =
+                CPLSPrintf("%s{%s}", PARQUET_REF_FS_PREFIX, osFilename.c_str());
+            CPLDebugOnly("ZARR", "Opening %s",
+                         osKerchunkParquetRefFilename.c_str());
+            return OpenMultidim(osKerchunkParquetRefFilename.c_str(),
+                                bUpdateMode, papszOpenOptionsIn);
+        }
+    }
 
     auto poSharedResource = ZarrSharedResource::Create(osFilename, bUpdateMode);
     poSharedResource->SetOpenOptions(papszOpenOptionsIn);
@@ -229,6 +253,53 @@ GDALDataset *ZarrDataset::Open(GDALOpenInfo *poOpenInfo)
         return nullptr;
     }
 
+    // Used by gdal_translate kerchunk_ref.json kerchunk_parq.parq -of ZARR -co CONVERT_TO_KERCHUNK_PARQUET_REFERENCE=YES
+    if (STARTS_WITH(poOpenInfo->pszFilename, "ZARR_DUMMY:"))
+    {
+        class ZarrDummyDataset final : public GDALDataset
+        {
+          public:
+            ZarrDummyDataset()
+            {
+                nRasterXSize = 0;
+                nRasterYSize = 0;
+            }
+        };
+
+        auto poDS = std::make_unique<ZarrDummyDataset>();
+        poDS->SetDescription(poOpenInfo->pszFilename + strlen("ZARR_DUMMY:"));
+        return poDS.release();
+    }
+
+    const bool bKerchunkCached = CPLFetchBool(poOpenInfo->papszOpenOptions,
+                                              "CACHE_KERCHUNK_JSON", false);
+
+    if (ZARRIsLikelyKerchunkJSONRef(poOpenInfo))
+    {
+        GDALOpenInfo oOpenInfo(std::string("ZARR:\"")
+                                   .append(bKerchunkCached
+                                               ? JSON_REF_CACHED_FS_PREFIX
+                                               : JSON_REF_FS_PREFIX)
+                                   .append("{")
+                                   .append(poOpenInfo->pszFilename)
+                                   .append("}\"")
+                                   .c_str(),
+                               GA_ReadOnly);
+        oOpenInfo.nOpenFlags = poOpenInfo->nOpenFlags;
+        oOpenInfo.papszOpenOptions = poOpenInfo->papszOpenOptions;
+        return Open(&oOpenInfo);
+    }
+    else if (STARTS_WITH(poOpenInfo->pszFilename, JSON_REF_FS_PREFIX) ||
+             STARTS_WITH(poOpenInfo->pszFilename, JSON_REF_CACHED_FS_PREFIX))
+    {
+        GDALOpenInfo oOpenInfo(
+            std::string("ZARR:").append(poOpenInfo->pszFilename).c_str(),
+            GA_ReadOnly);
+        oOpenInfo.nOpenFlags = poOpenInfo->nOpenFlags;
+        oOpenInfo.papszOpenOptions = poOpenInfo->papszOpenOptions;
+        return Open(&oOpenInfo);
+    }
+
     CPLString osFilename(poOpenInfo->pszFilename);
     CPLString osArrayOfInterest;
     std::vector<uint64_t> anExtraDimIndices;
@@ -239,6 +310,24 @@ GDALDataset *ZarrDataset::Open(GDALOpenInfo *poOpenInfo)
         if (aosTokens.size() < 2)
             return nullptr;
         osFilename = aosTokens[1];
+
+        if (!cpl::starts_with(osFilename, JSON_REF_FS_PREFIX) &&
+            !cpl::starts_with(osFilename, JSON_REF_CACHED_FS_PREFIX) &&
+            CPLGetExtensionSafe(osFilename) == "json")
+        {
+            VSIStatBufL sStat;
+            if (VSIStatL(osFilename.c_str(), &sStat) == 0 &&
+                !VSI_ISDIR(sStat.st_mode))
+            {
+                osFilename =
+                    std::string(bKerchunkCached ? JSON_REF_CACHED_FS_PREFIX
+                                                : JSON_REF_FS_PREFIX)
+                        .append("{")
+                        .append(osFilename)
+                        .append("}");
+            }
+        }
+
         std::string osErrorMsg;
         if (osFilename == "http" || osFilename == "https")
         {
@@ -373,36 +462,42 @@ GDALDataset *ZarrDataset::Open(GDALOpenInfo *poOpenInfo)
         if (aosArrays.empty())
             return nullptr;
 
-        if (aosArrays.size() == 1)
+        const bool bListAllArrays = CPLTestBool(CSLFetchNameValueDef(
+            poOpenInfo->papszOpenOptions, "LIST_ALL_ARRAYS", "NO"));
+
+        if (!bListAllArrays)
         {
-            poMainArray = poRG->OpenMDArrayFromFullname(aosArrays[0]);
-            if (poMainArray)
-                osMainArray = poMainArray->GetFullName();
-        }
-        else  // at least 2 arrays
-        {
-            for (const auto &osArrayName : aosArrays)
+            if (aosArrays.size() == 1)
             {
-                auto poArray = poRG->OpenMDArrayFromFullname(osArrayName);
-                if (poArray && poArray->GetDimensionCount() >= 2)
+                poMainArray = poRG->OpenMDArrayFromFullname(aosArrays[0]);
+                if (poMainArray)
+                    osMainArray = poMainArray->GetFullName();
+            }
+            else  // at least 2 arrays
+            {
+                for (const auto &osArrayName : aosArrays)
                 {
-                    if (osMainArray.empty())
+                    auto poArray = poRG->OpenMDArrayFromFullname(osArrayName);
+                    if (poArray && poArray->GetDimensionCount() >= 2)
                     {
-                        poMainArray = std::move(poArray);
-                        osMainArray = osArrayName;
-                    }
-                    else
-                    {
-                        poMainArray.reset();
-                        osMainArray.clear();
-                        break;
+                        if (osMainArray.empty())
+                        {
+                            poMainArray = std::move(poArray);
+                            osMainArray = osArrayName;
+                        }
+                        else
+                        {
+                            poMainArray.reset();
+                            osMainArray.clear();
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        if (poMainArray)
-            GetXYDimensionIndices(poMainArray, poOpenInfo, iXDim, iYDim);
+            if (poMainArray)
+                GetXYDimensionIndices(poMainArray, poOpenInfo, iXDim, iYDim);
+        }
 
         int iCountSubDS = 1;
 
@@ -477,17 +572,61 @@ GDALDataset *ZarrDataset::Open(GDALOpenInfo *poOpenInfo)
             }
         }
 
-        if (aosArrays.size() >= 2)
+        if (bListAllArrays || aosArrays.size() >= 2)
         {
             for (size_t i = 0; i < aosArrays.size(); ++i)
             {
-                poDS->m_aosSubdatasets.AddString(
-                    CPLSPrintf("SUBDATASET_%d_NAME=ZARR:\"%s\":%s", iCountSubDS,
-                               osFilename.c_str(), aosArrays[i].c_str()));
-                poDS->m_aosSubdatasets.AddString(
-                    CPLSPrintf("SUBDATASET_%d_DESC=Array %s", iCountSubDS,
-                               aosArrays[i].c_str()));
-                ++iCountSubDS;
+                auto poArray = poRG->OpenMDArrayFromFullname(aosArrays[i]);
+                if (poArray)
+                {
+                    bool bAddSubDS = false;
+                    if (bListAllArrays)
+                    {
+                        bAddSubDS = true;
+                    }
+                    else if (poArray->GetDimensionCount() >= 2)
+                    {
+                        bAddSubDS = true;
+                    }
+                    if (bAddSubDS)
+                    {
+                        std::string osDim;
+                        const auto &apoDims = poArray->GetDimensions();
+                        for (const auto &poDim : apoDims)
+                        {
+                            if (!osDim.empty())
+                                osDim += "x";
+                            osDim += CPLSPrintf(
+                                "%" PRIu64,
+                                static_cast<uint64_t>(poDim->GetSize()));
+                        }
+
+                        std::string osDataType;
+                        if (poArray->GetDataType().GetClass() == GEDTC_STRING)
+                        {
+                            osDataType = "string type";
+                        }
+                        else if (poArray->GetDataType().GetClass() ==
+                                 GEDTC_NUMERIC)
+                        {
+                            osDataType = GDALGetDataTypeName(
+                                poArray->GetDataType().GetNumericDataType());
+                        }
+                        else
+                        {
+                            osDataType = "compound type";
+                        }
+
+                        poDS->m_aosSubdatasets.AddString(CPLSPrintf(
+                            "SUBDATASET_%d_NAME=ZARR:\"%s\":%s", iCountSubDS,
+                            osFilename.c_str(), aosArrays[i].c_str()));
+                        poDS->m_aosSubdatasets.AddString(CPLSPrintf(
+                            "SUBDATASET_%d_DESC=[%s] %s (%s)", iCountSubDS,
+                            osDim.c_str(), aosArrays[i].c_str(),
+                            osDataType.c_str()));
+                        ++iCountSubDS;
+                    }
+                }
             }
         }
     }
@@ -943,6 +1082,16 @@ void ZarrDriver::InitMetadata()
                 CPLCreateXMLNode(poValueNode, CXT_Text, "PIXEL");
             }
 
+            auto psConvertToParquet =
+                CPLCreateXMLNode(oTree.get(), CXT_Element, "Option");
+            CPLAddXMLAttributeAndValue(psConvertToParquet, "name",
+                                       "CONVERT_TO_KERCHUNK_PARQUET_REFERENCE");
+            CPLAddXMLAttributeAndValue(psConvertToParquet, "type", "boolean");
+            CPLAddXMLAttributeAndValue(
+                psConvertToParquet, "description",
+                "Whether to convert a Kerchunk JSON reference store to a "
+                "Kerchunk Parquet reference store. (CreateCopy() only)");
+
             char *pszXML = CPLSerializeXMLTree(oTree.get());
             GDALDriver::SetMetadataItem(GDAL_DMD_CREATIONOPTIONLIST, pszXML);
             CPLFree(pszXML);
@@ -1089,7 +1238,8 @@ GDALDataset *ZarrDataset::Create(const char *pszName, int nXSize, int nYSize,
 
         if (bAppendSubDS)
         {
-            VSIRmdir(CPLFormFilename(pszName, pszArrayName, nullptr));
+            VSIRmdir(
+                CPLFormFilenameSafe(pszName, pszArrayName, nullptr).c_str());
         }
         else
         {
@@ -1104,18 +1254,22 @@ GDALDataset *ZarrDataset::Create(const char *pszName, int nXSize, int nYSize,
                 {
                     if (pszArrayName && strcmp(pszFile, pszArrayName) == 0)
                     {
-                        VSIRmdir(CPLFormFilename(pszName, pszFile, nullptr));
+                        VSIRmdir(CPLFormFilenameSafe(pszName, pszFile, nullptr)
+                                     .c_str());
                     }
                     else if (!pszArrayName &&
-                             strcmp(pszFile, CPLGetBasename(pszName)) == 0)
+                             strcmp(pszFile,
+                                    CPLGetBasenameSafe(pszName).c_str()) == 0)
                     {
-                        VSIRmdir(CPLFormFilename(pszName, pszFile, nullptr));
+                        VSIRmdir(CPLFormFilenameSafe(pszName, pszFile, nullptr)
+                                     .c_str());
                     }
                     else if (strcmp(pszFile, ".zgroup") == 0 ||
                              strcmp(pszFile, ".zmetadata") == 0 ||
                              strcmp(pszFile, "zarr.json") == 0)
                     {
-                        VSIUnlink(CPLFormFilename(pszName, pszFile, nullptr));
+                        VSIUnlink(CPLFormFilenameSafe(pszName, pszFile, nullptr)
+                                      .c_str());
                     }
                 }
                 VSIRmdir(pszName);
@@ -1175,8 +1329,8 @@ GDALDataset *ZarrDataset::Create(const char *pszName, int nXSize, int nYSize,
                                     nBandsIn)
             : nullptr);
 
-    const char *pszNonNullArrayName =
-        pszArrayName ? pszArrayName : CPLGetBasename(pszName);
+    const std::string osNonNullArrayName =
+        pszArrayName ? std::string(pszArrayName) : CPLGetBasenameSafe(pszName);
     if (poBandDim)
     {
         const std::vector<std::shared_ptr<GDALDimension>> apoDims(
@@ -1187,8 +1341,8 @@ GDALDataset *ZarrDataset::Create(const char *pszName, int nXSize, int nYSize,
                 : std::vector<std::shared_ptr<GDALDimension>>{
                       poDS->m_poDimY, poDS->m_poDimX, poBandDim});
         poDS->m_poSingleArray = poRG->CreateMDArray(
-            pszNonNullArrayName, apoDims, GDALExtendedDataType::Create(eType),
-            papszOptions);
+            osNonNullArrayName.c_str(), apoDims,
+            GDALExtendedDataType::Create(eType), papszOptions);
         if (!poDS->m_poSingleArray)
         {
             CleanupCreatedFiles();
@@ -1210,7 +1364,7 @@ GDALDataset *ZarrDataset::Create(const char *pszName, int nXSize, int nYSize,
         for (int i = 0; i < nBandsIn; i++)
         {
             auto poArray = poRG->CreateMDArray(
-                nBandsIn == 1  ? pszNonNullArrayName
+                nBandsIn == 1  ? osNonNullArrayName.c_str()
                 : pszArrayName ? CPLSPrintf("%s_band%d", pszArrayName, i + 1)
                                : CPLSPrintf("Band%d", i + 1),
                 apoDims, GDALExtendedDataType::Create(eType), papszOptions);
@@ -1723,6 +1877,40 @@ CPLErr ZarrRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
 }
 
 /************************************************************************/
+/*                     ZarrDataset::CreateCopy()                        */
+/************************************************************************/
+
+/* static */
+GDALDataset *ZarrDataset::CreateCopy(const char *pszFilename,
+                                     GDALDataset *poSrcDS, int bStrict,
+                                     char **papszOptions,
+                                     GDALProgressFunc pfnProgress,
+                                     void *pProgressData)
+{
+    if (CPLFetchBool(papszOptions, "CONVERT_TO_KERCHUNK_PARQUET_REFERENCE",
+                     false))
+    {
+        if (VSIKerchunkConvertJSONToParquet(poSrcDS->GetDescription(),
+                                            pszFilename, pfnProgress,
+                                            pProgressData))
+        {
+            GDALOpenInfo oOpenInfo(
+                std::string("ZARR:\"").append(pszFilename).append("\"").c_str(),
+                GA_ReadOnly);
+            return Open(&oOpenInfo);
+        }
+    }
+    else
+    {
+        auto poDriver = GetGDALDriverManager()->GetDriverByName(DRIVER_NAME);
+        return poDriver->DefaultCreateCopy(pszFilename, poSrcDS, bStrict,
+                                           papszOptions, pfnProgress,
+                                           pProgressData);
+    }
+    return nullptr;
+}
+
+/************************************************************************/
 /*                          GDALRegister_Zarr()                         */
 /************************************************************************/
 
@@ -1732,12 +1920,15 @@ void GDALRegister_Zarr()
     if (GDALGetDriverByName(DRIVER_NAME) != nullptr)
         return;
 
+    VSIInstallKerchunkFileSystems();
+
     GDALDriver *poDriver = new ZarrDriver();
     ZARRDriverSetCommonMetadata(poDriver);
 
     poDriver->pfnOpen = ZarrDataset::Open;
     poDriver->pfnCreateMultiDimensional = ZarrDataset::CreateMultiDimensional;
     poDriver->pfnCreate = ZarrDataset::Create;
+    poDriver->pfnCreateCopy = ZarrDataset::CreateCopy;
     poDriver->pfnDelete = ZarrDatasetDelete;
     poDriver->pfnRename = ZarrDatasetRename;
     poDriver->pfnCopyFiles = ZarrDatasetCopyFiles;

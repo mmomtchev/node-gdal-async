@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  XLSX Translator
  * Purpose:  Definition of classes for OGR OpenOfficeSpreadsheet .xlsx driver.
@@ -17,7 +16,7 @@
 #include "ogrsf_frmts.h"
 
 #include "ogr_expat.h"
-#include "ogr_mem.h"
+#include "memdataset.h"
 
 #include <vector>
 #include <set>

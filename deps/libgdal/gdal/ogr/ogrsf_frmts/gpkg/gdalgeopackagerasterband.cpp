@@ -15,6 +15,7 @@
 #include "gdal_alg_priv.h"
 #include "ogrsqlitevfs.h"
 #include "cpl_error.h"
+#include "cpl_float.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1834,6 +1835,7 @@ CPLErr GDALGPKGMBTilesLikePseudoDataset::WriteTileInternal()
     const CPLString osMemFileName(
         VSIMemGenerateHiddenFilename("gpkg_write_tile"));
     const char *pszDriverName = "PNG";
+    CPL_IGNORE_RET_VAL(pszDriverName);  // Make CSA happy
     bool bTileDriverSupports1Band = false;
     bool bTileDriverSupports2Bands = false;
     bool bTileDriverSupports4Bands = false;
@@ -2917,7 +2919,7 @@ GDALGPKGMBTilesLikePseudoDataset::DoPartialFlushOfPartialTilesIfNecessary()
     {
         m_nLastSpaceCheckTimestamp = nCurTimeStamp;
         GIntBig nFreeSpace =
-            VSIGetDiskFreeSpace(CPLGetDirname(m_osTempDBFilename));
+            VSIGetDiskFreeSpace(CPLGetDirnameSafe(m_osTempDBFilename).c_str());
         bool bTryFreeing = false;
         if (nFreeSpace >= 0 && nFreeSpace < 1024 * 1024 * 1024)
         {
@@ -2988,7 +2990,7 @@ CPLErr GDALGPKGMBTilesLikePseudoDataset::WriteShiftedTile(
         const char *pszBaseFilename =
             m_poParentDS ? m_poParentDS->IGetFilename() : IGetFilename();
         m_osTempDBFilename =
-            CPLResetExtension(pszBaseFilename, "partial_tiles.db");
+            CPLResetExtensionSafe(pszBaseFilename, "partial_tiles.db");
         CPLPushErrorHandler(CPLQuietErrorHandler);
         VSIUnlink(m_osTempDBFilename);
         CPLPopErrorHandler();
@@ -3667,7 +3669,7 @@ int GDALGeoPackageRasterBand::GetOverviewCount()
 {
     GDALGeoPackageDataset *poGDS =
         cpl::down_cast<GDALGeoPackageDataset *>(poDS);
-    return poGDS->m_nOverviewCount;
+    return static_cast<int>(poGDS->m_apoOverviewDS.size());
 }
 
 /************************************************************************/
@@ -3678,9 +3680,9 @@ GDALRasterBand *GDALGeoPackageRasterBand::GetOverview(int nIdx)
 {
     GDALGeoPackageDataset *poGDS =
         reinterpret_cast<GDALGeoPackageDataset *>(poDS);
-    if (nIdx < 0 || nIdx >= poGDS->m_nOverviewCount)
+    if (nIdx < 0 || nIdx >= static_cast<int>(poGDS->m_apoOverviewDS.size()))
         return nullptr;
-    return poGDS->m_papoOverviewDS[nIdx]->GetRasterBand(nBand);
+    return poGDS->m_apoOverviewDS[nIdx]->GetRasterBand(nBand);
 }
 
 /************************************************************************/

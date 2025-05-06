@@ -116,6 +116,8 @@ static GDALDataType GetWorkDataType(GDALDataType eDataType)
             eWrkDT = GDT_Int32;
             break;
 
+        case GDT_Float16:
+        case GDT_CFloat16:
         case GDT_Float32:
         case GDT_CFloat32:
             eWrkDT = GDT_Float32;
@@ -182,6 +184,12 @@ bool GDALNoDataMaskBand::IsNoDataInRange(double dfNoDataValue,
         case GDT_Int64:
         {
             return GDALIsValueInRange<int64_t>(dfNoDataValue);
+        }
+
+        case GDT_Float16:
+        {
+            return std::isnan(dfNoDataValue) || std::isinf(dfNoDataValue) ||
+                   GDALIsValueInRange<GFloat16>(dfNoDataValue);
         }
 
         case GDT_Float32:
@@ -539,13 +547,27 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
 
     for (int iY = 0; iY < nBufYSize; iY++)
     {
-        GDALCopyWords(
+        GDALCopyWords64(
             static_cast<GByte *>(pTemp) + static_cast<size_t>(iY) * nBufXSize,
             GDT_Byte, 1, static_cast<GByte *>(pData) + iY * nLineSpace,
             eBufType, static_cast<int>(nPixelSpace), nBufXSize);
     }
     VSIFree(pTemp);
     return CE_None;
+}
+
+/************************************************************************/
+/*                   EmitErrorMessageIfWriteNotSupported()              */
+/************************************************************************/
+
+bool GDALNoDataMaskBand::EmitErrorMessageIfWriteNotSupported(
+    const char *pszCaller) const
+{
+    ReportError(CE_Failure, CPLE_NoWriteAccess,
+                "%s: attempt to write to a nodata implicit mask band.",
+                pszCaller);
+
+    return true;
 }
 
 //! @endcond

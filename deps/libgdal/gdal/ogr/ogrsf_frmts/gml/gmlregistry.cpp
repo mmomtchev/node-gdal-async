@@ -17,21 +17,47 @@
 
 #include "cpl_conv.h"
 
+#ifdef EMBED_RESOURCE_FILES
+#include "embedded_resources.h"
+#endif
+
 /************************************************************************/
 /*                           Parse()                                    */
 /************************************************************************/
 
 bool GMLRegistry::Parse()
 {
+#ifndef USE_ONLY_EMBEDDED_RESOURCE_FILES
     if (osRegistryPath.empty())
     {
+#ifdef EMBED_RESOURCE_FILES
+        CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
+#endif
         const char *pszFilename = CPLFindFile("gdal", "gml_registry.xml");
         if (pszFilename)
             osRegistryPath = pszFilename;
     }
-    if (osRegistryPath.empty())
-        return false;
-    CPLXMLNode *psRootNode = CPLParseXMLFile(osRegistryPath);
+#endif
+    CPLXMLNode *psRootNode = nullptr;
+    if (!osRegistryPath.empty())
+    {
+        psRootNode = CPLParseXMLFile(osRegistryPath);
+    }
+#ifdef EMBED_RESOURCE_FILES
+    else
+    {
+        const char *pszContent = GMLGetFileContent("gml_registry.xml");
+        if (pszContent)
+        {
+            static const bool bOnce [[maybe_unused]] = []()
+            {
+                CPLDebug("GML", "Using embedded gml_registry.xml");
+                return true;
+            }();
+            psRootNode = CPLParseXMLString(pszContent);
+        }
+    }
+#endif
     if (psRootNode == nullptr)
         return false;
     CPLXMLNode *psRegistryNode = CPLGetXMLNode(psRootNode, "=gml_registry");
@@ -102,39 +128,39 @@ bool GMLRegistryFeatureType::Parse(const char *pszRegistryFilename,
                                    CPLXMLNode *psNode)
 {
     const char *pszElementName = CPLGetXMLValue(psNode, "elementName", nullptr);
-    const char *pszSchemaLocation =
-        CPLGetXMLValue(psNode, "schemaLocation", nullptr);
-    const char *pszGFSSchemaLocation =
-        CPLGetXMLValue(psNode, "gfsSchemaLocation", nullptr);
+    osSchemaLocation = CPLGetXMLValue(psNode, "schemaLocation", "");
+    osGFSSchemaLocation = CPLGetXMLValue(psNode, "gfsSchemaLocation", "");
     if (pszElementName == nullptr ||
-        (pszSchemaLocation == nullptr && pszGFSSchemaLocation == nullptr))
+        (osSchemaLocation.empty() && osGFSSchemaLocation.empty()))
         return false;
 
     const char *pszElementValue =
         CPLGetXMLValue(psNode, "elementValue", nullptr);
     osElementName = pszElementName;
 
-    if (pszSchemaLocation != nullptr)
+    if (!osSchemaLocation.empty())
     {
-        if (!STARTS_WITH(pszSchemaLocation, "http://") &&
-            !STARTS_WITH(pszSchemaLocation, "https://") &&
-            CPLIsFilenameRelative(pszSchemaLocation))
+        if (pszRegistryFilename[0] &&
+            !STARTS_WITH(osSchemaLocation.c_str(), "http://") &&
+            !STARTS_WITH(osSchemaLocation.c_str(), "https://") &&
+            CPLIsFilenameRelative(osSchemaLocation.c_str()))
         {
-            pszSchemaLocation = CPLFormFilename(CPLGetPath(pszRegistryFilename),
-                                                pszSchemaLocation, nullptr);
+            osSchemaLocation =
+                CPLFormFilenameSafe(CPLGetPathSafe(pszRegistryFilename).c_str(),
+                                    osSchemaLocation.c_str(), nullptr);
         }
-        osSchemaLocation = pszSchemaLocation;
     }
-    else if (pszGFSSchemaLocation != nullptr)
+    else if (!osGFSSchemaLocation.empty())
     {
-        if (!STARTS_WITH(pszGFSSchemaLocation, "http://") &&
-            !STARTS_WITH(pszGFSSchemaLocation, "https://") &&
-            CPLIsFilenameRelative(pszGFSSchemaLocation))
+        if (pszRegistryFilename[0] &&
+            !STARTS_WITH(osGFSSchemaLocation.c_str(), "http://") &&
+            !STARTS_WITH(osGFSSchemaLocation.c_str(), "https://") &&
+            CPLIsFilenameRelative(osGFSSchemaLocation.c_str()))
         {
-            pszGFSSchemaLocation = CPLFormFilename(
-                CPLGetPath(pszRegistryFilename), pszGFSSchemaLocation, nullptr);
+            osGFSSchemaLocation =
+                CPLFormFilenameSafe(CPLGetPathSafe(pszRegistryFilename).c_str(),
+                                    osGFSSchemaLocation.c_str(), nullptr);
         }
-        osGFSSchemaLocation = pszGFSSchemaLocation;
     }
 
     if (pszElementValue != nullptr)

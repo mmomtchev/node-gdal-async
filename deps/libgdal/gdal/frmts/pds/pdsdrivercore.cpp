@@ -174,6 +174,7 @@ void PDS4DriverSetCommonMetadata(GDALDriver *poDriver)
     poDriver->SetMetadataItem(GDAL_DMD_OPENOPTIONLIST, "<OpenOptionList/>");
     poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");
     poDriver->SetMetadataItem(GDAL_DMD_SUBDATASETS, "YES");
+    poDriver->SetMetadataItem(GDAL_DCAP_CREATE_SUBDATASETS, "YES");
     poDriver->SetMetadataItem(GDAL_DMD_SUPPORTED_SQL_DIALECTS, "OGRSQL SQLITE");
 
     poDriver->SetMetadataItem(
@@ -318,6 +319,9 @@ void PDS4DriverSetCommonMetadata(GDALDriver *poDriver)
     poDriver->SetMetadataItem(GDAL_DCAP_OPEN, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_CREATE, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_CREATECOPY, "YES");
+
+    poDriver->SetMetadataItem(GDAL_DCAP_UPDATE, "YES");
+    poDriver->SetMetadataItem(GDAL_DMD_UPDATE_ITEMS, "Features");
 }
 
 /************************************************************************/
@@ -347,23 +351,9 @@ void ISIS2DriverSetCommonMetadata(GDALDriver *poDriver)
                               "USGS Astrogeology ISIS cube (Version 2)");
     poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "drivers/raster/isis2.html");
     poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");
-    poDriver->SetMetadataItem(GDAL_DMD_CREATIONDATATYPES,
-                              "Byte Int16 UInt16 Float32 Float64");
-
-    poDriver->SetMetadataItem(
-        GDAL_DMD_CREATIONOPTIONLIST,
-        "<CreationOptionList>\n"
-        "   <Option name='LABELING_METHOD' type='string-select' "
-        "default='ATTACHED'>\n"
-        "     <Value>ATTACHED</Value>"
-        "     <Value>DETACHED</Value>"
-        "   </Option>"
-        "   <Option name='IMAGE_EXTENSION' type='string' default='cub'/>\n"
-        "</CreationOptionList>\n");
 
     poDriver->pfnIdentify = ISIS2DriverIdentify;
     poDriver->SetMetadataItem(GDAL_DCAP_OPEN, "YES");
-    poDriver->SetMetadataItem(GDAL_DCAP_CREATE, "YES");
 }
 
 /************************************************************************/

@@ -827,10 +827,10 @@ int OGRPGTableLayer::ReadTableDefinition()
         if (pszDescription)
             oField.SetComment(pszDescription);
 
+        oField.SetGenerated(pszGenerated != nullptr && pszGenerated[0] != '\0');
+
         // CPLDebug("PG", "name=%s, type=%s", oField.GetNameRef(), pszType);
         poFeatureDefn->AddFieldDefn(&oField);
-        m_abGeneratedColumns.push_back(pszGenerated != nullptr &&
-                                       pszGenerated[0] != '\0');
     }
 
     OGRPGClearResult(hResult);
@@ -1008,22 +1008,13 @@ void OGRPGTableLayer::SetTableDefinition(const char *pszFIDColumnName,
 }
 
 /************************************************************************/
-/*                          SetSpatialFilter()                          */
+/*                         ISetSpatialFilter()                          */
 /************************************************************************/
 
-void OGRPGTableLayer::SetSpatialFilter(int iGeomField, OGRGeometry *poGeomIn)
+OGRErr OGRPGTableLayer::ISetSpatialFilter(int iGeomField,
+                                          const OGRGeometry *poGeomIn)
 
 {
-    if (iGeomField < 0 || iGeomField >= GetLayerDefn()->GetGeomFieldCount() ||
-        GetLayerDefn()->GetGeomFieldDefn(iGeomField)->GetType() == wkbNone)
-    {
-        if (iGeomField != 0)
-        {
-            CPLError(CE_Failure, CPLE_AppDefined,
-                     "Invalid geometry field index : %d", iGeomField);
-        }
-        return;
-    }
     m_iGeomFieldFilter = iGeomField;
 
     if (InstallFilter(poGeomIn))
@@ -1032,6 +1023,8 @@ void OGRPGTableLayer::SetSpatialFilter(int iGeomField, OGRGeometry *poGeomIn)
 
         ResetReading();
     }
+
+    return OGRERR_NONE;
 }
 
 /************************************************************************/
@@ -1574,7 +1567,7 @@ OGRErr OGRPGTableLayer::IUpdateFeature(OGRFeature *poFeature,
             continue;
         if (!poFeature->IsFieldSet(iField))
             continue;
-        if (m_abGeneratedColumns[iField])
+        if (poFeature->GetDefnRef()->GetFieldDefn(iField)->IsGenerated())
             continue;
 
         if (bNeedComma)
@@ -1934,7 +1927,7 @@ OGRErr OGRPGTableLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
             continue;
         if (!poFeature->IsFieldSet(i))
             continue;
-        if (m_abGeneratedColumns[i])
+        if (poFeature->GetDefnRef()->GetFieldDefn(i)->IsGenerated())
             continue;
 
         if (!bNeedComma)
@@ -1942,8 +1935,7 @@ OGRErr OGRPGTableLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
         else
             osCommand += ", ";
 
-        osCommand =
-            osCommand +
+        osCommand +=
             OGRPGEscapeColumnName(poFeatureDefn->GetFieldDefn(i)->GetNameRef());
     }
 
@@ -1956,7 +1948,7 @@ OGRErr OGRPGTableLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
     bNeedComma = FALSE;
     for (int i = 0; i < poFeatureDefn->GetGeomFieldCount(); i++)
     {
-        OGRPGGeomFieldDefn *poGeomFieldDefn =
+        const OGRPGGeomFieldDefn *poGeomFieldDefn =
             poFeatureDefn->GetGeomFieldDefn(i);
         OGRGeometry *poGeom = poFeature->GetGeomFieldRef(i);
         if (poGeom == nullptr)
@@ -1982,10 +1974,28 @@ OGRErr OGRPGTableLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
             char *pszHexEWKB = OGRGeometryToHexEWKB(
                 poGeom, nSRSId, poDS->sPostGISVersion.nMajor,
                 poDS->sPostGISVersion.nMinor);
+            if (!pszHexEWKB || pszHexEWKB[0] == 0)
+            {
+                CPLFree(pszHexEWKB);
+                return OGRERR_FAILURE;
+            }
+            osCommand += '\'';
+            try
+            {
+                osCommand += pszHexEWKB;
+            }
+            catch (const std::bad_alloc &)
+            {
+                CPLError(CE_Failure, CPLE_OutOfMemory,
+                         "Out of memory: too large geometry");
+                CPLFree(pszHexEWKB);
+                return OGRERR_FAILURE;
+            }
+            osCommand += "'::";
             if (poGeomFieldDefn->ePostgisType == GEOM_TYPE_GEOGRAPHY)
-                osCommand += CPLString().Printf("'%s'::GEOGRAPHY", pszHexEWKB);
+                osCommand += "GEOGRAPHY";
             else
-                osCommand += CPLString().Printf("'%s'::GEOMETRY", pszHexEWKB);
+                osCommand += "GEOMETRY";
             CPLFree(pszHexEWKB);
         }
         else if (!bWkbAsOid)
@@ -1994,15 +2004,24 @@ OGRErr OGRPGTableLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
                 GeometryToBYTEA(poGeom, poDS->sPostGISVersion.nMajor,
                                 poDS->sPostGISVersion.nMinor);
 
-            if (pszBytea != nullptr)
+            if (!pszBytea)
             {
-                osCommand += "E'";
-                osCommand += pszBytea;
-                osCommand += '\'';
-                CPLFree(pszBytea);
+                return OGRERR_FAILURE;
             }
-            else
-                osCommand += "''";
+            osCommand += "E'";
+            try
+            {
+                osCommand += pszBytea;
+            }
+            catch (const std::bad_alloc &)
+            {
+                CPLError(CE_Failure, CPLE_OutOfMemory,
+                         "Out of memory: too large geometry");
+                CPLFree(pszBytea);
+                return OGRERR_FAILURE;
+            }
+            osCommand += '\'';
+            CPLFree(pszBytea);
         }
         else if (poGeomFieldDefn->ePostgisType ==
                  GEOM_TYPE_WKB /* && bWkbAsOid */)
@@ -2032,7 +2051,7 @@ OGRErr OGRPGTableLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
             continue;
         if (!poFeature->IsFieldSet(i))
             continue;
-        if (m_abGeneratedColumns[i])
+        if (poFeature->GetDefnRef()->GetFieldDefn(i)->IsGenerated())
             continue;
 
         if (bNeedComma)
@@ -2083,7 +2102,7 @@ OGRErr OGRPGTableLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "INSERT command for new feature failed.\n%s\nCommand: %s",
-                 PQerrorMessage(hPGConn), osCommand.c_str());
+                 PQerrorMessage(hPGConn), osCommand.substr(0, 1024).c_str());
 
         if (!bHasWarnedAlreadySetFID && poFeature->GetFID() != OGRNullFID &&
             pszFIDColumn != nullptr)
@@ -2125,7 +2144,7 @@ OGRErr OGRPGTableLayer::CreateFeatureViaCopy(OGRFeature *poFeature)
     /* First process geometry */
     for (int i = 0; i < poFeatureDefn->GetGeomFieldCount(); i++)
     {
-        OGRPGGeomFieldDefn *poGeomFieldDefn =
+        const OGRPGGeomFieldDefn *poGeomFieldDefn =
             poFeatureDefn->GetGeomFieldDefn(i);
         OGRGeometry *poGeom = poFeature->GetGeomFieldRef(i);
 
@@ -2147,6 +2166,11 @@ OGRErr OGRPGTableLayer::CreateFeatureViaCopy(OGRFeature *poFeature)
                 pszGeom = OGRGeometryToHexEWKB(poGeom, poGeomFieldDefn->nSRSId,
                                                poDS->sPostGISVersion.nMajor,
                                                poDS->sPostGISVersion.nMinor);
+            if (!pszGeom || pszGeom[0] == 0)
+            {
+                CPLFree(pszGeom);
+                return OGRERR_FAILURE;
+            }
         }
 
         if (!osCommand.empty())
@@ -2154,7 +2178,17 @@ OGRErr OGRPGTableLayer::CreateFeatureViaCopy(OGRFeature *poFeature)
 
         if (pszGeom)
         {
-            osCommand += pszGeom;
+            try
+            {
+                osCommand += pszGeom;
+            }
+            catch (const std::bad_alloc &)
+            {
+                CPLError(CE_Failure, CPLE_OutOfMemory,
+                         "Out of memory: too large geometry");
+                CPLFree(pszGeom);
+                return OGRERR_FAILURE;
+            }
             CPLFree(pszGeom);
         }
         else
@@ -2163,9 +2197,11 @@ OGRErr OGRPGTableLayer::CreateFeatureViaCopy(OGRFeature *poFeature)
         }
     }
 
-    std::vector<bool> abFieldsToInclude(m_abGeneratedColumns.size(), true);
+    std::vector<bool> abFieldsToInclude(poFeature->GetFieldCount(), true);
     for (size_t i = 0; i < abFieldsToInclude.size(); i++)
-        abFieldsToInclude[i] = !m_abGeneratedColumns[i];
+        abFieldsToInclude[i] = !poFeature->GetDefnRef()
+                                    ->GetFieldDefn(static_cast<int>(i))
+                                    ->IsGenerated();
 
     if (bFIDColumnInCopyFields)
     {
@@ -2440,7 +2476,6 @@ OGRErr OGRPGTableLayer::CreateField(const OGRFieldDefn *poFieldIn,
     }
 
     whileUnsealing(poFeatureDefn)->AddFieldDefn(&oField);
-    m_abGeneratedColumns.resize(poFeatureDefn->GetFieldCount());
 
     if (pszFIDColumn != nullptr && EQUAL(oField.GetNameRef(), pszFIDColumn))
     {
@@ -2697,8 +2732,6 @@ OGRErr OGRPGTableLayer::DeleteField(int iField)
     }
 
     OGRPGClearResult(hResult);
-
-    m_abGeneratedColumns.erase(m_abGeneratedColumns.begin() + iField);
 
     return whileUnsealing(poFeatureDefn)->DeleteFieldDefn(iField);
 }
@@ -3543,7 +3576,8 @@ CPLString OGRPGTableLayer::BuildCopyFields()
     {
         if (i == nFIDIndex)
             continue;
-        if (m_abGeneratedColumns[i])
+
+        if (poFeatureDefn->GetFieldDefn(i)->IsGenerated())
             continue;
 
         const char *pszName = poFeatureDefn->GetFieldDefn(i)->GetNameRef();
@@ -3640,27 +3674,16 @@ void OGRPGTableLayer::SetOverrideColumnTypes(const char *pszOverrideColumnTypes)
 }
 
 /************************************************************************/
-/*                             GetExtent()                              */
+/*                            IGetExtent()                              */
 /*                                                                      */
 /*      For PostGIS use internal ST_EstimatedExtent(geometry) function  */
 /*      if bForce == 0                                                  */
 /************************************************************************/
 
-OGRErr OGRPGTableLayer::GetExtent(int iGeomField, OGREnvelope *psExtent,
-                                  int bForce)
+OGRErr OGRPGTableLayer::IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                                   bool bForce)
 {
     CPLString osCommand;
-
-    if (iGeomField < 0 || iGeomField >= GetLayerDefn()->GetGeomFieldCount() ||
-        GetLayerDefn()->GetGeomFieldDefn(iGeomField)->GetType() == wkbNone)
-    {
-        if (iGeomField != 0)
-        {
-            CPLError(CE_Failure, CPLE_AppDefined,
-                     "Invalid geometry field index : %d", iGeomField);
-        }
-        return OGRERR_FAILURE;
-    }
 
     if (bDeferredCreation && RunDeferredCreationIfNecessary() != OGRERR_NONE)
         return OGRERR_FAILURE;
@@ -3702,7 +3725,7 @@ OGRErr OGRPGTableLayer::GetExtent(int iGeomField, OGREnvelope *psExtent,
             "Unable to get estimated extent by PostGIS. Trying real extent.");
     }
 
-    return OGRPGLayer::GetExtent(iGeomField, psExtent, bForce);
+    return OGRPGLayer::IGetExtent(iGeomField, psExtent, bForce);
 }
 
 /************************************************************************/
@@ -4032,6 +4055,27 @@ OGRGeometryTypeCounter *OGRPGTableLayer::GetGeometryTypes(
     OGRPGClearResult(hResult);
 
     return pasRet;
+}
+
+/************************************************************************/
+/*                          FindFieldIndex()                            */
+/************************************************************************/
+
+int OGRPGTableLayer::FindFieldIndex(const char *pszFieldName, int bExactMatch)
+{
+    const auto poLayerDefn = GetLayerDefn();
+    int iField = poLayerDefn->GetFieldIndex(pszFieldName);
+
+    if (!bExactMatch && iField < 0 && bLaunderColumnNames)
+    {
+        CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
+        char *pszSafeName =
+            OGRPGCommonLaunderName(pszFieldName, "PG", m_bUTF8ToASCII);
+        iField = poLayerDefn->GetFieldIndex(pszSafeName);
+        CPLFree(pszSafeName);
+    }
+
+    return iField;
 }
 
 #undef PQexec

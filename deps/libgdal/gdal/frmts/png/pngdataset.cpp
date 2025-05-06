@@ -328,7 +328,7 @@ PNGDataset::~PNGDataset()
 #include "filter_sse2_intrinsics.c"
 #endif
 
-#if defined(__GNUC__) && !defined(__SSE2__)
+#if defined(__GNUC__) && !defined(__SSE2__) && !defined(USE_NEON_OPTIMIZATIONS)
 __attribute__((optimize("tree-vectorize"))) static inline void
 AddVectors(const GByte *CPL_RESTRICT pabyInputLine,
            GByte *CPL_RESTRICT pabyOutputLine, int nSize)
@@ -677,7 +677,7 @@ CPLErr PNGDataset::LoadWholeImage(void *pSingleBuffer, GSpacing nPixelSpace,
                     const GByte *CPL_RESTRICT pabyOutputLineUp =
                         pabyOutputBuffer +
                         (static_cast<size_t>(iY) - 1) * nSamplesPerLine;
-#if defined(__GNUC__) && !defined(__SSE2__)
+#if defined(__GNUC__) && !defined(__SSE2__) && !defined(USE_NEON_OPTIMIZATIONS)
                     AddVectors(pabyInputLine, pabyOutputLineUp, pabyOutputLine,
                                nSamplesPerLine);
 #else
@@ -707,7 +707,7 @@ CPLErr PNGDataset::LoadWholeImage(void *pSingleBuffer, GSpacing nPixelSpace,
                 }
                 else
                 {
-#if defined(__GNUC__) && !defined(__SSE2__)
+#if defined(__GNUC__) && !defined(__SSE2__) && !defined(USE_NEON_OPTIMIZATIONS)
                     AddVectors(pabyInputLine, pabyOutputLine, nSamplesPerLine);
 #else
                     int iX;
@@ -1788,9 +1788,7 @@ GDALDataset *PNGDataset::Open(GDALOpenInfo *poOpenInfo)
 
     if (poOpenInfo->eAccess == GA_Update)
     {
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "The PNG driver does not support update access to existing"
-                 " datasets.\n");
+        ReportUpdateNotSupportedByDriver("PNG");
         return nullptr;
     }
 

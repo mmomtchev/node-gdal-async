@@ -15,6 +15,10 @@
 #include "cpl_time.h"
 #include <map>
 
+#ifdef EMBED_RESOURCE_FILES
+#include "embedded_resources.h"
+#endif
+
 #ifndef STARTS_WITH_CI
 #define STARTS_WITH(a, b) (strncmp(a, b, strlen(b)) == 0)
 #define STARTS_WITH_CI(a, b) EQUALN(a, b, strlen(b))
@@ -186,8 +190,8 @@ void OGRIDFDataSource::Parse()
             }
             else
             {
-                osTmpFilename =
-                    CPLGenerateTempFilename(CPLGetBasename(m_osFilename));
+                osTmpFilename = CPLGenerateTempFilenameSafe(
+                    CPLGetBasenameSafe(m_osFilename).c_str());
                 osTmpFilename += ".gpkg";
             }
             VSIUnlink(osTmpFilename);
@@ -222,8 +226,10 @@ void OGRIDFDataSource::Parse()
         }
     }
 
+    bool bIsMEMLayer = false;
     if (m_poTmpDS == nullptr)
     {
+        bIsMEMLayer = true;
         m_poTmpDS = poMEMDriver->Create("", 0, 0, 0, GDT_Unknown, nullptr);
     }
 
@@ -578,6 +584,9 @@ void OGRIDFDataSource::Parse()
     }
 
     m_poTmpDS->CommitTransaction();
+
+    if (bIsMEMLayer)
+        m_poTmpDS->ExecuteSQL("PRAGMA read_only=1", nullptr, nullptr);
 
     std::map<GIntBig, OGRLineString *>::iterator oMapLinkCoordinateIter =
         oMapLinkCoordinate.begin();
@@ -1181,7 +1190,7 @@ GDALDataset *OGRVDVDataSource::Open(GDALOpenInfo *poOpenInfo)
             if (EQUAL(*papszIter, ".") || EQUAL(*papszIter, ".."))
                 continue;
             nFiles++;
-            const std::string osExtension(CPLGetExtension(*papszIter));
+            const std::string osExtension(CPLGetExtensionSafe(*papszIter));
             int nCount = ++oMapOtherExtensions[osExtension];
             if (osMajorityExtension == "" ||
                 nCount > oMapOtherExtensions[osMajorityExtension])
@@ -1202,8 +1211,9 @@ GDALDataset *OGRVDVDataSource::Open(GDALOpenInfo *poOpenInfo)
         // And check that one of those files is a VDV one if it isn't .x10
         if (osMajorityExtension != "x10")
         {
-            GDALOpenInfo oOpenInfo(CPLFormFilename(poOpenInfo->pszFilename,
-                                                   osMajorityFile, nullptr),
+            GDALOpenInfo oOpenInfo(CPLFormFilenameSafe(poOpenInfo->pszFilename,
+                                                       osMajorityFile, nullptr)
+                                       .c_str(),
                                    GA_ReadOnly);
             if (OGRVDVDriverIdentify(&oOpenInfo) != TRUE)
             {
@@ -1221,18 +1231,22 @@ GDALDataset *OGRVDVDataSource::Open(GDALOpenInfo *poOpenInfo)
         for (char **papszIter = papszFiles; papszIter && *papszIter;
              ++papszIter)
         {
-            if (!EQUAL(CPLGetExtension(*papszIter), osMajorityExtension))
+            if (!EQUAL(CPLGetExtensionSafe(*papszIter).c_str(),
+                       osMajorityExtension))
                 continue;
-            VSILFILE *fp = VSIFOpenL(
-                CPLFormFilename(poOpenInfo->pszFilename, *papszIter, nullptr),
-                "rb");
+            VSILFILE *fp =
+                VSIFOpenL(CPLFormFilenameSafe(poOpenInfo->pszFilename,
+                                              *papszIter, nullptr)
+                              .c_str(),
+                          "rb");
             if (fp == nullptr)
                 continue;
             poDS->m_papoLayers = static_cast<OGRLayer **>(
                 CPLRealloc(poDS->m_papoLayers,
                            sizeof(OGRLayer *) * (poDS->m_nLayerCount + 1)));
-            poDS->m_papoLayers[poDS->m_nLayerCount] = new OGRVDVLayer(
-                poDS, CPLGetBasename(*papszIter), fp, true, false, 0);
+            poDS->m_papoLayers[poDS->m_nLayerCount] =
+                new OGRVDVLayer(poDS, CPLGetBasenameSafe(*papszIter).c_str(),
+                                fp, true, false, 0);
             poDS->m_nLayerCount++;
         }
         CSLDestroy(papszFiles);
@@ -1702,14 +1716,34 @@ static bool OGRVDVWriteHeader(VSILFILE *fpL, CSLConstList papszOptions)
 
 static bool OGRVDVLoadVDV452Tables(OGRVDV452Tables &oTables)
 {
+    CPLXMLNode *psRoot = nullptr;
+#if defined(USE_ONLY_EMBEDDED_RESOURCE_FILES)
+    const char *pszXMLDescFilename = nullptr;
+#else
     const char *pszXMLDescFilename = CPLFindFile("gdal", "vdv452.xml");
-    if (pszXMLDescFilename == nullptr)
+#endif
+    if (pszXMLDescFilename == nullptr ||
+        EQUAL(pszXMLDescFilename, "vdv452.xml"))
     {
+#ifdef EMBED_RESOURCE_FILES
+        static const bool bOnce [[maybe_unused]] = []()
+        {
+            CPLDebug("VDV", "Using embedded vdv452.xml");
+            return true;
+        }();
+        psRoot = CPLParseXMLString(VDVGet452XML());
+#else
         CPLDebug("VDV", "Cannot find XML file : %s", "vdv452.xml");
         return false;
+#endif
     }
 
-    CPLXMLNode *psRoot = CPLParseXMLFile(pszXMLDescFilename);
+#ifdef EMBED_RESOURCE_FILES
+    if (!psRoot)
+#endif
+    {
+        psRoot = CPLParseXMLFile(pszXMLDescFilename);
+    }
     if (psRoot == nullptr)
     {
         return false;
@@ -1889,8 +1923,8 @@ OGRVDVDataSource::ICreateLayer(const char *pszLayerName,
     {
         CPLString osExtension =
             CSLFetchNameValueDef(papszOptions, "EXTENSION", "x10");
-        CPLString osFilename =
-            CPLFormFilename(m_osFilename, pszLayerName, osExtension);
+        const CPLString osFilename =
+            CPLFormFilenameSafe(m_osFilename, pszLayerName, osExtension);
         fpL = VSIFOpenL(osFilename, "wb");
         if (fpL == nullptr)
         {

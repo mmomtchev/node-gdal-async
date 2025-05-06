@@ -517,8 +517,9 @@ CPLErr VRTRasterBand::XMLInit(const CPLXMLNode *psTree, const char *pszVRTPath,
         if (pszVRTPath != nullptr &&
             atoi(CPLGetXMLValue(psFileNameNode, "relativetoVRT", "0")))
         {
-            pszSrcDSName =
-                CPLStrdup(CPLProjectRelativeFilename(pszVRTPath, pszFilename));
+            pszSrcDSName = CPLStrdup(
+                CPLProjectRelativeFilenameSafe(pszVRTPath, pszFilename)
+                    .c_str());
         }
         else
             pszSrcDSName = CPLStrdup(pszFilename);
@@ -605,6 +606,16 @@ CPLString VRTSerializeNoData(double dfVal, GDALDataType eDataType,
     {
         return "nan";
     }
+    else if (eDataType == GDT_Float16 && dfVal == -6.55e4)
+    {
+        // To avoid rounding out of the range of GFloat16
+        return "-6.55e4";
+    }
+    else if (eDataType == GDT_Float16 && dfVal == 6.55e4)
+    {
+        // To avoid rounding out of the range of GFloat16
+        return "6.55e4";
+    }
     else if (eDataType == GDT_Float32 &&
              dfVal == -std::numeric_limits<float>::max())
     {
@@ -650,15 +661,17 @@ CPLXMLNode *VRTRasterBand::SerializeToXML(const char *pszVRTPath,
     // serialized at the dataset level.
     if (dynamic_cast<VRTWarpedRasterBand *>(this) == nullptr)
     {
-        if (nBlockXSize != 128 &&
-            !(nBlockXSize < 128 && nBlockXSize == nRasterXSize))
+        if (!VRTDataset::IsDefaultBlockSize(nBlockXSize, nRasterXSize))
+        {
             CPLSetXMLValue(psTree, "#blockXSize",
                            CPLSPrintf("%d", nBlockXSize));
+        }
 
-        if (nBlockYSize != 128 &&
-            !(nBlockYSize < 128 && nBlockYSize == nRasterYSize))
+        if (!VRTDataset::IsDefaultBlockSize(nBlockYSize, nRasterYSize))
+        {
             CPLSetXMLValue(psTree, "#blockYSize",
                            CPLSPrintf("%d", nBlockYSize));
+        }
     }
 
     CPLXMLNode *psMD = oMDMD.Serialize();
@@ -884,7 +897,8 @@ bool VRTRasterBand::IsNoDataValueInDataTypeRange() const
     if (!m_bNoDataValueSet)
         return true;
     if (!std::isfinite(m_dfNoDataValue))
-        return eDataType == GDT_Float32 || eDataType == GDT_Float64;
+        return eDataType == GDT_Float16 || eDataType == GDT_Float32 ||
+               eDataType == GDT_Float64;
     GByte abyTempBuffer[2 * sizeof(double)];
     CPLAssert(GDALGetDataTypeSizeBytes(eDataType) <=
               static_cast<int>(sizeof(abyTempBuffer)));

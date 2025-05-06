@@ -823,6 +823,8 @@ bool OGRDXFDataSource::ReadHeaderSection()
         }
 
         oHeaderVariables[l_osName] = szLineBuf;
+        GDALDataset::SetMetadataItem(l_osName.c_str(), szLineBuf,
+                                     "DXF_HEADER_VARIABLES");
     }
     if (nCode < 0)
     {
@@ -859,6 +861,8 @@ bool OGRDXFDataSource::ReadHeaderSection()
             }
 
             oHeaderVariables[l_osName] = szLineBuf;
+            GDALDataset::SetMetadataItem(l_osName.c_str(), szLineBuf,
+                                         "DXF_HEADER_VARIABLES");
         }
         if (nCode < 0)
         {

@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  OpenGIS Simple Features Reference Implementation
  * Purpose:  Definitions related to support for use of SFCGAL in OGR.
@@ -16,5 +15,12 @@
 #ifdef HAVE_SFCGAL
 
 #include <SFCGAL/capi/sfcgal_c.h>
+
+#define SFCGAL_VERSION_MAJOR @SFCGAL_VERSION_MAJOR@
+#define SFCGAL_VERSION_MINOR @SFCGAL_VERSION_MINOR@
+#define SFCGAL_VERSION_PATCH @SFCGAL_VERSION_PATCH@
+
+#define SFCGAL_MAKE_VERSION(major, minor, patch) ((major) * 10000 + (minor) * 100 + (patch))
+#define SFCGAL_VERSION SFCGAL_MAKE_VERSION(SFCGAL_VERSION_MAJOR, SFCGAL_VERSION_MINOR, SFCGAL_VERSION_PATCH)
 
 #endif

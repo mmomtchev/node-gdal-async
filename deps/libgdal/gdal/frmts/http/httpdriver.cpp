@@ -130,30 +130,41 @@ static GDALDataset *HTTPOpen(GDALOpenInfo *poOpenInfo)
 
     CPLHTTPDestroyResult(psResult);
 
+    CPLStringList aosOpenOptions;
+    for (const char *pszStr :
+         cpl::Iterate(const_cast<CSLConstList>(poOpenInfo->papszOpenOptions)))
+    {
+        if (STARTS_WITH_CI(pszStr, "NATIVE_DATA="))
+        {
+            // Avoid warning with "ogr2ogr out http://example.com/in.gpkg"
+            aosOpenOptions.push_back(std::string("@").append(pszStr).c_str());
+        }
+        else
+        {
+            aosOpenOptions.push_back(pszStr);
+        }
+    }
+
     /* -------------------------------------------------------------------- */
     /*      Try opening this result as a gdaldataset.                       */
     /* -------------------------------------------------------------------- */
     /* suppress errors as not all drivers support /vsimem */
 
     GDALDataset *poDS;
-    std::vector<CPLErrorHandlerAccumulatorStruct> aoErrors;
+    CPLErrorAccumulator oErrorAccumulator;
     {
         CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
-        CPLInstallErrorHandlerAccumulator(aoErrors);
-        poDS = GDALDataset::Open(osResultFilename,
-                                 poOpenInfo->nOpenFlags & ~GDAL_OF_SHARED,
-                                 poOpenInfo->papszAllowedDrivers,
-                                 poOpenInfo->papszOpenOptions, nullptr);
-        CPLUninstallErrorHandlerAccumulator();
+        auto oAccumulator = oErrorAccumulator.InstallForCurrentScope();
+        CPL_IGNORE_RET_VAL(oAccumulator);
+        poDS = GDALDataset::Open(
+            osResultFilename, poOpenInfo->nOpenFlags & ~GDAL_OF_SHARED,
+            poOpenInfo->papszAllowedDrivers, aosOpenOptions.List(), nullptr);
     }
 
     // Re-emit silenced errors if open was successful
     if (poDS)
     {
-        for (const auto &oError : aoErrors)
-        {
-            CPLError(oError.type, oError.no, "%s", oError.msg.c_str());
-        }
+        oErrorAccumulator.ReplayErrors();
     }
 
     // The JP2OpenJPEG driver may need to reopen the file, hence this special
@@ -174,12 +185,13 @@ static GDALDataset *HTTPOpen(GDALOpenInfo *poOpenInfo)
         CPLString osTempFilename;
 
 #ifdef _WIN32
-        const char *pszPath = CPLGetPath(CPLGenerateTempFilename(NULL));
+        const std::string osPath =
+            CPLGetPathSafe(CPLGenerateTempFilenameSafe(NULL).c_str());
 #else
-        const char *pszPath = "/tmp";
+        const std::string osPath = "/tmp";
 #endif
-        osTempFilename =
-            CPLFormFilename(pszPath, CPLGetFilename(osResultFilename), nullptr);
+        osTempFilename = CPLFormFilenameSafe(
+            osPath.c_str(), CPLGetFilename(osResultFilename), nullptr);
         if (CPLCopyFile(osTempFilename, osResultFilename) != 0)
         {
             CPLError(CE_Failure, CPLE_OpenFailed,
@@ -191,7 +203,7 @@ static GDALDataset *HTTPOpen(GDALOpenInfo *poOpenInfo)
             poDS = GDALDataset::Open(osTempFilename,
                                      poOpenInfo->nOpenFlags & ~GDAL_OF_SHARED,
                                      poOpenInfo->papszAllowedDrivers,
-                                     poOpenInfo->papszOpenOptions, nullptr);
+                                     aosOpenOptions.List(), nullptr);
             if (VSIUnlink(osTempFilename) != 0 && poDS != nullptr)
                 poDS->MarkSuppressOnClose(); /* VSIUnlink() may not work on
                                                 windows */

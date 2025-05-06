@@ -193,6 +193,7 @@ static void PrintAlgorithmAndOptions(GDALGridAlgorithm eAlgorithm,
         case GGA_MetricAverageDistancePts:
         {
             const char *pszAlgName = "";
+            CPL_IGNORE_RET_VAL(pszAlgName);  // Make CSA happy
             switch (eAlgorithm)
             {
                 case GGA_MetricMinimum:
@@ -696,8 +697,8 @@ GDALDatasetH GDALGrid(const char *pszDest, GDALDatasetH hSrcDataset,
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Output driver `%s' not recognised.", osFormat.c_str());
-        fprintf(stderr, "The following format drivers are configured and "
-                        "support output:\n");
+        fprintf(stderr, "The following format drivers are enabled and "
+                        "support writing:\n");
         for (int iDr = 0; iDr < GDALGetDriverCount(); iDr++)
         {
             hDriver = GDALGetDriver(iDr);
@@ -733,18 +734,6 @@ GDALDatasetH GDALGrid(const char *pszDest, GDALDatasetH hSrcDataset,
     int nYSize;
     if (psOptions->dfXRes != 0 && psOptions->dfYRes != 0)
     {
-        if ((psOptions->dfXMax == psOptions->dfXMin) ||
-            (psOptions->dfYMax == psOptions->dfYMin))
-        {
-            CPLError(CE_Failure, CPLE_IllegalArg,
-                     "Invalid txe or tye parameters detected. Please check "
-                     "your -txe or -tye argument.");
-
-            if (pbUsageError)
-                *pbUsageError = TRUE;
-            return nullptr;
-        }
-
         double dfXSize = (std::fabs(psOptions->dfXMax - psOptions->dfXMin) +
                           (psOptions->dfXRes / 2.0)) /
                          psOptions->dfXRes;
@@ -1341,10 +1330,9 @@ GDALGridOptionsNew(char **papszArgv,
                       STARTS_WITH_CI(osVal.c_str(), "MULTIPOLYGON")) &&
                      VSIStatL(osVal.c_str(), &sStat) != 0)
             {
-                OGRGeometry *poGeom = nullptr;
-                OGRGeometryFactory::createFromWkt(osVal.c_str(), nullptr,
-                                                  &poGeom);
-                psOptions->poClipSrc.reset(poGeom);
+                psOptions->poClipSrc =
+                    OGRGeometryFactory::createFromWkt(osVal.c_str(), nullptr)
+                        .first;
                 if (psOptions->poClipSrc == nullptr)
                 {
                     CPLError(CE_Failure, CPLE_IllegalArg,
@@ -1406,6 +1394,15 @@ GDALGridOptionsNew(char **papszArgv,
             {
                 psOptions->poSpatialFilter = std::move(psOptions->poClipSrc);
             }
+        }
+
+        if (psOptions->dfXRes != 0 && psOptions->dfYRes != 0 &&
+            !(psOptions->bIsXExtentSet && psOptions->bIsYExtentSet))
+        {
+            CPLError(CE_Failure, CPLE_IllegalArg,
+                     "-txe ad -tye arguments must be provided when "
+                     "resolution is provided.");
+            return nullptr;
         }
 
         return psOptions.release();

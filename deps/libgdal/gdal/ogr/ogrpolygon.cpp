@@ -28,6 +28,43 @@
 #include "ogr_p.h"
 
 /************************************************************************/
+/*        OGRPolygon(double x1, double y1, double x2, double y2)        */
+/************************************************************************/
+
+/**
+ * \brief Construct a rectangular polygon from opposite corner coordinates.
+ *
+ * @since GDAL 3.11
+ */
+
+OGRPolygon::OGRPolygon(double x1, double y1, double x2, double y2)
+{
+    auto poLR = std::make_unique<OGRLinearRing>();
+    poLR->addPoint(x1, y1);
+    poLR->addPoint(x1, y2);
+    poLR->addPoint(x2, y2);
+    poLR->addPoint(x2, y1);
+    poLR->addPoint(x1, y1);
+    addRingDirectly(poLR.release());
+}
+
+/************************************************************************/
+/*                OGRPolygon(const OGREnvelope &envelope)               */
+/************************************************************************/
+
+/**
+ * \brief Construct a rectangular polygon from opposite corner coordinates
+ * of a OGREnvelope.
+ *
+ * @since GDAL 3.11
+ */
+
+OGRPolygon::OGRPolygon(const OGREnvelope &envelope)
+    : OGRPolygon(envelope.MinX, envelope.MinY, envelope.MaxX, envelope.MaxY)
+{
+}
+
+/************************************************************************/
 /*                     OGRPolygon( const OGRPolygon& )                  */
 /************************************************************************/
 
@@ -71,7 +108,16 @@ OGRPolygon &OGRPolygon::operator=(const OGRPolygon &other)
 OGRPolygon *OGRPolygon::clone() const
 
 {
-    return new (std::nothrow) OGRPolygon(*this);
+    auto ret = new (std::nothrow) OGRPolygon(*this);
+    if (ret)
+    {
+        if (ret->WkbSize() != WkbSize())
+        {
+            delete ret;
+            ret = nullptr;
+        }
+    }
+    return ret;
 }
 
 /************************************************************************/

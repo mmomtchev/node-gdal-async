@@ -603,10 +603,11 @@ GIntBig OGRGMLLayer::GetFeatureCount(int bForce)
 }
 
 /************************************************************************/
-/*                             GetExtent()                              */
+/*                            IGetExtent()                              */
 /************************************************************************/
 
-OGRErr OGRGMLLayer::GetExtent(OGREnvelope *psExtent, int bForce)
+OGRErr OGRGMLLayer::IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                               bool bForce)
 
 {
     if (GetGeomType() == wkbNone)
@@ -627,7 +628,7 @@ OGRErr OGRGMLLayer::GetExtent(OGREnvelope *psExtent, int bForce)
         return OGRERR_NONE;
     }
 
-    return OGRLayer::GetExtent(psExtent, bForce);
+    return OGRLayer::IGetExtent(iGeomField, psExtent, bForce);
 }
 
 /************************************************************************/
@@ -669,7 +670,7 @@ OGRErr OGRGMLLayer::ICreateFeature(OGRFeature *poFeature)
     const bool bRemoveAppPrefix = poDS->RemoveAppPrefix();
     const bool bGMLFeatureCollection = poDS->GMLFeatureCollection();
 
-    if (!bWriter)
+    if (!bWriter || poDS->HasWriteError())
         return OGRERR_FAILURE;
 
     poFeature->FillUnsetWithDefault(TRUE, nullptr);
@@ -1091,7 +1092,7 @@ OGRErr OGRGMLLayer::ICreateFeature(OGRFeature *poFeature)
         poDS->PrintLine(fp, "</gml:featureMember>");
     }
 
-    return OGRERR_NONE;
+    return !poDS->HasWriteError() ? OGRERR_NONE : OGRERR_FAILURE;
 }
 
 /************************************************************************/

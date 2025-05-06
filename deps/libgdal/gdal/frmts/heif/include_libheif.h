@@ -21,4 +21,14 @@
 #define HAS_CUSTOM_FILE_READER
 #endif
 
+#if LIBHEIF_HAVE_VERSION(1, 1, 0)
+#define HAS_CUSTOM_FILE_WRITER
+#endif
+
+#if LIBHEIF_NUMERIC_VERSION >= BUILD_LIBHEIF_VERSION(1, 19, 0)
+#include "libheif/heif_properties.h"
+#endif
+
+#include <iostream>
+
 #endif

@@ -14,6 +14,8 @@
 #include <cmath>
 #include "gdal.h"
 #include "vrtdataset.h"
+#include "vrtexpression.h"
+#include "vrtreclassifier.h"
 
 #include <limits>
 
@@ -43,6 +45,8 @@ inline double GetSrcVal(const void *pSource, GDALDataType eSrcType, T ii)
         case GDT_Int64:
             return static_cast<double>(
                 static_cast<const int64_t *>(pSource)[ii]);
+        case GDT_Float16:
+            return static_cast<const GFloat16 *>(pSource)[ii];
         case GDT_Float32:
             return static_cast<const float *>(pSource)[ii];
         case GDT_Float64:
@@ -51,6 +55,8 @@ inline double GetSrcVal(const void *pSource, GDALDataType eSrcType, T ii)
             return static_cast<const GInt16 *>(pSource)[2 * ii];
         case GDT_CInt32:
             return static_cast<const GInt32 *>(pSource)[2 * ii];
+        case GDT_CFloat16:
+            return static_cast<const GFloat16 *>(pSource)[2 * ii];
         case GDT_CFloat32:
             return static_cast<const float *>(pSource)[2 * ii];
         case GDT_CFloat64:
@@ -484,8 +490,12 @@ static CPLErr SumPixelFunc(void **papoSources, int nSources, void *pData,
                            int nLineSpace, CSLConstList papszArgs)
 {
     /* ---- Init ---- */
-    if (nSources < 2)
+    if (nSources < 2 && CSLFetchNameValue(papszArgs, "k") == nullptr)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "sum requires at least two sources or a specified constant k");
         return CE_Failure;
+    }
 
     double dfK = 0.0;
     if (FetchDoubleArg(papszArgs, "k", &dfK, &dfK) != CE_None)
@@ -632,8 +642,12 @@ static CPLErr MulPixelFunc(void **papoSources, int nSources, void *pData,
                            int nLineSpace, CSLConstList papszArgs)
 {
     /* ---- Init ---- */
-    if (nSources < 2)
+    if (nSources < 2 && CSLFetchNameValue(papszArgs, "k") == nullptr)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "mul requires at least two sources or a specified constant k");
         return CE_Failure;
+    }
 
     double dfK = 1.0;
     if (FetchDoubleArg(papszArgs, "k", &dfK, &dfK) != CE_None)
@@ -766,6 +780,7 @@ static CPLErr DivPixelFunc(void **papoSources, int nSources, void *pData,
             for (int iCol = 0; iCol < nXSize; ++iCol, ++ii)
             {
                 const double dfVal = GetSrcVal(papoSources[1], eSrcType, ii);
+                // coverity[divide_by_zero]
                 double dfPixVal =
                     dfVal == 0
                         ? std::numeric_limits<double>::infinity()
@@ -914,6 +929,7 @@ static CPLErr InvPixelFunc(void **papoSources, int nSources, void *pData,
                 // Source raster pixels may be obtained with GetSrcVal macro.
                 // Not complex.
                 const double dfVal = GetSrcVal(papoSources[0], eSrcType, ii);
+                // coverity[divide_by_zero]
                 const double dfPixVal =
                     dfVal == 0 ? std::numeric_limits<double>::infinity()
                                : dfK / dfVal;
@@ -1482,6 +1498,7 @@ static CPLErr NormDiffPixelFunc(void **papoSources, int nSources, void *pData,
 
             const double dfDenom = (dfLeftVal + dfRightVal);
 
+            // coverity[divide_by_zero]
             const double dfPixVal =
                 dfDenom == 0 ? std::numeric_limits<double>::infinity()
                              : (dfLeftVal - dfRightVal) / dfDenom;
@@ -1517,9 +1534,6 @@ static CPLErr MinOrMaxPixelFunc(void **papoSources, int nSources, void *pData,
                                 int nLineSpace, CSLConstList papszArgs)
 {
     /* ---- Init ---- */
-    if (nSources < 2)
-        return CE_Failure;
-
     if (GDALDataTypeIsComplex(eSrcType))
     {
         CPLError(CE_Failure, CPLE_AppDefined,
@@ -1614,6 +1628,192 @@ static CPLErr MaxPixelFunc(void **papoSources, int nSources, void *pData,
                                          nPixelSpace, nLineSpace, papszArgs);
 }
 
+static const char pszExprPixelFuncMetadata[] =
+    "<PixelFunctionArgumentsList>"
+    "   <Argument name='expression' "
+    "             description='Expression to be evaluated' "
+    "             type='string'></Argument>"
+    "   <Argument name='dialect' "
+    "             description='Expression dialect' "
+    "             type='string-select'"
+    "             default='exprtk'>"
+    "       <Value>exprtk</Value>"
+    "       <Value>muparser</Value>"
+    "    </Argument>"
+    "</PixelFunctionArgumentsList>";
+
+static CPLErr ExprPixelFunc(void **papoSources, int nSources, void *pData,
+                            int nXSize, int nYSize, GDALDataType eSrcType,
+                            GDALDataType eBufType, int nPixelSpace,
+                            int nLineSpace, CSLConstList papszArgs)
+{
+    /* ---- Init ---- */
+
+    if (GDALDataTypeIsComplex(eSrcType))
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "expression cannot by applied to complex data types");
+        return CE_Failure;
+    }
+
+    std::unique_ptr<gdal::MathExpression> poExpression;
+
+    const char *pszExpression = CSLFetchNameValue(papszArgs, "expression");
+
+    const char *pszSourceNames = CSLFetchNameValue(papszArgs, "SOURCE_NAMES");
+    const CPLStringList aosSourceNames(
+        CSLTokenizeString2(pszSourceNames, "|", 0));
+
+    std::vector<double> adfValuesForPixel(nSources);
+
+    const char *pszDialect = CSLFetchNameValue(papszArgs, "dialect");
+    if (!pszDialect)
+    {
+        pszDialect = "muparser";
+    }
+
+    poExpression = gdal::MathExpression::Create(pszExpression, pszDialect);
+
+    // cppcheck-suppress knownConditionTrueFalse
+    if (!poExpression)
+    {
+        return CE_Failure;
+    }
+
+    {
+        int iSource = 0;
+        for (const auto &osName : aosSourceNames)
+        {
+            poExpression->RegisterVariable(osName,
+                                           &adfValuesForPixel[iSource++]);
+        }
+    }
+
+    if (strstr(pszExpression, "BANDS"))
+    {
+        poExpression->RegisterVector("BANDS", &adfValuesForPixel);
+    }
+
+    std::unique_ptr<double, VSIFreeReleaser> padfResults(
+        static_cast<double *>(VSI_MALLOC2_VERBOSE(nXSize, sizeof(double))));
+    if (!padfResults)
+        return CE_Failure;
+
+    /* ---- Set pixels ---- */
+    size_t ii = 0;
+    for (int iLine = 0; iLine < nYSize; ++iLine)
+    {
+        for (int iCol = 0; iCol < nXSize; ++iCol, ++ii)
+        {
+            for (int iSrc = 0; iSrc < nSources; iSrc++)
+            {
+                // cppcheck-suppress unreadVariable
+                adfValuesForPixel[iSrc] =
+                    GetSrcVal(papoSources[iSrc], eSrcType, ii);
+            }
+
+            if (auto eErr = poExpression->Evaluate(); eErr != CE_None)
+            {
+                return CE_Failure;
+            }
+            else
+            {
+                padfResults.get()[iCol] = poExpression->Results()[0];
+            }
+        }
+
+        GDALCopyWords(padfResults.get(), GDT_Float64, sizeof(double),
+                      static_cast<GByte *>(pData) +
+                          static_cast<GSpacing>(nLineSpace) * iLine,
+                      eBufType, nPixelSpace, nXSize);
+    }
+
+    /* ---- Return success ---- */
+    return CE_None;
+}  // ExprPixelFunc
+
+static const char pszReclassifyPixelFuncMetadata[] =
+    "<PixelFunctionArgumentsList>"
+    "   <Argument name='mapping' "
+    "             description='Lookup table for mapping, in format "
+    "from=to,from=to' "
+    "             type='string'></Argument>"
+    "   <Argument type='builtin' value='NoData' optional='true' />"
+    "</PixelFunctionArgumentsList>";
+
+static CPLErr ReclassifyPixelFunc(void **papoSources, int nSources, void *pData,
+                                  int nXSize, int nYSize, GDALDataType eSrcType,
+                                  GDALDataType eBufType, int nPixelSpace,
+                                  int nLineSpace, CSLConstList papszArgs)
+{
+    if (GDALDataTypeIsComplex(eSrcType))
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "reclassify cannot by applied to complex data types");
+        return CE_Failure;
+    }
+
+    if (nSources != 1)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "reclassify only be applied to a single source at a time");
+        return CE_Failure;
+    }
+    std::optional<double> noDataValue{};
+
+    const char *pszNoData = CSLFetchNameValue(papszArgs, "NoData");
+    if (pszNoData != nullptr)
+    {
+        noDataValue = CPLAtof(pszNoData);
+    }
+
+    const char *pszMappings = CSLFetchNameValue(papszArgs, "mapping");
+    if (pszMappings == nullptr)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "reclassify must be called with 'mapping' argument");
+        return CE_Failure;
+    }
+
+    gdal::Reclassifier oReclassifier;
+    if (auto eErr = oReclassifier.Init(pszMappings, noDataValue, eBufType);
+        eErr != CE_None)
+    {
+        return eErr;
+    }
+
+    std::unique_ptr<double, VSIFreeReleaser> padfResults(
+        static_cast<double *>(VSI_MALLOC2_VERBOSE(nXSize, sizeof(double))));
+    if (!padfResults)
+        return CE_Failure;
+
+    size_t ii = 0;
+    bool bSuccess = false;
+    for (int iLine = 0; iLine < nYSize; ++iLine)
+    {
+        for (int iCol = 0; iCol < nXSize; ++iCol, ++ii)
+        {
+            double srcVal = GetSrcVal(papoSources[0], eSrcType, ii);
+            padfResults.get()[iCol] =
+                oReclassifier.Reclassify(srcVal, bSuccess);
+            if (!bSuccess)
+            {
+                CPLError(CE_Failure, CPLE_AppDefined,
+                         "Encountered value %g with no specified mapping",
+                         srcVal);
+                return CE_Failure;
+            }
+        }
+
+        GDALCopyWords(padfResults.get(), GDT_Float64, sizeof(double),
+                      static_cast<GByte *>(pData) +
+                          static_cast<GSpacing>(nLineSpace) * iLine,
+                      eBufType, nPixelSpace, nXSize);
+    }
+
+    return CE_None;
+}  // ReclassifyPixelFunc
+
 /************************************************************************/
 /*                     GDALRegisterDefaultPixelFunc()                   */
 /************************************************************************/
@@ -1681,6 +1881,7 @@ static CPLErr MaxPixelFunc(void **papoSources, int nSources, void *pData,
  * - "interpolate_exp": interpolate values between two raster bands using
  *                      exponential interpolation
  * - "scale": Apply the RasterBand metadata values of "offset" and "scale"
+ * - "reclassify": Reclassify values matching ranges in a table
  * - "nan": Convert incoming NoData values to IEEE 754 nan
  *
  * @see GDALAddDerivedBandPixelFunc
@@ -1735,5 +1936,9 @@ CPLErr GDALRegisterDefaultPixelFunc()
                                         pszMinMaxFuncMetadataNodata);
     GDALAddDerivedBandPixelFuncWithArgs("max", MaxPixelFunc,
                                         pszMinMaxFuncMetadataNodata);
+    GDALAddDerivedBandPixelFuncWithArgs("expression", ExprPixelFunc,
+                                        pszExprPixelFuncMetadata);
+    GDALAddDerivedBandPixelFuncWithArgs("reclassify", ReclassifyPixelFunc,
+                                        pszReclassifyPixelFuncMetadata);
     return CE_None;
 }

@@ -66,8 +66,9 @@ static OGRLayer *SetupTargetLayer(OGRLayer *poSrcLayer, GDALDataset *poDstDS,
                                   const char *pszOutputSepFieldName = nullptr)
 {
     const CPLString szLayerName =
-        pszNewLayerName == nullptr ? CPLGetBasename(poDstDS->GetDescription())
-                                   : pszNewLayerName;
+        pszNewLayerName == nullptr
+            ? CPLGetBasenameSafe(poDstDS->GetDescription())
+            : pszNewLayerName;
 
     /* -------------------------------------------------------------------- */
     /*      Get other info.                                                 */
@@ -1016,7 +1017,13 @@ static OGRErr GetPosition(OGRLayer *const poPkLayer, double dfX, double dfY,
     // Get real distance
     const double dfRealDist = Project(pCloserPart, &pt);
     delete pCloserPart;
+    if (dfScale == 0)
+    {
+        fprintf(stderr, _("dfScale == 0.\n"));
+        return OGRERR_FAILURE;
+    }
     // Compute reference distance
+    // coverity[divide_by_zero]
     const double dfRefDist = dfBeg + dfRealDist / dfScale;
     if (bQuiet)
     {
@@ -1324,7 +1331,8 @@ static GDALDriver *GetOutputDriver(OGRLineRefOptions &sOptions)
                 CPLError(
                     CE_Warning, CPLE_AppDefined,
                     "Several drivers matching %s extension. Using %s",
-                    CPLGetExtension(sOptions.osOutputDataSourceName.c_str()),
+                    CPLGetExtensionSafe(sOptions.osOutputDataSourceName.c_str())
+                        .c_str(),
                     aoDrivers[0].c_str());
             }
             sOptions.osFormat = aoDrivers[0];

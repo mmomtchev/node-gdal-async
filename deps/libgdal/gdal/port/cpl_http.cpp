@@ -618,7 +618,8 @@ static double CPLHTTPGetNewRetryDelay(int response_code, double dfOldDelay,
               (strstr(pszCurlError, "Connection timed out") ||
                strstr(pszCurlError, "Operation timed out") ||
                strstr(pszCurlError, "Connection reset by peer") ||
-               strstr(pszCurlError, "Connection was reset"))))
+               strstr(pszCurlError, "Connection was reset") ||
+               strstr(pszCurlError, "SSL connection timeout"))))
     {
         bRetry = true;
     }
@@ -2123,7 +2124,7 @@ void *CPLHTTPSetOptions(void *pcurl, const char *pszURL,
     {
         unchecked_curl_easy_setopt(http_handle, CURLOPT_VERBOSE, 1);
 
-        if (CPLGetConfigOption("CPL_DEBUG", nullptr) != nullptr)
+        if (CPLIsDebugEnabled())
         {
             unchecked_curl_easy_setopt(http_handle, CURLOPT_DEBUGFUNCTION,
                                        CPLHTTPCurlDebugFunction);

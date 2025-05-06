@@ -1417,7 +1417,8 @@ CPLErr VRTWarpedDataset::XMLInit(const CPLXMLNode *psTree,
 
     if (bRelativeToVRT)
         pszAbsolutePath = CPLStrdup(
-            CPLProjectRelativeFilename(pszVRTPathIn, pszRelativePath));
+            CPLProjectRelativeFilenameSafe(pszVRTPathIn, pszRelativePath)
+                .c_str());
     else
         pszAbsolutePath = CPLStrdup(pszRelativePath);
 
@@ -1727,15 +1728,15 @@ CPLXMLNode *VRTWarpedDataset::SerializeToXML(const char *pszVRTPathIn)
                 !CPLIsFilenameRelative(osVRTFilename.c_str()) &&
                 pszCurDir != nullptr)
             {
-                osSourceDataset = CPLFormFilename(
+                osSourceDataset = CPLFormFilenameSafe(
                     pszCurDir, osSourceDataset.c_str(), nullptr);
             }
             else if (!CPLIsFilenameRelative(osSourceDataset.c_str()) &&
                      CPLIsFilenameRelative(osVRTFilename.c_str()) &&
                      pszCurDir != nullptr)
             {
-                osVRTFilename =
-                    CPLFormFilename(pszCurDir, osVRTFilename.c_str(), nullptr);
+                osVRTFilename = CPLFormFilenameSafe(
+                    pszCurDir, osVRTFilename.c_str(), nullptr);
             }
             CPLFree(pszCurDir);
             char *pszRelativePath = CPLStrdup(CPLExtractRelativePath(
@@ -2165,6 +2166,13 @@ CPLErr VRTWarpedDataset::IRasterIO(
 CPLErr VRTWarpedDataset::AddBand(GDALDataType eType, char ** /* papszOptions */)
 
 {
+    if (eType == GDT_Unknown || eType == GDT_TypeCount)
+    {
+        ReportError(CE_Failure, CPLE_IllegalArg,
+                    "Illegal GDT_Unknown/GDT_TypeCount argument");
+        return CE_Failure;
+    }
+
     SetBand(GetRasterCount() + 1,
             new VRTWarpedRasterBand(this, GetRasterCount() + 1, eType));
 
@@ -2276,6 +2284,26 @@ CPLErr VRTWarpedRasterBand::IWriteBlock(int nBlockXOff, int nBlockYOff,
     }
 
     return CE_None;
+}
+
+/************************************************************************/
+/*                   EmitErrorMessageIfWriteNotSupported()              */
+/************************************************************************/
+
+bool VRTWarpedRasterBand::EmitErrorMessageIfWriteNotSupported(
+    const char *pszCaller) const
+{
+    VRTWarpedDataset *poWDS = static_cast<VRTWarpedDataset *>(poDS);
+    // Cf comment in IWriteBlock()
+    if (poWDS->m_poWarper->GetOptions()->nDstAlphaBand != nBand)
+    {
+        ReportError(CE_Failure, CPLE_NoWriteAccess,
+                    "%s: attempt to write to a VRTWarpedRasterBand.",
+                    pszCaller);
+
+        return true;
+    }
+    return false;
 }
 
 /************************************************************************/

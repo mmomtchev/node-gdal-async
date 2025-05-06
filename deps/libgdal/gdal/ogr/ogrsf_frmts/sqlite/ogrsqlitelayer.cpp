@@ -565,9 +565,10 @@ void OGRSQLiteLayer::BuildFeatureDefn(const char *pszLayerName, bool bIsSelect,
                 {
                     OGRSQLiteGeomFormat eGeomFormat = OSGF_None;
                     CPLPushErrorHandler(CPLQuietErrorHandler);
-                    OGRGeometry *poGeometry = nullptr;
-                    if (OGRGeometryFactory::createFromWkt(
-                            pszText, nullptr, &poGeometry) == OGRERR_NONE)
+
+                    auto [poGeometry, eErr] =
+                        OGRGeometryFactory::createFromWkt(pszText);
+                    if (eErr == OGRERR_NONE)
                     {
                         eGeomFormat = OSGF_WKT;
                         auto poGeomFieldDefn =
@@ -579,7 +580,6 @@ void OGRSQLiteLayer::BuildFeatureDefn(const char *pszLayerName, bool bIsSelect,
                     }
                     CPLPopErrorHandler();
                     CPLErrorReset();
-                    delete poGeometry;
                     if (eGeomFormat != OSGF_None)
                         continue;
                 }
@@ -900,11 +900,18 @@ OGRFeature *OGRSQLiteLayer::GetNextRawFeature()
                 {
                     const GIntBig nVal =
                         sqlite3_column_int64(m_hStmt, iRawField);
-                    if (nVal >= INT_MIN && nVal <= INT_MAX)
-                        poFeature->SetFieldSameTypeUnsafe(
-                            iField, static_cast<int>(nVal));
+                    if (poFieldDefn->GetSubType() == OFSTBoolean)
+                    {
+                        poFeature->SetField(iField, nVal != 0);
+                    }
                     else
-                        poFeature->SetField(iField, nVal);
+                    {
+                        if (nVal >= INT_MIN && nVal <= INT_MAX)
+                            poFeature->SetFieldSameTypeUnsafe(
+                                iField, static_cast<int>(nVal));
+                        else
+                            poFeature->SetField(iField, nVal);
+                    }
                 }
                 break;
             }
@@ -3528,7 +3535,6 @@ int OGRSQLiteLayer::TestCapability(const char *pszCap)
 /************************************************************************/
 
 OGRErr OGRSQLiteLayer::StartTransaction()
-
 {
     return m_poDS->StartTransaction();
 }
@@ -3538,7 +3544,6 @@ OGRErr OGRSQLiteLayer::StartTransaction()
 /************************************************************************/
 
 OGRErr OGRSQLiteLayer::CommitTransaction()
-
 {
     return m_poDS->CommitTransaction();
 }
@@ -3548,7 +3553,6 @@ OGRErr OGRSQLiteLayer::CommitTransaction()
 /************************************************************************/
 
 OGRErr OGRSQLiteLayer::RollbackTransaction()
-
 {
     return m_poDS->RollbackTransaction();
 }

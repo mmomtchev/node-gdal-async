@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  PDF driver
  * Purpose:  GDALDataset driver for PDF dataset.
@@ -23,6 +22,10 @@
 #include "cpl_minixml.h"
 #include "cpl_vsi_virtual.h"
 #include "ogr_geometry.h"
+
+#ifdef EMBED_RESOURCE_FILES
+#include "embedded_resources.h"
+#endif
 
 /************************************************************************/
 /*                         GDALPDFComposerWriter()                      */
@@ -622,7 +625,7 @@ bool GDALPDFComposerWriter::CreateOutline(const CPLXMLNode *psNode)
 bool GDALPDFComposerWriter::GenerateGeoreferencing(
     const CPLXMLNode *psGeoreferencing, double dfWidthInUserUnit,
     double dfHeightInUserUnit, GDALPDFObjectNum &nViewportId,
-    GDALPDFObjectNum &nLGIDictId, Georeferencing &georeferencing)
+    Georeferencing &georeferencing)
 {
     double bboxX1 = 0;
     double bboxY1 = 0;
@@ -680,8 +683,8 @@ bool GDALPDFComposerWriter::GenerateGeoreferencing(
     std::vector<xyPair> aBoundingPolygon;
     if (pszBoundingPolygon)
     {
-        OGRGeometry *poGeom = nullptr;
-        OGRGeometryFactory::createFromWkt(pszBoundingPolygon, nullptr, &poGeom);
+        auto [poGeom, _] =
+            OGRGeometryFactory::createFromWkt(pszBoundingPolygon);
         if (poGeom && poGeom->getGeometryType() == wkbPolygon)
         {
             auto poPoly = poGeom->toPolygon();
@@ -704,7 +707,6 @@ bool GDALPDFComposerWriter::GenerateGeoreferencing(
                 }
             }
         }
-        delete poGeom;
     }
 
     const auto pszSRS = CPLGetXMLValue(psGeoreferencing, "SRS", nullptr);
@@ -735,13 +737,10 @@ bool GDALPDFComposerWriter::GenerateGeoreferencing(
     if (CPLTestBool(
             CPLGetXMLValue(psGeoreferencing, "OGCBestPracticeFormat", "false")))
     {
-        nLGIDictId = GenerateOGC_BP_Georeferencing(
-            OGRSpatialReference::ToHandle(poSRS.get()), bboxX1, bboxY1, bboxX2,
-            bboxY2, aGCPs, aBoundingPolygon);
-        if (!nLGIDictId.toBool())
-        {
-            return false;
-        }
+        CPLError(CE_Failure, CPLE_NotSupported,
+                 "OGCBestPracticeFormat no longer supported. Use "
+                 "ISO32000ExtensionFormat");
+        return false;
     }
 
     const char *pszId = CPLGetXMLValue(psGeoreferencing, "id", nullptr);
@@ -763,13 +762,7 @@ bool GDALPDFComposerWriter::GenerateGeoreferencing(
             georeferencing.m_adfGT[2] = 0;
             georeferencing.m_adfGT[4] = 0;
         }
-        if (georeferencing.m_adfGT[2] != 0 || georeferencing.m_adfGT[4] != 0 ||
-            georeferencing.m_adfGT[5] < 0)
-        {
-            CPLError(CE_Failure, CPLE_AppDefined,
-                     "Geotransform should define a north-up non rotated area.");
-            return false;
-        }
+
         georeferencing.m_osID = pszId;
         georeferencing.m_oSRS = *(poSRS.get());
         georeferencing.m_bboxX1 = bboxX1;
@@ -908,76 +901,6 @@ GDALPDFObjectNum GDALPDFComposerWriter::GenerateISO32000_Georeferencing(
 }
 
 /************************************************************************/
-/*                      GenerateOGC_BP_Georeferencing()                 */
-/************************************************************************/
-
-GDALPDFObjectNum GDALPDFComposerWriter::GenerateOGC_BP_Georeferencing(
-    OGRSpatialReferenceH hSRS, double bboxX1, double bboxY1, double bboxX2,
-    double bboxY2, const std::vector<gdal::GCP> &aGCPs,
-    const std::vector<xyPair> &aBoundingPolygon)
-{
-    const OGRSpatialReference *poSRS = OGRSpatialReference::FromHandle(hSRS);
-    GDALPDFDictionaryRW *poProjectionDict =
-        GDALPDFBuildOGC_BP_Projection(poSRS);
-    if (poProjectionDict == nullptr)
-    {
-        OSRDestroySpatialReference(hSRS);
-        return GDALPDFObjectNum();
-    }
-
-    GDALPDFArrayRW *poNeatLineArray = new GDALPDFArrayRW();
-    if (!aBoundingPolygon.empty())
-    {
-        for (const auto &xy : aBoundingPolygon)
-        {
-            poNeatLineArray->Add(xy.x).Add(xy.y);
-        }
-    }
-    else
-    {
-        poNeatLineArray->Add(bboxX1).Add(bboxY1).Add(bboxX2).Add(bboxY2);
-    }
-
-    GDALPDFArrayRW *poRegistration = new GDALPDFArrayRW();
-
-    for (const auto &gcp : aGCPs)
-    {
-        GDALPDFArrayRW *poGCP = new GDALPDFArrayRW();
-        poGCP->Add(gcp.Pixel(), TRUE)
-            .Add(gcp.Line(), TRUE)
-            .Add(gcp.X(), TRUE)
-            .Add(gcp.Y(), TRUE);
-        poRegistration->Add(poGCP);
-    }
-
-    auto nLGIDictId = AllocNewObject();
-    StartObj(nLGIDictId);
-    GDALPDFDictionaryRW oLGIDict;
-    oLGIDict.Add("Type", GDALPDFObjectRW::CreateName("LGIDict"))
-        .Add("Version", "2.1")
-        .Add("Neatline", poNeatLineArray);
-
-    oLGIDict.Add("Registration", poRegistration);
-
-    /* GDAL extension */
-    if (CPLTestBool(CPLGetConfigOption("GDAL_PDF_OGC_BP_WRITE_WKT", "TRUE")))
-    {
-        char *pszWKT = nullptr;
-        OSRExportToWkt(hSRS, &pszWKT);
-        if (pszWKT)
-            poProjectionDict->Add("WKT", pszWKT);
-        CPLFree(pszWKT);
-    }
-
-    oLGIDict.Add("Projection", poProjectionDict);
-
-    VSIFPrintfL(m_fp, "%s\n", oLGIDict.Serialize().c_str());
-    EndObj();
-
-    return nLGIDictId;
-}
-
-/************************************************************************/
 /*                         GeneratePage()                               */
 /************************************************************************/
 
@@ -997,7 +920,6 @@ bool GDALPDFComposerWriter::GeneratePage(const CPLXMLNode *psPage)
         USER_UNIT_IN_INCH;
 
     std::vector<GDALPDFObjectNum> anViewportIds;
-    std::vector<GDALPDFObjectNum> anLGIDictIds;
 
     PageContext oPageContext;
     for (const auto *psIter = psPage->psChild; psIter; psIter = psIter->psNext)
@@ -1006,18 +928,15 @@ bool GDALPDFComposerWriter::GeneratePage(const CPLXMLNode *psPage)
             strcmp(psIter->pszValue, "Georeferencing") == 0)
         {
             GDALPDFObjectNum nViewportId;
-            GDALPDFObjectNum nLGIDictId;
             Georeferencing georeferencing;
             if (!GenerateGeoreferencing(psIter, dfWidthInUserUnit,
                                         dfHeightInUserUnit, nViewportId,
-                                        nLGIDictId, georeferencing))
+                                        georeferencing))
             {
                 return false;
             }
             if (nViewportId.toBool())
                 anViewportIds.emplace_back(nViewportId);
-            if (nLGIDictId.toBool())
-                anLGIDictIds.emplace_back(nLGIDictId);
             if (!georeferencing.m_osID.empty())
             {
                 oPageContext.m_oMapGeoreferencedId[georeferencing.m_osID] =
@@ -1124,18 +1043,6 @@ bool GDALPDFComposerWriter::GeneratePage(const CPLXMLNode *psPage)
         for (const auto &id : anViewportIds)
             poViewports->Add(id, 0);
         oDictPage.Add("VP", poViewports);
-    }
-
-    if (anLGIDictIds.size() == 1)
-    {
-        oDictPage.Add("LGIDict", anLGIDictIds[0], 0);
-    }
-    else if (!anLGIDictIds.empty())
-    {
-        auto poLGIDict = new GDALPDFArrayRW();
-        for (const auto &id : anLGIDictIds)
-            poLGIDict->Add(id, 0);
-        oDictPage.Add("LGIDict", poLGIDict);
     }
 
     if (nStructParentsIdx >= 0)
@@ -2434,8 +2341,35 @@ GDALDataset *GDALPDFCreateFromCompositionFile(const char *pszPDFFilename,
     // XML Validation.
     if (CPLTestBool(CPLGetConfigOption("GDAL_XML_VALIDATION", "YES")))
     {
+#ifdef EMBED_RESOURCE_FILES
+        std::string osTmpFilename;
+        CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
+#endif
+#ifdef USE_ONLY_EMBEDDED_RESOURCE_FILES
+        const char *pszXSD = nullptr;
+#else
         const char *pszXSD = CPLFindFile("gdal", "pdfcomposition.xsd");
+#endif
+#ifdef EMBED_RESOURCE_FILES
+        if (!pszXSD)
+        {
+            static const bool bOnce [[maybe_unused]] = []()
+            {
+                CPLDebug("PDF", "Using embedded pdfcomposition.xsd");
+                return true;
+            }();
+            osTmpFilename = VSIMemGenerateHiddenFilename("pdfcomposition.xsd");
+            pszXSD = osTmpFilename.c_str();
+            VSIFCloseL(VSIFileFromMemBuffer(
+                osTmpFilename.c_str(),
+                const_cast<GByte *>(
+                    reinterpret_cast<const GByte *>(PDFGetCompositionXSD())),
+                static_cast<int>(strlen(PDFGetCompositionXSD())),
+                /* bTakeOwnership = */ false));
+        }
+#else
         if (pszXSD != nullptr)
+#endif
         {
             std::vector<CPLString> aosErrors;
             CPLPushErrorHandlerEx(GDALPDFErrorHandler, &aosErrors);
@@ -2456,6 +2390,11 @@ GDALDataset *GDALPDFCreateFromCompositionFile(const char *pszPDFFilename,
             }
             CPLErrorReset();
         }
+
+#ifdef EMBED_RESOURCE_FILES
+        if (!osTmpFilename.empty())
+            VSIUnlink(osTmpFilename.c_str());
+#endif
     }
 
     /* -------------------------------------------------------------------- */

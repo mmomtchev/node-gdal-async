@@ -8,8 +8,8 @@
 			"type": "static_library",
 			"sources": [
 				"../gdal/ogr/ogrsf_frmts/gpx/ogrgpxdriver.cpp",
-				"../gdal/ogr/ogrsf_frmts/gpx/ogrgpxdatasource.cpp",
-				"../gdal/ogr/ogrsf_frmts/gpx/ogrgpxlayer.cpp"
+				"../gdal/ogr/ogrsf_frmts/gpx/ogrgpxlayer.cpp",
+				"../gdal/ogr/ogrsf_frmts/gpx/ogrgpxdatasource.cpp"
 			],
 			"include_dirs": [
 				"../gdal/ogr/ogrsf_frmts/gpx"
