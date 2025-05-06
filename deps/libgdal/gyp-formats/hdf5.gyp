@@ -15,7 +15,6 @@
 				"../gdal/frmts/hdf5/s111dataset.cpp",
 				"../gdal/frmts/hdf5/hdf5dataset.cpp",
 				"../gdal/frmts/hdf5/hdf5imagedataset.cpp",
-				"../gdal/frmts/hdf5/embedded_resources.c",
 				"../gdal/frmts/hdf5/hdf5eosparser.cpp",
 				"../gdal/frmts/hdf5/rat.cpp",
 				"../gdal/frmts/hdf5/iso19115_srs.cpp",

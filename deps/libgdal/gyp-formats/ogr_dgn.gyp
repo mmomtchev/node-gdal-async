@@ -12,7 +12,6 @@
 				"../gdal/ogr/ogrsf_frmts/dgn/ogrdgndriver.cpp",
 				"../gdal/ogr/ogrsf_frmts/dgn/dgnstroke.cpp",
 				"../gdal/ogr/ogrsf_frmts/dgn/dgndump.cpp",
-				"../gdal/ogr/ogrsf_frmts/dgn/embedded_resources.c",
 				"../gdal/ogr/ogrsf_frmts/dgn/dgnopen.cpp",
 				"../gdal/ogr/ogrsf_frmts/dgn/dgnwrite.cpp",
 				"../gdal/ogr/ogrsf_frmts/dgn/ogrdgndatasource.cpp",

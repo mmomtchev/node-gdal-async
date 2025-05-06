@@ -11,7 +11,6 @@
 				"../gdal/ogr/ogrsf_frmts/s57/ogrs57datasource.cpp",
 				"../gdal/ogr/ogrsf_frmts/s57/s57filecollector.cpp",
 				"../gdal/ogr/ogrsf_frmts/s57/s57classregistrar.cpp",
-				"../gdal/ogr/ogrsf_frmts/s57/embedded_resources.c",
 				"../gdal/ogr/ogrsf_frmts/s57/s57dump.cpp",
 				"../gdal/ogr/ogrsf_frmts/s57/ddfrecordindex.cpp",
 				"../gdal/ogr/ogrsf_frmts/s57/s57writer.cpp",

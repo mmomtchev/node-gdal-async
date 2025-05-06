@@ -10,7 +10,6 @@
 				"../gdal/frmts/pds/isis2dataset.cpp",
 				"../gdal/frmts/pds/pdsdataset.cpp",
 				"../gdal/frmts/pds/pds4vector.cpp",
-				"../gdal/frmts/pds/embedded_resources.c",
 				"../gdal/frmts/pds/isis3dataset.cpp",
 				"../gdal/frmts/pds/pdsdrivercore.cpp",
 				"../gdal/frmts/pds/vicardataset.cpp",

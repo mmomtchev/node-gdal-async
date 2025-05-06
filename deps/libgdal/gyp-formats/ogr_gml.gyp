@@ -12,7 +12,6 @@
 				"../gdal/ogr/ogrsf_frmts/gml/gmlhandler.cpp",
 				"../gdal/ogr/ogrsf_frmts/gml/gmlregistry.cpp",
 				"../gdal/ogr/ogrsf_frmts/gml/gmlreadstate.cpp",
-				"../gdal/ogr/ogrsf_frmts/gml/embedded_resources.c",
 				"../gdal/ogr/ogrsf_frmts/gml/gfstemplate.cpp",
 				"../gdal/ogr/ogrsf_frmts/gml/gmlreader.cpp",
 				"../gdal/ogr/ogrsf_frmts/gml/resolvexlinks.cpp",

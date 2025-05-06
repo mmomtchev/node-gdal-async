@@ -14,7 +14,6 @@
 				"../gdal/frmts/grib/degrib/degrib/degrib1.cpp",
 				"../gdal/frmts/grib/degrib/degrib/weather.c",
 				"../gdal/frmts/grib/degrib/degrib/scan.c",
-				"../gdal/frmts/grib/degrib/degrib/embedded_resources.c",
 				"../gdal/frmts/grib/degrib/degrib/clock.c",
 				"../gdal/frmts/grib/degrib/degrib/grib2api.c",
 				"../gdal/frmts/grib/degrib/degrib/tendian.cpp",

@@ -14,7 +14,6 @@
 				"../gdal/ogr/ogrsf_frmts/dxf/ogrdxf_leader.cpp",
 				"../gdal/ogr/ogrsf_frmts/dxf/ogrdxfblockswriterlayer.cpp",
 				"../gdal/ogr/ogrsf_frmts/dxf/ogrdxf_feature.cpp",
-				"../gdal/ogr/ogrsf_frmts/dxf/embedded_resources.c",
 				"../gdal/ogr/ogrsf_frmts/dxf/intronurbs.cpp",
 				"../gdal/ogr/ogrsf_frmts/dxf/ogr_autocad_services.cpp",
 				"../gdal/ogr/ogrsf_frmts/dxf/ogrdxf_blockmap.cpp",

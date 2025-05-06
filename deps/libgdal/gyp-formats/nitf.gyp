@@ -12,7 +12,6 @@
 				"../gdal/frmts/nitf/nitfdrivercore.cpp",
 				"../gdal/frmts/nitf/nitfdataset.cpp",
 				"../gdal/frmts/nitf/nitfrasterband.cpp",
-				"../gdal/frmts/nitf/embedded_resources.c",
 				"../gdal/frmts/nitf/nitfwritejpeg.cpp",
 				"../gdal/frmts/nitf/nitfdump.c",
 				"../gdal/frmts/nitf/ecrgtocdataset.cpp",

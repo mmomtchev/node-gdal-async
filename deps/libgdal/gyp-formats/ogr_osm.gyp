@@ -9,7 +9,6 @@
 			"sources": [
 				"../gdal/ogr/ogrsf_frmts/osm/ogrosmlayer.cpp",
 				"../gdal/ogr/ogrsf_frmts/osm/ogrosmdriver.cpp",
-				"../gdal/ogr/ogrsf_frmts/osm/embedded_resources.c",
 				"../gdal/ogr/ogrsf_frmts/osm/ogrosmdatasource.cpp",
 				"../gdal/ogr/ogrsf_frmts/osm/osm2osm.cpp",
 				"../gdal/ogr/ogrsf_frmts/osm/osm_parser.cpp"
