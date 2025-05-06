@@ -119,5 +119,13 @@ describe('Open', () => {
       assert.instanceOf(data, Float64Array)
       assert.lengthOf(data, ds.rasterSize.x * ds.rasterSize.y)
     })
+
+    it('should support AEC compression', () => {
+      const ds = gdal.open(`/vsigzip/${path.join(__dirname, 'data',
+        'arome_sp3.grib2.gz')}`)
+      const data = ds.bands.get(1).pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y)
+      assert.instanceOf(data, Float64Array)
+      assert.lengthOf(data, ds.rasterSize.x * ds.rasterSize.y)
+    })
   })
 })
