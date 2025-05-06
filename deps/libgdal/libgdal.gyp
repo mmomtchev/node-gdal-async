@@ -7,6 +7,7 @@
 		{
 			"target_name": "libgdal",
 			"type": "static_library",
+			"includes": [ "../../cpp_17.gypi" ],
 			# It would be nice to glob these folders, but there are some exclusions :(
 			"sources": [
 				"./gdal/apps/ogr2ogr_lib.cpp",
