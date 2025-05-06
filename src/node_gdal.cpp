@@ -898,6 +898,17 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @type {string}
    */
   Nan::Set(target, Nan::New("GDT_Int32").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Int32)).ToLocalChecked());
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 11)
+  /**
+   * Sixteen bit floating point
+   * @final
+   * @constant
+   * @name GDT_Float16
+   * @type {string}
+   */
+  Nan::Set(
+    target, Nan::New("GDT_Float16").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Float16)).ToLocalChecked());
+#endif
   /**
    * Thirty two bit floating point
    * @final
@@ -932,6 +943,17 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @type {string}
    */
   Nan::Set(target, Nan::New("GDT_CInt32").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_CInt32)).ToLocalChecked());
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 11)
+  /**
+   * Complex Float16
+   * @final
+   * @constant
+   * @name GDT_CFloat16
+   * @type {string}
+   */
+  Nan::Set(
+    target, Nan::New("GDT_CFloat16").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_CFloat16)).ToLocalChecked());
+#endif
   /**
    * Complex Float32
    * @final

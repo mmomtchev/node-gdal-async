@@ -615,6 +615,32 @@ describe('gdal.RasterBand', () => {
           assert.equal(data.length, w * h)
           assert.equal(data[10 * 20 + 10], 10)
         })
+        // This is waiting for https://tc39.es/proposal-float16array/#sec-float16array
+        it('should support reading Float16 with GDAL >= 3.11 and a future Node.js version', function () {
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore
+          if (semver.gte(gdal.version, '3.11.0') && globalThis.Float16Array) {
+            const ds = gdal.open(`${__dirname}/data/sample.tif`)
+            const band = ds.bands.get(1)
+            const w = 20
+            const h = 30
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore
+            const data = new Float16Array(190 * 290)
+            band.pixels.read(190, 290, w, h, data)
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore
+            assert.instanceOf(data, Float16Array)
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore
+            assert.equal(data.length, w * h)
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore
+            assert.equal(data[10 * 20 + 10], 10)
+          } else {
+            this.skip()
+          }
+        })
         describe('w/data over 4GB', function () {
           this.timeout(120000)
           // These tests require at least 16GB of memory to be reliable

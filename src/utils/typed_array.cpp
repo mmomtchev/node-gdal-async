@@ -23,6 +23,9 @@ Local<Value> TypedArray::New(GDALDataType type, int64_t length) {
     case GDT_UInt16: name = "Uint16Array"; break;
     case GDT_Int32: name = "Int32Array"; break;
     case GDT_UInt32: name = "Uint32Array"; break;
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 11)
+    case GDT_Float16: name = "Float16Array"; break;
+#endif
     case GDT_Float32: name = "Float32Array"; break;
     case GDT_Float64: name = "Float64Array"; break;
     default: Nan::ThrowError("Unsupported array type"); return scope.Escape(Nan::Undefined());
@@ -84,6 +87,9 @@ Local<Value> TypedArray::New(GDALDataType type, void *data, int64_t length) {
     case GDT_UInt16: name = "Uint16Array"; break;
     case GDT_Int32: name = "Int32Array"; break;
     case GDT_UInt32: name = "Uint32Array"; break;
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 11)
+    case GDT_Float16: name = "FLoat16Array"; break;
+#endif
     case GDT_Float32: name = "Float32Array"; break;
     case GDT_Float64: name = "Float64Array"; break;
     default: throw "Unsupported array type";
@@ -168,6 +174,13 @@ void *TypedArray::Validate(Local<Object> obj, GDALDataType type, int64_t min_len
       if (ValidateLength(contents.length(), min_length)) return NULL;
       return *contents;
     }
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 11)
+    case GDT_Float16: {
+      Nan::TypedArrayContents<GFloat16> contents(obj);
+      if (ValidateLength(contents.length(), min_length)) return NULL;
+      return *contents;
+    }
+#endif
     case GDT_Float32: {
       Nan::TypedArrayContents<float> contents(obj);
       if (ValidateLength(contents.length(), min_length)) return NULL;
