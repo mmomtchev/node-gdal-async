@@ -9,6 +9,7 @@
 			"defines": [ "USE_PNG" ],
 			"sources": [
 				"../gdal/frmts/grib/degrib/g2clib/pngunpack.c",
+				"../gdal/frmts/grib/degrib/g2clib/aecunpack.c",
 				"../gdal/frmts/grib/degrib/g2clib/dec_png.c",
 				"../gdal/frmts/grib/degrib/g2clib/int_power.c",
 				"../gdal/frmts/grib/degrib/g2clib/cmplxpack.c",

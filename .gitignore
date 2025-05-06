@@ -29,6 +29,7 @@ deps/libsqlite/sqlite*.tar.gz
 deps/libcurl/cur*tar.gz
 deps/libhdf5/hdf5*.tar.gz
 deps/libnetcdf/netcdf*.tar.gz
+deps/libaec/libaec*.tar.gz
 lib/binding
 lib/index.d.ts
 doc

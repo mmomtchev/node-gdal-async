@@ -1,0 +1,15 @@
+**********************************************************************
+ SZIP compatibility
+**********************************************************************
+
+Libaec includes a free drop-in replacement for the SZIP
+library[1]. Just replace SZIP's shared library libsz.so* with
+libaec.so* and libsz.so* from libaec. For Windows the DLLs are called
+SZIP.DLL and AEC.DLL. Code which is dynamically linked with SZIP such
+as HDF5 should continue to work with libaec. No re-compilation
+required.
+
+HDF5 files which contain SZIP encoded data can be decoded by HDF5
+using libaec and vice versa.
+
+[1] http://www.hdfgroup.org/doc_resource/SZIP/
