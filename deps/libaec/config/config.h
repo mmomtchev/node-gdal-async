@@ -86,13 +86,13 @@
 /* Define WORDS_BIGENDIAN to 1 if your processor stores words with the most
    significant byte first (like Motorola and SPARC, unlike Intel). */
 #if defined AC_APPLE_UNIVERSAL_BUILD
-# if defined __BIG_ENDIAN__
-#  define WORDS_BIGENDIAN 1
-# endif
+#if defined __BIG_ENDIAN__
+#define WORDS_BIGENDIAN 1
+#endif
 #else
-# ifndef WORDS_BIGENDIAN
+#ifndef WORDS_BIGENDIAN
 /* #  undef WORDS_BIGENDIAN */
-# endif
+#endif
 #endif
 
 /* Define for Solaris 2.5.1 so the uint32_t typedef from <sys/synch.h>,
@@ -123,16 +123,10 @@
 /* Define to the equivalent of the C99 'restrict' keyword, or to
    nothing if this is not supported.  Do not define if restrict is
    supported only directly.  */
+#if !defined(_MSC_VER)
 #define restrict __restrict__
-/* Work around a bug in older versions of Sun C++, which did not
-   #define __restrict__ or support _Restrict or __restrict__
-   even though the corresponding Sun C compiler ended up with
-   "#define restrict _Restrict" or "#define restrict __restrict__"
-   in the previous line.  This workaround can be removed once
-   we assume Oracle Developer Studio 12.5 (2016) or later.  */
-#if defined __SUNPRO_CC && !defined __RESTRICT && !defined __restrict__
-# define _Restrict
-# define __restrict__
+#else
+#define restrict
 #endif
 
 /* Define to `unsigned int' if <sys/types.h> does not define. */
