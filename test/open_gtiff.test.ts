@@ -88,6 +88,7 @@ describe('Open', () => {
       ds = driver.open(filename)
       assert.instanceOf(ds, gdal.Dataset)
       assert.strictEqual(ds.driver.description, 'LIBERTIFF')
+      assert.strictEqual(ds.threadSafe, true)
     })
   })
 })
