@@ -9,7 +9,6 @@
 			"sources": [
         "./libaec/src/graec.c",
         "./libaec/src/encode_accessors.c",
-        "./libaec/src/utime.c",
         "./libaec/src/decode.c",
         "./libaec/src/vector.c",
         "./libaec/src/encode.c",
