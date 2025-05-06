@@ -1,0 +1,58 @@
+.TH GRAEC 1
+.SH NAME
+graec \- compress or expand files
+.SH SYNOPSIS
+.B graec
+[\fB\-3\fR]
+[\fB\-b\fR \fIBYTES\fR]
+[\fB\-d\fR]
+[\fB\-j\fR \fISAMPLES\fR]
+[\fB\-m\fR]
+[\fB\-n\fR \fIBITS\fR]
+[\fB\-N\fR]
+[\fB\-p\fR]
+[\fB\-r\fR \fIBLOCKS\fR]
+[\fB\-s\fR]
+[\fB\-t\fR]
+.IR infile
+.IR outfile
+.SH DESCRIPTION
+.IR Graec
+performs lossless compression and decompression with Golomb-Rice
+adaptive entropy coding as defined in the Space Data System
+recommended standard 121.0-B-3.
+.SH OPTIONS
+.TP
+\fB \-3\fR
+24 bit samples are stored in 3 bytes
+.TP
+\fB \-b\fR\ \fI\,BYTES\fR
+internal buffer size in bytes
+.TP
+\fB \-d\fR
+decompress \fIinfile\fR; if option \-d is not used then compress
+\fIinfile\fR
+.TP
+\fB \-j\fR \fI\,SAMPLES\fR
+block size in samples
+.TP
+\fB \-m\fR
+samples are MSB first; default is LSB first
+.TP
+\fB \-n\fR \fI\,BITS\fR
+bits per sample
+.TP
+\fB \-N\fR
+disable pre/post processing
+.TP
+\fB \-p\fR
+pad RSI to byte boundary
+.TP
+\fB \-r\fR \fI\,BLOCKS\fR
+reference sample interval in blocks
+.TP
+\fB \-s\fR
+samples are signed; default is unsigned
+.TP
+\fB \-t\fR
+use restricted set of code options

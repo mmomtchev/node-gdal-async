@@ -45,6 +45,7 @@
 			"HAVE_MITAB=1",
 			"HAVE_CURL=1",
 			"HAVE_HDF5=1",
+      "USE_AEC=1",
 			"NETCDF_HAS_NC4=1",
 			"PROJ_STATIC=1",
 			"CPU_<(endianness)_ENDIAN=1",
@@ -63,7 +64,8 @@
 			"<(deps_dir)/libcurl/libcurl.gyp:libcurl",
 			"<(deps_dir)/libhdf5/libhdf5.gyp:libhdf5",
 			"<(deps_dir)/libnetcdf/libnetcdf.gyp:libnetcdf",
-			"<(deps_dir)/libopenjpeg/libopenjpeg.gyp:libopenjpeg"
+			"<(deps_dir)/libopenjpeg/libopenjpeg.gyp:libopenjpeg",
+      "<(deps_dir)/libaec/libaec.gyp:libaec"
 		],
 		"conditions": [
 			["OS == 'win'", {
