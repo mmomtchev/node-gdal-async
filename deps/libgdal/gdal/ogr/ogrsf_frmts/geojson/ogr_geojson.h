@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  OpenGIS Simple Features Reference Implementation
  * Purpose:  Definitions of OGR OGRGeoJSON driver types.
@@ -17,7 +16,7 @@
 
 #include "cpl_port.h"
 #include "ogrsf_frmts.h"
-#include "../mem/ogr_mem.h"
+#include "memdataset.h"
 
 #include <cstdio>
 #include <vector>  // Used by OGRGeoJSONLayer.
@@ -93,11 +92,11 @@ class OGRGeoJSONLayer final : public OGRMemLayer
                                   int nFlags) override;
     virtual OGRErr CreateGeomField(const OGRGeomFieldDefn *poGeomField,
                                    int bApproxOK = TRUE) override;
-    virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
-    virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
-                             int bForce = TRUE) override;
-    virtual OGRErr GetExtent3D(int iGeomField, OGREnvelope3D *psExtent3D,
-                               int bForce = TRUE) override;
+
+    virtual OGRErr IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                              bool bForce = true) override;
+    virtual OGRErr IGetExtent3D(int iGeomField, OGREnvelope3D *psExtent3D,
+                                bool bForce = true) override;
 
     GDALDataset *GetDataset() override;
 
@@ -128,6 +127,16 @@ class OGRGeoJSONLayer final : public OGRMemLayer
         oWriteOptions_ = options;
     }
 
+    void SetSupportsMGeometries(bool bSupportsMGeometries)
+    {
+        m_bSupportsMGeometries = bSupportsMGeometries;
+    }
+
+    void SetSupportsZGeometries(bool bSupportsZGeometries)
+    {
+        m_bSupportsZGeometries = bSupportsZGeometries;
+    }
+
   private:
     OGRGeoJSONDataSource *poDS_;
     OGRGeoJSONReader *poReader_;
@@ -136,6 +145,8 @@ class OGRGeoJSONLayer final : public OGRMemLayer
     bool bOriginalIdModified_;
     GIntBig nTotalFeatureCount_;
     GIntBig nFeatureReadSinceReset_ = 0;
+    bool m_bSupportsMGeometries = false;
+    bool m_bSupportsZGeometries = true;
 
     //! Write options used by ICreateFeature() in append scenarios
     OGRGeoJSONWriteOptions oWriteOptions_;
@@ -185,14 +196,9 @@ class OGRGeoJSONWriteLayer final : public OGRLayer
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
     OGRErr CreateField(const OGRFieldDefn *poField, int bApproxOK) override;
     int TestCapability(const char *pszCap) override;
-    OGRErr GetExtent(OGREnvelope *psExtent, int bForce) override;
 
-    OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent, int bForce) override
-    {
-        return iGeomField == 0
-                   ? OGRGeoJSONWriteLayer::GetExtent(psExtent, bForce)
-                   : OGRERR_FAILURE;
-    }
+    OGRErr IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                      bool bForce) override;
 
     OGRErr SyncToDisk() override;
 
@@ -298,9 +304,22 @@ class OGRGeoJSONDataSource final : public GDALDataset
         return osJSonFlavor_;
     }
 
+    void SetSupportsMGeometries(bool bSupportsMGeometries)
+    {
+        m_bSupportsMGeometries = bSupportsMGeometries;
+    }
+
+    void SetSupportsZGeometries(bool bSupportsZGeometries)
+    {
+        m_bSupportsZGeometries = bSupportsZGeometries;
+    }
+
     virtual CPLErr FlushCache(bool bAtClosing) override;
 
     CPLErr Close() override;
+
+    // Analyze the OGR_SCHEMA open options and apply changes to the feature definition, return false in case of a critical error
+    bool DealWithOgrSchemaOpenOption(const GDALOpenInfo *poOpenInfo);
 
     static const size_t SPACE_FOR_BBOX = 130;
 
@@ -329,6 +348,9 @@ class OGRGeoJSONDataSource final : public GDALDataset
     bool bUpdatable_;
 
     CPLString osJSonFlavor_;
+
+    bool m_bSupportsMGeometries = false;
+    bool m_bSupportsZGeometries = true;
 
     //
     // Private utility functions

@@ -651,35 +651,22 @@ OGRErr OGRGenSQLResultsLayer::SetNextByIndex(GIntBig nIndex)
 }
 
 /************************************************************************/
-/*                             GetExtent()                              */
+/*                            IGetExtent()                              */
 /************************************************************************/
 
-OGRErr OGRGenSQLResultsLayer::GetExtent(int iGeomField, OGREnvelope *psExtent,
-                                        int bForce)
+OGRErr OGRGenSQLResultsLayer::IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                                         bool bForce)
 
 {
     swq_select *psSelectInfo = m_pSelectInfo.get();
-
-    if (iGeomField < 0 || iGeomField >= GetLayerDefn()->GetGeomFieldCount() ||
-        GetLayerDefn()->GetGeomFieldDefn(iGeomField)->GetType() == wkbNone)
-    {
-        if (iGeomField != 0)
-        {
-            CPLError(CE_Failure, CPLE_AppDefined,
-                     "Invalid geometry field index : %d", iGeomField);
-        }
-        return OGRERR_FAILURE;
-    }
 
     if (psSelectInfo->query_mode == SWQM_RECORDSET)
     {
         int iSrcGeomField = m_anGeomFieldToSrcGeomField[iGeomField];
         if (iSrcGeomField >= 0)
             return m_poSrcLayer->GetExtent(iSrcGeomField, psExtent, bForce);
-        else if (iGeomField == 0)
-            return OGRLayer::GetExtent(psExtent, bForce);
         else
-            return OGRLayer::GetExtent(iGeomField, psExtent, bForce);
+            return OGRLayer::IGetExtent(iGeomField, psExtent, bForce);
     }
     else
         return OGRERR_FAILURE;
@@ -1387,19 +1374,19 @@ static CPLString GetFilterForJoin(swq_expr_node *poExpr, OGRFeature *poSrcFeat,
                 const OGRField *psSrcField =
                     poSrcFeat->GetRawFieldRef(poExpr->field_index);
 
+                CPLString osRet;
                 switch (ePrimaryFieldType)
                 {
                     case OFTInteger:
-                        return CPLString().Printf("%d", psSrcField->Integer);
+                        osRet.Printf("%d", psSrcField->Integer);
                         break;
 
                     case OFTInteger64:
-                        return CPLString().Printf(CPL_FRMT_GIB,
-                                                  psSrcField->Integer64);
+                        osRet.Printf(CPL_FRMT_GIB, psSrcField->Integer64);
                         break;
 
                     case OFTReal:
-                        return CPLString().Printf("%.17g", psSrcField->Real);
+                        osRet.Printf("%.17g", psSrcField->Real);
                         break;
 
                     case OFTString:
@@ -1408,18 +1395,19 @@ static CPLString GetFilterForJoin(swq_expr_node *poExpr, OGRFeature *poSrcFeat,
                             psSrcField->String,
                             static_cast<int>(strlen(psSrcField->String)),
                             CPLES_SQL);
-                        CPLString osRes = "'";
-                        osRes += pszEscaped;
-                        osRes += "'";
+                        osRet = "'";
+                        osRet += pszEscaped;
+                        osRet += "'";
                         CPLFree(pszEscaped);
-                        return osRes;
+                        break;
                     }
-                    break;
 
                     default:
                         CPLAssert(false);
-                        return "";
+                        break;
                 }
+
+                return osRet;
             }
         }
 
@@ -1652,7 +1640,8 @@ std::unique_ptr<OGRFeature> OGRGenSQLResultsLayer::TranslateFeature(
             case SWQ_BOOLEAN:
             case SWQ_INTEGER:
             case SWQ_INTEGER64:
-                poDstFeat->SetField(iRegularField++, poResult->int_value);
+                poDstFeat->SetField(iRegularField++,
+                                    static_cast<GIntBig>(poResult->int_value));
                 break;
 
             case SWQ_FLOAT:
@@ -2765,17 +2754,14 @@ OGRErr OGRGenSQLResultsLayer::SetAttributeFilter(const char *pszAttributeFilter)
 }
 
 /************************************************************************/
-/*                       SetSpatialFilter()                             */
+/*                       ISetSpatialFilter()                            */
 /************************************************************************/
 
-void OGRGenSQLResultsLayer::SetSpatialFilter(int iGeomField,
-                                             OGRGeometry *poGeom)
+OGRErr OGRGenSQLResultsLayer::ISetSpatialFilter(int iGeomField,
+                                                const OGRGeometry *poGeom)
 {
     InvalidateOrderByIndex();
-    if (iGeomField == 0)
-        OGRLayer::SetSpatialFilter(poGeom);
-    else
-        OGRLayer::SetSpatialFilter(iGeomField, poGeom);
+    return OGRLayer::ISetSpatialFilter(iGeomField, poGeom);
 }
 
 /************************************************************************/

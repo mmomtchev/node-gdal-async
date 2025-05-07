@@ -27,6 +27,7 @@ describe('gdal.wrapVRT()', () => {
     </SimpleSource>
   </VRTRasterBand>
 </VRTDataset>`
+
     assert.equal(gdal.wrapVRT({ bands: [
       { sources: [ gdal.open(sample).bands.get(1) ] } ]
     }), expected)

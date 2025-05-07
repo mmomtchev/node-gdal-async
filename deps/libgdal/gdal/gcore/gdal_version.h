@@ -1,4 +1,3 @@
-/* $Id$ */
 
 /* -------------------------------------------------------------------- */
 /*      GDAL Version Information.                                       */
@@ -6,8 +5,8 @@
 
 #ifndef GDAL_VERSION_MAJOR
 #  define GDAL_VERSION_MAJOR    3
-#  define GDAL_VERSION_MINOR    10
-#  define GDAL_VERSION_REV      2
+#  define GDAL_VERSION_MINOR    11
+#  define GDAL_VERSION_REV      0
 #  define GDAL_VERSION_BUILD    0
 #endif
 
@@ -24,9 +23,14 @@
 
 #if !defined(DO_NOT_DEFINE_GDAL_DATE_NAME)
 #ifndef GDAL_RELEASE_DATE
-#  define GDAL_RELEASE_DATE     20250211
+#  define GDAL_RELEASE_DATE     20250506
 #endif
 #ifndef GDAL_RELEASE_NAME
-#  define GDAL_RELEASE_NAME     "3.10.2"
+#  define GDAL_RELEASE_NAME     "3.11.0"
 #endif
+
+#ifndef GDAL_RELEASE_NICKNAME
+#define GDAL_RELEASE_NICKNAME   "Eganville"
+#endif
+
 #endif

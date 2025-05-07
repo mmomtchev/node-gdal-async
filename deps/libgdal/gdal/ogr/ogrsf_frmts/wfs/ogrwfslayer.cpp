@@ -999,7 +999,8 @@ GDALDataset *OGRWFSLayer::FetchGetFeature(int nRequestMaxFeatures)
         /* GML is a special case. It needs the .xsd file that has been saved */
         /* as file.xsd, so we cannot used the attachment filename */
         else if (pszAttachmentFilename &&
-                 !EQUAL(CPLGetExtension(pszAttachmentFilename), "GML"))
+                 !EQUAL(CPLGetExtensionSafe(pszAttachmentFilename).c_str(),
+                        "GML"))
         {
             osTmpFileName = m_osTmpDir + "/";
             osTmpFileName += pszAttachmentFilename;
@@ -1071,8 +1072,8 @@ GDALDataset *OGRWFSLayer::FetchGetFeature(int nRequestMaxFeatures)
         for (int i = 0; papszFileList != nullptr && papszFileList[i] != nullptr;
              i++)
         {
-            CPLString osFullFilename =
-                CPLFormFilename(osTmpFileName, papszFileList[i], nullptr);
+            const CPLString osFullFilename =
+                CPLFormFilenameSafe(osTmpFileName, papszFileList[i], nullptr);
             hDrv = GDALIdentifyDriver(osFullFilename, nullptr);
             if (hDrv != nullptr && hDrv == GDALGetDriverByName("GML"))
                 papszOpenOptions = apszGMLOpenOptions;
@@ -1338,6 +1339,7 @@ OGRFeature *OGRWFSLayer::GetNextFeature()
         if (bGotApproximateLayerDefn)
         {
             poNewFeature->SetFrom(poSrcFeature);
+            poNewFeature->SetFID(poSrcFeature->GetFID());
 
             /* Client-side attribute filtering. */
             if (m_poAttrQuery != nullptr && osWFSWhere.empty() &&
@@ -1350,6 +1352,7 @@ OGRFeature *OGRWFSLayer::GetNextFeature()
         }
         else
         {
+            poNewFeature->SetFID(poSrcFeature->GetFID());
             for (int iField = 0; iField < poFeatureDefn->GetFieldCount();
                  iField++)
             {
@@ -1359,7 +1362,6 @@ OGRFeature *OGRWFSLayer::GetNextFeature()
             poNewFeature->SetStyleString(poSrcFeature->GetStyleString());
             poNewFeature->SetGeometryDirectly(poSrcFeature->StealGeometry());
         }
-        poNewFeature->SetFID(poSrcFeature->GetFID());
         poGeom = poNewFeature->GetGeometryRef();
 
         /* FIXME? I don't really know what we should do with WFS 1.1.0 */
@@ -1382,10 +1384,10 @@ OGRFeature *OGRWFSLayer::GetNextFeature()
 }
 
 /************************************************************************/
-/*                         SetSpatialFilter()                           */
+/*                         ISetSpatialFilter()                          */
 /************************************************************************/
 
-void OGRWFSLayer::SetSpatialFilter(OGRGeometry *poGeom)
+OGRErr OGRWFSLayer::ISetSpatialFilter(int iGeomField, const OGRGeometry *poGeom)
 {
     if (bStreamingDS)
     {
@@ -1414,8 +1416,9 @@ void OGRWFSLayer::SetSpatialFilter(OGRGeometry *poGeom)
         bReloadNeeded = true;
     }
     nFeatures = -1;
-    OGRLayer::SetSpatialFilter(poGeom);
+    const OGRErr eErr = OGRLayer::ISetSpatialFilter(iGeomField, poGeom);
     ResetReading();
+    return eErr;
 }
 
 /************************************************************************/
@@ -1453,6 +1456,7 @@ OGRErr OGRWFSLayer::SetAttributeFilter(const char *pszFilter)
     {
         swq_expr_node *poNode = (swq_expr_node *)m_poAttrQuery->GetSWQExpr();
         poNode->ReplaceBetweenByGEAndLERecurse();
+        poNode->ReplaceInByOrRecurse();
 
         int bNeedsNullCheck = FALSE;
         int nVersion = (strcmp(poDS->GetVersion(), "1.0.0") == 0) ? 100
@@ -1722,7 +1726,7 @@ GIntBig OGRWFSLayer::GetFeatureCount(int bForce)
     if (nFeatures >= 0)
         return nFeatures;
 
-    if (TestCapability(OLCFastFeatureCount))
+    if (poBaseLayer && TestCapability(OLCFastFeatureCount))
         return poBaseLayer->GetFeatureCount(bForce);
 
     if ((m_poAttrQuery == nullptr || !osWFSWhere.empty()) &&
@@ -1737,14 +1741,18 @@ GIntBig OGRWFSLayer::GetFeatureCount(int bForce)
     /* feature, and then query again OLCFastFeatureCount on the */
     /* base layer. In case the WFS response would contain the */
     /* number of features */
-    if (poBaseLayer == nullptr)
+    if (poBaseLayer == nullptr &&
+        (m_poAttrQuery == nullptr || !osWFSWhere.empty()))
     {
         ResetReading();
         OGRFeature *poFeature = GetNextFeature();
         delete poFeature;
         ResetReading();
 
-        if (TestCapability(OLCFastFeatureCount))
+        if (nFeatures >= 0)
+            return nFeatures;
+
+        if (poBaseLayer && TestCapability(OLCFastFeatureCount))
             return poBaseLayer->GetFeatureCount(bForce);
     }
 
@@ -1753,7 +1761,7 @@ GIntBig OGRWFSLayer::GetFeatureCount(int bForce)
     if (CanRunGetFeatureCountAndGetExtentTogether())
     {
         OGREnvelope sDummy;
-        GetExtent(&sDummy);
+        CPL_IGNORE_RET_VAL(GetExtent(&sDummy));
     }
 
     if (nFeatures < 0)
@@ -1789,10 +1797,11 @@ void OGRWFSLayer::SetWGS84Extents(double dfMinXIn, double dfMinYIn,
 }
 
 /************************************************************************/
-/*                              GetExtent()                             */
+/*                             IGetExtent()                             */
 /************************************************************************/
 
-OGRErr OGRWFSLayer::GetExtent(OGREnvelope *psExtent, int bForce)
+OGRErr OGRWFSLayer::IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                               bool bForce)
 {
     if (m_oExtents.IsInit())
     {
@@ -1813,7 +1822,7 @@ OGRErr OGRWFSLayer::GetExtent(OGREnvelope *psExtent, int bForce)
     }
 
     if (TestCapability(OLCFastGetExtent))
-        return poBaseLayer->GetExtent(psExtent, bForce);
+        return poBaseLayer->GetExtent(iGeomField, psExtent, bForce);
 
     /* In some cases, we can evaluate the result of GetFeatureCount() */
     /* and GetExtent() with the same data */
@@ -1823,7 +1832,7 @@ OGRErr OGRWFSLayer::GetExtent(OGREnvelope *psExtent, int bForce)
         nFeatures = 0;
     }
 
-    OGRErr eErr = OGRLayer::GetExtent(psExtent, bForce);
+    OGRErr eErr = OGRLayer::IGetExtent(iGeomField, psExtent, bForce);
 
     if (bCountFeaturesInGetNextFeature)
     {

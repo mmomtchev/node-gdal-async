@@ -52,6 +52,10 @@
 #include "ogr_swq.h"
 #include "sqlite3.h"
 
+#ifdef EMBED_RESOURCE_FILES
+#include "embedded_resources.h"
+#endif
+
 #undef SQLITE_STATIC
 #define SQLITE_STATIC (static_cast<sqlite3_destructor_type>(nullptr))
 
@@ -2892,7 +2896,7 @@ int OGROSMDataSource::Open(const char *pszFilename,
             VSIUnlink(m_osNodesFilename);
 
             m_bInMemoryNodesFile = false;
-            m_osNodesFilename = CPLGenerateTempFilename("osm_tmp_nodes");
+            m_osNodesFilename = CPLGenerateTempFilenameSafe("osm_tmp_nodes");
 
             m_fpNodes = VSIFOpenL(m_osNodesFilename, "wb+");
             if (m_fpNodes == nullptr)
@@ -2996,7 +3000,7 @@ bool OGROSMDataSource::CreateTempDB()
 
     if (!bSuccess)
     {
-        m_osTmpDBName = CPLGenerateTempFilename("osm_tmp");
+        m_osTmpDBName = CPLGenerateTempFilenameSafe("osm_tmp");
         rc = sqlite3_open(m_osTmpDBName.c_str(), &m_hDB);
 
         /* On Unix filesystems, you can remove a file even if it */
@@ -3356,23 +3360,52 @@ void OGROSMDataSource::AddComputedAttributes(
 
 bool OGROSMDataSource::ParseConf(CSLConstList papszOpenOptionsIn)
 {
+    VSILFILE *fpConf = nullptr;
+
     const char *pszFilename =
         CSLFetchNameValueDef(papszOpenOptionsIn, "CONFIG_FILE",
                              CPLGetConfigOption("OSM_CONFIG_FILE", nullptr));
     if (pszFilename == nullptr)
-        pszFilename = CPLFindFile("gdal", "osmconf.ini");
-    if (pszFilename == nullptr)
     {
-        CPLError(CE_Warning, CPLE_AppDefined,
-                 "Cannot find osmconf.ini configuration file");
-        return false;
+#if !defined(USE_ONLY_EMBEDDED_RESOURCE_FILES)
+        pszFilename = CPLFindFile("gdal", "osmconf.ini");
+#endif
+#ifdef EMBED_RESOURCE_FILES
+        if (!pszFilename || EQUAL(pszFilename, "osmconf.ini"))
+        {
+            static const bool bOnce [[maybe_unused]] = []()
+            {
+                CPLDebug("OSM", "Using embedded osmconf.ini");
+                return true;
+            }();
+            fpConf = VSIFileFromMemBuffer(
+                nullptr,
+                const_cast<GByte *>(
+                    reinterpret_cast<const GByte *>(OSMGetOSMConfIni())),
+                static_cast<int>(strlen(OSMGetOSMConfIni())),
+                /* bTakeOwnership = */ false);
+        }
+#else
+        if (!pszFilename)
+        {
+            CPLError(CE_Warning, CPLE_AppDefined,
+                     "Cannot find osmconf.ini configuration file");
+            return false;
+        }
+#endif
     }
 
-    m_osConfigFile = pszFilename;
+    if (pszFilename)
+        m_osConfigFile = pszFilename;
 
-    VSILFILE *fpConf = VSIFOpenL(pszFilename, "rb");
-    if (fpConf == nullptr)
-        return false;
+#if defined(EMBED_RESOURCE_FILES)
+    if (!fpConf)
+#endif
+    {
+        fpConf = VSIFOpenL(pszFilename, "rb");
+        if (fpConf == nullptr)
+            return false;
+    }
 
     const char *pszLine = nullptr;
     int iCurLayer = -1;
@@ -4039,7 +4072,7 @@ bool OGROSMDataSource::TransferToDiskIfNecesserary()
             m_fpNodes = nullptr;
 
             const std::string osNewTmpDBName(
-                CPLGenerateTempFilename("osm_tmp_nodes"));
+                CPLGenerateTempFilenameSafe("osm_tmp_nodes"));
 
             CPLDebug("OSM",
                      "%s too big for RAM. Transferring it onto disk in %s",
@@ -4120,7 +4153,7 @@ bool OGROSMDataSource::TransferToDiskIfNecesserary()
             CloseDB();
 
             const std::string osNewTmpDBName(
-                CPLGenerateTempFilename("osm_tmp"));
+                CPLGenerateTempFilenameSafe("osm_tmp"));
 
             CPLDebug("OSM",
                      "%s too big for RAM. Transferring it onto disk in %s",

@@ -186,7 +186,8 @@ class VSIADLSFSHandler final : public IVSIS3LikeFSHandlerWithMultipartUpload
         return "ADLS";
     }
 
-    int Rename(const char *oldpath, const char *newpath) override;
+    int Rename(const char *oldpath, const char *newpath, GDALProgressFunc,
+               void *) override;
     int Unlink(const char *pszFilename) override;
     int Mkdir(const char *, long) override;
     int Rmdir(const char *) override;
@@ -1186,7 +1187,8 @@ void VSIADLSWriteHandle::InvalidateParentDirectory()
     m_poFS->InvalidateCachedData(m_poHandleHelper->GetURLNoKVP().c_str());
 
     const std::string osFilenameWithoutSlash(RemoveTrailingSlash(m_osFilename));
-    m_poFS->InvalidateDirContent(CPLGetDirname(osFilenameWithoutSlash.c_str()));
+    m_poFS->InvalidateDirContent(
+        CPLGetDirnameSafe(osFilenameWithoutSlash.c_str()));
 }
 
 /************************************************************************/
@@ -1281,7 +1283,8 @@ IVSIS3LikeHandleHelper *VSIADLSFSHandler::CreateHandleHelper(const char *pszURI,
 /*                               Rename()                               */
 /************************************************************************/
 
-int VSIADLSFSHandler::Rename(const char *oldpath, const char *newpath)
+int VSIADLSFSHandler::Rename(const char *oldpath, const char *newpath,
+                             GDALProgressFunc, void *)
 {
     if (!STARTS_WITH_CI(oldpath, GetFSPrefix().c_str()))
         return -1;
@@ -1316,7 +1319,7 @@ int VSIADLSFSHandler::Rename(const char *oldpath, const char *newpath)
 
     InvalidateCachedData(GetURLFromFilename(oldpath).c_str());
     InvalidateCachedData(GetURLFromFilename(newpath).c_str());
-    InvalidateDirContent(CPLGetDirname(oldpath));
+    InvalidateDirContent(CPLGetDirnameSafe(oldpath));
 
     const CPLStringList aosHTTPOptions(CPLHTTPGetOptionsFromEnv(oldpath));
     const CPLHTTPRetryParameters oRetryParameters(aosHTTPOptions);
@@ -1443,7 +1446,7 @@ int VSIADLSFSHandler::MkdirInternal(const char *pszDirname, long nMode,
     InvalidateCachedData(GetURLFromFilename(osDirname.c_str()).c_str());
     InvalidateCachedData(
         GetURLFromFilename(osDirnameWithoutEndSlash.c_str()).c_str());
-    InvalidateDirContent(CPLGetDirname(osDirnameWithoutEndSlash.c_str()));
+    InvalidateDirContent(CPLGetDirnameSafe(osDirnameWithoutEndSlash.c_str()));
 
     int nRet = 0;
 
@@ -1591,7 +1594,7 @@ int VSIADLSFSHandler::RmdirInternal(const char *pszDirname, bool bRecursive)
     InvalidateCachedData(GetURLFromFilename(osDirname.c_str()).c_str());
     InvalidateCachedData(
         GetURLFromFilename(osDirnameWithoutEndSlash.c_str()).c_str());
-    InvalidateDirContent(CPLGetDirname(osDirnameWithoutEndSlash.c_str()));
+    InvalidateDirContent(CPLGetDirnameSafe(osDirnameWithoutEndSlash.c_str()));
     if (bRecursive)
     {
         PartialClearCache(osDirnameWithoutEndSlash.c_str());
@@ -1831,7 +1834,8 @@ int VSIADLSFSHandler::CopyObject(const char *oldpath, const char *newpath,
 
             const std::string osFilenameWithoutSlash(
                 RemoveTrailingSlash(newpath));
-            InvalidateDirContent(CPLGetDirname(osFilenameWithoutSlash.c_str()));
+            InvalidateDirContent(
+                CPLGetDirnameSafe(osFilenameWithoutSlash.c_str()));
         }
 
         curl_easy_cleanup(hCurlHandle);
@@ -1857,7 +1861,7 @@ bool VSIADLSFSHandler::UploadFile(
     if (event == Event::CREATE_FILE)
     {
         InvalidateCachedData(poHandleHelper->GetURLNoKVP().c_str());
-        InvalidateDirContent(CPLGetDirname(osFilename.c_str()));
+        InvalidateDirContent(CPLGetDirnameSafe(osFilename.c_str()));
     }
 
     const CPLStringList aosHTTPOptions(

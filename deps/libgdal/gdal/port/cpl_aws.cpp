@@ -1973,10 +1973,20 @@ bool VSIS3HandleHelper::GetConfiguration(
         return true;
     }
 
-    VSIError(VSIE_AWSInvalidCredentials,
-             "AWS_SECRET_ACCESS_KEY and AWS_NO_SIGN_REQUEST configuration "
-             "options not defined, and %s not filled",
-             osCredentials.c_str());
+    CPLString osMsg;
+    osMsg.Printf(
+        "No valid AWS credentials found. "
+        "For authenticated requests, you need to set "
+        "AWS_SECRET_ACCESS_KEY, AWS_ACCESS_KEY_ID or other configuration "
+        "options, or create a %s file. Consult "
+        "https://gdal.org/en/stable/user/"
+        "virtual_file_systems.html#vsis3-aws-s3-files for more details. "
+        "For unauthenticated requests on public resources, set the "
+        "AWS_NO_SIGN_REQUEST configuration option to YES.",
+        osCredentials.c_str());
+    CPLDebug("GS", "%s", osMsg.c_str());
+    VSIError(VSIE_AWSInvalidCredentials, "%s", osMsg.c_str());
+
     return false;
 }
 
@@ -2059,6 +2069,21 @@ VSIS3HandleHelper *VSIS3HandleHelper::BuildFromURI(const char *pszURI,
 
     std::string osEndpoint = VSIGetPathSpecificOption(
         osPathForOption.c_str(), "AWS_S3_ENDPOINT", "s3.amazonaws.com");
+    bool bForceHTTP = false;
+    bool bForceHTTPS = false;
+    if (STARTS_WITH(osEndpoint.c_str(), "http://"))
+    {
+        bForceHTTP = true;
+        osEndpoint = osEndpoint.substr(strlen("http://"));
+    }
+    else if (STARTS_WITH(osEndpoint.c_str(), "https://"))
+    {
+        bForceHTTPS = true;
+        osEndpoint = osEndpoint.substr(strlen("https://"));
+    }
+    if (!osEndpoint.empty() && osEndpoint.back() == '/')
+        osEndpoint.pop_back();
+
     if (!osRegion.empty() && osEndpoint == "s3.amazonaws.com")
     {
         osEndpoint = "s3." + osRegion + ".amazonaws.com";
@@ -2073,8 +2098,10 @@ VSIS3HandleHelper *VSIS3HandleHelper::BuildFromURI(const char *pszURI,
     {
         return nullptr;
     }
-    const bool bUseHTTPS = CPLTestBool(
-        VSIGetPathSpecificOption(osPathForOption.c_str(), "AWS_HTTPS", "YES"));
+    const bool bUseHTTPS =
+        bForceHTTPS ||
+        (!bForceHTTP && CPLTestBool(VSIGetPathSpecificOption(
+                            osPathForOption.c_str(), "AWS_HTTPS", "YES")));
     const bool bIsValidNameForVirtualHosting =
         osBucket.find('.') == std::string::npos;
     const bool bUseVirtualHosting = CPLTestBool(CSLFetchNameValueDef(

@@ -185,8 +185,8 @@ GDALRasterizeOptionsGetParser(GDALRasterizeOptions *psOptions,
                         GDALRemoveBOM(pabyRet);
                         char *pszSQLStatement =
                             reinterpret_cast<char *>(pabyRet);
-                        psOptions->osSQL = CPLStrdup(
-                            GDALRemoveSQLComments(pszSQLStatement).c_str());
+                        psOptions->osSQL =
+                            CPLRemoveSQLComments(pszSQLStatement);
                         VSIFree(pszSQLStatement);
                     }
                 })
@@ -368,7 +368,7 @@ static void InvertGeometries(GDALDatasetH hDstDS,
     double adfGeoTransform[6] = {};
     GDALGetGeoTransform(hDstDS, adfGeoTransform);
 
-    OGRLinearRing *poUniverseRing = new OGRLinearRing();
+    auto poUniverseRing = std::make_unique<OGRLinearRing>();
 
     poUniverseRing->addPoint(
         adfGeoTransform[0] + -2 * adfGeoTransform[1] + -2 * adfGeoTransform[2],
@@ -393,9 +393,9 @@ static void InvertGeometries(GDALDatasetH hDstDS,
         adfGeoTransform[0] + -2 * adfGeoTransform[1] + -2 * adfGeoTransform[2],
         adfGeoTransform[3] + -2 * adfGeoTransform[4] + -2 * adfGeoTransform[5]);
 
-    OGRPolygon *poUniversePoly = new OGRPolygon();
-    poUniversePoly->addRingDirectly(poUniverseRing);
-    poInvertMP->addGeometryDirectly(poUniversePoly);
+    auto poUniversePoly = std::make_unique<OGRPolygon>();
+    poUniversePoly->addRing(std::move(poUniverseRing));
+    poInvertMP->addGeometry(std::move(poUniversePoly));
 
     bool bFoundNonPoly = false;
     // If we have GEOS, use it to "subtract" each polygon from the universe
@@ -436,6 +436,9 @@ static void InvertGeometries(GDALDatasetH hDstDS,
         return;
     }
 
+    OGRPolygon &hUniversePoly =
+        *poInvertMP->getGeometryRef(poInvertMP->getNumGeometries() - 1);
+
     /* -------------------------------------------------------------------- */
     /*      If we don't have GEOS, add outer rings of polygons as inner     */
     /*      rings of poUniversePoly and inner rings as sub-polygons. Note   */
@@ -462,15 +465,18 @@ static void InvertGeometries(GDALDatasetH hDstDS,
         }
 
         const auto ProcessPoly =
-            [poUniversePoly, poInvertMP](OGRPolygon *poPoly)
+            [&hUniversePoly, poInvertMP](OGRPolygon *poPoly)
         {
             for (int i = poPoly->getNumInteriorRings() - 1; i >= 0; --i)
             {
-                auto poNewPoly = new OGRPolygon();
-                poNewPoly->addRingDirectly(poPoly->stealInteriorRing(i));
-                poInvertMP->addGeometryDirectly(poNewPoly);
+                auto poNewPoly = std::make_unique<OGRPolygon>();
+                std::unique_ptr<OGRLinearRing> poRing(
+                    poPoly->stealInteriorRing(i));
+                poNewPoly->addRing(std::move(poRing));
+                poInvertMP->addGeometry(std::move(poNewPoly));
             }
-            poUniversePoly->addRingDirectly(poPoly->stealExteriorRing());
+            std::unique_ptr<OGRLinearRing> poShell(poPoly->stealExteriorRing());
+            hUniversePoly.addRing(std::move(poShell));
         };
 
         if (eGType == wkbPolygon)
@@ -824,7 +830,7 @@ static GDALDatasetH CreateOutputDataset(
         if (nXSize == 0 || nYSize == 0)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
-                     "Size and resolutions are missing");
+                     "Size and resolution are missing");
             return nullptr;
         }
         dfXRes = (sEnvelop.MaxX - sEnvelop.MinX) / nXSize;
@@ -838,12 +844,20 @@ static GDALDatasetH CreateOutputDataset(
         sEnvelop.MaxY = ceil(sEnvelop.MaxY / dfYRes) * dfYRes;
     }
 
+    if (dfXRes == 0 || dfYRes == 0)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "Could not determine bounds");
+        return nullptr;
+    }
+
     double adfProjection[6] = {sEnvelop.MinX, dfXRes, 0.0,
                                sEnvelop.MaxY, 0.0,    -dfYRes};
 
     if (nXSize == 0 && nYSize == 0)
     {
+        // coverity[divide_by_zero]
         const double dfXSize = 0.5 + (sEnvelop.MaxX - sEnvelop.MinX) / dfXRes;
+        // coverity[divide_by_zero]
         const double dfYSize = 0.5 + (sEnvelop.MaxY - sEnvelop.MinY) / dfYRes;
         if (dfXSize > std::numeric_limits<int>::max() ||
             dfXSize < std::numeric_limits<int>::min() ||
@@ -933,7 +947,7 @@ static GDALDatasetH CreateOutputDataset(
  * @param hSrcDataset the source dataset handle.
  * @param psOptionsIn the options struct returned by GDALRasterizeOptionsNew()
  * or NULL.
- * @param pbUsageError pointer to a integer output variable to store if any
+ * @param pbUsageError pointer to an integer output variable to store if any
  * usage error has occurred or NULL.
  * @return the output dataset (new dataset that must be closed using
  * GDALClose(), or hDstDS is not NULL) or NULL in case of error.
@@ -975,12 +989,13 @@ GDALDatasetH GDALRasterize(const char *pszDest, GDALDatasetH hDstDS,
         return nullptr;
     }
 
-    GDALRasterizeOptions *psOptionsToFree = nullptr;
+    std::unique_ptr<GDALRasterizeOptions, decltype(&GDALRasterizeOptionsFree)>
+        psOptionsToFree(nullptr, GDALRasterizeOptionsFree);
     const GDALRasterizeOptions *psOptions = psOptionsIn;
     if (psOptions == nullptr)
     {
-        psOptionsToFree = GDALRasterizeOptionsNew(nullptr, nullptr);
-        psOptions = psOptionsToFree;
+        psOptionsToFree.reset(GDALRasterizeOptionsNew(nullptr, nullptr));
+        psOptions = psOptionsToFree.get();
     }
 
     const bool bCloseOutDSOnError = hDstDS == nullptr;
@@ -995,7 +1010,6 @@ GDALDatasetH GDALRasterize(const char *pszDest, GDALDatasetH hDstDS,
                  "has not one single layer.");
         if (pbUsageError)
             *pbUsageError = TRUE;
-        GDALRasterizeOptionsFree(psOptionsToFree);
         return nullptr;
     }
 
@@ -1014,7 +1028,6 @@ GDALDatasetH GDALRasterize(const char *pszDest, GDALDatasetH hDstDS,
             osFormat = GetOutputDriverForRaster(pszDest);
             if (osFormat.empty())
             {
-                GDALRasterizeOptionsFree(psOptionsToFree);
                 return nullptr;
             }
         }
@@ -1041,7 +1054,6 @@ GDALDatasetH GDALRasterize(const char *pszDest, GDALDatasetH hDstDS,
                      "Output driver `%s' not recognised or does not support "
                      "direct output file creation.",
                      osFormat.c_str());
-            GDALRasterizeOptionsFree(psOptionsToFree);
             return nullptr;
         }
     }
@@ -1110,7 +1122,6 @@ GDALDatasetH GDALRasterize(const char *pszDest, GDALDatasetH hDstDS,
                 if (hDstDS == nullptr)
                 {
                     GDALDatasetReleaseResultSet(hSrcDataset, hLayer);
-                    GDALRasterizeOptionsFree(psOptionsToFree);
                     return nullptr;
                 }
             }
@@ -1155,7 +1166,6 @@ GDALDatasetH GDALRasterize(const char *pszDest, GDALDatasetH hDstDS,
                          psOptions->aosLayers.size() > static_cast<size_t>(i)
                              ? psOptions->aosLayers[i].c_str()
                              : "0");
-                GDALRasterizeOptionsFree(psOptionsToFree);
                 return nullptr;
             }
             if (eOutputType == GDT_Unknown)
@@ -1181,7 +1191,6 @@ GDALDatasetH GDALRasterize(const char *pszDest, GDALDatasetH hDstDS,
             psOptions->osNoData.c_str());
         if (hDstDS == nullptr)
         {
-            GDALRasterizeOptionsFree(psOptionsToFree);
             return nullptr;
         }
     }
@@ -1234,8 +1243,6 @@ GDALDatasetH GDALRasterize(const char *pszDest, GDALDatasetH hDstDS,
         if (eErr != CE_None)
             break;
     }
-
-    GDALRasterizeOptionsFree(psOptionsToFree);
 
     if (eErr != CE_None)
     {

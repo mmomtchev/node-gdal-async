@@ -18,43 +18,9 @@
 
 #include <algorithm>
 
-/************************************************************************/
-/*                        GetBaseCacheDirectory()                       */
-/************************************************************************/
-
-CPLString GMLASConfiguration::GetBaseCacheDirectory()
-{
-#ifdef _WIN32
-    const char *pszHome = CPLGetConfigOption("USERPROFILE", nullptr);
-#else
-    const char *pszHome = CPLGetConfigOption("HOME", nullptr);
+#ifdef EMBED_RESOURCE_FILES
+#include "embedded_resources.h"
 #endif
-    if (pszHome != nullptr)
-    {
-        return CPLFormFilename(pszHome, ".gdal", nullptr);
-    }
-    else
-    {
-        const char *pszDir = CPLGetConfigOption("CPL_TMPDIR", nullptr);
-
-        if (pszDir == nullptr)
-            pszDir = CPLGetConfigOption("TMPDIR", nullptr);
-
-        if (pszDir == nullptr)
-            pszDir = CPLGetConfigOption("TEMP", nullptr);
-
-        const char *pszUsername = CPLGetConfigOption("USERNAME", nullptr);
-        if (pszUsername == nullptr)
-            pszUsername = CPLGetConfigOption("USER", nullptr);
-
-        if (pszDir != nullptr && pszUsername != nullptr)
-        {
-            return CPLFormFilename(pszDir, CPLSPrintf(".gdal_%s", pszUsername),
-                                   nullptr);
-        }
-    }
-    return CPLString();
-}
 
 /************************************************************************/
 /*                              Finalize()                              */
@@ -64,7 +30,7 @@ void GMLASConfiguration::Finalize()
 {
     if (m_bAllowXSDCache && m_osXSDCacheDirectory.empty())
     {
-        m_osXSDCacheDirectory = GetBaseCacheDirectory();
+        m_osXSDCacheDirectory = GDALGetCacheDirectory();
         if (m_osXSDCacheDirectory.empty())
         {
             CPLError(CE_Warning, CPLE_AppDefined,
@@ -72,8 +38,8 @@ void GMLASConfiguration::Finalize()
         }
         else
         {
-            m_osXSDCacheDirectory = CPLFormFilename(m_osXSDCacheDirectory,
-                                                    "gmlas_xsd_cache", nullptr);
+            m_osXSDCacheDirectory = CPLFormFilenameSafe(
+                m_osXSDCacheDirectory, "gmlas_xsd_cache", nullptr);
             CPLDebug("GMLAS", "XSD cache directory: %s",
                      m_osXSDCacheDirectory.c_str());
         }
@@ -196,6 +162,40 @@ static void ParseNamespaces(CPLXMLNode *psContainerNode,
 }
 
 /************************************************************************/
+/*                           GetDefaultConfFile()                       */
+/************************************************************************/
+
+/* static */
+std::string GMLASConfiguration::GetDefaultConfFile(bool &bUnlinkAfterUse)
+{
+    bUnlinkAfterUse = false;
+#if !defined(USE_ONLY_EMBEDDED_RESOURCE_FILES)
+    const char *pszConfigFile = CPLFindFile("gdal", szDEFAULT_CONF_FILENAME);
+    if (pszConfigFile)
+        return pszConfigFile;
+#endif
+#ifdef EMBED_RESOURCE_FILES
+    static const bool bOnce [[maybe_unused]] = []()
+    {
+        CPLDebug("GMLAS", "Using embedded %s", szDEFAULT_CONF_FILENAME);
+        return true;
+    }();
+    bUnlinkAfterUse = true;
+    const std::string osTmpFilename =
+        VSIMemGenerateHiddenFilename(szDEFAULT_CONF_FILENAME);
+    VSIFCloseL(VSIFileFromMemBuffer(
+        osTmpFilename.c_str(),
+        const_cast<GByte *>(
+            reinterpret_cast<const GByte *>(GMLASConfXMLGetFileContent())),
+        static_cast<int>(strlen(GMLASConfXMLGetFileContent())),
+        /* bTakeOwnership = */ false));
+    return osTmpFilename;
+#else
+    return std::string();
+#endif
+}
+
+/************************************************************************/
 /*                                 Load()                               */
 /************************************************************************/
 
@@ -216,8 +216,35 @@ bool GMLASConfiguration::Load(const char *pszFilename)
     // Validate the configuration file
     if (CPLTestBool(CPLGetConfigOption("GDAL_XML_VALIDATION", "YES")))
     {
+#ifdef EMBED_RESOURCE_FILES
+        std::string osTmpFilename;
+        CPLErrorStateBackuper oErrorStateBackuper(CPLQuietErrorHandler);
+#endif
+#ifdef USE_ONLY_EMBEDDED_RESOURCE_FILES
+        const char *pszXSD = nullptr;
+#else
         const char *pszXSD = CPLFindFile("gdal", "gmlasconf.xsd");
-        if (pszXSD != nullptr)
+#endif
+#ifdef EMBED_RESOURCE_FILES
+        if (!pszXSD)
+        {
+            static const bool bOnce [[maybe_unused]] = []()
+            {
+                CPLDebug("GMLAS", "Using embedded gmlasconf.xsd");
+                return true;
+            }();
+            osTmpFilename = VSIMemGenerateHiddenFilename("gmlasconf.xsd");
+            pszXSD = osTmpFilename.c_str();
+            VSIFCloseL(VSIFileFromMemBuffer(
+                osTmpFilename.c_str(),
+                const_cast<GByte *>(reinterpret_cast<const GByte *>(
+                    GMLASConfXSDGetFileContent())),
+                static_cast<int>(strlen(GMLASConfXSDGetFileContent())),
+                /* bTakeOwnership = */ false));
+        }
+#else
+        if (pszXSD)
+#endif
         {
             std::vector<CPLString> aosErrors;
             const CPLErr eErrClass = CPLGetLastErrorType();
@@ -241,6 +268,11 @@ bool GMLASConfiguration::Load(const char *pszFilename)
                 CPLErrorSetState(eErrClass, nErrNum, osErrMsg);
             }
         }
+
+#ifdef EMBED_RESOURCE_FILES
+        if (!osTmpFilename.empty())
+            VSIUnlink(osTmpFilename.c_str());
+#endif
     }
 
     m_bAllowRemoteSchemaDownload =
@@ -491,10 +523,10 @@ bool GMLASXLinkResolutionConf::LoadFromXML(CPLXMLNode *psRoot)
     m_osCacheDirectory = CPLGetXMLValue(psRoot, "CacheDirectory", "");
     if (m_osCacheDirectory.empty())
     {
-        m_osCacheDirectory = GMLASConfiguration::GetBaseCacheDirectory();
+        m_osCacheDirectory = GDALGetCacheDirectory();
         if (!m_osCacheDirectory.empty())
         {
-            m_osCacheDirectory = CPLFormFilename(
+            m_osCacheDirectory = CPLFormFilenameSafe(
                 m_osCacheDirectory, "xlink_resolved_cache", nullptr);
         }
     }

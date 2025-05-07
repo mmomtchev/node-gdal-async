@@ -16,8 +16,8 @@
 #include "cpl_string.h"
 #include "s57.h"
 
-#ifdef S57_BUILTIN_CLASSES
-#include "s57tables.h"
+#ifdef EMBED_RESOURCE_FILES
+#include "embedded_resources.h"
 #endif
 
 /************************************************************************/
@@ -79,38 +79,56 @@ bool S57ClassRegistrar::FindFile(const char *pszTarget,
                                  VSILFILE **pfp)
 
 {
-    const char *pszFilename = nullptr;
+    std::string osFilename;
+
+    *pfp = nullptr;
 
     if (pszDirectory == nullptr)
     {
-        pszFilename = CPLFindFile("s57", pszTarget);
+#if defined(USE_ONLY_EMBEDDED_RESOURCE_FILES)
+        const char *pszFilename = pszTarget;
+#else
+        const char *pszFilename = CPLFindFile("s57", pszTarget);
         if (pszFilename == nullptr)
             pszFilename = pszTarget;
+#endif
+        osFilename = pszFilename;
+        if (EQUAL(osFilename.c_str(), pszTarget))
+        {
+#ifdef EMBED_RESOURCE_FILES
+            const char *pszContent = S57GetEmbeddedCSV(pszTarget);
+            if (pszContent)
+            {
+                CPLDebug("S57", "Using embedded %s", pszTarget);
+                *pfp = VSIFileFromMemBuffer(
+                    nullptr,
+                    const_cast<GByte *>(
+                        reinterpret_cast<const GByte *>(pszContent)),
+                    static_cast<int>(strlen(pszContent)),
+                    /* bTakeOwnership = */ false);
+            }
+#endif
+        }
     }
     else
     {
-        pszFilename = CPLFormFilename(pszDirectory, pszTarget, nullptr);
+        osFilename = CPLFormFilenameSafe(pszDirectory, pszTarget, nullptr);
     }
 
-    *pfp = VSIFOpenL(pszFilename, "rb");
-
-#ifdef S57_BUILTIN_CLASSES
-    if (*pfp == NULL)
+#ifdef EMBED_RESOURCE_FILES
+    if (!(*pfp))
+#endif
     {
-        if (EQUAL(pszTarget, "s57objectclasses.csv"))
-            papszNextLine = gpapszS57Classes;
-        else
-            papszNextLine = gpapszS57attributes;
+        *pfp = VSIFOpenL(osFilename.c_str(), "rb");
     }
-#else
+
     if (*pfp == nullptr)
     {
         if (bReportErr)
             CPLError(CE_Failure, CPLE_OpenFailed, "Failed to open %s.\n",
-                     pszFilename);
+                     osFilename.c_str());
         return FALSE;
     }
-#endif
 
     return TRUE;
 }

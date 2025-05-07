@@ -19,6 +19,7 @@
 #include "eeda.h"
 
 #include <algorithm>
+#include <cinttypes>
 #include <vector>
 #include <map>
 #include <set>
@@ -139,23 +140,13 @@ class GDALEEDALayer final : public OGRLayer
         return -1;
     }
 
-    virtual void SetSpatialFilter(OGRGeometry *poGeom) CPL_OVERRIDE;
-
-    virtual void SetSpatialFilter(int iGeomField,
-                                  OGRGeometry *poGeom) CPL_OVERRIDE
-    {
-        OGRLayer::SetSpatialFilter(iGeomField, poGeom);
-    }
+    virtual OGRErr ISetSpatialFilter(int iGeomField,
+                                     const OGRGeometry *poGeom) override;
 
     virtual OGRErr SetAttributeFilter(const char *) CPL_OVERRIDE;
 
-    virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce) CPL_OVERRIDE;
-
-    virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
-                             int bForce) CPL_OVERRIDE
-    {
-        return OGRLayer::GetExtent(iGeomField, psExtent, bForce);
-    }
+    virtual OGRErr IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                              bool bForce) override;
 };
 
 /************************************************************************/
@@ -778,7 +769,7 @@ CPLString GDALEEDALayer::BuildFilter(swq_expr_node *poNode, bool bIsAndTopLevel)
             poNode->papoSubExpr[1]->field_type == SWQ_INTEGER64)
         {
             osFilter +=
-                CPLSPrintf(CPL_FRMT_GIB, poNode->papoSubExpr[1]->int_value);
+                CPLSPrintf("%" PRId64, poNode->papoSubExpr[1]->int_value);
         }
         else if (poNode->papoSubExpr[1]->field_type == SWQ_FLOAT)
         {
@@ -869,7 +860,7 @@ CPLString GDALEEDALayer::BuildFilter(swq_expr_node *poNode, bool bIsAndTopLevel)
                 poNode->papoSubExpr[i]->field_type == SWQ_INTEGER64)
             {
                 osFilter +=
-                    CPLSPrintf(CPL_FRMT_GIB, poNode->papoSubExpr[i]->int_value);
+                    CPLSPrintf("%" PRId64, poNode->papoSubExpr[i]->int_value);
             }
             else if (poNode->papoSubExpr[i]->field_type == SWQ_FLOAT)
             {
@@ -942,10 +933,11 @@ OGRErr GDALEEDALayer::SetAttributeFilter(const char *pszQuery)
 }
 
 /************************************************************************/
-/*                          SetSpatialFilter()                          */
+/*                          ISetSpatialFilter()                         */
 /************************************************************************/
 
-void GDALEEDALayer::SetSpatialFilter(OGRGeometry *poGeomIn)
+OGRErr GDALEEDALayer::ISetSpatialFilter(int /* iGeomField */,
+                                        const OGRGeometry *poGeomIn)
 {
     if (poGeomIn)
     {
@@ -964,13 +956,15 @@ void GDALEEDALayer::SetSpatialFilter(OGRGeometry *poGeomIn)
         InstallFilter(poGeomIn);
 
     ResetReading();
+    return OGRERR_NONE;
 }
 
 /************************************************************************/
 /*                                GetExtent()                           */
 /************************************************************************/
 
-OGRErr GDALEEDALayer::GetExtent(OGREnvelope *psExtent, int /* bForce */)
+OGRErr GDALEEDALayer::IGetExtent(int /* iGeomField*/, OGREnvelope *psExtent,
+                                 bool /* bForce */)
 {
     psExtent->MinX = -180;
     psExtent->MinY = -90;

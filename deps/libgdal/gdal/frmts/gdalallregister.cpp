@@ -178,6 +178,11 @@ void CPL_STDCALL GDALAllRegister()
 #if defined(DEFERRED_HDF4_DRIVER)
     DeclareDeferredHDF4Plugin();
 #endif
+#if defined(DEFERRED_KEA_DRIVER)
+    // Must be registered before HDF5 so that when the plugin is not
+    // installer the proper suggestion message is displayed
+    DeclareDeferredKEAPlugin();
+#endif
 #if defined(DEFERRED_HDF5_DRIVER)
     DeclareDeferredHDF5Plugin();
 #endif
@@ -186,9 +191,6 @@ void CPL_STDCALL GDALAllRegister()
 #endif
 #if defined(DEFERRED_JP2KAK_DRIVER)
     DeclareDeferredJP2KAKPlugin();
-#endif
-#if defined(DEFERRED_JP2LURA_DRIVER)
-    DeclareDeferredJP2LuraPlugin();
 #endif
 #if defined(DEFERRED_JP2OPENJPEG_DRIVER)
     DeclareDeferredOPENJPEGPlugin();
@@ -201,9 +203,6 @@ void CPL_STDCALL GDALAllRegister()
 #endif
 #if defined(DEFERRED_JPIPKAK_DRIVER)
     DeclareDeferredJPIPKAKPlugin();
-#endif
-#if defined(DEFERRED_KEA_DRIVER)
-    DeclareDeferredKEAPlugin();
 #endif
 #if defined(DEFERRED_LIBKML_DRIVER)
     DeclareDeferredOGRLIBKMLPlugin();
@@ -304,6 +303,9 @@ void CPL_STDCALL GDALAllRegister()
 #if defined(DEFERRED_XODR_DRIVER)
     DeclareDeferredOGRXODRPlugin();
 #endif
+#if defined(DEFERRED_ADBC_DRIVER)
+    DeclareDeferredOGRADBCPlugin();
+#endif
 
     // AutoLoadDrivers is a no-op if compiled with GDAL_NO_AUTOLOAD defined.
     poDriverManager->AutoLoadDrivers();
@@ -332,6 +334,10 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_COG();
 #endif
 
+#ifdef FRMT_libertiff
+    GDALRegister_LIBERTIFF();
+#endif
+
 #ifdef FRMT_nitf
     GDALRegister_NITF();
     GDALRegister_RPFTOC();
@@ -358,10 +364,6 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_GFF();
 #endif
 
-#ifdef FRMT_elas
-    GDALRegister_ELAS();
-#endif
-
 #ifdef FRMT_esric
     GDALRegister_ESRIC();
 #endif
@@ -375,10 +377,6 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_AAIGrid();
     GDALRegister_GRASSASCIIGrid();
     GDALRegister_ISG();
-#endif
-
-#ifdef FRMT_sdts
-    GDALRegister_SDTS();
 #endif
 
 #ifdef FRMT_dted
@@ -426,10 +424,6 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_BSB();
 #endif
 
-#ifdef FRMT_xpm
-    GDALRegister_XPM();
-#endif
-
 #ifdef FRMT_bmp
     GDALRegister_BMP();
 #endif
@@ -460,10 +454,6 @@ void CPL_STDCALL GDALAllRegister()
 
 #ifdef FRMT_ilwis
     GDALRegister_ILWIS();
-#endif
-
-#ifdef FRMT_sgi
-    GDALRegister_SGI();
 #endif
 
 #ifdef FRMT_srtmhgt
@@ -513,11 +503,6 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_JPIPKAK();
 #endif
 
-#ifdef FRMT_jp2lura
-    // JPEG2000 support using Lurawave library
-    GDALRegister_JP2Lura();
-#endif
-
 #ifdef FRMT_ecw
     GDALRegister_ECW();
     GDALRegister_JP2ECW();
@@ -530,10 +515,6 @@ void CPL_STDCALL GDALAllRegister()
 
 #ifdef FRMT_l1b
     GDALRegister_L1B();
-#endif
-
-#ifdef FRMT_fit
-    GDALRegister_FIT();
 #endif
 
 #ifdef FRMT_grib
@@ -569,8 +550,6 @@ void CPL_STDCALL GDALAllRegister()
 #endif
 
 #ifdef FRMT_gsg
-    GDALRegister_GSAG();
-    GDALRegister_GSBG();
     GDALRegister_GS7BG();
 #endif
 
@@ -584,10 +563,6 @@ void CPL_STDCALL GDALAllRegister()
 
 #ifdef FRMT_coasp
     GDALRegister_COASP();
-#endif
-
-#ifdef FRMT_r
-    GDALRegister_R();
 #endif
 
 #ifdef FRMT_map
@@ -604,10 +579,6 @@ void CPL_STDCALL GDALAllRegister()
 
 #ifdef FRMT_pdf
     GDALRegister_PDF();
-#endif
-
-#ifdef FRMT_rasterlite
-    GDALRegister_Rasterlite();
 #endif
 
 #ifdef FRMT_mbtiles
@@ -693,10 +664,6 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_SRP();
 #endif
 
-#ifdef FRMT_blx
-    GDALRegister_BLX();
-#endif
-
 #ifdef FRMT_georaster
     GDALRegister_GEOR();
 #endif
@@ -715,10 +682,6 @@ void CPL_STDCALL GDALAllRegister()
 
 #ifdef FRMT_hf2
     GDALRegister_HF2();
-#endif
-
-#ifdef FRMT_ozi
-    GDALRegister_OZI();
 #endif
 
 #ifdef FRMT_ctg
@@ -795,6 +758,10 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_KTX2();
 #endif
 
+#ifdef FRMT_gdalg
+    GDALRegister_GDALG();
+#endif
+
     // NOTE: you need to generally insert your own driver before that line.
 
     // NOTE: frmts/drivers.ini in the same directory should be kept in same
@@ -820,6 +787,10 @@ void CPL_STDCALL GDALAllRegister()
 
 #ifdef FRMT_zarr
     GDALRegister_Zarr();
+#endif
+
+#ifdef FRMT_rcm
+    GDALRegister_RCM();
 #endif
 
 /* -------------------------------------------------------------------- */

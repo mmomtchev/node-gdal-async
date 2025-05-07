@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  Raw Translator
  * Purpose:  Implementation of RawDataset class.  Intended to be subclassed
@@ -46,6 +45,13 @@ class CPL_DLL RawDataset : public GDALPamDataset
   public:
     RawDataset();
     virtual ~RawDataset() = 0;
+
+    enum class Interleave
+    {
+        BSQ,
+        BIL,
+        BIP,
+    };
 
     bool GetRawBinaryLayout(GDALDataset::RawBinaryLayout &) override;
     void ClearCachedConfigOption(void);

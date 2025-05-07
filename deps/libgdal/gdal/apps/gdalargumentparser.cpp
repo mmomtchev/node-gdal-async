@@ -25,7 +25,7 @@ GDALArgumentParser::GDALArgumentParser(const std::string &program_name,
                                        bool bForBinary)
     : ArgumentParser(program_name, "", default_arguments::none)
 {
-    set_usage_max_line_width(120);
+    set_usage_max_line_width(80);
     set_usage_break_on_mutex();
     add_usage_newline();
 
@@ -42,6 +42,18 @@ GDALArgumentParser::GDALArgumentParser(const std::string &program_name,
                     std::exit(0);
                 })
             .help(_("Shows short help message and exits."));
+
+        // Used by program-output directives in .rst files
+        add_argument("--help-doc")
+            .flag()
+            .hidden()
+            .action(
+                [this](const auto &)
+                {
+                    std::cout << usage() << std::endl;
+                    std::exit(0);
+                })
+            .help(_("Display help message for use by documentation."));
 
         add_argument("--long-usage")
             .flag()

@@ -615,6 +615,24 @@ describe('gdal.RasterBand', () => {
           assert.equal(data.length, w * h)
           assert.equal(data[10 * 20 + 10], 10)
         })
+        // Until https://tc39.es/proposal-float16array/#sec-float16array
+        // gets implemented we are relying on
+        // https://www.npmjs.com/package/@petamoriken/float16
+        it('should support reading Float16 with GDAL >= 3.11', function () {
+          if (semver.gte(gdal.version, '3.11.0')) {
+            const ds = gdal.open(`${__dirname}/data/sample.tif`)
+            const band = ds.bands.get(1)
+            const w = 20
+            const h = 30
+            const data = new gdal.Float16Array(new ArrayBuffer(w * h * gdal.Float16Array.BYTES_PER_ELEMENT))
+            band.pixels.read(190, 290, w, h, data)
+            assert.instanceOf(data, gdal.Float16Array)
+            assert.equal(data.length, w * h)
+            assert.equal(data[10 * 20 + 10], 10)
+          } else {
+            this.skip()
+          }
+        })
         describe('w/data over 4GB', function () {
           this.timeout(120000)
           // These tests require at least 16GB of memory to be reliable

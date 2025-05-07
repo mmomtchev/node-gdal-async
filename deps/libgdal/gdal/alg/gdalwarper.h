@@ -130,6 +130,14 @@ CPLErr CPL_DLL GDALWarpCutlineMaskerEx(void *pMaskFuncArg, int nBandCount,
 
 /*! @endcond */
 
+/*! GWKMode tie-breaking strategy */
+typedef enum
+{
+    /* Choose the first value encountered */ GWKTS_First = 1,
+    /* Choose the minimal value */ GWKTS_Min = 2,
+    /* Choose the maximum value */ GWKTS_Max = 3,
+} GWKTieStrategy;
+
 /************************************************************************/
 /*                           GDALWarpOptions                            */
 /************************************************************************/
@@ -243,7 +251,11 @@ typedef struct
      * zero. */
     double dfCutlineBlendDist;
 
+    /** Tie-breaking method */
+    GWKTieStrategy eTieStrategy;
 } GDALWarpOptions;
+
+const char CPL_DLL *GDALWarpGetOptionList(void);
 
 GDALWarpOptions CPL_DLL *CPL_STDCALL GDALCreateWarpOptions(void);
 void CPL_DLL CPL_STDCALL GDALDestroyWarpOptions(GDALWarpOptions *);
@@ -320,6 +332,9 @@ CPL_C_END
 
 #include <vector>
 #include <utility>
+
+bool GDALGetWarpResampleAlg(const char *pszResampling,
+                            GDALResampleAlg &eResampleAlg, bool bThrow = false);
 
 /************************************************************************/
 /*                            GDALWarpKernel                            */
@@ -451,6 +466,10 @@ class CPL_DLL GDALWarpKernel
     // Average currently
     std::vector<std::vector<double>> m_aadfExcludedValues{};
 
+    GWKTieStrategy eTieStrategy;
+
+    bool bWarnedAboutDstNoDataReplacement = false;
+
     /*! @endcond */
 
     GDALWarpKernel();
@@ -541,9 +560,9 @@ class CPL_DLL GDALWarpOperation
     CPLErr Initialize(const GDALWarpOptions *psNewOptions);
     void *CreateDestinationBuffer(int nDstXSize, int nDstYSize,
                                   int *pbWasInitialized = nullptr);
-    void InitializeDestinationBuffer(void *pDstBuffer, int nDstXSize,
-                                     int nDstYSize,
-                                     int *pbWasInitialized = nullptr);
+    CPLErr InitializeDestinationBuffer(void *pDstBuffer, int nDstXSize,
+                                       int nDstYSize,
+                                       int *pbWasInitialized = nullptr) const;
     static void DestroyDestinationBuffer(void *pDstBuffer);
 
     const GDALWarpOptions *GetOptions();

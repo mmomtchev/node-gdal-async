@@ -30,30 +30,29 @@
 #include "ogr_srs_api.h"
 #include "commonutils.h"
 
-#ifdef _WIN32
-#include <io.h>
-#else
-#include <unistd.h>
-#endif
-
 /************************************************************************/
 /*                               Usage()                                */
 /************************************************************************/
 
-static void Usage(bool bIsError, const char *pszErrorMsg = nullptr)
+static void Usage(bool bIsError, const char *pszErrorMsg = nullptr,
+                  bool bHelpDoc = false)
 
 {
     fprintf(bIsError ? stderr : stdout,
             "Usage: gdaltransform [--help] [--help-general]\n"
-            "    [-i] [-s_srs <srs_def>] [-t_srs <srs_def>] [-to "
-            ">NAME>=<VALUE>]...\n"
-            "    [-s_coord_epoch <epoch>] [-t_coord_epoch <epoch>]\n"
-            "    [-ct <proj_string>] [-order <n>] [-tps] [-rpc] [-geoloc] \n"
-            "    [-gcp <pixel> <line> <easting> <northing> [elevation]]...\n"
-            "    [-output_xy] [-E] [-field_sep <sep>] [-ignore_extra_input]\n"
-            "    [<srcfile> [<dstfile>]]\n"
-            "\n");
+            "       [-i] [-s_srs <srs_def>] [-t_srs <srs_def>] "
+            "[-to >NAME>=<VALUE>]...\n"
+            "       [-s_coord_epoch <epoch>] [-t_coord_epoch <epoch>]\n"
+            "       [-ct <proj_string>] [-order <n>] [-tps] [-rpc] [-geoloc] \n"
+            "       [-gcp <pixel> <line> <easting> <northing> [elevation]]...\n"
+            "       [-output_xy] [-E] [-field_sep <sep>] "
+            "[-ignore_extra_input]\n"
+            "       [<srcfile> [<dstfile>]]\n");
 
+    if (bHelpDoc)
+        exit(0);
+
+    fprintf(bIsError ? stderr : stdout, "\n");
     if (pszErrorMsg != nullptr)
         fprintf(stderr, "\nFAILURE: %s\n", pszErrorMsg);
 
@@ -151,6 +150,10 @@ MAIN_START(argc, argv)
         else if (EQUAL(argv[i], "--help"))
         {
             Usage(false);
+        }
+        else if (EQUAL(argv[i], "--help-doc"))
+        {
+            Usage(false, nullptr, true);
         }
         else if (EQUAL(argv[i], "-t_srs"))
         {
@@ -359,7 +362,7 @@ MAIN_START(argc, argv)
     if (!bCoordOnCommandLine)
     {
         // Is it an interactive terminal ?
-        if (isatty(static_cast<int>(fileno(stdin))))
+        if (CPLIsInteractive(stdin))
         {
             if (pszSrcFilename != nullptr)
             {

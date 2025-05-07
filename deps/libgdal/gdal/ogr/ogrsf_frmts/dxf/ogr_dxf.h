@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  DXF Translator
  * Purpose:  Definition of classes for OGR .dxf driver.
@@ -508,6 +507,7 @@ class OGRDXFLayer final : public OGRLayer
     OGRDXFFeature *TranslateSOLID();
     OGRDXFFeature *TranslateLEADER();
     OGRDXFFeature *TranslateMLEADER();
+    OGRDXFFeature *TranslateWIPEOUT();
     OGRDXFFeature *TranslateASMEntity();
 
     static constexpr int FORTRAN_INDEXING = 1;
@@ -955,6 +955,12 @@ class OGRDXFWriterDS final : public GDALDataset
     bool FixupHANDSEED(VSILFILE *);
 
     OGREnvelope oGlobalEnvelope;
+
+    bool m_bHeaderFileIsTemp = false;
+    bool m_bTrailerFileIsTemp = false;
+    OGRSpatialReference m_oSRS{};
+    std::string m_osINSUNITS = "AUTO";
+    std::string m_osMEASUREMENT = "HEADER_VALUE";
 
   public:
     OGRDXFWriterDS();

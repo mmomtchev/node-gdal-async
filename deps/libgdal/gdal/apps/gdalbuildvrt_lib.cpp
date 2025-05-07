@@ -34,6 +34,7 @@
 #include "commonutils.h"
 #include "cpl_conv.h"
 #include "cpl_error.h"
+#include "cpl_float.h"
 #include "cpl_progress.h"
 #include "cpl_string.h"
 #include "cpl_vsi.h"
@@ -63,7 +64,9 @@ typedef enum
     LOWEST_RESOLUTION,
     HIGHEST_RESOLUTION,
     AVERAGE_RESOLUTION,
-    USER_RESOLUTION
+    SAME_RESOLUTION,
+    USER_RESOLUTION,
+    COMMON_RESOLUTION,
 } ResolutionStrategy;
 
 struct DatasetProperty
@@ -127,6 +130,12 @@ static int GetSrcDstWin(DatasetProperty *psDP, double we_res, double ns_res,
                         double *pdfDstYOff, double *pdfDstXSize,
                         double *pdfDstYSize)
 {
+    if (we_res == 0 || ns_res == 0)
+    {
+        // should not happen. to please Coverity
+        return FALSE;
+    }
+
     /* Check that the destination bounding box intersects the source bounding
      * box */
     if (psDP->adfGeoTransform[GEOTRSFRM_TOPLEFT_X] +
@@ -284,6 +293,8 @@ class VRTBuilder
     ~VRTBuilder();
 
     GDALDataset *Build(GDALProgressFunc pfnProgress, void *pProgressData);
+
+    std::string m_osProgramName{};
 };
 
 /************************************************************************/
@@ -436,6 +447,21 @@ static CPLString GetProjectionName(const char *pszProjection)
 /*                           AnalyseRaster()                            */
 /************************************************************************/
 
+static void checkNoDataValues(const std::vector<BandProperty> &asProperties)
+{
+    for (const auto &oProps : asProperties)
+    {
+        if (oProps.bHasNoData && GDALDataTypeIsInteger(oProps.dataType) &&
+            !GDALIsValueExactAs(oProps.noDataValue, oProps.dataType))
+        {
+            CPLError(CE_Warning, CPLE_NotSupported,
+                     "Band data type of %s cannot represent the specified "
+                     "NoData value of %g",
+                     GDALGetDataTypeName(oProps.dataType), oProps.noDataValue);
+        }
+    }
+}
+
 std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
                                       DatasetProperty *psDatasetProperties)
 {
@@ -493,6 +519,10 @@ std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
     int bGotGeoTransform = poDS->GetGeoTransform(padfGeoTransform) == CE_None;
     if (bSeparate)
     {
+        std::string osProgramName(m_osProgramName);
+        if (osProgramName == "gdalbuildvrt")
+            osProgramName += " -separate";
+
         if (bFirst)
         {
             bHasGeoTransform = bGotGeoTransform;
@@ -500,35 +530,37 @@ std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
             {
                 if (bUserExtent)
                 {
-                    CPLError(CE_Warning, CPLE_NotSupported,
-                             "User extent ignored by gdalbuildvrt -separate "
-                             "with ungeoreferenced images.");
+                    CPLError(CE_Warning, CPLE_NotSupported, "%s",
+                             ("User extent ignored by " + osProgramName +
+                              "with ungeoreferenced images.")
+                                 .c_str());
                 }
                 if (resolutionStrategy == USER_RESOLUTION)
                 {
-                    CPLError(CE_Warning, CPLE_NotSupported,
-                             "User resolution ignored by gdalbuildvrt "
-                             "-separate with ungeoreferenced images.");
+                    CPLError(CE_Warning, CPLE_NotSupported, "%s",
+                             ("User resolution ignored by " + osProgramName +
+                              " with ungeoreferenced images.")
+                                 .c_str());
                 }
             }
         }
         else if (bHasGeoTransform != bGotGeoTransform)
         {
-            return "gdalbuildvrt -separate cannot stack ungeoreferenced and "
-                   "georeferenced images.";
+            return osProgramName + " cannot stack ungeoreferenced and "
+                                   "georeferenced images.";
         }
         else if (!bHasGeoTransform && (nRasterXSize != poDS->GetRasterXSize() ||
                                        nRasterYSize != poDS->GetRasterYSize()))
         {
-            return "gdalbuildvrt -separate cannot stack ungeoreferenced images "
-                   "that have not the same dimensions.";
+            return osProgramName + " cannot stack ungeoreferenced images "
+                                   "that have not the same dimensions.";
         }
     }
     else
     {
         if (!bGotGeoTransform)
         {
-            return "gdalbuildvrt does not support ungeoreferenced image.";
+            return m_osProgramName + " does not support ungeoreferenced image.";
         }
         bHasGeoTransform = TRUE;
     }
@@ -538,11 +570,13 @@ std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
         if (padfGeoTransform[GEOTRSFRM_ROTATION_PARAM1] != 0 ||
             padfGeoTransform[GEOTRSFRM_ROTATION_PARAM2] != 0)
         {
-            return "gdalbuildvrt does not support rotated geo transforms.";
+            return m_osProgramName +
+                   " does not support rotated geo transforms.";
         }
         if (padfGeoTransform[GEOTRSFRM_NS_RES] >= 0)
         {
-            return "gdalbuildvrt does not support positive NS resolution.";
+            return m_osProgramName +
+                   " does not support positive NS resolution.";
         }
     }
 
@@ -779,7 +813,8 @@ std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
             {
                 CPLString osExpected = GetProjectionName(pszProjectionRef);
                 CPLString osGot = GetProjectionName(proj);
-                return CPLSPrintf("gdalbuildvrt does not support heterogeneous "
+                return m_osProgramName +
+                       CPLSPrintf(" does not support heterogeneous "
                                   "projection: expected %s, got %s.",
                                   osExpected.c_str(), osGot.c_str());
             }
@@ -795,18 +830,18 @@ std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
                 }
                 else
                 {
-                    return CPLSPrintf(
-                        "gdalbuildvrt does not support heterogeneous band "
-                        "numbers: expected %d, got %d.",
-                        nTotalBands, _nBands);
+                    return m_osProgramName +
+                           CPLSPrintf(" does not support heterogeneous band "
+                                      "numbers: expected %d, got %d.",
+                                      nTotalBands, _nBands);
                 }
             }
             else if (bExplicitBandList && _nBands < nMaxSelectedBandNo)
             {
-                return CPLSPrintf(
-                    "gdalbuildvrt does not support heterogeneous band "
-                    "numbers: expected at least %d, got %d.",
-                    nMaxSelectedBandNo, _nBands);
+                return m_osProgramName +
+                       CPLSPrintf(" does not support heterogeneous band "
+                                  "numbers: expected at least %d, got %d.",
+                                  nMaxSelectedBandNo, _nBands);
             }
 
             for (int j = 0; j < nSelectedBands; j++)
@@ -817,21 +852,25 @@ std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
                 if (asBandProperties[j].colorInterpretation !=
                     poBand->GetColorInterpretation())
                 {
-                    return CPLSPrintf(
-                        "gdalbuildvrt does not support heterogeneous "
-                        "band color interpretation: expected %s, got %s.",
-                        GDALGetColorInterpretationName(
-                            asBandProperties[j].colorInterpretation),
-                        GDALGetColorInterpretationName(
-                            poBand->GetColorInterpretation()));
+                    return m_osProgramName +
+                           CPLSPrintf(
+                               " does not support heterogeneous "
+                               "band color interpretation: expected %s, got "
+                               "%s.",
+                               GDALGetColorInterpretationName(
+                                   asBandProperties[j].colorInterpretation),
+                               GDALGetColorInterpretationName(
+                                   poBand->GetColorInterpretation()));
                 }
                 if (asBandProperties[j].dataType != poBand->GetRasterDataType())
                 {
-                    return CPLSPrintf(
-                        "gdalbuildvrt does not support heterogeneous "
-                        "band data type: expected %s, got %s.",
-                        GDALGetDataTypeName(asBandProperties[j].dataType),
-                        GDALGetDataTypeName(poBand->GetRasterDataType()));
+                    return m_osProgramName +
+                           CPLSPrintf(" does not support heterogeneous "
+                                      "band data type: expected %s, got %s.",
+                                      GDALGetDataTypeName(
+                                          asBandProperties[j].dataType),
+                                      GDALGetDataTypeName(
+                                          poBand->GetRasterDataType()));
                 }
                 if (asBandProperties[j].colorTable)
                 {
@@ -841,7 +880,8 @@ std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
                     if (colorTable == nullptr ||
                         colorTable->GetColorEntryCount() != nRefColorEntryCount)
                     {
-                        return "gdalbuildvrt does not support rasters with "
+                        return m_osProgramName +
+                               " does not support rasters with "
                                "different color tables (different number of "
                                "color table entries)";
                     }
@@ -873,9 +913,9 @@ std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
                                     "You're advised to pre-process your "
                                     "rasters with other tools, such as "
                                     "pct2rgb.py or gdal_translate -expand RGB\n"
-                                    "to operate gdalbuildvrt on RGB rasters "
+                                    "to operate %s on RGB rasters "
                                     "instead",
-                                    dsFileName);
+                                    dsFileName, m_osProgramName.c_str());
                             else
                                 CPLError(CE_Warning, CPLE_NotSupported,
                                          "%s has different values than the "
@@ -894,13 +934,15 @@ std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
                      psDatasetProperties->adfOffset[j] !=
                          asBandProperties[j].dfOffset))
                 {
-                    return CPLSPrintf(
-                        "gdalbuildvrt does not support heterogeneous "
-                        "band offset: expected (%d,%f), got (%d,%f).",
-                        static_cast<int>(asBandProperties[j].bHasOffset),
-                        asBandProperties[j].dfOffset,
-                        static_cast<int>(psDatasetProperties->abHasOffset[j]),
-                        psDatasetProperties->adfOffset[j]);
+                    return m_osProgramName +
+                           CPLSPrintf(
+                               " does not support heterogeneous "
+                               "band offset: expected (%d,%f), got (%d,%f).",
+                               static_cast<int>(asBandProperties[j].bHasOffset),
+                               asBandProperties[j].dfOffset,
+                               static_cast<int>(
+                                   psDatasetProperties->abHasOffset[j]),
+                               psDatasetProperties->adfOffset[j]);
                 }
 
                 if (psDatasetProperties->abHasScale[j] !=
@@ -909,13 +951,15 @@ std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
                      psDatasetProperties->adfScale[j] !=
                          asBandProperties[j].dfScale))
                 {
-                    return CPLSPrintf(
-                        "gdalbuildvrt does not support heterogeneous "
-                        "band scale: expected (%d,%f), got (%d,%f).",
-                        static_cast<int>(asBandProperties[j].bHasScale),
-                        asBandProperties[j].dfScale,
-                        static_cast<int>(psDatasetProperties->abHasScale[j]),
-                        psDatasetProperties->adfScale[j]);
+                    return m_osProgramName +
+                           CPLSPrintf(
+                               " does not support heterogeneous "
+                               "band scale: expected (%d,%f), got (%d,%f).",
+                               static_cast<int>(asBandProperties[j].bHasScale),
+                               asBandProperties[j].dfScale,
+                               static_cast<int>(
+                                   psDatasetProperties->abHasScale[j]),
+                               psDatasetProperties->adfScale[j]);
                 }
             }
         }
@@ -944,6 +988,23 @@ std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
             ns_res += dfDelta / nCountValid;
         }
     }
+    else if (resolutionStrategy == SAME_RESOLUTION)
+    {
+        if (bFirst)
+        {
+            we_res = padfGeoTransform[GEOTRSFRM_WE_RES];
+            ns_res = padfGeoTransform[GEOTRSFRM_NS_RES];
+        }
+        else if (we_res != padfGeoTransform[GEOTRSFRM_WE_RES] ||
+                 ns_res != padfGeoTransform[GEOTRSFRM_NS_RES])
+        {
+            return CPLSPrintf("Dataset %s has resolution %f x %f, whereas "
+                              "previous sources have resolution %f x %f",
+                              dsFileName, padfGeoTransform[GEOTRSFRM_WE_RES],
+                              padfGeoTransform[GEOTRSFRM_NS_RES], we_res,
+                              ns_res);
+        }
+    }
     else if (resolutionStrategy != USER_RESOLUTION)
     {
         if (bFirst)
@@ -957,6 +1018,21 @@ std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
             // ns_res is negative, the highest resolution is the max value.
             ns_res = std::max(ns_res, padfGeoTransform[GEOTRSFRM_NS_RES]);
         }
+        else if (resolutionStrategy == COMMON_RESOLUTION)
+        {
+            we_res = CPLGreatestCommonDivisor(
+                we_res, padfGeoTransform[GEOTRSFRM_WE_RES]);
+            if (we_res == 0)
+            {
+                return "Failed to get common resolution";
+            }
+            ns_res = CPLGreatestCommonDivisor(
+                ns_res, padfGeoTransform[GEOTRSFRM_NS_RES]);
+            if (ns_res == 0)
+            {
+                return "Failed to get common resolution";
+            }
+        }
         else
         {
             we_res = std::max(we_res, padfGeoTransform[GEOTRSFRM_WE_RES]);
@@ -964,6 +1040,8 @@ std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
             ns_res = std::min(ns_res, padfGeoTransform[GEOTRSFRM_NS_RES]);
         }
     }
+
+    checkNoDataValues(asBandProperties);
 
     return "";
 }
@@ -1661,7 +1739,7 @@ static bool add_file_to_list(const char *filename, const char *tile_index,
                              CPLStringList &aosList)
 {
 
-    if (EQUAL(CPLGetExtension(filename), "SHP"))
+    if (EQUAL(CPLGetExtensionSafe(filename).c_str(), "SHP"))
     {
         /* Handle gdaltindex Shapefile as a special case */
         auto poDS = std::unique_ptr<GDALDataset>(GDALDataset::Open(filename));
@@ -1729,6 +1807,7 @@ static bool add_file_to_list(const char *filename, const char *tile_index,
  */
 struct GDALBuildVRTOptions
 {
+    std::string osProgramName = "gdalbuildvrt";
     std::string osTileIndex = "location";
     bool bStrict = false;
     std::string osResolution{};
@@ -1878,6 +1957,10 @@ GDALDatasetH GDALBuildVRT(const char *pszDest, int nSrcCount,
         eStrategy = HIGHEST_RESOLUTION;
     else if (EQUAL(sOptions.osResolution.c_str(), "lowest"))
         eStrategy = LOWEST_RESOLUTION;
+    else if (EQUAL(sOptions.osResolution.c_str(), "same"))
+        eStrategy = SAME_RESOLUTION;
+    else if (EQUAL(sOptions.osResolution.c_str(), "common"))
+        eStrategy = COMMON_RESOLUTION;
 
     /* If -srcnodata is specified, use it as the -vrtnodata if the latter is not
      */
@@ -1902,6 +1985,7 @@ GDALDatasetH GDALBuildVRT(const char *pszDest, int nSrcCount,
         sOptions.osOutputSRS.empty() ? nullptr : sOptions.osOutputSRS.c_str(),
         sOptions.osResampling.empty() ? nullptr : sOptions.osResampling.c_str(),
         sOptions.aosOpenOptions.List(), sOptions.aosCreateOptions);
+    oBuilder.m_osProgramName = sOptions.osProgramName;
 
     return GDALDataset::ToHandle(
         oBuilder.Build(sOptions.pfnProgress, sOptions.pProgressData));
@@ -2010,7 +2094,7 @@ GDALBuildVRTOptionsGetParser(GDALBuildVRTOptions *psOptions,
                 "the default value which is 'location'."));
 
     argParser->add_argument("-resolution")
-        .metavar("user|average|highest|lowest")
+        .metavar("user|average|common|highest|lowest|same")
         .action(
             [psOptions](const std::string &s)
             {
@@ -2018,7 +2102,9 @@ GDALBuildVRTOptionsGetParser(GDALBuildVRTOptions *psOptions,
                 if (!EQUAL(psOptions->osResolution.c_str(), "user") &&
                     !EQUAL(psOptions->osResolution.c_str(), "average") &&
                     !EQUAL(psOptions->osResolution.c_str(), "highest") &&
-                    !EQUAL(psOptions->osResolution.c_str(), "lowest"))
+                    !EQUAL(psOptions->osResolution.c_str(), "lowest") &&
+                    !EQUAL(psOptions->osResolution.c_str(), "same") &&
+                    !EQUAL(psOptions->osResolution.c_str(), "common"))
                 {
                     throw std::invalid_argument(
                         CPLSPrintf("Illegal resolution value (%s).",
@@ -2171,6 +2257,10 @@ GDALBuildVRTOptionsGetParser(GDALBuildVRTOptions *psOptions,
         .help(_("Replaces the value of the source with the value of -vrtnodata "
                 "when the value of the mask band of the source is less or "
                 "equal to the threshold."));
+
+    argParser->add_argument("-program_name")
+        .store_into(psOptions->osProgramName)
+        .hidden();
 
     if (psOptionsForBinary)
     {

@@ -96,10 +96,25 @@ MAIN_START(argc, argv)
             GDALGetDriverByName(sOptionsForBinary.osFormat.c_str());
         if (hDriver == nullptr)
         {
+            auto poMissingDriver =
+                GetGDALDriverManager()->GetHiddenDriverByName(
+                    sOptionsForBinary.osFormat.c_str());
+            if (poMissingDriver)
+            {
+                const std::string msg =
+                    GDALGetMessageAboutMissingPluginDriver(poMissingDriver);
+                fprintf(stderr,
+                        "Output driver `%s' not found but is known. However "
+                        "plugin %s\n",
+                        sOptionsForBinary.osFormat.c_str(), msg.c_str());
+                GDALDestroyDriverManager();
+                exit(1);
+            }
+
             fprintf(stderr, "Output driver `%s' not recognised.\n",
                     sOptionsForBinary.osFormat.c_str());
-            fprintf(stderr, "The following format drivers are configured and "
-                            "support output:\n");
+            fprintf(stderr, "The following format drivers are enabled and "
+                            "support writing:\n");
             for (int iDr = 0; iDr < GDALGetDriverCount(); iDr++)
             {
                 hDriver = GDALGetDriver(iDr);
@@ -127,6 +142,13 @@ MAIN_START(argc, argv)
     /* -------------------------------------------------------------------- */
     /*      Attempt to open source file.                                    */
     /* -------------------------------------------------------------------- */
+
+    if (EQUAL(sOptionsForBinary.osFormat.c_str(), "ZARR") &&
+        CPLTestBool(sOptionsForBinary.aosCreateOptions.FetchNameValueDef(
+            "CONVERT_TO_KERCHUNK_PARQUET_REFERENCE", "FALSE")))
+    {
+        sOptionsForBinary.osSource = "ZARR_DUMMY:" + sOptionsForBinary.osSource;
+    }
 
     GDALDatasetH hDataset =
         GDALOpenEx(sOptionsForBinary.osSource.c_str(),
@@ -198,11 +220,12 @@ MAIN_START(argc, argv)
             char *pszSubDest = static_cast<char *>(
                 CPLMalloc(strlen(sOptionsForBinary.osDest.c_str()) + 32));
 
-            CPLString osPath = CPLGetPath(sOptionsForBinary.osDest.c_str());
-            CPLString osBasename =
-                CPLGetBasename(sOptionsForBinary.osDest.c_str());
-            CPLString osExtension =
-                CPLGetExtension(sOptionsForBinary.osDest.c_str());
+            const CPLString osPath =
+                CPLGetPathSafe(sOptionsForBinary.osDest.c_str());
+            const CPLString osBasename =
+                CPLGetBasenameSafe(sOptionsForBinary.osDest.c_str());
+            const CPLString osExtension =
+                CPLGetExtensionSafe(sOptionsForBinary.osDest.c_str());
             CPLString osTemp;
 
             const char *pszFormat = nullptr;
@@ -226,7 +249,7 @@ MAIN_START(argc, argv)
                 char *pszSource =
                     CPLStrdup(strstr(papszSubdatasets[i], "=") + 1);
                 osTemp = CPLSPrintf(pszFormat, osBasename.c_str(), i / 2 + 1);
-                osTemp = CPLFormFilename(osPath, osTemp, osExtension);
+                osTemp = CPLFormFilenameSafe(osPath, osTemp, osExtension);
                 strcpy(pszSubDest, osTemp.c_str());
                 hDataset = GDALOpenEx(pszSource, GDAL_OF_RASTER, nullptr,
                                       sOptionsForBinary.aosOpenOptions.List(),

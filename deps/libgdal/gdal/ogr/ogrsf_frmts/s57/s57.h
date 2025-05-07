@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  S-57 Translator
  * Purpose:  Declarations for S-57 translator not including the
@@ -309,8 +308,7 @@ class CPL_DLL S57Reader
     OGRFeature *AssembleFeature(DDFRecord *, OGRFeatureDefn *);
 
     void ApplyObjectClassAttributes(DDFRecord *, OGRFeature *);
-    // cppcheck-suppress functionStatic
-    void GenerateLNAMAndRefs(DDFRecord *, OGRFeature *);
+    static void GenerateLNAMAndRefs(DDFRecord *, OGRFeature *);
     void GenerateFSPTAttributes(DDFRecord *, OGRFeature *);
 
     void AssembleSoundingGeometry(DDFRecord *, OGRFeature *);

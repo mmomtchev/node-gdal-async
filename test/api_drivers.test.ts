@@ -57,7 +57,7 @@ describe('gdal.drivers', () => {
         DCAP_CREATE: 'YES'
       },
       MEM: {
-        DMD_LONGNAME: 'In Memory Raster',
+        DMD_LONGNAME: 'In Memory',
         DMD_MIMETYPE: undefined,
         DMD_EXTENSION: undefined,
         DCAP_CREATE: 'YES'
@@ -83,7 +83,7 @@ describe('gdal.drivers', () => {
 
         const metadata = driver.getMetadata() as driverMeta
         const expected_meta = expected[o]
-        assert.equal(expected_meta.DMD_LONGNAME, metadata.DMD_LONGNAME)
+        assert.include(metadata.DMD_LONGNAME, expected_meta.DMD_LONGNAME)
         assert.equal(expected_meta.DMD_MIMETYPE, metadata.DMD_MIMETYPE)
         assert.equal(expected_meta.DMD_EXTENSION, metadata.DMD_EXTENSION)
         assert.equal(expected_meta.DCAP_CREATE, metadata.DCAP_CREATE)

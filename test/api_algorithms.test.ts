@@ -464,6 +464,10 @@ describe('gdal', () => {
         assert.instanceOf(sources[0], Float64Array)
         assert.instanceOf(sources[1], Float64Array)
         assert.instanceOf(buffer, Float64Array)
+        if (args.SOURCE_NAMES) {
+          // GDAL 3.11 adds a new argument that is always present
+          delete args.SOURCE_NAMES
+        }
         assert.isEmpty(args)
         for (let i = 0; i < buffer.length; i++) {
           buffer[i] = sources[0][i] + sources[1][i] + 1
@@ -582,7 +586,7 @@ describe('gdal', () => {
     it('should pass any additional arguments', function () {
       if (!semver.gte(gdal.version, '3.5.0-git')) this.skip()
       const withArgs = (sources: gdal.TypedArray[], buffer: gdal.TypedArray, args: Record<string, string|number>) => {
-        assert.deepEqual(args, { s: 'stringArg', k: 20, t: 15, pi: 3.14 })
+        assert.include(args, { s: 'stringArg', k: 20, t: 15, pi: 3.14 })
         assert.isString(args.s)
         assert.isNumber(args.k)
         assert.isNumber(args.t)

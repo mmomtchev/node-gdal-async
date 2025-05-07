@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  OpenGIS Simple Features Reference Implementation
  * Purpose:  Definition of classes and functions used by SQLite and GPKG drivers
@@ -144,16 +143,33 @@ class OGRSQLiteBaseDataSource CPL_NON_FINAL : public GDALPamDataset
     bool InitSpatialite();
     void FinishSpatialite();
 
-    int bUserTransactionActive = FALSE;
-    int nSoftTransactionLevel = 0;
+    int m_bUserTransactionActive = FALSE;
+    int m_nSoftTransactionLevel = 0;
+    std::vector<std::string> m_aosSavepoints{};
+    // The transaction was implicitly started by SAVEPOINT
+    bool m_bImplicitTransactionOpened = false;
 
     OGRErr DoTransactionCommand(const char *pszCommand);
+
+    bool DealWithOgrSchemaOpenOption(CSLConstList papszOpenOptionsIn);
 
     CPL_DISALLOW_COPY_ASSIGN(OGRSQLiteBaseDataSource)
 
   public:
     OGRSQLiteBaseDataSource();
     virtual ~OGRSQLiteBaseDataSource();
+
+    std::string GetCurrentSavepoint() const
+    {
+        return m_aosSavepoints.empty() ? "" : m_aosSavepoints.back();
+    }
+
+    std::string GetFirstSavepoint() const
+    {
+        return m_aosSavepoints.empty() ? "" : m_aosSavepoints.front();
+    }
+
+    bool IsInTransaction() const;
 
     sqlite3 *GetDB()
     {
@@ -199,6 +215,15 @@ class OGRSQLiteBaseDataSource CPL_NON_FINAL : public GDALPamDataset
     OGRErr SoftStartTransaction();
     OGRErr SoftCommitTransaction();
     OGRErr SoftRollbackTransaction();
+    OGRErr StartSavepoint(const std::string &osName);
+    OGRErr ReleaseSavepoint(const std::string &osName);
+    OGRErr RollbackToSavepoint(const std::string &osName);
+
+    /**
+     *  Execute a SQL transaction command (BEGIN, COMMIT, ROLLBACK, SAVEPOINT)
+     *  @return TRUE if the osSQLCommand was recognized as a transaction command
+     */
+    bool ProcessTransactionSQL(const std::string &osSQLCommand);
 
     OGRErr PragmaCheck(const char *pszPragma, const char *pszExpected,
                        int nRowsExpected);
@@ -253,16 +278,15 @@ class IOGRSQLiteSelectLayer
     virtual int &GetIGeomFieldFilter() = 0;
     virtual OGRSpatialReference *GetSpatialRef() = 0;
     virtual OGRFeatureDefn *GetLayerDefn() = 0;
-    virtual int InstallFilter(OGRGeometry *) = 0;
+    virtual int InstallFilter(const OGRGeometry *) = 0;
     virtual int HasReadFeature() = 0;
     virtual void BaseResetReading() = 0;
     virtual OGRFeature *BaseGetNextFeature() = 0;
     virtual OGRErr BaseSetAttributeFilter(const char *pszQuery) = 0;
     virtual GIntBig BaseGetFeatureCount(int bForce) = 0;
     virtual int BaseTestCapability(const char *) = 0;
-    virtual OGRErr BaseGetExtent(OGREnvelope *psExtent, int bForce) = 0;
     virtual OGRErr BaseGetExtent(int iGeomField, OGREnvelope *psExtent,
-                                 int bForce) = 0;
+                                 bool bForce) = 0;
     virtual bool ValidateGeometryFieldIndexForSetSpatialFilter(
         int iGeomField, const OGRGeometry *poGeomIn, bool bIsSelectLayer) = 0;
 };
@@ -298,10 +322,10 @@ class OGRSQLiteSelectLayerCommonBehaviour
     void ResetReading();
     OGRFeature *GetNextFeature();
     GIntBig GetFeatureCount(int);
-    void SetSpatialFilter(int iGeomField, OGRGeometry *);
+    OGRErr SetSpatialFilter(int iGeomField, const OGRGeometry *);
     OGRErr SetAttributeFilter(const char *);
     int TestCapability(const char *);
-    OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent, int bForce);
+    OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent, bool bForce);
 };
 
 /************************************************************************/

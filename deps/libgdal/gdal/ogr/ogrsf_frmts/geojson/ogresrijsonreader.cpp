@@ -87,6 +87,8 @@ void OGRESRIJSONReader::ReadLayers(OGRGeoJSONDataSource *poDS,
 {
     CPLAssert(nullptr == poLayer_);
 
+    poDS->SetSupportsMGeometries(true);
+
     if (nullptr == poGJObject_)
     {
         CPLDebug("ESRIJSON",
@@ -96,13 +98,13 @@ void OGRESRIJSONReader::ReadLayers(OGRGeoJSONDataSource *poDS,
 
     OGRSpatialReference *poSRS = OGRESRIJSONReadSpatialReference(poGJObject_);
 
-    const char *pszName = "ESRIJSON";
+    std::string osName = "ESRIJSON";
     if (eSourceType == eGeoJSONSourceFile)
     {
-        pszName = poDS->GetDescription();
-        if (STARTS_WITH_CI(pszName, "ESRIJSON:"))
-            pszName += strlen("ESRIJSON:");
-        pszName = CPLGetBasename(pszName);
+        osName = poDS->GetDescription();
+        if (STARTS_WITH_CI(osName.c_str(), "ESRIJSON:"))
+            osName = osName.substr(strlen("ESRIJSON:"));
+        osName = CPLGetBasenameSafe(osName.c_str());
     }
 
     auto eGeomType = OGRESRIJSONGetGeometryType(poGJObject_);
@@ -141,7 +143,9 @@ void OGRESRIJSONReader::ReadLayers(OGRGeoJSONDataSource *poDS,
         }
     }
 
-    poLayer_ = new OGRGeoJSONLayer(pszName, poSRS, eGeomType, poDS, nullptr);
+    poLayer_ =
+        new OGRGeoJSONLayer(osName.c_str(), poSRS, eGeomType, poDS, nullptr);
+    poLayer_->SetSupportsMGeometries(true);
     if (poSRS != nullptr)
         poSRS->Release();
 

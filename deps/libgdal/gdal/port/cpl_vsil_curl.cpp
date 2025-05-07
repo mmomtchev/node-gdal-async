@@ -137,31 +137,59 @@ static void VSICURLReadGlobalEnvVariables()
         Initializer()
         {
             constexpr int DOWNLOAD_CHUNK_SIZE_DEFAULT = 16384;
+            const char *pszChunkSize =
+                CPLGetConfigOption("CPL_VSIL_CURL_CHUNK_SIZE", nullptr);
+            GIntBig nChunkSize = DOWNLOAD_CHUNK_SIZE_DEFAULT;
 
-            DOWNLOAD_CHUNK_SIZE_DO_NOT_USE_DIRECTLY = atoi(CPLGetConfigOption(
-                "CPL_VSIL_CURL_CHUNK_SIZE",
-                CPLSPrintf("%d", DOWNLOAD_CHUNK_SIZE_DEFAULT)));
+            if (pszChunkSize)
+            {
+                if (CPLParseMemorySize(pszChunkSize, &nChunkSize, nullptr) !=
+                    CE_None)
+                {
+                    CPLError(
+                        CE_Warning, CPLE_AppDefined,
+                        "Could not parse value for CPL_VSIL_CURL_CHUNK_SIZE. "
+                        "Using default value of %d instead.",
+                        DOWNLOAD_CHUNK_SIZE_DEFAULT);
+                }
+            }
+
             constexpr int MIN_CHUNK_SIZE = 1024;
             constexpr int MAX_CHUNK_SIZE = 10 * 1024 * 1024;
-            if (DOWNLOAD_CHUNK_SIZE_DO_NOT_USE_DIRECTLY < MIN_CHUNK_SIZE ||
-                DOWNLOAD_CHUNK_SIZE_DO_NOT_USE_DIRECTLY > MAX_CHUNK_SIZE)
+            if (nChunkSize < MIN_CHUNK_SIZE || nChunkSize > MAX_CHUNK_SIZE)
             {
-                DOWNLOAD_CHUNK_SIZE_DO_NOT_USE_DIRECTLY =
-                    DOWNLOAD_CHUNK_SIZE_DEFAULT;
+                nChunkSize = DOWNLOAD_CHUNK_SIZE_DEFAULT;
                 CPLError(CE_Warning, CPLE_AppDefined,
                          "Invalid value for CPL_VSIL_CURL_CHUNK_SIZE. "
                          "Allowed range is [%d, %d]. "
                          "Using CPL_VSIL_CURL_CHUNK_SIZE=%d instead",
                          MIN_CHUNK_SIZE, MAX_CHUNK_SIZE,
-                         DOWNLOAD_CHUNK_SIZE_DO_NOT_USE_DIRECTLY);
+                         DOWNLOAD_CHUNK_SIZE_DEFAULT);
             }
+            DOWNLOAD_CHUNK_SIZE_DO_NOT_USE_DIRECTLY =
+                static_cast<int>(nChunkSize);
 
             constexpr int N_MAX_REGIONS_DEFAULT = 1000;
             constexpr int CACHE_SIZE_DEFAULT =
                 N_MAX_REGIONS_DEFAULT * DOWNLOAD_CHUNK_SIZE_DEFAULT;
-            GIntBig nCacheSize = CPLAtoGIntBig(
-                CPLGetConfigOption("CPL_VSIL_CURL_CACHE_SIZE",
-                                   CPLSPrintf("%d", CACHE_SIZE_DEFAULT)));
+
+            const char *pszCacheSize =
+                CPLGetConfigOption("CPL_VSIL_CURL_CACHE_SIZE", nullptr);
+            GIntBig nCacheSize = CACHE_SIZE_DEFAULT;
+
+            if (pszCacheSize)
+            {
+                if (CPLParseMemorySize(pszCacheSize, &nCacheSize, nullptr) !=
+                    CE_None)
+                {
+                    CPLError(
+                        CE_Warning, CPLE_AppDefined,
+                        "Could not parse value for CPL_VSIL_CURL_CACHE_SIZE. "
+                        "Using default value of " CPL_FRMT_GIB " instead.",
+                        nCacheSize);
+                }
+            }
+
             const auto nMaxRAM = CPLGetUsablePhysicalRAM();
             const auto nMinVal = DOWNLOAD_CHUNK_SIZE_DO_NOT_USE_DIRECTLY;
             auto nMaxVal = static_cast<GIntBig>(INT_MAX) *
@@ -324,6 +352,7 @@ static std::string VSICurlGetURLFromFilename(
         }
 
         std::string osURL;
+        std::string osHeaders;
         for (int i = 0; papszTokens[i]; i++)
         {
             char *pszKey = nullptr;
@@ -405,6 +434,13 @@ static std::string VSICurlGetURLFromFilename(
                         *ppszPlanetaryComputerCollection = CPLStrdup(pszValue);
                     }
                 }
+                else if (STARTS_WITH(pszKey, "header."))
+                {
+                    osHeaders += (pszKey + strlen("header."));
+                    osHeaders += ':';
+                    osHeaders += pszValue;
+                    osHeaders += "\r\n";
+                }
                 else
                 {
                     CPLError(CE_Warning, CPLE_NotSupported,
@@ -413,6 +449,9 @@ static std::string VSICurlGetURLFromFilename(
             }
             CPLFree(pszKey);
         }
+
+        if (paosHTTPOptions && !osHeaders.empty())
+            paosHTTPOptions->SetNameValue("HEADERS", osHeaders.c_str());
 
         CSLDestroy(papszTokens);
         if (osURL.empty())
@@ -475,11 +514,15 @@ VSICurlHandle::~VSICurlHandle()
     {
         m_oThreadAdviseRead.join();
     }
+    if (m_hCurlMultiHandleForAdviseRead)
+    {
+        curl_multi_cleanup(m_hCurlMultiHandleForAdviseRead);
+    }
 
     if (!m_bCached)
     {
         poFS->InvalidateCachedData(m_pszURL);
-        poFS->InvalidateDirContent(CPLGetDirname(m_osFilename.c_str()));
+        poFS->InvalidateDirContent(CPLGetDirnameSafe(m_osFilename.c_str()));
     }
     CPLFree(m_pszURL);
 }
@@ -920,9 +963,6 @@ namespace cpl
 
 void VSICurlHandle::ManagePlanetaryComputerSigning() const
 {
-    if (!m_bPlanetaryComputerURLSigning)
-        return;
-
     // Take global lock
     static std::mutex goMutex;
     std::lock_guard<std::mutex> oLock(goMutex);
@@ -1039,6 +1079,43 @@ void VSICurlHandle::ManagePlanetaryComputerSigning() const
 }
 
 /************************************************************************/
+/*                        UpdateQueryString()                           */
+/************************************************************************/
+
+void VSICurlHandle::UpdateQueryString() const
+{
+    if (m_bPlanetaryComputerURLSigning)
+    {
+        ManagePlanetaryComputerSigning();
+    }
+    else
+    {
+        const char *pszQueryString = VSIGetPathSpecificOption(
+            m_osFilename.c_str(), "VSICURL_QUERY_STRING", nullptr);
+        if (pszQueryString)
+        {
+            if (m_osFilename.back() == '?')
+            {
+                if (pszQueryString[0] == '?')
+                    m_osQueryString = pszQueryString + 1;
+                else
+                    m_osQueryString = pszQueryString;
+            }
+            else
+            {
+                if (pszQueryString[0] == '?')
+                    m_osQueryString = pszQueryString;
+                else
+                {
+                    m_osQueryString = "?";
+                    m_osQueryString.append(pszQueryString);
+                }
+            }
+        }
+    }
+}
+
+/************************************************************************/
 /*                     GetFileSizeOrHeaders()                           */
 /************************************************************************/
 
@@ -1056,7 +1133,7 @@ vsi_l_offset VSICurlHandle::GetFileSizeOrHeaders(bool bSetError,
 
     CURLM *hCurlMultiHandle = poFS->GetCurlMultiHandleFor(m_pszURL);
 
-    ManagePlanetaryComputerSigning();
+    UpdateQueryString();
 
     std::string osURL(m_pszURL + m_osQueryString);
     bool bRetryWithGet = false;
@@ -1345,7 +1422,7 @@ retry:
                             if (osValue.size() >= 2 && osValue.front() == '"' &&
                                 osValue.back() == '"')
                                 osValue = osValue.substr(1, osValue.size() - 2);
-                            oFileProp.ETag = osValue;
+                            oFileProp.ETag = std::move(osValue);
                         }
 
                         // Azure Data Lake Storage
@@ -1829,7 +1906,7 @@ std::string VSICurlHandle::DownloadRegion(const vsi_l_offset startOffset,
 begin:
     CURLM *hCurlMultiHandle = poFS->GetCurlMultiHandleFor(m_pszURL);
 
-    ManagePlanetaryComputerSigning();
+    UpdateQueryString();
 
     bool bHasExpired = false;
 
@@ -2404,7 +2481,7 @@ int VSICurlHandle::ReadMultiRange(int const nRanges, void **const ppData,
                                                 panSizes);
     }
 
-    ManagePlanetaryComputerSigning();
+    UpdateQueryString();
 
     bool bHasExpired = false;
 
@@ -3070,7 +3147,7 @@ size_t VSICurlHandle::PRead(void *pBuffer, size_t nSize,
     std::string osURL;
     {
         std::lock_guard<std::mutex> oLock(m_oMutex);
-        ManagePlanetaryComputerSigning();
+        UpdateQueryString();
         bool bHasExpired;
         osURL = GetRedirectURLIfValid(bHasExpired, aosHTTPOptions);
     }
@@ -3206,6 +3283,31 @@ size_t VSICurlHandle::GetAdviseReadTotalBytesLimit() const
 }
 
 /************************************************************************/
+/*                       VSICURLMultiInit()                             */
+/************************************************************************/
+
+static CURLM *VSICURLMultiInit()
+{
+    CURLM *hCurlMultiHandle = curl_multi_init();
+
+    if (const char *pszMAXCONNECTS =
+            CPLGetConfigOption("GDAL_HTTP_MAX_CACHED_CONNECTIONS", nullptr))
+    {
+        curl_multi_setopt(hCurlMultiHandle, CURLMOPT_MAXCONNECTS,
+                          atoi(pszMAXCONNECTS));
+    }
+
+    if (const char *pszMAX_TOTAL_CONNECTIONS =
+            CPLGetConfigOption("GDAL_HTTP_MAX_TOTAL_CONNECTIONS", nullptr))
+    {
+        curl_multi_setopt(hCurlMultiHandle, CURLMOPT_MAX_TOTAL_CONNECTIONS,
+                          atoi(pszMAX_TOTAL_CONNECTIONS));
+    }
+
+    return hCurlMultiHandle;
+}
+
+/************************************************************************/
 /*                         AdviseRead()                                 */
 /************************************************************************/
 
@@ -3235,7 +3337,7 @@ void VSICurlHandle::AdviseRead(int nRanges, const vsi_l_offset *panOffsets,
         nMaxSize += panSizes[i];
     }
 
-    ManagePlanetaryComputerSigning();
+    UpdateQueryString();
 
     bool bHasExpired = false;
     CPLStringList aosHTTPOptions(m_aosHTTPOptions);
@@ -3307,9 +3409,11 @@ void VSICurlHandle::AdviseRead(int nRanges, const vsi_l_offset *panOffsets,
              static_cast<unsigned>(m_aoAdviseReadRanges.size()));
 #endif
 
+    // coverity[uninit_member,copy_constructor_call]
     const auto task = [this, aosHTTPOptions](const std::string &osURL)
     {
-        CURLM *hMultiHandle = curl_multi_init();
+        if (!m_hCurlMultiHandleForAdviseRead)
+            m_hCurlMultiHandleForAdviseRead = VSICURLMultiInit();
 
         NetworkStatisticsFileSystem oContextFS(poFS->GetFSPrefix().c_str());
         NetworkStatisticsFile oContextFile(m_osFilename.c_str());
@@ -3324,8 +3428,8 @@ void VSICurlHandle::AdviseRead(int nRanges, const vsi_l_offset *panOffsets,
         // results out of order.
         if (CPLTestBool(CPLGetConfigOption("GDAL_HTTP_MULTIPLEX", "YES")))
         {
-            curl_multi_setopt(hMultiHandle, CURLMOPT_PIPELINING,
-                              CURLPIPE_MULTIPLEX);
+            curl_multi_setopt(m_hCurlMultiHandleForAdviseRead,
+                              CURLMOPT_PIPELINING, CURLPIPE_MULTIPLEX);
         }
 #endif
 
@@ -3414,7 +3518,7 @@ void VSICurlHandle::AdviseRead(int nRanges, const vsi_l_offset *panOffsets,
             unchecked_curl_easy_setopt(hCurlHandle, CURLOPT_HTTPHEADER,
                                        headers);
             aHeaders.push_back(headers);
-            curl_multi_add_handle(hMultiHandle, hCurlHandle);
+            curl_multi_add_handle(m_hCurlMultiHandleForAdviseRead, hCurlHandle);
         }
 
         size_t nTotalDownloaded = 0;
@@ -3483,7 +3587,8 @@ void VSICurlHandle::AdviseRead(int nRanges, const vsi_l_offset *panOffsets,
         while (true)
         {
             int still_running;
-            while (curl_multi_perform(hMultiHandle, &still_running) ==
+            while (curl_multi_perform(m_hCurlMultiHandleForAdviseRead,
+                                      &still_running) ==
                    CURLM_CALL_MULTI_PERFORM)
             {
                 // loop
@@ -3497,14 +3602,15 @@ void VSICurlHandle::AdviseRead(int nRanges, const vsi_l_offset *panOffsets,
             do
             {
                 int msgq = 0;
-                msg = curl_multi_info_read(hMultiHandle, &msgq);
+                msg = curl_multi_info_read(m_hCurlMultiHandleForAdviseRead,
+                                           &msgq);
                 if (msg && (msg->msg == CURLMSG_DONE))
                 {
                     DealWithRequest(msg->easy_handle);
                 }
             } while (msg);
 
-            CPLMultiPerformWait(hMultiHandle, repeats);
+            CPLMultiPerformWait(m_hCurlMultiHandleForAdviseRead, repeats);
         }
         CPLHTTPRestoreSigPipeHandler(old_handler);
 
@@ -3515,7 +3621,8 @@ void VSICurlHandle::AdviseRead(int nRanges, const vsi_l_offset *panOffsets,
             {
                 DealWithRequest(aHandles[i]);
             }
-            curl_multi_remove_handle(hMultiHandle, aHandles[i]);
+            curl_multi_remove_handle(m_hCurlMultiHandleForAdviseRead,
+                                     aHandles[i]);
             VSICURLResetHeaderAndWriterFunctions(aHandles[i]);
             curl_easy_cleanup(aHandles[i]);
             CPLFree(apszRanges[i]);
@@ -3525,8 +3632,6 @@ void VSICurlHandle::AdviseRead(int nRanges, const vsi_l_offset *panOffsets,
         }
 
         NetworkStatisticsLogger::LogGET(nTotalDownloaded);
-
-        VSICURLMultiCleanup(hMultiHandle);
     };
     m_oThreadAdviseRead = std::thread(task, l_osURL);
 }
@@ -3723,7 +3828,7 @@ CURLM *VSICurlFilesystemHandlerBase::GetCurlMultiHandleFor(
     auto &conn = GetConnectionCache()[this];
     if (conn.hCurlMultiHandle == nullptr)
     {
-        conn.hCurlMultiHandle = curl_multi_init();
+        conn.hCurlMultiHandle = VSICURLMultiInit();
     }
     return conn.hCurlMultiHandle;
 }
@@ -4075,7 +4180,13 @@ const char *VSICurlFilesystemHandlerBase::GetActualURL(const char *pszFilename)
     "directory listing.' default='YES'/>"                                      \
     "  <Option name='CPL_VSIL_CURL_ADVISE_READ_TOTAL_BYTES_LIMIT' "            \
     "type='integer' description='Maximum number of bytes AdviseRead() is "     \
-    "allowed to fetch at once' default='104857600'/>"
+    "allowed to fetch at once' default='104857600'/>"                          \
+    "  <Option name='GDAL_HTTP_MAX_CACHED_CONNECTIONS' type='integer' "        \
+    "description='Maximum amount of connections that libcurl may keep alive "  \
+    "in its connection cache after use'/>"                                     \
+    "  <Option name='GDAL_HTTP_MAX_TOTAL_CONNECTIONS' type='integer' "         \
+    "description='Maximum number of simultaneously open connections in "       \
+    "total'/>"
 
 const char *VSICurlFilesystemHandlerBase::GetOptionsStatic()
 {
@@ -4211,11 +4322,11 @@ VSIVirtualHandle *VSICurlFilesystemHandlerBase::Open(const char *pszFilename,
                             cachedFileProp) &&
           cachedFileProp.eExists == EXIST_YES) &&
         strchr(CPLGetFilename(osFilename.c_str()), '.') != nullptr &&
-        !STARTS_WITH(CPLGetExtension(osFilename.c_str()), "zip") &&
+        !STARTS_WITH(CPLGetExtensionSafe(osFilename.c_str()).c_str(), "zip") &&
         !bSkipReadDir)
     {
         char **papszFileList = ReadDirInternal(
-            (std::string(CPLGetDirname(osFilename.c_str())) + '/').c_str(), 0,
+            (CPLGetDirnameSafe(osFilename.c_str()) + '/').c_str(), 0,
             &bGotFileList);
         const bool bFound =
             VSICurlIsFileInList(papszFileList,
@@ -5230,13 +5341,14 @@ int VSICurlFilesystemHandlerBase::Stat(const char *pszFilename,
         return -1;
     }
     else if (strchr(CPLGetFilename(osFilename.c_str()), '.') != nullptr &&
-             !STARTS_WITH_CI(CPLGetExtension(osFilename.c_str()), "zip") &&
+             !STARTS_WITH_CI(CPLGetExtensionSafe(osFilename.c_str()).c_str(),
+                             "zip") &&
              strstr(osFilename.c_str(), ".zip.") != nullptr &&
              strstr(osFilename.c_str(), ".ZIP.") != nullptr && !bSkipReadDir)
     {
         bool bGotFileList = false;
         char **papszFileList = ReadDirInternal(
-            CPLGetDirname(osFilename.c_str()), 0, &bGotFileList);
+            CPLGetDirnameSafe(osFilename.c_str()).c_str(), 0, &bGotFileList);
         const bool bFound =
             VSICurlIsFileInList(papszFileList,
                                 CPLGetFilename(osFilename.c_str())) != -1;
@@ -5266,44 +5378,6 @@ int VSICurlFilesystemHandlerBase::Stat(const char *pszFilename,
         pStatBuf->st_mode = poHandle->IsDirectory() ? S_IFDIR : S_IFREG;
     delete poHandle;
     return nRet;
-}
-
-/************************************************************************/
-/*                               Unlink()                               */
-/************************************************************************/
-
-int VSICurlFilesystemHandlerBase::Unlink(const char * /* pszFilename */)
-{
-    return -1;
-}
-
-/************************************************************************/
-/*                               Rename()                               */
-/************************************************************************/
-
-int VSICurlFilesystemHandlerBase::Rename(const char * /* oldpath */,
-                                         const char * /* newpath */)
-{
-    return -1;
-}
-
-/************************************************************************/
-/*                               Mkdir()                                */
-/************************************************************************/
-
-int VSICurlFilesystemHandlerBase::Mkdir(const char * /* pszDirname */,
-                                        long /* nMode */)
-{
-    return -1;
-}
-
-/************************************************************************/
-/*                               Rmdir()                                */
-/************************************************************************/
-
-int VSICurlFilesystemHandlerBase::Rmdir(const char * /* pszDirname */)
-{
-    return -1;
 }
 
 /************************************************************************/
@@ -5407,15 +5481,16 @@ char **VSICurlFilesystemHandlerBase::ReadDirInternal(const char *pszDirname,
 /*                        InvalidateDirContent()                        */
 /************************************************************************/
 
-void VSICurlFilesystemHandlerBase::InvalidateDirContent(const char *pszDirname)
+void VSICurlFilesystemHandlerBase::InvalidateDirContent(
+    const std::string &osDirname)
 {
     CPLMutexHolder oHolder(&hMutex);
 
     CachedDirList oCachedDirList;
-    if (oCacheDirList.tryGet(std::string(pszDirname), oCachedDirList))
+    if (oCacheDirList.tryGet(osDirname, oCachedDirList))
     {
         nCachedFilesInDirList -= oCachedDirList.oFileList.size();
-        oCacheDirList.remove(std::string(pszDirname));
+        oCacheDirList.remove(osDirname);
     }
 }
 
@@ -5437,7 +5512,7 @@ char **VSICurlFilesystemHandlerBase::SiblingFiles(const char *pszFilename)
 {
     /* Small optimization to avoid unnecessary stat'ing from PAux or ENVI */
     /* drivers. The MBTiles driver needs no companion file. */
-    if (EQUAL(CPLGetExtension(pszFilename), "mbtiles"))
+    if (EQUAL(CPLGetExtensionSafe(pszFilename).c_str(), "mbtiles"))
     {
         return static_cast<char **>(CPLCalloc(1, sizeof(char *)));
     }
@@ -6133,12 +6208,12 @@ struct curl_slist *VSICurlSetContentTypeFromExt(struct curl_slist *poList,
         {"png", "image/png"},
     };
 
-    const char *pszExt = CPLGetExtension(pszPath);
-    if (pszExt)
+    const std::string osExt = CPLGetExtensionSafe(pszPath);
+    if (!osExt.empty())
     {
         for (const auto &pair : aosExtMimePairs)
         {
-            if (EQUAL(pszExt, pair.ext))
+            if (EQUAL(osExt.c_str(), pair.ext))
             {
 
                 const std::string osContentType(

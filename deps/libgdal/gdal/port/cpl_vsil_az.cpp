@@ -54,46 +54,15 @@ const char GDAL_MARKER_FOR_DIR[] = ".gdal_marker_for_dir";
 /*                             VSIDIRAz                                 */
 /************************************************************************/
 
-struct VSIDIRAz : public VSIDIRWithMissingDirSynthesis
+struct VSIDIRAz : public VSIDIRS3Like
 {
-    int nRecurseDepth = 0;
-
-    std::string osNextMarker{};
-    int nPos = 0;
-
-    std::string osBucket{};
-    std::string osObjectKey{};
-    IVSIS3LikeFSHandler *poFS = nullptr;
-    std::unique_ptr<IVSIS3LikeHandleHelper> poHandleHelper{};
-    int nMaxFiles = 0;
-    bool bCacheEntries = true;
-    bool m_bSynthetizeMissingDirectories = false;
-    std::string m_osFilterPrefix{};
-
-    explicit VSIDIRAz(IVSIS3LikeFSHandler *poFSIn) : poFS(poFSIn)
+    explicit VSIDIRAz(IVSIS3LikeFSHandler *poFSIn) : VSIDIRS3Like(poFSIn)
     {
     }
 
-    VSIDIRAz(const VSIDIRAz &) = delete;
-    VSIDIRAz &operator=(const VSIDIRAz &) = delete;
-
-    const VSIDIREntry *NextDirEntry() override;
-
-    bool IssueListDir();
+    bool IssueListDir() override;
     bool AnalyseAzureFileList(const std::string &osBaseURL, const char *pszXML);
-    void clear();
 };
-
-/************************************************************************/
-/*                                clear()                               */
-/************************************************************************/
-
-void VSIDIRAz::clear()
-{
-    osNextMarker.clear();
-    nPos = 0;
-    aoEntries.clear();
-}
 
 /************************************************************************/
 /*                        AnalyseAzureFileList()                        */
@@ -460,37 +429,6 @@ bool VSIDIRAz::IssueListDir()
 }
 
 /************************************************************************/
-/*                           NextDirEntry()                             */
-/************************************************************************/
-
-const VSIDIREntry *VSIDIRAz::NextDirEntry()
-{
-    constexpr int ARBITRARY_LIMIT = 10;
-    for (int i = 0; i < ARBITRARY_LIMIT; ++i)
-    {
-        if (nPos < static_cast<int>(aoEntries.size()))
-        {
-            auto &entry = aoEntries[nPos];
-            nPos++;
-            return entry.get();
-        }
-        if (osNextMarker.empty())
-        {
-            return nullptr;
-        }
-        if (!IssueListDir())
-        {
-            return nullptr;
-        }
-    }
-    CPLError(CE_Failure, CPLE_AppDefined,
-             "More than %d consecutive List Blob "
-             "requests returning no blobs",
-             ARBITRARY_LIMIT);
-    return nullptr;
-}
-
-/************************************************************************/
 /*                       VSIAzureFSHandler                              */
 /************************************************************************/
 
@@ -828,33 +766,43 @@ int VSIAzureFSHandler::Stat(const char *pszFilename, VSIStatBufL *pStatBuf,
         return nRet;
     }
 
-    if (osFilename.find('/', GetFSPrefix().size()) == std::string::npos)
+    if (osFilename.size() > GetFSPrefix().size() &&
+        osFilename.find('/', GetFSPrefix().size()) == std::string::npos)
     {
         osFilename += "/";
     }
 
-    if (osFilename.size() > GetFSPrefix().size())
+    // Special case for container
+    std::string osFilenameWithoutEndSlash(osFilename);
+    if (osFilename.size() > GetFSPrefix().size() &&
+        osFilenameWithoutEndSlash.back() == '/')
+        osFilenameWithoutEndSlash.pop_back();
+    if (osFilenameWithoutEndSlash.find('/', GetFSPrefix().size()) ==
+        std::string::npos)
     {
-        // Special case for container
-        std::string osFilenameWithoutEndSlash(osFilename);
-        if (osFilenameWithoutEndSlash.back() == '/')
-            osFilenameWithoutEndSlash.resize(osFilenameWithoutEndSlash.size() -
-                                             1);
-        if (osFilenameWithoutEndSlash.find('/', GetFSPrefix().size()) ==
-            std::string::npos)
+        char **papszFileList = ReadDir(GetFSPrefix().c_str());
+        if (osFilename.size() == GetFSPrefix().size())
         {
-            char **papszFileList = ReadDir(GetFSPrefix().c_str());
-            const int nIdx = CSLFindString(
-                papszFileList,
-                osFilenameWithoutEndSlash.substr(GetFSPrefix().size()).c_str());
             CSLDestroy(papszFileList);
-            if (nIdx >= 0)
+            if (papszFileList)
             {
                 pStatBuf->st_mtime = 0;
                 pStatBuf->st_size = 0;
                 pStatBuf->st_mode = S_IFDIR;
                 return 0;
             }
+            return -1;
+        }
+        const int nIdx = CSLFindString(
+            papszFileList,
+            osFilenameWithoutEndSlash.substr(GetFSPrefix().size()).c_str());
+        CSLDestroy(papszFileList);
+        if (nIdx >= 0)
+        {
+            pStatBuf->st_mtime = 0;
+            pStatBuf->st_size = 0;
+            pStatBuf->st_mode = S_IFDIR;
+            return 0;
         }
     }
 
@@ -1241,7 +1189,8 @@ void VSIAzureWriteHandle::InvalidateParentDirectory()
     std::string osFilenameWithoutSlash(m_osFilename);
     if (!osFilenameWithoutSlash.empty() && osFilenameWithoutSlash.back() == '/')
         osFilenameWithoutSlash.pop_back();
-    m_poFS->InvalidateDirContent(CPLGetDirname(osFilenameWithoutSlash.c_str()));
+    m_poFS->InvalidateDirContent(
+        CPLGetDirnameSafe(osFilenameWithoutSlash.c_str()));
 }
 
 /************************************************************************/
@@ -1456,7 +1405,7 @@ void VSIAzureFSHandler::InvalidateRecursive(const std::string &osDirnameIn)
     {
         InvalidateDirContent(osDirname.c_str());
         InvalidateCachedData(GetURLFromFilename(osDirname.c_str()).c_str());
-        osDirname = CPLGetDirname(osDirname.c_str());
+        osDirname = CPLGetDirnameSafe(osDirname.c_str());
     }
 }
 
@@ -1470,7 +1419,7 @@ int VSIAzureFSHandler::Unlink(const char *pszFilename)
     if (ret != 0)
         return ret;
 
-    InvalidateRecursive(CPLGetDirname(pszFilename));
+    InvalidateRecursive(CPLGetDirnameSafe(pszFilename));
     return 0;
 }
 
@@ -1736,7 +1685,7 @@ int VSIAzureFSHandler::MkdirInternal(const char *pszDirname, long /* nMode */,
     InvalidateCachedData(GetURLFromFilename(osDirname.c_str()).c_str());
     InvalidateCachedData(
         GetURLFromFilename(osDirnameWithoutEndSlash.c_str()).c_str());
-    InvalidateDirContent(CPLGetDirname(osDirnameWithoutEndSlash.c_str()));
+    InvalidateDirContent(CPLGetDirnameSafe(osDirnameWithoutEndSlash.c_str()));
 
     VSILFILE *fp = VSIFOpenL((osDirname + GDAL_MARKER_FOR_DIR).c_str(), "wb");
     if (fp != nullptr)
@@ -1898,7 +1847,7 @@ int VSIAzureFSHandler::Rmdir(const char *pszDirname)
     InvalidateCachedData(GetURLFromFilename(osDirname.c_str()).c_str());
     InvalidateCachedData(
         GetURLFromFilename(osDirnameWithoutEndSlash.c_str()).c_str());
-    InvalidateRecursive(CPLGetDirname(osDirnameWithoutEndSlash.c_str()));
+    InvalidateRecursive(CPLGetDirnameSafe(osDirnameWithoutEndSlash.c_str()));
     if (osDirnameWithoutEndSlash.find('/', GetFSPrefix().size()) ==
         std::string::npos)
     {
@@ -2168,7 +2117,8 @@ int VSIAzureFSHandler::CopyObject(const char *oldpath, const char *newpath,
                 osFilenameWithoutSlash.resize(osFilenameWithoutSlash.size() -
                                               1);
 
-            InvalidateDirContent(CPLGetDirname(osFilenameWithoutSlash.c_str()));
+            InvalidateDirContent(
+                CPLGetDirnameSafe(osFilenameWithoutSlash.c_str()));
         }
 
         curl_easy_cleanup(hCurlHandle);
@@ -2527,7 +2477,6 @@ VSIDIR *VSIAzureFSHandler::OpenDir(const char *pszPath, int nRecurseDepth,
 
     VSIDIRAz *dir = new VSIDIRAz(this);
     dir->nRecurseDepth = nRecurseDepth;
-    dir->poFS = this;
     dir->poHandleHelper = std::move(poHandleHelper);
     dir->osBucket = std::move(osBucket);
     dir->osObjectKey = std::move(osObjectKey);

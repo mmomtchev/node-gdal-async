@@ -367,7 +367,7 @@ class digital_axis
 
   protected:
     int m_eStyle;
-    size_t m_fixedEnd;
+    int m_fixedEnd;
     double m_d[2];
 };
 
@@ -1444,7 +1444,7 @@ GDALDataset *LevellerDataset::Open(GDALOpenInfo *poOpenInfo)
         return nullptr;
 
     const int version = poOpenInfo->pabyHeader[4];
-    if (version < 4 || version > 9)
+    if (version < 4 || version > 12)
         return nullptr;
 
     /* -------------------------------------------------------------------- */

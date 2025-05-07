@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  GeoPackage Translator
  * Purpose:  Utility header for OGR GeoPackage driver.
@@ -89,11 +88,20 @@ bool OGRSQLiteRTreeRequiresTrustedSchemaOn();
 
 bool OGRSQLiteIsSpatialFunctionReturningGeometry(const char *pszName);
 
+/* Wrapper of sqlite3_prepare_v2() that emits a CPLError() if failure */
+int SQLPrepareWithError(sqlite3 *db, const char *sql, int nByte,
+                        sqlite3_stmt **ppStmt, const char **pzTail);
+
 class GDALDataset;
 
 void OGRSQLite_gdal_get_pixel_value_common(const char *pszFunctionName,
                                            sqlite3_context *pContext, int argc,
                                            sqlite3_value **argv,
                                            GDALDataset *poDS);
+
+#if defined(DEBUG) || defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION) ||     \
+    defined(ALLOW_FORMAT_DUMPS)
+bool SQLCheckLineIsSafe(const char *pszLine);
+#endif
 
 #endif  // OGR_SQLITEUTILITY_H_INCLUDED

@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  OpenGIS Simple Features Reference Implementation
  * Purpose:  C API and constant declarations for OGR Spatial References.
@@ -19,6 +18,7 @@
 
 #ifndef SWIG
 #include "ogr_core.h"
+#include "gdal_fwd.h"
 
 CPL_C_START
 
@@ -421,22 +421,6 @@ const char CPL_DLL *OSRAxisEnumToName(OGRAxisOrientation eOrientation);
 /* -------------------------------------------------------------------- */
 /*      C Wrappers for C++ objects and methods.                         */
 /* -------------------------------------------------------------------- */
-#ifndef DEFINED_OGRSpatialReferenceH
-/*! @cond Doxygen_Suppress */
-#define DEFINED_OGRSpatialReferenceH
-/*! @endcond */
-
-#ifdef DEBUG
-typedef struct OGRSpatialReferenceHS *OGRSpatialReferenceH;
-typedef struct OGRCoordinateTransformationHS *OGRCoordinateTransformationH;
-#else
-/** Opaque type for a Spatial Reference object */
-typedef void *OGRSpatialReferenceH;
-/** Opaque type for a coordinate transformation object */
-typedef void *OGRCoordinateTransformationH;
-#endif
-
-#endif
 
 void CPL_DLL OSRSetPROJSearchPaths(const char *const *papszPaths);
 char CPL_DLL **OSRGetPROJSearchPaths(void);
@@ -911,7 +895,7 @@ OGRErr CPL_DLL OSRSetTPED(OGRSpatialReferenceH hSRS, double dfLat1,
 OGRErr CPL_DLL OSRSetVDG(OGRSpatialReferenceH hSRS, double dfCenterLong,
                          double dfFalseEasting, double dfFalseNorthing);
 
-/** Wagner I -- VII */
+/** Wagner I \-- VII */
 OGRErr CPL_DLL OSRSetWagner(OGRSpatialReferenceH hSRS, int nVariation,
                             double dfCenterLat, double dfFalseEasting,
                             double dfFalseNorthing);
@@ -1012,10 +996,6 @@ char CPL_DLL **OSRGetAuthorityListFromDatabase(void);
 /* -------------------------------------------------------------------- */
 OGRCoordinateTransformationH CPL_DLL CPL_STDCALL OCTNewCoordinateTransformation(
     OGRSpatialReferenceH hSourceSRS, OGRSpatialReferenceH hTargetSRS);
-
-/** Coordinate transformation options. */
-typedef struct OGRCoordinateTransformationOptions
-    *OGRCoordinateTransformationOptionsH;
 
 OGRCoordinateTransformationOptionsH CPL_DLL
 OCTNewCoordinateTransformationOptions(void);

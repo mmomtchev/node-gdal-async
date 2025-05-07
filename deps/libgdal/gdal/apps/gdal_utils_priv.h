@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  GDAL Utilities
  * Purpose:  GDAL Utilities Private Declarations.
@@ -20,8 +19,7 @@
 #include "cpl_string.h"
 #include "gdal_utils.h"
 
-/* This file is only meant at being used by the XXXX_bin.cpp and XXXX_lib.cpp
- * files */
+/* This file is only meant at being used by the XXXX_bin.cpp and XXXX_lib.cpp */
 
 CPL_C_START
 
@@ -73,6 +71,15 @@ struct GDALVectorTranslateOptionsForBinary
 
     /* Allowed input drivers. */
     CPLStringList aosAllowInputDrivers{};
+};
+
+struct GDALContourOptionsForBinary
+{
+    CPLStringList aosOpenOptions{};
+    CPLStringList aosCreationOptions{};
+    bool bQuiet = false;
+    std::string osDestDataSource{};
+    std::string osSrcDataSource{};
 };
 
 struct GDALMultiDimInfoOptionsForBinary
@@ -179,6 +186,7 @@ struct GDALTranslateOptionsForBinary
     bool bQuiet = false;
     bool bCopySubDatasets = false;
     CPLStringList aosOpenOptions{};
+    CPLStringList aosCreateOptions{};
     std::string osFormat{};
 
     /* Allowed input drivers. */
@@ -230,6 +238,8 @@ std::string CPL_DLL GDALMultiDimInfoAppGetParserUsage();
 
 std::string CPL_DLL GDALGridGetParserUsage();
 
+std::string CPL_DLL GDALContourGetParserUsage();
+
 std::string CPL_DLL GDALBuildVRTGetParserUsage();
 
 std::string CPL_DLL GDALTileIndexAppGetParserUsage();
@@ -245,6 +255,13 @@ std::string CPL_DLL GDALRasterizeAppGetParserUsage();
  */
 std::string CPL_DLL
 GDALDEMAppGetParserUsage(const std::string &osProcessingMode);
+
+GDALDatasetH GDALTileIndexInternal(const char *pszDest,
+                                   GDALDatasetH hTileIndexDS, OGRLayerH hLayer,
+                                   int nSrcCount,
+                                   const char *const *papszSrcDSNames,
+                                   const GDALTileIndexOptions *psOptionsIn,
+                                   int *pbUsageError);
 
 #endif /* #ifndef DOXYGEN_SKIP */
 

@@ -109,6 +109,8 @@ void *GDALCreateSimilarTransformer(void *psTransformerArg, double dfSrcRatioX,
    to image coordinates on another, potentially doing reprojection,
    utilizing GCPs or using the geotransform. */
 
+const char CPL_DLL *GDALGetGenImgProjTranformerOptionList(void);
+
 void CPL_DLL *
 GDALCreateGenImgProjTransformer(GDALDatasetH hSrcDS, const char *pszSrcWKT,
                                 GDALDatasetH hDstDS, const char *pszDstWKT,
@@ -116,7 +118,7 @@ GDALCreateGenImgProjTransformer(GDALDatasetH hSrcDS, const char *pszSrcWKT,
                                 int nOrder);
 void CPL_DLL *GDALCreateGenImgProjTransformer2(GDALDatasetH hSrcDS,
                                                GDALDatasetH hDstDS,
-                                               char **papszOptions);
+                                               CSLConstList papszOptions);
 void CPL_DLL *GDALCreateGenImgProjTransformer3(
     const char *pszSrcWKT, const double *padfSrcGeoTransform,
     const char *pszDstWKT, const double *padfDstGeoTransform);
@@ -165,6 +167,16 @@ int CPL_DLL GDALGCPTransform(void *pTransformArg, int bDstToSrc,
                              int nPointCount, double *x, double *y, double *z,
                              int *panSuccess);
 
+/* Homography transformer ... forward is to georef coordinates */
+void CPL_DLL *GDALCreateHomographyTransformer(double adfHomography[9]);
+void CPL_DLL *
+GDALCreateHomographyTransformerFromGCPs(int nGCPCount,
+                                        const GDAL_GCP *pasGCPList);
+void CPL_DLL GDALDestroyHomographyTransformer(void *pTransformArg);
+int CPL_DLL GDALHomographyTransform(void *pTransformArg, int bDstToSrc,
+                                    int nPointCount, double *x, double *y,
+                                    double *z, int *panSuccess);
+
 /* Thin Plate Spine transformer ... forward is to georef coordinates */
 
 void CPL_DLL *GDALCreateTPSTransformer(int nGCPCount,
@@ -202,7 +214,7 @@ void CPL_DLL *GDALCreateRPCTransformerV1(GDALRPCInfoV1 *psRPC, int bReversed,
 void CPL_DLL *GDALCreateRPCTransformerV2(const GDALRPCInfoV2 *psRPC,
                                          int bReversed,
                                          double dfPixErrThreshold,
-                                         char **papszOptions);
+                                         CSLConstList papszOptions);
 
 void CPL_DLL GDALDestroyRPCTransformer(void *pTransformArg);
 int CPL_DLL GDALRPCTransform(void *pTransformArg, int bDstToSrc,

@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  CPL - Common Portability Library
  * Author:   Frank Warmerdam, warmerdam@pobox.com
@@ -26,10 +25,10 @@
  *
  * Standard C Covers
  *
- * The VSI functions are intended to be hookable aliases for Standard C
- * I/O, memory allocation and other system functions. They are intended
- * to allow virtualization of disk I/O so that non file data sources
- * can be made to appear as files, and so that additional error trapping
+ * The VSI (Virtual System Interface) functions are intended to be hookable
+ * aliases for Standard C I/O, memory allocation and other system functions.
+ * They are intended to allow virtualization of disk I/O so that non file data
+ * sources can be made to appear as files, and so that additional error trapping
  * and reporting can be interested.  The memory access API is aliased
  * so that special application memory management services can be used.
  *
@@ -381,6 +380,8 @@ char CPL_DLL **VSIReadDir(const char *);
 char CPL_DLL **VSIReadDirRecursive(const char *pszPath);
 char CPL_DLL **VSIReadDirEx(const char *pszPath, int nMaxFiles);
 char CPL_DLL **VSISiblingFiles(const char *pszPath);
+char CPL_DLL **VSIGlob(const char *pszPattern, const char *const *papszOptions,
+                       GDALProgressFunc pProgressFunc, void *pProgressData);
 
 const char CPL_DLL *VSIGetDirectorySeparator(const char *pszPath);
 
@@ -435,6 +436,9 @@ int CPL_DLL VSIRmdirRecursive(const char *pszDirname);
 int CPL_DLL VSIUnlink(const char *pszFilename);
 int CPL_DLL *VSIUnlinkBatch(CSLConstList papszFiles);
 int CPL_DLL VSIRename(const char *oldpath, const char *newpath);
+int CPL_DLL VSIMove(const char *oldpath, const char *newpath,
+                    const char *const *papszOptions,
+                    GDALProgressFunc pProgressFunc, void *pProgressData);
 int CPL_DLL VSICopyFile(const char *pszSource, const char *pszTarget,
                         VSILFILE *fpSource, vsi_l_offset nSourceSize,
                         const char *const *papszOptions,

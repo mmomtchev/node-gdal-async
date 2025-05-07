@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  OpenGIS Simple Features Reference Implementation
  * Purpose:  Define some core portability services for cross-platform OGR code.
@@ -607,6 +606,7 @@ int CPL_DLL OGR_GT_IsCurve(OGRwkbGeometryType);
 int CPL_DLL OGR_GT_IsSurface(OGRwkbGeometryType);
 int CPL_DLL OGR_GT_IsNonLinear(OGRwkbGeometryType);
 OGRwkbGeometryType CPL_DLL OGR_GT_GetCollection(OGRwkbGeometryType eType);
+OGRwkbGeometryType CPL_DLL OGR_GT_GetSingle(OGRwkbGeometryType eType);
 OGRwkbGeometryType CPL_DLL OGR_GT_GetCurve(OGRwkbGeometryType eType);
 OGRwkbGeometryType CPL_DLL OGR_GT_GetLinear(OGRwkbGeometryType eType);
 

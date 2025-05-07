@@ -66,10 +66,13 @@ toff_t GTIFFWriteDirectory(TIFF *hTIFF, int nSubfileType, int nXSize,
 {
     const toff_t nBaseDirOffset = TIFFCurrentDirOffset(hTIFF);
 
-    // This is a bit of a hack to cause (*tif->tif_cleanup)(tif); to be called.
-    // See https://trac.osgeo.org/gdal/ticket/2055
+#if !(defined(INTERNAL_LIBTIFF) || TIFFLIB_VERSION > 20240911)
+    // This is a bit of a hack to cause (*tif->tif_cleanup)(tif); to be
+    // called. See https://trac.osgeo.org/gdal/ticket/2055
+    // Fixed in libtiff > 4.7.0
     TIFFSetField(hTIFF, TIFFTAG_COMPRESSION, COMPRESSION_NONE);
     TIFFFreeDirectory(hTIFF);
+#endif
 
     TIFFCreateDirectory(hTIFF);
 
@@ -368,6 +371,13 @@ CPLErr GTIFFBuildOverviewsEx(const char *pszFilename, int nBands,
                 nBandFormat = SAMPLEFORMAT_INT;
                 break;
 
+            case GDT_Float16:
+                // Convert Float16 to float.
+                // TODO: At some point we should support Float16.
+                nBandBits = 32;
+                nBandFormat = SAMPLEFORMAT_IEEEFP;
+                break;
+
             case GDT_Float32:
                 nBandBits = 32;
                 nBandFormat = SAMPLEFORMAT_IEEEFP;
@@ -386,6 +396,13 @@ CPLErr GTIFFBuildOverviewsEx(const char *pszFilename, int nBands,
             case GDT_CInt32:
                 nBandBits = 64;
                 nBandFormat = SAMPLEFORMAT_COMPLEXINT;
+                break;
+
+            case GDT_CFloat16:
+                // Convert Float16 to float.
+                // TODO: At some point we should support Float16.
+                nBandBits = 64;
+                nBandFormat = SAMPLEFORMAT_COMPLEXIEEEFP;
                 break;
 
             case GDT_CFloat32:

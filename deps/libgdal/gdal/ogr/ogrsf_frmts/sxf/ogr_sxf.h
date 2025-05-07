@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  SXF Translator
  * Purpose:  Include file defining classes for OGR SXF driver, datasource and
@@ -81,13 +80,8 @@ class OGRSXFLayer final : public OGRLayer
     virtual int TestCapability(const char *) override;
 
     virtual GIntBig GetFeatureCount(int bForce = TRUE) override;
-    virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
-
-    virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
-                             int bForce) override
-    {
-        return OGRLayer::GetExtent(iGeomField, psExtent, bForce);
-    }
+    virtual OGRErr IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                              bool bForce) override;
 
     virtual OGRSpatialReference *GetSpatialRef() override;
     virtual const char *GetFIDColumn() override;

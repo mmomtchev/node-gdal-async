@@ -574,7 +574,7 @@ static void ProcessCurve(OGRFeature *poFeature, const CPLString &osPen,
         else
             poSC = new OGRLineString();
         const double dfArcStepSize =
-            CPLAtofM(CPLGetConfigOption("OGR_ARC_STEPSIZE", "4"));
+            OGRGeometryFactory::GetDefaultArcStepSize();
         if (!ellipse.isNull())
         {
             nPoints = std::max(2, static_cast<int>(360 / dfArcStepSize));
@@ -1583,10 +1583,11 @@ OGRErr OGRDGNV8Layer::DeleteFeature(GIntBig nFID)
 }
 
 /************************************************************************/
-/*                             GetExtent()                              */
+/*                            IGetExtent()                              */
 /************************************************************************/
 
-OGRErr OGRDGNV8Layer::GetExtent(OGREnvelope *psExtent, int bForce)
+OGRErr OGRDGNV8Layer::IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                                 bool bForce)
 {
     OdDgModel::StorageUnitDescription description;
     m_pModel->getStorageUnit(description);
@@ -1634,7 +1635,7 @@ OGRErr OGRDGNV8Layer::GetExtent(OGREnvelope *psExtent, int bForce)
     }
     if (bValid)
         return OGRERR_NONE;
-    return OGRLayer::GetExtent(psExtent, bForce);
+    return OGRLayer::IGetExtent(iGeomField, psExtent, bForce);
 }
 
 /************************************************************************/

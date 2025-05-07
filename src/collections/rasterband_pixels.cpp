@@ -256,7 +256,7 @@ static inline int64_t findHighest(int64_t w, int64_t h, int64_t px, int64_t ln, 
 }
 
 /**
- * @typedef {Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array} TypedArray
+ * @typedef {Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | import('@petamoriken/float16').Float16Array | Float32Array | Float64Array} TypedArray
  * @memberof RasterBandPixels
  */
 

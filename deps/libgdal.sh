@@ -5,8 +5,8 @@ set -eu
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR/libgdal"
 
-GDAL_VERSION=3.10.2
-GDAL_VERSION_SUFFIX=
+GDAL_VERSION=3.11.0
+GDAL_VERSION_SUFFIX=rc2
 dir_gdal=./gdal
 dir_formats_gyp=./gyp-formats
 dir_gyp_templates=./gyp-templates
@@ -35,20 +35,20 @@ done
 # create format gyps
 #
 
-GDAL_FORMATS="gtiff hfa aigrid aaigrid ceos ceos2 iso8211 xpm
-	sdts raw dted mem jdem envisat elas fit vrt usgsdem l1b
-	nitf bmp pcidsk airsar rs2 ilwis rmf leveller sgi srtmhgt
+GDAL_FORMATS="gtiff hfa aigrid aaigrid ceos ceos2 iso8211
+	raw dted mem jdem envisat vrt usgsdem l1b
+	nitf bmp pcidsk airsar rs2 ilwis rmf leveller srtmhgt
 	idrisi gsg ers jaxapalsar dimap gff cosar pds adrg
-	coasp tsx terragen blx til r northwood saga xyz hf2
+	coasp tsx terragen til northwood saga xyz hf2
 	kmlsuperoverlay ctg zmap ngsgeoid iris map
 	jpeg openjpeg png mbtiles wms wmts hdf5 grib netcdf wcs
-	zlib gti
+	zlib gti libertiff
 	${OPT_GDAL_FORMATS:-}"
 
-OGR_FORMATS="shape vrt avc geojson mem mitab kml gpx
-	dxf csv edigeo geoconcept georss gml gmt gpsbabel
-	idrisi dgn openfilegdb pds pgdump s57 sdts
-	svg sxf ntf wasp sqlite gpkg mvt osm flatgeobuf carto
+OGR_FORMATS="shape vrt avc geojson mitab kml gpx
+	dxf csv edigeo georss gml gmlutils gmt gpsbabel
+	idrisi dgn openfilegdb pds pgdump s57
+	sxf wasp sqlite gpkg mvt osm flatgeobuf carto
 	jsonfg pmtiles"
 
 mkdir -p $dir_formats_gyp
@@ -145,6 +145,8 @@ function generate_formats() {
 
 mkdir -p gdal/gcore/gdal_version_full
 cp gdal/gcore/gdal_version.h gdal/gcore/gdal_version_full/
+
+cp gdal/ogr/ogr_sfcgal.h.in gdal/ogr/ogr_sfcgal.h
 
 generate_formats "$GDAL_FORMATS" "${dir_gdal}/frmts"
 generate_formats "$OGR_FORMATS" "${dir_gdal}/ogr/ogrsf_frmts" "ogr_"

@@ -81,5 +81,14 @@ describe('Open', () => {
         assert.instanceOf(o, gdal.RasterBand)
       }
     })
+
+    it('with bundled GDAL, should support LIBERTIFF', () => {
+      const driver = gdal.drivers.get('LIBERTIFF')
+      filename = path.join(__dirname, 'data/sample.tif')
+      ds = driver.open(filename)
+      assert.instanceOf(ds, gdal.Dataset)
+      assert.strictEqual(ds.driver.description, 'LIBERTIFF')
+      assert.strictEqual(ds.threadSafe, true)
+    })
   })
 })
