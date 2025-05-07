@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - Add the new `LIBERTIFF` driver
  - Initial `Float16` support through the [`@petamoriken/float16`](https://www.npmjs.com/package/@petamoriken/float16) polyfill with GDAL >= 3.11
  - `Int64` and `UInt64` support through `BigInt64Array` and `BigUint64Array` with GDAL >= 3.5
+ - Native `ExprTk` support with GDAL 3.11, the old JS `ExprTk` support via the `gdal-exprtk` plugin is still available but won't be maintained anymore
 
 ### Changed
  - All `read` and `write` functions now use generics in TypeScript, deduction is automatic in many cases, but if TypeScript cannot deduce the type, it should be specified manually: `const data: Uint8Array = band.pixels.read(0, 0, w, h)` should become `const data = band.pixels.read<Uint8Array>(0, 0, w, h)`, pure JavaScript is not affected
