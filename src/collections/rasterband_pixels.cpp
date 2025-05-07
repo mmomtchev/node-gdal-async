@@ -256,9 +256,7 @@ static inline int64_t findHighest(int64_t w, int64_t h, int64_t px, int64_t ln, 
 }
 
 /**
- * @typedef {Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | import('@petamoriken/float16').Float16Array | Float32Array | Float64Array} TypedArray_number
- * @typedef {BigInt64Array | BigUint64Array} TypedArray_BigInt
- * @typedef {TypedArray_number | TypedArray_BigInt} TypedArray
+ * @typedef {T extends number ? Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | import('@petamoriken/float16').Float16Array | Float32Array | Float64Array : T extends bigint ? BigInt64Array | BigUint64Array : never} TypedArray<T = number>
  * @memberof RasterBandPixels
  */
 
@@ -279,7 +277,7 @@ static inline int64_t findHighest(int64_t w, int64_t h, int64_t px, int64_t ln, 
 /**
  * Reads a region of pixels.
  *
- * @method read<T extends TypedArray = TypedArray_number>
+ * @method read<T extends TypedArray<number> | TypedArray<bigint> = TypedArray<number>>
  * @instance
  * @memberof RasterBandPixels
  * @throws {Error}
@@ -303,7 +301,7 @@ static inline int64_t findHighest(int64_t w, int64_t h, int64_t px, int64_t ln, 
  * Asynchronously reads a region of pixels.
  * @async
  *
- * @method readAsync<T extends TypedArray = TypedArray_number>
+ * @method readAsync<T extends TypedArray<number> | TypedArray<bigint> = TypedArray<number>>
  * @instance
  * @memberof RasterBandPixels
  * @param {number} x
@@ -443,7 +441,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
 /**
  * Writes a region of pixels.
  *
- * @method write<T extends TypedArray = TypedArray_number>
+ * @method write<T extends TypedArray<number> | TypedArray<bigint> = TypedArray<number>>
  * @instance
  * @memberof RasterBandPixels
  * @throws {Error}
@@ -464,7 +462,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
  * Asynchronously writes a region of pixels.
  * @async
  *
- * @method writeAsync<T extends TypedArray = TypedArray_number>
+ * @method writeAsync<T extends TypedArray<number> | TypedArray<bigint> = TypedArray<number>>
  * @instance
  * @memberof RasterBandPixels
  * @param {number} x
@@ -568,7 +566,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::write) {
 /**
  * Reads a block of pixels.
  *
- * @method readBlock<T extends TypedArray = TypedArray_number>
+ * @method readBlock<T extends TypedArray<number> | TypedArray<bigint> = TypedArray<number>>
  * @instance
  * @memberof RasterBandPixels
  * @throws {Error}
@@ -582,7 +580,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::write) {
  * Reads a block of pixels.
  * @async
  *
- * @method readBlockAsync<T extends TypedArray = TypedArray_number>
+ * @method readBlockAsync<T extends TypedArray<number> | TypedArray<bigint> = TypedArray<number>>
  * @instance
  * @memberof RasterBandPixels
  * @throws {Error}
@@ -644,7 +642,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::readBlock) {
 /**
  * Writes a block of pixels.
  *
- * @method writeBlock<T extends TypedArray = TypedArray_number>
+ * @method writeBlock<T extends TypedArray<number> | TypedArray<bigint> = TypedArray<number>>
  * @instance
  * @memberof RasterBandPixels
  * @throws {Error}
@@ -657,7 +655,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::readBlock) {
  * Writes a block of pixels.
  * @async
  *
- * @method writeBlockAsync<T extends TypedArray = TypedArray_number>
+ * @method writeBlockAsync<T extends TypedArray<number> | TypedArray<bigint> = TypedArray<number>>
  * @instance
  * @memberof RasterBandPixels
  * @throws {Error}
