@@ -898,6 +898,24 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @type {string}
    */
   Nan::Set(target, Nan::New("GDT_Int32").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Int32)).ToLocalChecked());
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 5)
+  /**
+   * Sixty four bit signed integer
+   * @final
+   * @constant
+   * @name GDT_Int64
+   * @type {string}
+   */
+  Nan::Set(target, Nan::New("GDT_Int64").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Int64)).ToLocalChecked());
+  /**
+   * Sixty four bit unsigned integer
+   * @final
+   * @constant
+   * @name GDT_UInt64
+   * @type {string}
+   */
+  Nan::Set(target, Nan::New("GDT_UInt64").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_UInt64)).ToLocalChecked());
+#endif
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 11)
   /**
    * Sixteen bit floating point

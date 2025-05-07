@@ -1,6 +1,9 @@
 {
   "compilerOptions": {
     "downlevelIteration": true,
+    "target": "es2020",
+    "moduleResolution": "node",
+    "module": "commonjs",
     "strict": true,
     "strictNullChecks": true
   }

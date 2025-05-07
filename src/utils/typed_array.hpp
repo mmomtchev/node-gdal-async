@@ -18,15 +18,17 @@ namespace node_gdal {
 
 // V8 Typed Arrays
 //
-// Int8Array    1  8-bit twos complement  signed integer  signed char
-// Uint8Array   1  8-bit unsigned integer  unsigned  char
-// Int16Array   2  16-bit twos complement  signed integer  short
-// Uint16Array  2  16-bit unsigned integer  unsigned short
-// Int32Array   4  32-bit twos complement  signed integer  int
-// Uint32Array  4  32-bit unsigned integer  unsigned int
-// Float16Array 2  16-bit IEEE floating point number  GFloat16 (GDAL type)
-// Float32Array 4  32-bit IEEE floating point number  float
-// Float64Array 8  64-bit IEEE floating point number  double
+// Int8Array      1  8-bit twos complement  signed integer  signed char
+// Uint8Array     1  8-bit unsigned integer  unsigned  char
+// Int16Array     2  16-bit twos complement  signed integer  short
+// Uint16Array    2  16-bit unsigned integer  unsigned short
+// Int32Array     4  32-bit twos complement  signed integer  int
+// Uint32Array    4  32-bit unsigned integer  unsigned int
+// BigInt64Array  8 64-bit signed integer GInt64 (GDAL type)
+// BigUint64Array 8 64-bit unsigned integer GUInt64 (GDAL type)
+// Float16Array   2  16-bit IEEE floating point number  GFloat16 (GDAL type)
+// Float32Array   4  32-bit IEEE floating point number  float
+// Float64Array   8  64-bit IEEE floating point number  double
 
 // GDALDataType {
 //   GDT_Unknown = 0,
@@ -41,7 +43,8 @@ namespace node_gdal {
 //   GDT_CInt32 = 9,
 //   GDT_CFloat32 = 10,
 //   GDT_CFloat64 = 11,
-//   GDT_TypeCount = 12,
+//   GDT_UInt64 = 12,
+//   GDT_Int64 = 13,
 //   GDT_Float16 = 15,
 //   GDT_CFloat16 = 16
 // }
