@@ -557,6 +557,9 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::_acquireLocks) {
  * You can check the `gdal-exprtk` plugin for an implementation
  * which uses ExprTk expressions.
  *
+ * As of GDAL 3.11, this method is obsolete, since GDAL now
+ * has native support for ExprTk expressions.
+ *
  * @throws {Error}
  * @method addPixelFunc
  * @static
@@ -753,8 +756,8 @@ static CPLErr pixelFunc(
  * even when using async I/O, the pixel function will be called on the main thread.
  * This can lead to increased latency when serving network requests.
  *
- * You can check the `gdal-exprtk` plugin for an alternative
- * which uses ExprTk expressions and does not suffer from this problem.
+ * ExprTk pixel functions are usually a better alternative, as these can
+ * be evaluated in background threads without soliciting the JS engine.
  *
  * As GDAL does not allow unregistering a previously registered pixel functions,
  * each call of this method will produce a permanently registered pixel function.
