@@ -615,7 +615,7 @@ describe('gdal.RasterBand', () => {
           assert.equal(data.length, w * h)
           assert.equal(data[10 * 20 + 10], 10)
         })
-        it('should support reading Int64', () => {
+        it('should support creating BigInt64Array', () => {
           const ds = gdal.open(`${__dirname}/data/sample.tif`)
           const band = ds.bands.get(1)
           const w = 20
@@ -636,13 +636,13 @@ describe('gdal.RasterBand', () => {
           assert.equal(data.length, w * h)
           assert.equal(data[10 * 20 + 10], BigInt(10))
         })
-        it('should support creating BigInt64Array', () => {
+        it('should support reading Int64', () => {
           const ds = gdal.open(`${__dirname}/data/sample.tif`)
           const band = ds.bands.get(1)
           const w = 20
           const h = 30
           const data = new BigInt64Array(new ArrayBuffer(w * h * BigInt64Array.BYTES_PER_ELEMENT))
-          band.pixels.read(190, 290, w, h, data)
+          band.pixels.read(190, 290, w, h)
           assert.instanceOf(data, BigInt64Array)
           assert.equal(data.length, w * h)
           assert.equal(data[10 * 20 + 10], 10n)

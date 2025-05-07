@@ -23,6 +23,8 @@ Local<Value> TypedArray::New(GDALDataType type, int64_t length) {
     case GDT_UInt16: name = "Uint16Array"; break;
     case GDT_Int32: name = "Int32Array"; break;
     case GDT_UInt32: name = "Uint32Array"; break;
+    case GDT_Int64: name = "BigInt64Array"; break;
+    case GDT_UInt64: name = "BigUint64Array"; break;
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 11)
     case GDT_Float16: name = "Float16Array"; break;
 #endif
