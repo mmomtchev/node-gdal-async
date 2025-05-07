@@ -1360,7 +1360,7 @@ describe('gdal.RasterBand', () => {
               const band = ds1.bands.get(1)
               let calls = 0
               let prevComplete = 0
-              data = band.pixels.read(0, 0, ds1.rasterSize.x, ds1.rasterSize.y, undefined, {
+              data = band.pixels.read<Uint8Array>(0, 0, ds1.rasterSize.x, ds1.rasterSize.y, undefined, {
                 progress_cb: (complete): void => {
                   calls++
                   assert.isAbove(complete, prevComplete)

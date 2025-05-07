@@ -196,7 +196,7 @@ findHighest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDi
 }
 
 /**
- * @typedef {object} MDArrayOptions<T extends TypedArray = TypedArray_number>
+ * @typedef {object} MDArrayOptions<T extends TypedArray<number> | TypedArray<bigint> = TypedArray<number>>
  * @property {number[]} origin
  * @property {number[]} span
  * @property {number[]} [stride]
@@ -214,7 +214,7 @@ findHighest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDi
  *
  * Although this method can be used in its raw form, it works best when used with the ndarray plugin.
  *
- * @method read<T extends TypedArray = TypedArray_number>
+ * @method read<T extends TypedArray<number> | TypedArray<bigint> = TypedArray<number>>
  * @instance
  * @memberof MDArray
  * @throws {Error}
@@ -237,7 +237,7 @@ findHighest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDi
  *
  * Although this method can be used in its raw form, it works best when used with the ndarray plugin.
  *
- * @method readAsync<T extends TypedArray = TypedArray_number>
+ * @method readAsync<T extends TypedArray<number> | TypedArray<bigint> = TypedArray<number>>
  * @instance
  * @memberof MDArray
  * @throws {Error}
