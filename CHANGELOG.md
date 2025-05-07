@@ -13,12 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - Add `libaec` and AEC encoding support for GRIB2 files - including those provided by Météo France
  - Add the new `LIBERTIFF` driver
  - Initial `Float16` support through the [`@petamoriken/float16`](https://www.npmjs.com/package/@petamoriken/float16) polyfill
+ - `Int64` and `UInt64` support through `BigInt64Array` and `BigUint64Array`, requires manual casting in TypeScript to avoid rendering `read`/`write` difficult to use with plain numbers
 
 ### Changed
  - Fix the `gdal.info()` example
  - Fix [mmomtchev/node-gdal-async#204](https://github.com/mmomtchev/node-gdal-async/issues/204), define `HAVE_TIFF` for other drivers using built-in TIFF support
 
 ### Removed
+ - `node-gdal-async` now requires ES2020 support
  - Drop all obsolete in GDAL 3.11 drivers, including `SDTS`
 
 ## [3.10.2] 2025-03-09

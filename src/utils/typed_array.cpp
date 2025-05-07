@@ -87,6 +87,8 @@ Local<Value> TypedArray::New(GDALDataType type, void *data, int64_t length) {
     case GDT_UInt16: name = "Uint16Array"; break;
     case GDT_Int32: name = "Int32Array"; break;
     case GDT_UInt32: name = "Uint32Array"; break;
+    case GDT_Int64: name = "BigInt64Array"; break;
+    case GDT_UInt64: name = "BigUint64Array"; break;
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 11)
     case GDT_Float16: throw "Float16Array cannot be created at the moment, pass an existing array"; break;
 #endif
@@ -171,6 +173,16 @@ void *TypedArray::Validate(Local<Object> obj, GDALDataType type, int64_t min_len
     }
     case GDT_UInt32: {
       Nan::TypedArrayContents<GUInt32> contents(obj);
+      if (ValidateLength(contents.length(), min_length)) return NULL;
+      return *contents;
+    }
+    case GDT_Int64: {
+      Nan::TypedArrayContents<GInt64> contents(obj);
+      if (ValidateLength(contents.length(), min_length)) return NULL;
+      return *contents;
+    }
+    case GDT_UInt64: {
+      Nan::TypedArrayContents<GUInt64> contents(obj);
       if (ValidateLength(contents.length(), min_length)) return NULL;
       return *contents;
     }

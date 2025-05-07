@@ -216,5 +216,12 @@ export default [
         ...globals.browser
       }
     }
+  },
+  {
+    files: [ 'lib/gdal.js' ],
+
+    languageOptions: {
+      ecmaVersion: 2020
+    }
   }
 ]

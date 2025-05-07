@@ -615,6 +615,28 @@ describe('gdal.RasterBand', () => {
           assert.equal(data.length, w * h)
           assert.equal(data[10 * 20 + 10], 10)
         })
+        it('should support reading Int64', () => {
+          const ds = gdal.open(`${__dirname}/data/sample.tif`)
+          const band = ds.bands.get(1)
+          const w = 20
+          const h = 30
+          const data = new BigInt64Array(new ArrayBuffer(w * h * BigInt64Array.BYTES_PER_ELEMENT))
+          band.pixels.read(190, 290, w, h, data as unknown as Uint8Array)
+          assert.instanceOf(data, BigInt64Array)
+          assert.equal(data.length, w * h)
+          assert.equal(data[10 * 20 + 10], 10n)
+        })
+        it('should support reading UInt64', () => {
+          const ds = gdal.open(`${__dirname}/data/sample.tif`)
+          const band = ds.bands.get(1)
+          const w = 20
+          const h = 30
+          const data = new BigUint64Array(new ArrayBuffer(w * h * BigUint64Array.BYTES_PER_ELEMENT))
+          band.pixels.read(190, 290, w, h, data as unknown as Uint8Array)
+          assert.instanceOf(data, BigUint64Array)
+          assert.equal(data.length, w * h)
+          assert.equal(data[10 * 20 + 10], BigInt(10))
+        })
         // Until https://tc39.es/proposal-float16array/#sec-float16array
         // gets implemented we are relying on
         // https://www.npmjs.com/package/@petamoriken/float16
