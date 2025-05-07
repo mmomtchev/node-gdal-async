@@ -196,12 +196,12 @@ findHighest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDi
 }
 
 /**
- * @typedef {object} MDArrayOptions
+ * @typedef {object} MDArrayOptions<T extends TypedArray = TypedArray_number>
  * @property {number[]} origin
  * @property {number[]} span
  * @property {number[]} [stride]
  * @property {string} [data_type]
- * @property {TypedArray} [data]
+ * @property {T} [data]
  * @property {number} [_offset]
  */
 
@@ -214,17 +214,17 @@ findHighest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDi
  *
  * Although this method can be used in its raw form, it works best when used with the ndarray plugin.
  *
- * @method read
+ * @method read<T extends TypedArray = TypedArray_number>
  * @instance
  * @memberof MDArray
  * @throws {Error}
- * @param {MDArrayOptions} options
+ * @param {MDArrayOptions<T>} options
  * @param {number[]} options.origin An array of the starting indices
  * @param {number[]} options.span An array specifying the number of elements to read in each dimension
  * @param {number[]} [options.stride] An array of strides for the output array, mandatory if the array is specified
  * @param {string} [options.data_type] See {@link GDT|GDT constants}
- * @param {TypedArray} [options.data] The `TypedArray` to put the data in. A new array is created if not given.
- * @return {TypedArray}
+ * @param {T} [options.data] The `TypedArray` to put the data in. A new array is created if not given.
+ * @return {T}
  */
 
 /**
@@ -237,19 +237,19 @@ findHighest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDi
  *
  * Although this method can be used in its raw form, it works best when used with the ndarray plugin.
  *
- * @method readAsync
+ * @method readAsync<T extends TypedArray = TypedArray_number>
  * @instance
  * @memberof MDArray
  * @throws {Error}
- * @param {MDArrayOptions} options
+ * @param {MDArrayOptions<T>} options
  * @param {number[]} options.origin An array of the starting indices
  * @param {number[]} options.span An array specifying the number of elements to read in each dimension
  * @param {number[]} [options.stride] An array of strides for the output array, mandatory if the array is specified
  * @param {string} [options.data_type] See {@link GDT|GDT constants}
- * @param {TypedArray} [options.data] The `TypedArray` to put the data in. A new array is created if not given.
+ * @param {T} [options.data] The `TypedArray` to put the data in. A new array is created if not given.
  * @param {ProgressCb} [options.progress_cb]
- * @param {callback<TypedArray>} [callback=undefined]
- * @return {Promise<TypedArray>} A `TypedArray` of values.
+ * @param {callback<T>} [callback=undefined]
+ * @return {Promise<T>} A `TypedArray` of values.
  */
 GDAL_ASYNCABLE_DEFINE(MDArray::read) {
 

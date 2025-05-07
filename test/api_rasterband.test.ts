@@ -621,7 +621,7 @@ describe('gdal.RasterBand', () => {
           const w = 20
           const h = 30
           const data = new BigInt64Array(new ArrayBuffer(w * h * BigInt64Array.BYTES_PER_ELEMENT))
-          band.pixels.read(190, 290, w, h, data as unknown as Uint8Array)
+          band.pixels.read(190, 290, w, h, data)
           assert.instanceOf(data, BigInt64Array)
           assert.equal(data.length, w * h)
           assert.equal(data[10 * 20 + 10], 10n)
@@ -927,7 +927,7 @@ describe('gdal.RasterBand', () => {
                 gdal.GDT_Byte
               )
               const band = ds.bands.get(1)
-              const data = band.pixels.read(0, 0, 20, 30, undefined, {
+              const data = band.pixels.read<Uint8Array>(0, 0, 20, 30, undefined, {
                 buffer_width: 10,
                 buffer_height: 15
               })
@@ -1324,10 +1324,10 @@ describe('gdal.RasterBand', () => {
             it('should support non-standard resampling', () => {
               let i
 
-              let data
-              data = band_stripes.pixels.read(0, 0, w, h, undefined, { buffer_width: w / 4, buffer_height: h / 4, resampling: gdal.GRA_Average })
+              let data: Uint8Array
+              data = band_stripes.pixels.read<Uint8Array>(0, 0, w, h, undefined, { buffer_width: w / 4, buffer_height: h / 4, resampling: gdal.GRA_Average })
               for (i = 0; i < data.length; i++) assert.equal(data[i], 50)
-              data = band_stripes.pixels.read(0, 0, w, h, undefined, { buffer_width: w / 4, buffer_height: h / 4, resampling: gdal.GRA_Bilinear })
+              data = band_stripes.pixels.read<Uint8Array>(0, 0, w, h, undefined, { buffer_width: w / 4, buffer_height: h / 4, resampling: gdal.GRA_Bilinear })
               for (i = 0; i < data.length; i++) assert.include([ 46, 54 ], data[i])
             })
           })
