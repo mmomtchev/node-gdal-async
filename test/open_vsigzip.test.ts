@@ -57,6 +57,7 @@ describe('Open', () => {
             featureCode: 15600,
             featureDescription: 'Water Feature'
           })
+          layer2.features.first()
         })
       })
     })
