@@ -4,10 +4,7 @@ import * as fs from 'fs'
 import * as cp from 'child_process'
 import { assert } from 'chai'
 import * as fileUtils from './utils/file'
-import * as chai from 'chai'
-import * as chaiAsPromised from 'chai-as-promised'
 import * as semver from 'semver'
-chai.use(chaiAsPromised)
 
 const NAD83_WKT =
   'PROJCS["NAD_1983_UTM_Zone_10N",' +

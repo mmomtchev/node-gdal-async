@@ -1,8 +1,7 @@
 import * as gdal from 'gdal-async'
-import * as chai from 'chai'
+import { assert } from 'chai'
 import * as path from 'path'
 import * as semver from 'semver'
-const assert: Chai.Assert = chai.assert
 
 describe('gdal.wrapVRT()', () => {
   const sample = path.resolve(__dirname, 'data', 'sample.tif')

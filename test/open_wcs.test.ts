@@ -1,9 +1,6 @@
 import * as gdal from 'gdal-async'
-import * as chai from 'chai'
-const assert: Chai.Assert = chai.assert
-import * as chaiAsPromised from 'chai-as-promised'
+import { assert } from 'chai'
 import * as semver from 'semver'
-chai.use(chaiAsPromised)
 
 const wcsURL = 'WCS:https://demo.mapserver.org/cgi-bin/wcs?VERSION=1.0.0&COVERAGE=ndvi'
 

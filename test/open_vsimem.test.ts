@@ -1,10 +1,7 @@
 import * as gdal from 'gdal-async'
 import * as path from 'path'
 import * as fs from 'fs'
-import * as chai from 'chai'
-import * as chaiAsPromised from 'chai-as-promised'
-const assert: Chai.Assert = chai.assert
-chai.use(chaiAsPromised)
+import { assert } from 'chai'
 
 describe('Open', () => {
   afterEach(() => void global.gc!())

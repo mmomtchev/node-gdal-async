@@ -2,9 +2,6 @@ import * as gdal from 'gdal-async'
 import * as fs from 'fs'
 import * as path from 'path'
 import { assert } from 'chai'
-import * as chai from 'chai'
-import * as chaiAsPromised from 'chai-as-promised'
-chai.use(chaiAsPromised)
 
 describe('gdal.fs', () => {
   describe('stat()', () => {
