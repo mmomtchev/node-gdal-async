@@ -1,8 +1,5 @@
 import * as gdal from 'gdal-async'
-import * as chai from 'chai'
-const assert: Chai.Assert = chai.assert
-import * as chaiAsPromised from 'chai-as-promised'
-chai.use(chaiAsPromised)
+import { assert } from 'chai'
 
 const shomTides = 'WMTS:https://services.data.shom.fr/INSPIRE/wmts?request=GetCapabilities&service=WMTS&version=1.0.0,layer=ZONES_MAREE_PYR_PNG_3857_WMTS'
 

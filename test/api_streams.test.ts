@@ -1,10 +1,9 @@
 import * as gdal from 'gdal-async'
 import { Transform, finished as _finished } from 'stream'
 import { promisify } from 'util'
-import * as chai from 'chai'
+import { assert } from 'chai'
 import * as path from 'path'
 import * as semver from 'semver'
-const assert: Chai.Assert = chai.assert
 const finished = promisify(_finished)
 
 type doneCb = (err?: unknown) => void

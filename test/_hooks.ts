@@ -1,6 +1,10 @@
 import * as gdal from 'gdal-async'
 import * as os from 'os'
 
+import * as chai from 'chai'
+import * as chaiAsPromised from 'chai-as-promised'
+chai.use(chaiAsPromised)
+
 let noFailNet = function (this: Mocha.Context) {
   let test: Mocha.Suite | Mocha.Test | undefined = this.currentTest
   while (test) {

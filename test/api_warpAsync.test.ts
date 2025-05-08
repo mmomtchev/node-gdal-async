@@ -1,8 +1,5 @@
 import * as gdal from 'gdal-async'
-import * as chaiAsPromised from 'chai-as-promised'
-import * as chai from 'chai'
-const assert: Chai.Assert = chai.assert
-chai.use(chaiAsPromised)
+import { assert } from 'chai'
 import * as semver from 'semver'
 
 describe('gdal', () => {

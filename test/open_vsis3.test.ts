@@ -1,9 +1,6 @@
 import * as gdal from 'gdal-async'
-import * as chai from 'chai'
+import { assert } from 'chai'
 import * as semver from 'semver'
-const assert: Chai.Assert = chai.assert
-import * as chaiAsPromised from 'chai-as-promised'
-chai.use(chaiAsPromised)
 
 describe('Open', () => {
   if (!semver.gte(gdal.version, '2.3.0')) {

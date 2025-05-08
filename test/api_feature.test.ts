@@ -42,6 +42,7 @@ describe('gdal.Feature', () => {
         fields[0].justification = 'invalid'
       }, /Unrecognized justification/)
       assert.strictEqual(fields[0].justification, gdal.OJLeft)
+      fields[0].justification = gdal.OJUndefined
     })
     it('"width" property', () => {
       const def = fields[0].width
@@ -77,12 +78,14 @@ describe('gdal.Feature', () => {
       assert.strictEqual(defn.geomIgnored, false)
       defn.geomIgnored = true
       assert.strictEqual(defn.geomIgnored, true)
+      defn.geomIgnored = false
     })
 
     it('styleIgnored should accept and return a Boolean', () => {
       assert.strictEqual(defn.styleIgnored, false)
       defn.styleIgnored = true
       assert.strictEqual(defn.styleIgnored, true)
+      defn.styleIgnored = false
     })
   })
 

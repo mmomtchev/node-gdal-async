@@ -1,10 +1,7 @@
 import * as gdal from 'gdal-async'
-import * as chai from 'chai'
-import * as chaiAsPromised from 'chai-as-promised'
+import { assert } from 'chai'
 import * as fs from 'fs'
 import * as path from 'path'
-const assert: Chai.Assert = chai.assert
-chai.use(chaiAsPromised)
 import * as semver from 'semver'
 
 const WGS84 =

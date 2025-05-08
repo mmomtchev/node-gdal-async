@@ -2,10 +2,7 @@ import * as gdal from 'gdal-async'
 import * as path from 'path'
 import { assert } from 'chai'
 import * as fileUtils from './utils/file'
-import * as chai from 'chai'
-import * as chaiAsPromised from 'chai-as-promised'
 import * as semver from 'semver'
-chai.use(chaiAsPromised)
 
 if (Symbol.asyncIterator) {
   describe('gdal.Dataset', () => {

@@ -1,11 +1,7 @@
-import * as chaiAsPromised from 'chai-as-promised'
-import * as chai from 'chai'
-const assert: Chai.Assert = chai.assert
 import * as gdal from 'gdal-async'
-import * as fileUtils from './utils/file'
+import { assert } from 'chai'
 import * as semver from 'semver'
-
-chai.use(chaiAsPromised)
+import * as fileUtils from './utils/file'
 
 describe('gdal.LayerAsync', () => {
   afterEach(() => void global.gc!())
