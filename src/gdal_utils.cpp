@@ -48,6 +48,9 @@ void Utils::Initialize(Local<Object> target) {
 
 /**
  * Library version of gdal_translate.
+ * Remember that all library version tools return a live opened
+ * dataset. If you need to use the file immediately following an
+ * operation, you should flush/close it.
  * @async
  *
  * @example
