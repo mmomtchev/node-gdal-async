@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - All `read` and `write` functions now use generics in TypeScript, deduction is automatic in many cases, but if TypeScript cannot deduce the type, it should be specified manually: `const data: Uint8Array = band.pixels.read(0, 0, w, h)` should become `const data = band.pixels.read<Uint8Array>(0, 0, w, h)`, pure JavaScript is not affected
  - Fix the `gdal.info()` example
  - Fix [mmomtchev/node-gdal-async#204](https://github.com/mmomtchev/node-gdal-async/issues/204), define `HAVE_TIFF` for other drivers using built-in TIFF support
+ - Partial solution for [mmomtchev/node-gdal-async#217](https://github.com/mmomtchev/node-gdal-async/issues/217)
 
 ### Removed
  - `node-gdal-async` now requires ES2020 support
