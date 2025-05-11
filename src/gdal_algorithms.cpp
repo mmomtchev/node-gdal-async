@@ -708,6 +708,7 @@ static CPLErr pixelFunc(
   uv_async_t *async = new uv_async_t;
   async->data = &pixelFuncs[id];
 
+  printf("pixelfunc: will lock the mutex\n");
   uv_mutex_lock(&pixelFuncs[id].callJS);
   pixelFuncs[id].call = {
     papoSources,
@@ -722,29 +723,35 @@ static CPLErr pixelFunc(
   if (std::this_thread::get_id() == mainV8ThreadId) {
     // Main thread = sync mode
     // Here we are abusing an uninitialized uv_async_t as a data holder
+    printf("pixelfunc: sync call\n");
     callJSpfn(async);
     delete async;
   } else {
     // Worker thread = async mode
+    printf("pixelfunc: async call\n");
     int s = uv_async_init(uv_default_loop(), async, callJSpfn);
     if (s != 0) {
       CPLError(CE_Failure, CPLE_AppDefined, "Pixel function error: failed initialising async");
       return CE_Failure;
     }
 
+    printf("pixelfunc: async send\n");
     s = uv_async_send(async);
     if (s != 0) {
       CPLError(CE_Failure, CPLE_AppDefined, "Pixel function error: failed scheduling async");
       return CE_Failure;
     }
 
+    printf("pixelfunc: waiting on semaphore\n");
     uv_sem_wait(&pixelFuncs[id].returnJS);
 
     uv_close(reinterpret_cast<uv_handle_t *>(async), [](uv_handle_t *handle) {
+      printf("pixelfunc: destroy async\n");
       uv_async_t *async = reinterpret_cast<uv_async_t *>(handle);
       delete async;
     });
   }
+  printf("pixelfunc: release the mutex\n");
   uv_mutex_unlock(&pixelFuncs[id].callJS);
 
   if (pixelFuncs[id].call.err != nullptr) {
