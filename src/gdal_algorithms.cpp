@@ -789,8 +789,16 @@ NAN_METHOD(Algorithms::toPixelFunc) {
 
   size_t uid = pixelFuncs.size();
   pixelFuncs.push_back({pfn, {}, {}, {}});
-  uv_mutex_init(&pixelFuncs[uid].callJS);
-  uv_sem_init(&pixelFuncs[uid].returnJS, 0);
+  int s = uv_mutex_init(&pixelFuncs[uid].callJS);
+  if (s != 0) {
+    Nan::ThrowError("Failed creating a mutex");
+    return;
+  }
+  s = uv_sem_init(&pixelFuncs[uid].returnJS, 0);
+  if (s != 0) {
+    Nan::ThrowError("Failed creating a semaphore");
+    return;
+  }
 
   std::string metadata;
   metadata.reserve(strlen(metadataTemplate) + 32);
