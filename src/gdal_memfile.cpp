@@ -229,24 +229,24 @@ NAN_METHOD(Memfile::vsimemRelease) {
     // -> a new Buffer is constructed and GDAL has to relinquish control
     // The GC will call the lambda at some point to free the backing storage
     VSIGetMemFileBuffer(filename.c_str(), &len, true);
-    info.GetReturnValue().Set(
-      Nan::NewBuffer(
-        static_cast<char *>(data),
-        static_cast<size_t>(len),
-        [](char *data, void *) {
-          // If the returned internal buffer is tracked towards the heap
-          // signal the GC that we are releasing the amount we
-          // initially counted - even if by now this amount might be
-          // different
-          std::map<void *, size_t>::iterator b = Memfile::tracked_buffers.find(static_cast<void *>(data));
-          if (b != Memfile::tracked_buffers.end()) {
-            Nan::AdjustExternalMemory(-(static_cast<int>(b->second)));
-            Memfile::tracked_buffers.erase(b);
-          }
-          CPLFree(data);
-        },
-        nullptr)
-        .ToLocalChecked());
+    info.GetReturnValue().Set(Nan::NewBuffer(
+                                static_cast<char *>(data),
+                                static_cast<size_t>(len),
+                                [](char *data, void *) {
+                                  // If the returned internal buffer is tracked towards the heap
+                                  // signal the GC that we are releasing the amount we
+                                  // initially counted - even if by now this amount might be
+                                  // different
+                                  std::map<void *, size_t>::iterator b =
+                                    Memfile::tracked_buffers.find(static_cast<void *>(data));
+                                  if (b != Memfile::tracked_buffers.end()) {
+                                    Nan::AdjustExternalMemory(-(static_cast<int>(b->second)));
+                                    Memfile::tracked_buffers.erase(b);
+                                  }
+                                  CPLFree(data);
+                                },
+                                nullptr)
+                                .ToLocalChecked());
   }
 }
 
