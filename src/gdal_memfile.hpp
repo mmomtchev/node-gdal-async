@@ -35,6 +35,7 @@ class Memfile {
   static Memfile *get(Local<Object>, const std::string &filename);
   static bool copy(Local<Object>, const std::string &filename);
   static std::map<void *, Memfile *> memfile_collection;
+  static std::map<void *, size_t> tracked_buffers;
 
   static void Initialize(Local<Object> target);
   static NAN_METHOD(vsimemSet);
