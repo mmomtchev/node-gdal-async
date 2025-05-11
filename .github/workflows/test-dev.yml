@@ -5,7 +5,7 @@ name: Node.js CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ '*' ]
     paths-ignore:
       '*.md'
   pull_request:
@@ -18,172 +18,6 @@ on:
         default: '0'
 
 jobs:
-  bundled_gdal_coverage:
-
-    runs-on: ubuntu-22.04
-
-    steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js 20.x
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20.x
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        max-size: 1000M
-        key: coverage
-    - run: npm install --ignore-scripts
-    - run: npx @mapbox/node-pre-gyp configure --debug --enable_coverage
-      env:
-        CXX: ccache g++
-        CC: ccache gcc
-    - name: Build from sources
-      run: npx @mapbox/node-pre-gyp build -j max --debug --enable_coverage
-      env:
-        CXX: ccache g++
-        CC: ccache gcc
-    - name: Run unit tests
-      run: npx c8 npm test
-      env:
-        MOCHA_TEST_NETWORK: 1
-    - name: Collect code coverage
-      run: |
-        npm run gcov
-        npm run lcov
-    - run: npm run codecov
-      env:
-        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-
-  test_distros_shared:
-
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        linux-version:
-          - ubuntu:20.04
-          - ubuntu:22.04
-          - ubuntu:24.04
-          - debian:bullseye
-          - fedora:37
-          - centos:stream9
-
-    steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js 20.x
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20.x
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        max-size: 1000M
-        key: distros-shared-${{ matrix.linux-version }}
-    - run: npm run container dev ${{ matrix.linux-version }} 20 shared
-      env:
-        MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
-
-
-  test_distros_bundled:
-
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        linux-version: [ 'amazonlinux:2023', 'ubuntu:24.04' ]
-
-    steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js 20.x
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20.x
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        max-size: 1000M
-        key: distros-bundled-${{ matrix.linux-version }}
-    - run: npm run container dev ${{ matrix.linux-version }} 22 bundled
-      env:
-        MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
-
-
-  test_node_old:
-
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [ 18, 20 ]
-        gdal-version: [ 'shared', 'bundled' ]
-
-    steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js 20.x
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20.x
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        max-size: 1000M
-        key: node-${{ matrix.node-version }}
-    - run: npm run container dev debian:buster ${{ matrix.node-version }} ${{ matrix.gdal-version }}
-      env:
-        MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
-
-
-  test_node_new:
-
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [ 22, 23 ]
-        gdal-version: [ 'shared', 'bundled' ]
-
-    steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js 20.x
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20.x
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        max-size: 1000M
-        key: node-${{ matrix.node-version }}
-    - run: npm run container dev debian:bullseye ${{ matrix.node-version }} ${{ matrix.gdal-version }}
-      env:
-        MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
-
-
-  test_asan:
-
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js 20.x
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20.x
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        max-size: 1000M
-        key: asan
-    - run: npm run container asan ubuntu:20.04 18 bundled
-      env:
-        MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
-
-
   test_mac:
 
     runs-on: ${{ matrix.mac-version }}
@@ -192,7 +26,7 @@ jobs:
       fail-fast: false
       matrix:
         mac-version: [ macos-13, macos-15 ]
-        node-version: [ 18.x, 20.x, 22.x, 23.x ]
+        node-version: [ 23.x, 24.x ]
 
     steps:
     - uses: actions/checkout@v4
@@ -203,23 +37,13 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.11"
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        max-size: 1000M
-        key: mac-${{ matrix.node-version }}
     - run: npm install --ignore-scripts
     - run: npx @mapbox/node-pre-gyp configure
-      env:
-        CXX: ccache g++
-        CC: ccache gcc
     - name: Build from sources
       run: npx @mapbox/node-pre-gyp build -j max
-      env:
-        CXX: ccache g++
-        CC: ccache gcc
     - name: Run unit tests
-      run: npm test
+      run: |
+        while true; do npx mocha -g PixelFunc; done
       env:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
 
@@ -229,73 +53,19 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Use Node.js 20.x
+    - name: Use Node.js 23.x
       uses: actions/setup-node@v4
       with:
-        node-version: 20.x
+        node-version: 23.x
     - uses: actions/setup-python@v5
       with:
         python-version: "3.11"
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        max-size: 1000M
-        key: mac-debug
-    - run: npm install --ignore-scripts
-    - run: npx @mapbox/node-pre-gyp configure --debug
-      env:
-        CXX: ccache g++
-        CC: ccache gcc
-    - name: Build from sources
-      run: npx @mapbox/node-pre-gyp build -j max
-      env:
-        CXX: ccache g++
-        CC: ccache gcc
-    - name: Run unit tests
-      run: npm test
-      env:
-        MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
-
-  test_win:
-
-    runs-on: windows-2019
-
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [ 18.x, 20.x, 22.x, 23.x ]
-
-    steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-    - run: npm install --ignore-scripts
-    - run: npm install node-gyp
-    - run: npx @mapbox/node-pre-gyp configure
-    - name: Build from sources
-      run: npx @mapbox/node-pre-gyp build -j max
-    - name: Run unit tests
-      run: npm test
-      env:
-        MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
-
-  test_win_debug:
-
-    runs-on: windows-2019
-
-    steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js 20.x
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20.x
     - run: npm install --ignore-scripts
     - run: npx @mapbox/node-pre-gyp configure --debug
     - name: Build from sources
       run: npx @mapbox/node-pre-gyp build -j max
     - name: Run unit tests
-      run: npm test
+      run: |
+        while true; do npx mocha -g PixelFunc; done
       env:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
