@@ -470,7 +470,9 @@ describe('gdal', () => {
           buffer[i] = sources[0][i] + sources[1][i] + 1
         }
       }
+      console.log('creating pixelfunc')
       gdal.addPixelFunc('sum2', gdal.toPixelFunc(sum2))
+      console.log('pixelfunc created')
 
       const vrt = gdal.wrapVRT({
         bands: [
@@ -485,7 +487,9 @@ describe('gdal', () => {
       assert.equal(ds.bands.count(), 1)
       const input1 = band1.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y)
       const input2 = band2.pixels.read(0, 0, ds.rasterSize.x, ds.rasterSize.y)
+      console.log('launching read op')
       const q = ds.bands.get(1).pixels.readAsync(0, 0, ds.rasterSize.x, ds.rasterSize.y).then((result) => {
+        console.log('readop finished')
         for (let i = 0; i < ds.rasterSize.x * ds.rasterSize.y; i += 256) {
           assert.closeTo(result[i], input1[i] + input2[i] + 1, 1e-6)
         }
