@@ -726,9 +726,18 @@ static CPLErr pixelFunc(
     delete async;
   } else {
     // Worker thread = async mode
-    uv_async_init(uv_default_loop(), async, callJSpfn);
+    int s = uv_async_init(uv_default_loop(), async, callJSpfn);
+    if (s != 0) {
+      CPLError(CE_Failure, CPLE_AppDefined, "Pixel function error: failed initialising async");
+      return CE_Failure;
+    }
 
-    uv_async_send(async);
+    s = uv_async_send(async);
+    if (s != 0) {
+      CPLError(CE_Failure, CPLE_AppDefined, "Pixel function error: failed scheduling async");
+      return CE_Failure;
+    }
+
     uv_sem_wait(&pixelFuncs[id].returnJS);
 
     uv_close(reinterpret_cast<uv_handle_t *>(async), [](uv_handle_t *handle) {
