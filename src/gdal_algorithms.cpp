@@ -723,19 +723,16 @@ static CPLErr pixelFunc(
   if (std::this_thread::get_id() == mainV8ThreadId) {
     // Main thread = sync mode
     // Here we are abusing an uninitialized uv_async_t as a data holder
-    printf("pixelfunc: sync call\n");
     callJSpfn(async);
     delete async;
   } else {
     // Worker thread = async mode
-    printf("pixelfunc: async call\n");
     int s = uv_async_init(uv_default_loop(), async, callJSpfn);
     if (s != 0) {
       CPLError(CE_Failure, CPLE_AppDefined, "Pixel function error: failed initialising async");
       return CE_Failure;
     }
 
-    printf("pixelfunc: async send\n");
     s = uv_async_send(async);
     if (s != 0) {
       CPLError(CE_Failure, CPLE_AppDefined, "Pixel function error: failed scheduling async");
