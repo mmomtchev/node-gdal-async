@@ -470,9 +470,7 @@ describe('gdal', () => {
           buffer[i] = sources[0][i] + sources[1][i] + 1
         }
       }
-      console.log('creating pixelfunc')
       gdal.addPixelFunc('sum2', gdal.toPixelFunc(sum2))
-      console.log('pixelfunc created')
 
       const vrt = gdal.wrapVRT({
         bands: [

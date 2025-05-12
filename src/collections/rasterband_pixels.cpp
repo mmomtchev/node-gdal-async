@@ -336,7 +336,6 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
   Nan::Callback *cb = nullptr;
   GDALDataType type;
 
-  printf("read: parsing arguments\n");
   NODE_ARG_INT(0, "x_offset", x);
   NODE_ARG_INT(1, "y_offset", y);
   NODE_ARG_INT(2, "x_size", w);
@@ -400,7 +399,6 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
   }
 
   GDALRasterBand *gdal_band = band->get();
-  printf("acquiring dataset\n");
   GDALAsyncableJob<CPLErr> job(band->parent_uid);
   job.persist("array", obj);
   job.persist(band->handle());
@@ -409,7 +407,6 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
   data = (uint8_t *)data + offset * bytes_per_pixel;
   job.main = [gdal_band, x, y, w, h, data, buffer_w, buffer_h, type, pixel_space, line_space, resampling, cb](
                const GDALExecutionProgress &progress) {
-    printf("executing read\n");
     std::shared_ptr<GDALRasterIOExtraArg> extra(new GDALRasterIOExtraArg);
     INIT_RASTERIO_EXTRA_ARG(*extra);
     extra->eResampleAlg = resampling;
@@ -419,7 +416,6 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
     }
 
     CPLErrorReset();
-    printf("calling RasterIO\n");
     CPLErr err =
       gdal_band->RasterIO(GF_Read, x, y, w, h, data, buffer_w, buffer_h, type, pixel_space, line_space, extra.get());
 
@@ -428,7 +424,6 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
   };
 
   job.rval = [](CPLErr err, const GetFromPersistentFunc &getter) { return getter("array"); };
-  printf("launching read\n");
   job.run(info, async, 13);
 }
 
