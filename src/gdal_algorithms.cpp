@@ -628,6 +628,9 @@ const char metadataTemplate[] =
 // This function is called by libuv on the main thread
 // The async_send in the function below is what triggers this call
 static void callJSpfn(uv_async_t *async) {
+#ifdef DEBUG_MACOS_FREEZE
+  printf("callJSpfn call\n");
+#endif
   // Here V8 is accessible
   Nan::HandleScope scope;
 
@@ -661,6 +664,9 @@ static void callJSpfn(uv_async_t *async) {
   Nan::Call(*fn->fn, 5, args);
   if (try_catch.HasCaught()) fn->call.err = new Nan::Utf8String(try_catch.Message()->Get());
 
+#ifdef DEBUG_MACOS_FREEZE
+  printf("callJSpfn release semaphore\n");
+#endif
   // unlock the worker thread (the function below)
   uv_sem_post(&fn->returnJS);
 }
@@ -679,6 +685,9 @@ static CPLErr pixelFunc(
   int nPixelSpace,
   int nLineSpace,
   CSLConstList papszFunctionArgs) {
+#ifdef DEBUG_MACOS_FREEZE
+  printf("pixelFunc call\n");
+#endif
   // Here V8 is (potentially) off-limits
 
   std::map<std::string, std::string> pfArgsMap;
@@ -708,6 +717,9 @@ static CPLErr pixelFunc(
   uv_async_t *async = new uv_async_t;
   async->data = &pixelFuncs[id];
 
+#ifdef DEBUG_MACOS_FREEZE
+  printf("pixelFunc lock\n");
+#endif
   uv_mutex_lock(&pixelFuncs[id].callJS);
   pixelFuncs[id].call = {
     papoSources,
@@ -720,6 +732,9 @@ static CPLErr pixelFunc(
     std::move(pfArgsMap),
     nullptr};
   if (std::this_thread::get_id() == mainV8ThreadId) {
+#ifdef DEBUG_MACOS_FREEZE
+    printf("pixelFunc sync call\n");
+#endif
     // Main thread = sync mode
     // Here we are abusing an uninitialized uv_async_t as a data holder
     callJSpfn(async);
@@ -732,19 +747,31 @@ static CPLErr pixelFunc(
       return CE_Failure;
     }
 
+#ifdef DEBUG_MACOS_FREEZE
+    printf("pixelFunc async send\n");
+#endif
     s = uv_async_send(async);
     if (s != 0) {
       CPLError(CE_Failure, CPLE_AppDefined, "Pixel function error: failed scheduling async");
       return CE_Failure;
     }
 
+#ifdef DEBUG_MACOS_FREEZE
+    printf("pixelFunc wait on semaphore\n");
+#endif
     uv_sem_wait(&pixelFuncs[id].returnJS);
 
     uv_close(reinterpret_cast<uv_handle_t *>(async), [](uv_handle_t *handle) {
+#ifdef DEBUG_MACOS_FREEZE
+      printf("pixelFunc destroy\n");
+#endif
       uv_async_t *async = reinterpret_cast<uv_async_t *>(handle);
       delete async;
     });
   }
+#ifdef DEBUG_MACOS_FREEZE
+  printf("pixelFunc unlock\n");
+#endif
   uv_mutex_unlock(&pixelFuncs[id].callJS);
 
   if (pixelFuncs[id].call.err != nullptr) {
@@ -792,6 +819,9 @@ static CPLErr pixelFunc(
  * @returns {PixelFunction}
  */
 NAN_METHOD(Algorithms::toPixelFunc) {
+#ifdef DEBUG_MACOS_FREEZE
+  printf("toPixelFunc call\n");
+#endif
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 5)
   Nan::Callback *pfn;
   NODE_ARG_CB(0, "pixelFn", pfn);
