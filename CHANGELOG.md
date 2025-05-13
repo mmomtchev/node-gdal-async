@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
  - GDAL 3.11.0
+ - Node.js 24 binaries
  - Add `libaec` and AEC encoding support for GRIB2 files - including those provided by Météo France
  - Add the new `LIBERTIFF` driver
  - Initial `Float16` support through the [`@petamoriken/float16`](https://www.npmjs.com/package/@petamoriken/float16) polyfill with GDAL >= 3.11
