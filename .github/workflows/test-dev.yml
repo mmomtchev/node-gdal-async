@@ -213,11 +213,13 @@ jobs:
       env:
         CXX: ccache g++
         CC: ccache gcc
+        CXXFLAGS: -DDEBUG_MACOS_FREEZE
     - name: Build from sources
       run: npx @mapbox/node-pre-gyp build -j max
       env:
         CXX: ccache g++
         CC: ccache gcc
+        CXXFLAGS: -DDEBUG_MACOS_FREEZE
     - name: Run unit tests
       run: npm test
       env:
@@ -246,11 +248,13 @@ jobs:
       env:
         CXX: ccache g++
         CC: ccache gcc
+        CXXFLAGS: -DDEBUG_MACOS_FREEZE
     - name: Build from sources
       run: npx @mapbox/node-pre-gyp build -j max
       env:
         CXX: ccache g++
         CC: ccache gcc
+        CXXFLAGS: -DDEBUG_MACOS_FREEZE
     - name: Run unit tests
       run: npm test
       env:
