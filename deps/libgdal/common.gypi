@@ -81,7 +81,8 @@
 			["OS == 'linux'", {
 				"defines": [
 					"ENABLE_UFFD=1",
-					"HAVE_5ARGS_MREMAP=1"
+					"HAVE_5ARGS_MREMAP=1",
+          "HAVE_SC_PHYS_PAGES=1"
 				]
 			}],
 			["OS == 'freebsd'", {
