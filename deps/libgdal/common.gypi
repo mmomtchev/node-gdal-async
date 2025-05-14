@@ -88,7 +88,8 @@
 				"include_dirs": ["./arch/bsd"]
 			}],
 			["OS != 'freebsd' and OS != 'win'", {
-				"include_dirs": ["./arch/unix"]
+				"include_dirs": ["./arch/unix"],
+        "defines": [ "HAVE_GETRLIMIT=1" ]
 			}],
 			["shared_geos == 'false'", {
 				"dependencies": [
