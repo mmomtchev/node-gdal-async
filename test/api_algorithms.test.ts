@@ -258,6 +258,14 @@ describe('gdal', () => {
       assert.notEqual(a, b)
       assert.notEqual(b, c)
     })
+    it('should generate unique checksum for a TIFF', () => {
+      const ds = gdal.open(path.resolve(__dirname, 'data', 'sample.tif'))
+      const band = ds.bands.get(1)
+      const r = gdal.checksumImage(band)
+
+      assert.isNumber(r)
+      assert.isAbove(r, 0)
+    })
   })
   describe('checksumImageAsync()', () => {
     let src: gdal.Dataset, band: gdal.RasterBand
