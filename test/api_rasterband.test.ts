@@ -678,7 +678,7 @@ describe('gdal.RasterBand', () => {
           }
         })
         it('should support setting GDAL_CACHEMAX to a percentage', () => {
-          gdal.config.set('GDAL_CACHEMAX', '1%')
+          gdal.config.set('GDAL_CACHEMAX', '20%')
           const ds = gdal.open(`${__dirname}/data/sample.tif`)
           const band = ds.bands.get(1)
           const w = 20
