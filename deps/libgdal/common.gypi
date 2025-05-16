@@ -37,7 +37,7 @@
 			"HAVE_DECL_ISNAN=1",
 			"HAVE_DECL_INFINITY=1",
 			"HAVE_DECL_ISINF=1",
-      "HAVE_TIFF=1",
+			"HAVE_TIFF=1",
 			"HAVE_EXPAT=1",
 			"HAVE_LIBPROJ=1",
 			"HAVE_GEOS=1",
@@ -45,8 +45,8 @@
 			"HAVE_MITAB=1",
 			"HAVE_CURL=1",
 			"HAVE_HDF5=1",
-      "USE_PNG=1",
-      "USE_AEC=1",
+			"USE_PNG=1",
+			"USE_AEC=1",
 			"NETCDF_HAS_NC4=1",
 			"PROJ_STATIC=1",
 			"CPU_<(endianness)_ENDIAN=1",
@@ -66,7 +66,7 @@
 			"<(deps_dir)/libhdf5/libhdf5.gyp:libhdf5",
 			"<(deps_dir)/libnetcdf/libnetcdf.gyp:libnetcdf",
 			"<(deps_dir)/libopenjpeg/libopenjpeg.gyp:libopenjpeg",
-      "<(deps_dir)/libaec/libaec.gyp:libaec"
+			"<(deps_dir)/libaec/libaec.gyp:libaec"
 		],
 		"conditions": [
 			["OS == 'win'", {
@@ -81,14 +81,16 @@
 			["OS == 'linux'", {
 				"defines": [
 					"ENABLE_UFFD=1",
-					"HAVE_5ARGS_MREMAP=1"
+					"HAVE_5ARGS_MREMAP=1",
+					"HAVE_SC_PHYS_PAGES=1"
 				]
 			}],
 			["OS == 'freebsd'", {
 				"include_dirs": ["./arch/bsd"]
 			}],
 			["OS != 'freebsd' and OS != 'win'", {
-				"include_dirs": ["./arch/unix"]
+				"include_dirs": ["./arch/unix"],
+				"defines": [ "HAVE_GETRLIMIT=1" ]
 			}],
 			["shared_geos == 'false'", {
 				"dependencies": [

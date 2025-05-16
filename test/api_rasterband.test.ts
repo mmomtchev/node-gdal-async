@@ -644,38 +644,56 @@ describe('gdal.RasterBand', () => {
             this.skip()
           }
         })
-        it('should support reading Int64 with GDAL >= 3.5', function () {
+        it('should support reading Int64 with GDAL >= 3.5 and fail graciously with GDAL < 3.5', () => {
+          const ds = gdal.open(`${__dirname}/data/sample.tif`)
+          const band = ds.bands.get(1)
+          const w = 20
+          const h = 30
+          const data = new BigInt64Array(new ArrayBuffer(w * h * BigInt64Array.BYTES_PER_ELEMENT))
           if (semver.gte(gdal.version, '3.5.0')) {
-            const ds = gdal.open(`${__dirname}/data/sample.tif`)
-            const band = ds.bands.get(1)
-            const w = 20
-            const h = 30
-            const data = new BigInt64Array(new ArrayBuffer(w * h * BigInt64Array.BYTES_PER_ELEMENT))
             band.pixels.read(190, 290, w, h, data)
             assert.instanceOf(data, BigInt64Array)
             assert.equal(data.length, w * h)
             assert.equal(data[10 * 20 + 10], 10n)
           } else {
-            this.skip()
+            assert.throws(() => {
+              band.pixels.read(190, 290, w, h, data)
+            }, /Invalid GDAL data type/)
           }
         })
         // Until https://tc39.es/proposal-float16array/#sec-float16array
         // gets implemented we are relying on
         // https://www.npmjs.com/package/@petamoriken/float16
-        it('should support reading Float16 with GDAL >= 3.11', function () {
+        it('should support reading Float16 with GDAL >= 3.11 and fail graciously with GDAL < 3.11', () => {
+          const ds = gdal.open(`${__dirname}/data/sample.tif`)
+          const band = ds.bands.get(1)
+          const w = 20
+          const h = 30
+          const data = new gdal.Float16Array(new ArrayBuffer(w * h * gdal.Float16Array.BYTES_PER_ELEMENT))
           if (semver.gte(gdal.version, '3.11.0')) {
-            const ds = gdal.open(`${__dirname}/data/sample.tif`)
-            const band = ds.bands.get(1)
-            const w = 20
-            const h = 30
-            const data = new gdal.Float16Array(new ArrayBuffer(w * h * gdal.Float16Array.BYTES_PER_ELEMENT))
             band.pixels.read(190, 290, w, h, data)
             assert.instanceOf(data, gdal.Float16Array)
             assert.equal(data.length, w * h)
             assert.equal(data[10 * 20 + 10], 10)
           } else {
-            this.skip()
+            assert.throws(() => {
+              band.pixels.read(190, 290, w, h, data)
+            }, /Invalid GDAL data type/)
           }
+        })
+        it('should support setting GDAL_CACHEMAX to a percentage', () => {
+          gdal.config.set('GDAL_CACHEMAX', '20%')
+          const ds = gdal.open(`${__dirname}/data/sample.tif`)
+          const band = ds.bands.get(1)
+          const w = 20
+          const h = 30
+          const data = new Float64Array(new ArrayBuffer(w * h * Float64Array.BYTES_PER_ELEMENT))
+          band.pixels.read(190, 290, w, h, data)
+          assert.isNull(gdal.lastError)
+          assert.instanceOf(data, Float64Array)
+          assert.equal(data.length, w * h)
+          assert.equal(data[10 * 20 + 10], 10)
+          gdal.config.set('GDAL_CACHEMAX', null)
         })
         describe('w/data over 4GB', function () {
           this.timeout(120000)

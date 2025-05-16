@@ -43,7 +43,11 @@ Local<Value> TypedArray::New(GDALDataType type, int64_t length) {
   }
 
   constructor = val.As<Function>();
-  double size = length * GDALGetDataTypeSize(type) / 8;
+  int64_t size = length * GDALGetDataTypeSize(type) / 8;
+  if (size == 0) {
+    Nan::ThrowError("Invalid GDAL data type");
+    return Local<Value>();
+  }
   if (size > max_safe_integer) {
     Nan::ThrowError("Buffer size exceeds maximum safe JS integer");
     return Local<Value>();
@@ -104,6 +108,7 @@ Local<Value> TypedArray::New(GDALDataType type, void *data, int64_t length) {
   }
 
   size_t size = GDALGetDataTypeSizeBytes(type);
+  if (size == 0) { throw "Invalid GDAL data type"; }
 
   // make ArrayBuffer with external storage by creating a Node.js Buffer w/ an empty free callback
   Local<Object> buffer =

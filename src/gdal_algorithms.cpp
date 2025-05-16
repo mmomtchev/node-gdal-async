@@ -391,7 +391,11 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::checksumImage) {
   job.main = [gdal_src, x, y, w, h](const GDALExecutionProgress &) {
     CPLErrorReset();
     int r = GDALChecksumImage(gdal_src, x, y, w, h);
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 6)
+    if (r == -1) throw CPLGetLastErrorMsg();
+#else
     if (CPLGetLastErrorType() != CE_None) throw CPLGetLastErrorMsg();
+#endif
     return r;
   };
   job.rval = [](int r, const GetFromPersistentFunc &) { return Nan::New<Integer>(r); };
@@ -707,6 +711,10 @@ static CPLErr pixelFunc(
   pfArgsMap.erase(PFN_ID_FIELD);
 
   size_t size = GDALGetDataTypeSizeBytes(eBufType);
+  if (size == 0) {
+    CPLError(CE_Failure, CPLE_AppDefined, "Invalid GDAL data type");
+    return CE_Failure;
+  }
   if (
     size != static_cast<size_t>(nPixelSpace) ||
     size * static_cast<size_t>(nBufXSize) != static_cast<size_t>(nLineSpace)) {
