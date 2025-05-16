@@ -427,12 +427,20 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
     CPLErrorReset();
     CPLErr err =
       gdal_band->RasterIO(GF_Read, x, y, w, h, data, buffer_w, buffer_h, type, pixel_space, line_space, extra.get());
+#ifdef DEBUG_MACOS_FREEZE
+    printf("RasterBandPixels::read RasterIO done\n");
+#endif
 
     if (err != CE_None) throw CPLGetLastErrorMsg();
     return err;
   };
 
-  job.rval = [](CPLErr err, const GetFromPersistentFunc &getter) { return getter("array"); };
+  job.rval = [](CPLErr err, const GetFromPersistentFunc &getter) {
+#ifdef DEBUG_MACOS_FREEZE
+    printf("RasterBandPixels::read return result to JS\n");
+#endif
+    return getter("array");
+  };
 #ifdef DEBUG_MACOS_FREEZE
   printf("RasterBandPixels::read schedule\n");
 #endif
