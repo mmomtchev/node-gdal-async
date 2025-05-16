@@ -5,10 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.11.1]
+
+### Changed
+ - Fix [mmomtchev/node-gdal-async#221](https://github.com/mmomtchev/node-gdal-async/issues/221):
+  * Fix RAM size memory reporting on Linux needed `GDAL_CACHEMAX` with a percentage
+  * Fail graciously if the user specifies a GDAL data type not supported by the current version
+  * Do not throw an error if GDAL returns a warning in `gdal.checksumImage`
+
 # [3.11.0] 2025-05-10
 
 ### Added
-
  - GDAL 3.11.0
  - Node.js 24 binaries
  - Add `libaec` and AEC encoding support for GRIB2 files - including those provided by Météo France
