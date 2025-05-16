@@ -1,20 +1,24 @@
 {
-    "editor.tabSize": 2,
-    "C_Cpp.errorSquiggles": "Enabled",
-    "C_Cpp.clang_format_style": "file",
-    "editor.defaultFormatter": "dbaeumer.vscode-eslint",
-    "eslint.format.enable": true,
-    "editor.formatOnSave": true,
-    "[jsonc]": {
-        "editor.defaultFormatter": "vscode.json-language-features"
-    },
-    "[cpp]": {
-        "editor.defaultFormatter": "ms-vscode.cpptools"
-    },
-    "[javascript]": {
-        "editor.defaultFormatter": "dbaeumer.vscode-eslint"
-    },
-    "[typescript]": {
-        "editor.defaultFormatter": "dbaeumer.vscode-eslint"
-    }
+  "editor.tabSize": 2,
+  "C_Cpp.errorSquiggles": "enabled",
+  "C_Cpp.clang_format_style": "file",
+  "editor.defaultFormatter": "dbaeumer.vscode-eslint",
+  "eslint.format.enable": true,
+  "editor.formatOnSave": true,
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[cpp]": {
+    "editor.defaultFormatter": "ms-vscode.cpptools"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+  },
+  "[python]": {
+    "editor.detectIndentation": false,
+    "editor.insertSpaces": false
+  }
 }
