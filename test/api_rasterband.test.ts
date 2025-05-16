@@ -689,6 +689,7 @@ describe('gdal.RasterBand', () => {
           const h = 30
           const data = new Float64Array(new ArrayBuffer(w * h * Float64Array.BYTES_PER_ELEMENT))
           band.pixels.read(190, 290, w, h, data)
+          assert.isNull(gdal.lastError)
           assert.instanceOf(data, Float64Array)
           assert.equal(data.length, w * h)
           assert.equal(data[10 * 20 + 10], 10)
