@@ -711,6 +711,10 @@ static CPLErr pixelFunc(
   pfArgsMap.erase(PFN_ID_FIELD);
 
   size_t size = GDALGetDataTypeSizeBytes(eBufType);
+  if (size == 0) {
+    CPLError(CE_Failure, CPLE_AppDefined, "Invalid GDAL data type");
+    return CE_Failure;
+  }
   if (
     size != static_cast<size_t>(nPixelSpace) ||
     size * static_cast<size_t>(nBufXSize) != static_cast<size_t>(nLineSpace)) {
