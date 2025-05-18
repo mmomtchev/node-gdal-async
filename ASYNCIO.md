@@ -79,7 +79,7 @@ const height1 = ds1.rasterSize.y
 for (let band = 1; band <= 4; band++)
   data1[band] = data1[band - 1].then(() =>
     ds1.bands.get(band).pixels.readAsync(0, 0, width1, height1))
- 
+
 const ds2 = gdal.open('4bands2.tif')
 const data2 = []  // Promise<TypedArray>[]
 data2[0] = Promise.resolve(null)
@@ -99,7 +99,7 @@ Here we are chaining all the Promises one on another. Now the read of the second
 SQL layers present a unique challenge when implementing asynchronous bindings - they require holding a lock over the parent Dataset in order to destroy them. This means that if a Dataset with multiple layers has an asynchronous operation running on one of them and the GC decides it is time to reclaim the SQL results layer - there will be only one solution - to completely block the Node.js process until that background operation finishes.
 
 Alas, there are no simple solutions for this issue. `gdal-async`prints a warning to stderr when this happens.
- 
+
 ## RFC101 thread-safe datasets with GDAL >= 3.10
 
 GDAL 3.10 introduces a major performance improvement when accessing raster datasets in read-only *threadsafe* mode.
@@ -112,3 +112,16 @@ assert(ds.threadSafe)
 ```
 
 then all asynchronous operations can run in parallel and can be freely mixed with synchronous operations without ever blocking the event loop.
+
+## `LIBERTIFF` driver with GDAL >= 3.11
+
+The new `LIBERTIFF` driver introduced in GDAL 3.11 is always read-only and thread-safe:
+
+```js
+const driver = gdal.drivers.get('LIBERTIFF')
+ds = driver.open(path.join(__dirname, 'data/sample.tif'))
+assert.strictEqual(ds.driver.description, 'LIBERTIFF')
+assert.strictEqual(ds.threadSafe, true)
+```
+
+For more information refer to the GDAL [documentation](https://gdal.org/en/stable/drivers/raster/libertiff.html#libertiff-geotiff-file-format).
