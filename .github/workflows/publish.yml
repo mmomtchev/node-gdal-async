@@ -49,7 +49,7 @@ jobs:
     strategy:
       matrix:
         node-version: [ 18.x, 20.x, 22.x, 23.x, 24.x ]
-        platforms: [ windows-2019, macos-13, macos-15 ]
+        platforms: [ windows-2022, macos-13, macos-15 ]
 
     steps:
     - uses: actions/checkout@v4
