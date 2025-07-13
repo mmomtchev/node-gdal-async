@@ -1,3 +1,5 @@
+#include <cpl_float.h>
+
 #include "typed_array.hpp"
 
 #include <climits>
