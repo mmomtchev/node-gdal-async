@@ -15,11 +15,13 @@
 #include "../frmts/vrt/gdal_vrt.h"
 #include "../frmts/vrt/vrtdataset.h"
 
+#include "cpl_float.h"
+#include "cpl_vsi_virtual.h"
 #include "gdal_priv.h"
 #include "gdal_utils.h"
 
 #include <algorithm>
-#include <cpl_vsi_virtual.h>
+#include <array>
 #include <optional>
 
 //! @cond Doxygen_Suppress
@@ -549,6 +551,7 @@ GDALRasterCalcAlgorithm::GDALRasterCalcAlgorithm() noexcept
 
     AddArg(GDAL_ARG_NAME_INPUT, 'i', _("Input raster datasets"), &m_inputs)
         .SetPositional()
+        .SetRequired()
         .SetMinCount(1)
         .SetAutoOpenDataset(false)
         .SetMetaVar("INPUTS");
@@ -568,6 +571,7 @@ GDALRasterCalcAlgorithm::GDALRasterCalcAlgorithm() noexcept
 
     AddArg("calc", 0, _("Expression(s) to evaluate"), &m_expr)
         .SetRequired()
+        .SetPackedValuesAllowed(false)
         .SetMinCount(1);
 }
 

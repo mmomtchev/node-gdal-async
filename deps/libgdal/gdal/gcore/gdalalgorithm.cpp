@@ -251,7 +251,7 @@ bool GDALAlgorithmArg::ProcessString(std::string &value) const
     {
         GByte *pabyData = nullptr;
         if (VSIIngestFile(nullptr, value.c_str() + 1, &pabyData, nullptr,
-                          1024 * 1024))
+                          10 * 1024 * 1024))
         {
             // Remove UTF-8 BOM
             size_t offset = 0;
@@ -889,14 +889,14 @@ bool GDALAlgorithmArg::ValidateRealRange(double val) const
     const auto [minVal, minValIsIncluded] = GetMinValue();
     if (!std::isnan(minVal))
     {
-        if (minValIsIncluded && val < minVal)
+        if (minValIsIncluded && !(val >= minVal))
         {
             CPLError(CE_Failure, CPLE_IllegalArg,
                      "Value of argument '%s' is %g, but should be >= %g",
                      GetName().c_str(), val, minVal);
             ret = false;
         }
-        else if (!minValIsIncluded && val <= minVal)
+        else if (!minValIsIncluded && !(val > minVal))
         {
             CPLError(CE_Failure, CPLE_IllegalArg,
                      "Value of argument '%s' is %g, but should be > %g",
@@ -909,14 +909,14 @@ bool GDALAlgorithmArg::ValidateRealRange(double val) const
     if (!std::isnan(maxVal))
     {
 
-        if (maxValIsIncluded && val > maxVal)
+        if (maxValIsIncluded && !(val <= maxVal))
         {
             CPLError(CE_Failure, CPLE_IllegalArg,
                      "Value of argument '%s' is %g, but should be <= %g",
                      GetName().c_str(), val, maxVal);
             ret = false;
         }
-        else if (!maxValIsIncluded && val >= maxVal)
+        else if (!maxValIsIncluded && !(val < maxVal))
         {
             CPLError(CE_Failure, CPLE_IllegalArg,
                      "Value of argument '%s' is %g, but should be < %g",
@@ -1061,6 +1061,20 @@ bool GDALAlgorithmArg::Serialize(std::string &serializedArg) const
         }
     };
 
+    const auto AddListValueSeparator = [this, &ret]()
+    {
+        if (GetPackedValuesAllowed())
+        {
+            ret += ',';
+        }
+        else
+        {
+            ret += " --";
+            ret += GetName();
+            ret += ' ';
+        }
+    };
+
     ret += ' ';
     switch (GetType())
     {
@@ -1099,7 +1113,7 @@ bool GDALAlgorithmArg::Serialize(std::string &serializedArg) const
             for (size_t i = 0; i < vals.size(); ++i)
             {
                 if (i > 0)
-                    ret += ',';
+                    AddListValueSeparator();
                 AppendString(vals[i]);
             }
             break;
@@ -1110,7 +1124,7 @@ bool GDALAlgorithmArg::Serialize(std::string &serializedArg) const
             for (size_t i = 0; i < vals.size(); ++i)
             {
                 if (i > 0)
-                    ret += ',';
+                    AddListValueSeparator();
                 ret += CPLSPrintf("%d", vals[i]);
             }
             break;
@@ -1121,7 +1135,7 @@ bool GDALAlgorithmArg::Serialize(std::string &serializedArg) const
             for (size_t i = 0; i < vals.size(); ++i)
             {
                 if (i > 0)
-                    ret += ',';
+                    AddListValueSeparator();
                 ret += CPLSPrintf("%.17g", vals[i]);
             }
             break;
@@ -1132,7 +1146,7 @@ bool GDALAlgorithmArg::Serialize(std::string &serializedArg) const
             for (size_t i = 0; i < vals.size(); ++i)
             {
                 if (i > 0)
-                    ret += ',';
+                    AddListValueSeparator();
                 const auto &val = vals[i];
                 const auto &str = val.GetName();
                 if (str.empty())
@@ -1584,7 +1598,10 @@ bool GDALAlgorithm::ParseArgument(
         {
             const CPLStringList aosTokens(
                 arg->GetPackedValuesAllowed()
-                    ? CSLTokenizeString2(value.c_str(), ",", CSLT_HONOURSTRINGS)
+                    ? CSLTokenizeString2(
+                          value.c_str(), ",",
+                          CSLT_HONOURSTRINGS | CSLT_STRIPLEADSPACES |
+                              CSLT_STRIPENDSPACES | CSLT_ALLOWEMPTYTOKENS)
                     : CSLAddString(nullptr, value.c_str()));
             if (!cpl::contains(inConstructionValues, arg))
             {
@@ -1598,7 +1615,7 @@ bool GDALAlgorithm::ParseArgument(
                 char *endptr = nullptr;
                 const auto val = std::strtol(v, &endptr, 10);
                 if (errno == 0 && endptr && endptr == v + strlen(v) &&
-                    val >= INT_MIN && val <= INT_MAX)
+                    val >= INT_MIN && val <= INT_MAX && strlen(v) > 0)
                 {
                     valueVector.push_back(static_cast<int>(val));
                 }
@@ -1619,7 +1636,10 @@ bool GDALAlgorithm::ParseArgument(
         {
             const CPLStringList aosTokens(
                 arg->GetPackedValuesAllowed()
-                    ? CSLTokenizeString2(value.c_str(), ",", CSLT_HONOURSTRINGS)
+                    ? CSLTokenizeString2(
+                          value.c_str(), ",",
+                          CSLT_HONOURSTRINGS | CSLT_STRIPLEADSPACES |
+                              CSLT_STRIPENDSPACES | CSLT_ALLOWEMPTYTOKENS)
                     : CSLAddString(nullptr, value.c_str()));
             if (!cpl::contains(inConstructionValues, arg))
             {
@@ -1631,7 +1651,7 @@ bool GDALAlgorithm::ParseArgument(
             {
                 char *endptr = nullptr;
                 double dfValue = CPLStrtod(v, &endptr);
-                if (endptr != v + strlen(v))
+                if (strlen(v) == 0 || endptr != v + strlen(v))
                 {
                     ReportError(
                         CE_Failure, CPLE_IllegalArg,
@@ -1715,6 +1735,8 @@ bool GDALAlgorithm::ParseCommandLineArguments(
                     m_referencePath);
                 m_selectedSubAlg->m_executionForStreamOutput =
                     m_executionForStreamOutput;
+                m_selectedSubAlg->m_calledFromCommandLine =
+                    m_calledFromCommandLine;
                 bool bRet = m_selectedSubAlg->ParseCommandLineArguments(
                     std::vector<std::string>(args.begin() + 1, args.end()));
                 m_selectedSubAlg->PropagateSpecialActionTo(this);
@@ -2193,7 +2215,7 @@ bool GDALAlgorithm::ProcessDatasetArg(GDALAlgorithmArg *arg,
 
         CPLStringList aosOpenOptions;
         CPLStringList aosAllowedDrivers;
-        if (arg->GetName() == GDAL_ARG_NAME_INPUT)
+        if (arg->IsInput())
         {
             const auto ooArg = GetArg(GDAL_ARG_NAME_OPEN_OPTION);
             if (ooArg && ooArg->GetType() == GAAT_STRING_LIST)
@@ -2214,6 +2236,22 @@ bool GDALAlgorithm::ProcessDatasetArg(GDALAlgorithmArg *arg,
         }
         if (osDatasetName == "-" && (flags & GDAL_OF_UPDATE) == 0)
             osDatasetName = "/vsistdin/";
+
+        // Handle special case of overview delete in GTiff which would fail
+        // if it is COG without IGNORE_COG_LAYOUT_BREAK=YES open option.
+        if ((flags & GDAL_OF_UPDATE) != 0 && m_callPath.size() == 4 &&
+            m_callPath[2] == "overview" && m_callPath[3] == "delete" &&
+            aosOpenOptions.FetchNameValue("IGNORE_COG_LAYOUT_BREAK") == nullptr)
+        {
+            CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
+            GDALDriverH hDrv =
+                GDALIdentifyDriver(osDatasetName.c_str(), nullptr);
+            if (hDrv && EQUAL(GDALGetDescription(hDrv), "GTiff"))
+            {
+                // Cleaning does not break COG layout
+                aosOpenOptions.SetNameValue("IGNORE_COG_LAYOUT_BREAK", "YES");
+            }
+        }
 
         auto poDS =
             GDALDataset::Open(osDatasetName.c_str(), flags,
@@ -2311,6 +2349,7 @@ bool GDALAlgorithm::ProcessDatasetArg(GDALAlgorithmArg *arg,
                     {
                         CPLStringList aosDrivers;
                         aosDrivers.AddString(poDriver->GetDescription());
+                        CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
                         GDALDriver::QuietDelete(val.GetName().c_str(),
                                                 aosDrivers.List());
                     }
@@ -3434,7 +3473,7 @@ bool GDALAlgorithm::ValidateFormat(const GDALAlgorithmArg &arg,
             if (bStreamAllowed && EQUAL(val.c_str(), "stream"))
                 return true;
 
-            if (EQUAL(val.c_str(), "GDALG"))
+            if (EQUAL(val.c_str(), "GDALG") && arg.IsOutput())
             {
                 if (bGDALGAllowed)
                 {
@@ -4374,6 +4413,36 @@ GDALInConstructionAlgorithmArg &GDALAlgorithm::AddProgressArg()
 }
 
 /************************************************************************/
+/*                    ProgressWithErrorIfFailed                         */
+/************************************************************************/
+
+namespace
+{
+struct ProgressWithErrorIfFailed
+{
+    GDALProgressFunc pfnProgress = nullptr;
+    void *pProgressData = nullptr;
+
+    static int CPL_STDCALL ProgressFunc(double dfPct, const char *pszMsg,
+                                        void *userData)
+    {
+        ProgressWithErrorIfFailed *self =
+            static_cast<ProgressWithErrorIfFailed *>(userData);
+        if (!self->pfnProgress(dfPct, pszMsg, self->pProgressData))
+        {
+            if (CPLGetLastErrorType() != CE_Failure)
+            {
+                CPLError(CE_Failure, CPLE_UserInterrupt,
+                         "Processing interrupted by user");
+            }
+            return false;
+        }
+        return true;
+    }
+};
+}  // namespace
+
+/************************************************************************/
 /*                       GDALAlgorithm::Run()                           */
 /************************************************************************/
 
@@ -4430,7 +4499,18 @@ bool GDALAlgorithm::Run(GDALProgressFunc pfnProgress, void *pProgressData)
         }
     }
 
-    return RunImpl(pfnProgress, pProgressData);
+    if (pfnProgress)
+    {
+        ProgressWithErrorIfFailed sProgressWithErrorIfFailed;
+        sProgressWithErrorIfFailed.pfnProgress = pfnProgress;
+        sProgressWithErrorIfFailed.pProgressData = pProgressData;
+        return RunImpl(ProgressWithErrorIfFailed::ProgressFunc,
+                       &sProgressWithErrorIfFailed);
+    }
+    else
+    {
+        return RunImpl(nullptr, nullptr);
+    }
 }
 
 /************************************************************************/

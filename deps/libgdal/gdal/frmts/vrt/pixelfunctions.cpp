@@ -16,6 +16,7 @@
 #include "vrtdataset.h"
 #include "vrtexpression.h"
 #include "vrtreclassifier.h"
+#include "cpl_float.h"
 
 #include <limits>
 
@@ -1659,10 +1660,25 @@ static CPLErr ExprPixelFunc(void **papoSources, int nSources, void *pData,
     std::unique_ptr<gdal::MathExpression> poExpression;
 
     const char *pszExpression = CSLFetchNameValue(papszArgs, "expression");
+    if (!pszExpression)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "Missing 'expression' pixel function argument");
+        return CE_Failure;
+    }
 
     const char *pszSourceNames = CSLFetchNameValue(papszArgs, "SOURCE_NAMES");
     const CPLStringList aosSourceNames(
         CSLTokenizeString2(pszSourceNames, "|", 0));
+    if (aosSourceNames.size() != nSources)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "The source_names variable passed to ExprPixelFunc() has %d "
+                 "values, whereas %d were expected. An invalid variable name "
+                 "has likely been used",
+                 aosSourceNames.size(), nSources);
+        return CE_Failure;
+    }
 
     std::vector<double> adfValuesForPixel(nSources);
 

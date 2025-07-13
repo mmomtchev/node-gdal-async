@@ -1192,7 +1192,7 @@ bool LIBERTIFFDataset::ReadBlock(GByte *pabyBlockData, int nBlockXOff,
             curStrileIdx =
                 nBlockYOff + DIV_ROUND_UP(m_image->height(),
                                           m_image->rowsPerStripSanitized()) *
-                                 iBandTIFFFirst;
+                                 static_cast<uint64_t>(iBandTIFFFirst);
         else
             curStrileIdx = nBlockYOff;
     }
@@ -1473,9 +1473,16 @@ bool LIBERTIFFDataset::ReadBlock(GByte *pabyBlockData, int nBlockXOff,
                         : "YES",
                     false);
 
+                const char *const apszOpenOptions[] = {
+                    m_image->compression() == LIBERTIFF_NS::Compression::WEBP &&
+                            nComponentsPerPixel == 4
+                        ? "@FORCE_4BANDS=YES"
+                        : nullptr,
+                    nullptr};
+
                 auto poTmpDS = std::unique_ptr<GDALDataset>(GDALDataset::Open(
                     osTmpFilename.c_str(), GDAL_OF_RASTER | GDAL_OF_INTERNAL,
-                    apszAllowedDrivers, nullptr, nullptr));
+                    apszAllowedDrivers, apszOpenOptions, nullptr));
                 VSIUnlink(osTmpFilename.c_str());
                 if (!poTmpDS)
                 {

@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <map>
+#include <mutex>
 #include <tuple>
 
 #include "ogr_parquet.h"
@@ -459,7 +460,8 @@ static GDALDataset *OGRParquetDriverOpen(GDALOpenInfo *poOpenInfo)
         if (!st.ok())
         {
             CPLError(CE_Failure, CPLE_AppDefined,
-                     "parquet::arrow::OpenFile() failed");
+                     "parquet::arrow::OpenFile() failed: %s",
+                     st.message().c_str());
             return nullptr;
         }
 #endif
@@ -535,6 +537,7 @@ static GDALDataset *OGRParquetDriverCreate(const char *pszName, int nXSize,
 
 class OGRParquetDriver final : public GDALDriver
 {
+    std::mutex m_oMutex{};
     bool m_bMetadataInitialized = false;
     void InitMetadata();
 
@@ -542,6 +545,7 @@ class OGRParquetDriver final : public GDALDriver
     const char *GetMetadataItem(const char *pszName,
                                 const char *pszDomain) override
     {
+        std::lock_guard oLock(m_oMutex);
         if (EQUAL(pszName, GDAL_DS_LAYER_CREATIONOPTIONLIST))
         {
             InitMetadata();
@@ -551,6 +555,7 @@ class OGRParquetDriver final : public GDALDriver
 
     char **GetMetadata(const char *pszDomain) override
     {
+        std::lock_guard oLock(m_oMutex);
         InitMetadata();
         return GDALDriver::GetMetadata(pszDomain);
     }
@@ -745,6 +750,18 @@ void RegisterOGRParquet()
             CPLError(CE_Warning, CPLE_AppDefined,
                      "arrow::fs::LoadFileSystemFactories() failed with %s",
                      result.message().c_str());
+        }
+    }
+#endif
+
+#if defined(GDAL_USE_ARROWDATASET) && defined(GDAL_USE_ARROWCOMPUTE)
+    {
+        auto status = arrow::compute::Initialize();
+        if (!status.ok())
+        {
+            CPLError(CE_Warning, CPLE_AppDefined,
+                     "arrow::compute::Initialize() failed with %s",
+                     status.message().c_str());
         }
     }
 #endif

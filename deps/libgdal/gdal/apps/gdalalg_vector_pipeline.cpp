@@ -320,6 +320,21 @@ bool GDALVectorPipelineAlgorithm::ParseCommandLineArguments(
             continue;
         }
 
+        if (IsCalledFromCommandLine() && (arg == "-h" || arg == "--help"))
+        {
+            if (!steps.back().alg)
+                steps.pop_back();
+            if (steps.empty())
+            {
+                return GDALAlgorithm::ParseCommandLineArguments(args);
+            }
+            else
+            {
+                m_stepOnWhichHelpIsRequested = std::move(steps.back().alg);
+                return true;
+            }
+        }
+
         auto &curStep = steps.back();
 
         if (arg == "!" || arg == "|")
@@ -458,6 +473,12 @@ bool GDALVectorPipelineAlgorithm::ParseCommandLineArguments(
         steps.back().args.push_back("--output-format");
         steps.back().args.push_back("stream");
         steps.back().args.push_back("streamed_dataset");
+    }
+
+    if (IsCalledFromCommandLine())
+    {
+        for (auto &step : steps)
+            step.alg->SetCalledFromCommandLine();
     }
 
     if (steps.size() < 2)
