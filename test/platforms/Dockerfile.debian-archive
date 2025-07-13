@@ -5,6 +5,8 @@ ARG NODEJS=lts
 ARG GDAL=""
 ENV GDAL=${GDAL}
 
+RUN rm -f /etc/apt/sources.list && rm -f /etc/apt/sources.list.d/*
+
 COPY debian-archive.list /etc/apt/sources.list
 
 RUN \
