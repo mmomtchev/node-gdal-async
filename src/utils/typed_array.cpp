@@ -1,8 +1,8 @@
+#include "typed_array.hpp"
+
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 5)
 #include <cpl_float.h>
 #endif
-
-#include "typed_array.hpp"
 
 #include <climits>
 #include <sstream>
