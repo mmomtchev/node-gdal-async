@@ -133,7 +133,7 @@ jobs:
       with:
         max-size: 1000M
         key: node-${{ matrix.node-version }}
-    - run: npm run container dev debian:buster ${{ matrix.node-version }} ${{ matrix.gdal-version }}
+    - run: npm run container dev debian-archive:buster ${{ matrix.node-version }} ${{ matrix.gdal-version }}
       env:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
 
