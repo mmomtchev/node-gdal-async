@@ -23,9 +23,9 @@ jobs:
         - amazonlinux:2023
         node-version: [ 18, 20, 22 ]
         include:
-          - linux-version: debian:buster
+          - linux-version: debian-archive:buster
             node-version: 18
-          - linux-version: debian:buster
+          - linux-version: debian-archive:buster
             node-version: 20
           - linux-version: ubuntu:24.04
             node-version: 23

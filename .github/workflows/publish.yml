@@ -18,7 +18,7 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: 20.x
-    - run: npm run container publish debian:buster ${{ matrix.node-version }}
+    - run: npm run container publish debian-archive:buster ${{ matrix.node-version }}
       env:
         NODE_PRE_GYP_GITHUB_TOKEN: ${{ secrets.NODE_PRE_GYP_GITHUB_TOKEN }}
 

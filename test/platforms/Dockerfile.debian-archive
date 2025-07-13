@@ -1,11 +1,17 @@
-ARG VERSION=bullseye
+ARG VERSION=buster
 FROM debian:${VERSION}
 
 ARG NODEJS=lts
 ARG GDAL=""
 ENV GDAL=${GDAL}
 
+RUN rm -f /etc/apt/sources.list && rm -f /etc/apt/sources.list.d/*
+
+COPY debian-archive.list /etc/apt/sources.list
+COPY freexian-archive-keyring_2022.06.08_all.deb /freexian-archive-keyring_2022.06.08_all.deb
+
 RUN \
+  DEBIAN_FRONTEND=noninteractive dpkg -i /freexian-archive-keyring_2022.06.08_all.deb && \
   DEBIAN_FRONTEND=noninteractive apt-get update && \
   DEBIAN_FRONTEND=noninteractive apt-get install -y curl rsync ca-certificates curl gnupg && \
   curl -fsSL https://deb.nodesource.com/setup_${NODEJS}.x -o nodesource_setup.sh && \
