@@ -113,6 +113,9 @@ class PNGDataset final : public GDALPamDataset
     int bHasReadICCMetadata;
     void LoadICCProfile();
 
+    bool m_bByteOrderIsLittleEndian = false;
+    bool m_bHasRewind = false;
+
     static void WriteMetadataAsText(jmp_buf sSetJmpContext, png_structp hPNG,
                                     png_infop psPNGInfo, const char *pszKey,
                                     const char *pszValue);

@@ -2679,6 +2679,7 @@ GDALDatasetH GDALVectorTranslate(const char *pszDest, GDALDatasetH hDstDS,
     std::vector<std::string> aoDrivers;
     if (poODS == nullptr && psOptions->osFormat.empty())
     {
+        const auto nErrorCount = CPLGetErrorCounter();
         aoDrivers = CPLStringList(GDALGetOutputDriversForDatasetName(
             pszDest, GDAL_OF_VECTOR, /* bSingleMatch = */ true,
             /* bWarn = */ true));
@@ -2691,6 +2692,11 @@ GDALDatasetH GDALVectorTranslate(const char *pszDest, GDALDatasetH hDstDS,
             {
                 bUpdate = true;
             }
+        }
+        else if (aoDrivers.empty() && CPLGetErrorCounter() > nErrorCount &&
+                 CPLGetLastErrorType() == CE_Failure)
+        {
+            return nullptr;
         }
     }
 
@@ -3597,8 +3603,7 @@ GDALDatasetH GDALVectorTranslate(const char *pszDest, GDALDatasetH hDstDS,
             psOptions->osNewLayerName = CPLGetBasenameSafe(osDestFilename);
         }
 
-        std::vector<GIntBig> anLayerCountFeatures;
-        anLayerCountFeatures.resize(nLayerCount);
+        std::vector<GIntBig> anLayerCountFeatures(nLayerCount);
         GIntBig nCountLayersFeatures = 0;
         GIntBig nAccCountFeatures = 0;
 
@@ -3645,7 +3650,18 @@ GDALDatasetH GDALVectorTranslate(const char *pszDest, GDALDatasetH hDstDS,
                     if (psOptions->nLimit >= 0)
                         anLayerCountFeatures[iLayer] = std::min(
                             anLayerCountFeatures[iLayer], psOptions->nLimit);
-                    nCountLayersFeatures += anLayerCountFeatures[iLayer];
+                    if (anLayerCountFeatures[iLayer] >= 0 &&
+                        anLayerCountFeatures[iLayer] <=
+                            std::numeric_limits<GIntBig>::max() -
+                                nCountLayersFeatures)
+                    {
+                        nCountLayersFeatures += anLayerCountFeatures[iLayer];
+                    }
+                    else
+                    {
+                        nCountLayersFeatures = 0;
+                        psOptions->bDisplayProgress = false;
+                    }
                 }
             }
         }
@@ -3714,9 +3730,9 @@ GDALDatasetH GDALVectorTranslate(const char *pszDest, GDALDatasetH hDstDS,
                             1.0 / nCountLayersFeatures,
                         psOptions->pfnProgress, psOptions->pProgressData);
                 }
-            }
 
-            nAccCountFeatures += anLayerCountFeatures[iLayer];
+                nAccCountFeatures += anLayerCountFeatures[iLayer];
+            }
 
             auto psInfo = oSetup.Setup(poPassedLayer,
                                        psOptions->osNewLayerName.empty()
@@ -7574,7 +7590,7 @@ static std::unique_ptr<GDALArgumentParser> GDALVectorTranslateOptionsGetParser(
                 GByte *pabyRet = nullptr;
                 if (!s.empty() && s.front() == '@' &&
                     VSIIngestFile(nullptr, s.c_str() + 1, &pabyRet, nullptr,
-                                  1024 * 1024))
+                                  10 * 1024 * 1024))
                 {
                     GDALRemoveBOM(pabyRet);
                     char *pszSQLStatement = reinterpret_cast<char *>(pabyRet);
@@ -7609,7 +7625,7 @@ static std::unique_ptr<GDALArgumentParser> GDALVectorTranslateOptionsGetParser(
                 GByte *pabyRet = nullptr;
                 if (!s.empty() && s.front() == '@' &&
                     VSIIngestFile(nullptr, s.c_str() + 1, &pabyRet, nullptr,
-                                  1024 * 1024))
+                                  10 * 1024 * 1024))
                 {
                     GDALRemoveBOM(pabyRet);
                     char *pszWHERE = reinterpret_cast<char *>(pabyRet);

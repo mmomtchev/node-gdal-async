@@ -129,18 +129,13 @@ CPLErr PNGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
 #endif
 
     PNGDataset *poGDS = cpl::down_cast<PNGDataset *>(poDS);
-    int nPixelSize;
     CPLAssert(nBlockXOff == 0);
 
-    if (poGDS->nBitDepth == 16)
-        nPixelSize = 2;
-    else
-        nPixelSize = 1;
+    const int nPixelSize = (poGDS->nBitDepth == 16) ? 2 : 1;
 
-    const int nXSize = GetXSize();
     if (poGDS->fpImage == nullptr)
     {
-        memset(pImage, 0, cpl::fits_on<int>(nPixelSize * nXSize));
+        memset(pImage, 0, cpl::fits_on<int>(nPixelSize * nRasterXSize));
         return CE_None;
     }
 
@@ -151,38 +146,64 @@ CPLErr PNGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
 
     const int nPixelOffset = poGDS->nBands * nPixelSize;
 
-    GByte *pabyScanline =
-        poGDS->pabyBuffer +
-        (nBlockYOff - poGDS->nBufferStartLine) * nPixelOffset * nXSize +
-        nPixelSize * (nBand - 1);
-
-    // Transfer between the working buffer and the caller's buffer.
-    if (nPixelSize == nPixelOffset)
-        memcpy(pImage, pabyScanline, cpl::fits_on<int>(nPixelSize * nXSize));
-    else if (nPixelSize == 1)
+    const auto CopyToDstBuffer =
+        [this, nPixelOffset, nPixelSize](const GByte *pabyScanline, void *pDest)
     {
-        for (int i = 0; i < nXSize; i++)
-            reinterpret_cast<GByte *>(pImage)[i] =
-                pabyScanline[i * nPixelOffset];
-    }
-    else
-    {
-        CPLAssert(nPixelSize == 2);
-        for (int i = 0; i < nXSize; i++)
+        // Transfer between the working buffer and the caller's buffer.
+        if (nPixelSize == nPixelOffset)
+            memcpy(pDest, pabyScanline,
+                   cpl::fits_on<int>(nPixelSize * nRasterXSize));
+        else if (nPixelSize == 1)
         {
-            reinterpret_cast<GUInt16 *>(pImage)[i] =
-                *reinterpret_cast<GUInt16 *>(pabyScanline + i * nPixelOffset);
+            for (int i = 0; i < nRasterXSize; i++)
+                reinterpret_cast<GByte *>(pDest)[i] =
+                    pabyScanline[i * nPixelOffset];
         }
-    }
+        else
+        {
+            CPLAssert(nPixelSize == 2);
+            for (int i = 0; i < nRasterXSize; i++)
+            {
+                reinterpret_cast<GUInt16 *>(pDest)[i] =
+                    *reinterpret_cast<const GUInt16 *>(pabyScanline +
+                                                       i * nPixelOffset);
+            }
+        }
+    };
+
+    const GByte *const pabySrcBufferFirstBand =
+        poGDS->pabyBuffer +
+        (nBlockYOff - poGDS->nBufferStartLine) * nPixelOffset * nRasterXSize;
+    CopyToDstBuffer(pabySrcBufferFirstBand + nPixelSize * (nBand - 1), pImage);
 
     // Forcibly load the other bands associated with this scanline.
-    for (int iBand = 1; iBand < poGDS->GetRasterCount(); iBand++)
+    for (int iBand = 1; iBand <= poGDS->GetRasterCount(); iBand++)
     {
-        GDALRasterBlock *poBlock =
-            poGDS->GetRasterBand(iBand + 1)->GetLockedBlockRef(nBlockXOff,
-                                                               nBlockYOff);
-        if (poBlock != nullptr)
+        if (iBand != nBand)
+        {
+            auto poIterBand = poGDS->GetRasterBand(iBand);
+            GDALRasterBlock *poBlock =
+                poIterBand->TryGetLockedBlockRef(nBlockXOff, nBlockYOff);
+            if (poBlock != nullptr)
+            {
+                // Block already cached
+                poBlock->DropLock();
+                continue;
+            }
+
+            // Instantiate the block
+            poBlock =
+                poIterBand->GetLockedBlockRef(nBlockXOff, nBlockYOff, TRUE);
+            if (poBlock == nullptr)
+            {
+                continue;
+            }
+
+            CopyToDstBuffer(pabySrcBufferFirstBand + nPixelSize * (iBand - 1),
+                            poBlock->GetDataRef());
+
             poBlock->DropLock();
+        }
     }
 
     return CE_None;
@@ -1297,6 +1318,12 @@ static void PNGDatasetDisableCRCCheck(png_structp hPNG)
 void PNGDataset::Restart()
 
 {
+    if (!m_bHasRewind)
+    {
+        m_bHasRewind = true;
+        CPLDebug("PNG", "Restart decompression from top (emitted once)");
+    }
+
     png_destroy_read_struct(&hPNG, &psPNGInfo, nullptr);
 
     hPNG =
@@ -1406,8 +1433,13 @@ CPLErr PNGDataset::LoadInterlacedChunk(int iLine)
     bool bRet = safe_png_read_image(hPNG, png_rows, sSetJmpContext);
 
     // Do swap on LSB machines. 16-bit PNG data is stored in MSB format.
+    if (bRet && nBitDepth == 16
 #ifdef CPL_LSB
-    if (bRet && nBitDepth == 16)
+        && !m_bByteOrderIsLittleEndian
+#else
+        && m_bByteOrderIsLittleEndian
+#endif
+    )
     {
         for (int i = 0; i < GetRasterYSize(); i++)
         {
@@ -1418,7 +1450,6 @@ CPLErr PNGDataset::LoadInterlacedChunk(int iLine)
             }
         }
     }
-#endif
 
     CPLFree(png_rows);
     CPLFree(dummy_row);
@@ -1496,10 +1527,16 @@ CPLErr PNGDataset::LoadScanline(int nLine)
     nBufferLines = 1;
 
     // Do swap on LSB machines. 16-bit PNG data is stored in MSB format.
+    if (nBitDepth == 16
 #ifdef CPL_LSB
-    if (nBitDepth == 16)
-        GDALSwapWords(row, 2, GetRasterXSize() * GetRasterCount(), 2);
+        && !m_bByteOrderIsLittleEndian
+#else
+        && m_bByteOrderIsLittleEndian
 #endif
+    )
+    {
+        GDALSwapWords(row, 2, GetRasterXSize() * GetRasterCount(), 2);
+    }
 
     return CE_None;
 }
@@ -1976,6 +2013,10 @@ GDALDataset *PNGDataset::OpenStage2(GDALOpenInfo *poOpenInfo, PNGDataset *&poDS)
 
     // Open overviews.
     poDS->oOvManager.Initialize(poDS, poOpenInfo);
+
+    // Used by JPEG FLIR
+    poDS->m_bByteOrderIsLittleEndian = CPLTestBool(CSLFetchNameValueDef(
+        poOpenInfo->papszOpenOptions, "BYTE_ORDER_LITTLE_ENDIAN", "NO"));
 
     return poDS;
 }
