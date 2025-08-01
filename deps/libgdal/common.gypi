@@ -42,6 +42,7 @@
 			"HAVE_LIBPROJ=1",
 			"HAVE_GEOS=1",
 			"HAVE_SQLITE=1",
+			"HAVE_SQLITE3EXT_H=1",
 			"HAVE_MITAB=1",
 			"HAVE_CURL=1",
 			"HAVE_HDF5=1",
