@@ -8,9 +8,8 @@ module.exports = {
   ],
   reporter: 'tap',
   timeout: 20000,
-  'v8-expose-gc': true,
   'node-option':
     process.versions.node.split('.')[0] == 20 && process.versions.node.split('.')[1] >= 19 ? [
-      'no-experimental-require-module'
-    ] : []
+      'no-experimental-require-module', 'expose-gc'
+    ] : [ 'expose-gc' ]
 }
