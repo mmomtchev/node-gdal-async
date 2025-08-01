@@ -6,6 +6,7 @@
   "url": "https://github.com/mmomtchev/node-gdal-async",
   "main": "./lib/gdal.js",
   "types": "./lib/index.d.ts",
+  "type": "commonjs",
   "keywords": [
     "gdal",
     "libgdal",
