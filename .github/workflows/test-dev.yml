@@ -69,7 +69,9 @@ jobs:
           - ubuntu:24.04
           - debian:bullseye
           - fedora:37
-          - centos:stream9
+          # CentOS is currently disabled waiting for
+          # https://issues.redhat.com/browse/RHEL-107107
+          # - centos:stream9
 
     steps:
     - uses: actions/checkout@v4
