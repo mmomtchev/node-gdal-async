@@ -19,9 +19,7 @@ jobs:
         - ubuntu:22.04
         - ubuntu:24.04
         - debian:bullseye
-        # CentOS is currently disabled waiting for
-        # https://issues.redhat.com/browse/RHEL-107107
-        # - centos:stream9
+        - centos:stream9
         - amazonlinux:2023
         node-version: [ 18, 20, 22 ]
         include:
