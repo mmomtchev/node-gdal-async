@@ -868,6 +868,13 @@ describe('gdal.Dataset', () => {
           ds.executeSQL('SELECT name FROM sample')
         })
       })
+      it('should support SQLite dialect', () => {
+        const ds = gdal.open(`${__dirname}/data/shp/sample.shp`)
+        const result_set = ds.executeSQL('SELECT name FROM sample', undefined, 'SQLITE')
+
+        assert.instanceOf(result_set, gdal.Layer)
+        assert.deepEqual(result_set.fields.getNames(), [ 'name' ])
+      })
     })
     describe('executeSQLAsync()', () => {
       it('should return Layer', () => {
