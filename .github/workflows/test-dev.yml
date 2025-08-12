@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
@@ -72,7 +72,7 @@ jobs:
           - centos:stream9
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
@@ -97,7 +97,7 @@ jobs:
         linux-version: [ 'amazonlinux:2023', 'ubuntu:24.04' ]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
@@ -123,7 +123,7 @@ jobs:
         gdal-version: [ 'shared', 'bundled' ]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
@@ -149,7 +149,7 @@ jobs:
         gdal-version: [ 'shared', 'bundled' ]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
@@ -169,7 +169,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
@@ -195,7 +195,7 @@ jobs:
         node-version: [ 18.x, 20.x, 22.x, 23.x, 24.x ]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Use Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@v4
       with:
@@ -230,7 +230,7 @@ jobs:
     runs-on: macos-13
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
@@ -270,7 +270,7 @@ jobs:
         node-version: [ 18.x, 20.x, 22.x, 23.x, 24.x ]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Use Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@v4
       with:
@@ -290,7 +290,7 @@ jobs:
     runs-on: windows-2022
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Use Node.js 20.x
       uses: actions/setup-node@v4
       with:
