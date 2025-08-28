@@ -224,7 +224,7 @@ NODE_WRAPPED_METHOD_WITH_CPLERR_RESULT_1_INTEGER_PARAM_LOCKED(RasterBand, create
  * @method getMaskBand
  * @instance
  * @memberof RasterBand
- * @return {RasterBand}
+ * @return {RasterBand|null}
  */
 NAN_METHOD(RasterBand::getMaskBand) {
   NODE_UNWRAP_CHECK(RasterBand, info.This(), band);
