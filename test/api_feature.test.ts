@@ -567,7 +567,7 @@ describe('gdal.Feature', () => {
       it('should throw when style arg is invalid type', () => {
         const feature = new gdal.Feature(defn)
         assert.throws(() => {
-          feature.setStyleString(123)
+          feature.setStyleString('123')
         }, /style must be a string, null or undefined/)
       })
     })
