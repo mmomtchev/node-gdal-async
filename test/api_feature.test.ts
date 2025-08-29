@@ -555,6 +555,28 @@ describe('gdal.Feature', () => {
 			});
 			*/
     })
+    describe('style string', () => {
+      it('should get null when unset and allow set/clear', () => {
+        const feature = new gdal.Feature(defn)
+        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+        assert.isNull((feature as any).getStyleString())
+        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+        ;(feature as any).setStyleString('PEN(c:#FF0000,w:5px)')
+        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+        assert.equal((feature as any).getStyleString(), 'PEN(c:#FF0000,w:5px)')
+        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+        ;(feature as any).setStyleString(null)
+        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+        assert.isNull((feature as any).getStyleString())
+      })
+      it('should throw when style arg is invalid type', () => {
+        const feature = new gdal.Feature(defn)
+        assert.throws(() => {
+          /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+          ;(feature as any).setStyleString(123)
+        }, /style must be a string, null or undefined/)
+      })
+    })
     describe('getGeometry()', () => {
       it('should get geometry', () => {
         const feature = new gdal.Feature(defn)

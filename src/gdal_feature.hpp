@@ -33,6 +33,8 @@ class Feature : public Nan::ObjectWrap {
   static NAN_METHOD(getFieldDefn);
   static NAN_METHOD(setFrom);
   static NAN_METHOD(destroy);
+  static NAN_METHOD(getStyleString);
+  static NAN_METHOD(setStyleString);
 
   static NAN_GETTER(fieldsGetter);
   static NAN_GETTER(fidGetter);
