@@ -18,6 +18,7 @@ test/data/**/*.gfs
 test/data/**/*.gz.*
 test/data/**/*.ovr
 node_modules
+/.idea
 /.project
 .DS_Store
 deplibs
