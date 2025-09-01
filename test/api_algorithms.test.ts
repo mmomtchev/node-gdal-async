@@ -58,7 +58,9 @@ describe('gdal', () => {
           (feature.fields.get('elev') - offset) % interval === 0,
           'contour used correct interval / base'
         )
-        assert.isFalse(feature.getGeometry().isEmpty())
+        const geom = feature.getGeometry()
+        assert.isNotNull(geom)
+        assert.isFalse(geom.isEmpty())
       })
     })
     it('should accept an array of fixed levels', () => {

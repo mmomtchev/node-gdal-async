@@ -1813,6 +1813,7 @@ describe('gdal.RasterBand', () => {
         const band = gdal.open(`${__dirname}/data/test_with_mask_1bit.tif`).bands.get(1)
         assert.equal(band.getMaskFlags(), 2)
         const mask = band.getMaskBand()
+        assert.isNotNull(mask)
         assert.equal(mask.pixels.get(0, 0), 0)
         assert.equal(mask.pixels.get(10, 10), 255)
       })

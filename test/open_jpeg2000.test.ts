@@ -48,7 +48,9 @@ describe('Open', () => {
 
     it('the checksum should match', () => {
       assert.strictEqual(gdal.checksumImage(ds.bands.get(1)), 17530)
-      assert.strictEqual(gdal.checksumImage(ds.bands.get(1).getMaskBand()), 8527)
+      const mask = ds.bands.get(1).getMaskBand()
+      assert.isNotNull(mask)
+      assert.strictEqual(gdal.checksumImage(mask), 8527)
     })
   })
 })

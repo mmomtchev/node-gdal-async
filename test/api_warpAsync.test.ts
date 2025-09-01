@@ -131,6 +131,7 @@ describe('gdal', () => {
 
       // transform cutline to source dataset px/line coordinates
       const geotransformer = new gdal.CoordinateTransformation(t_srs, src)
+      assert.isNotNull(cutline)
       cutline.transform(geotransformer)
 
       // compute output geotransform / dimensions
