@@ -11,6 +11,7 @@
 // ogr
 #include <ogrsf_frmts.h>
 
+#include <ogr_featurestyle.h>
 using namespace v8;
 using namespace node;
 
