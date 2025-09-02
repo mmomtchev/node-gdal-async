@@ -4,6 +4,7 @@
     "target": "es2020",
     "moduleResolution": "node",
     "module": "commonjs",
+    "esModuleInterop": true,
     "strict": true,
     "strictNullChecks": true
   }
