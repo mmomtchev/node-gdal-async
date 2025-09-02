@@ -127,8 +127,8 @@
     "globals": "^16.0.0",
     "mocha": "^11.0.1",
     "semver": "^7.3.5",
-    "ts-node": "^10.7.0",
     "tsconfig-paths": "^4.0.0",
+    "tsx": "^4.20.5",
     "typescript": "^5.3.3"
   },
   "engines": {
