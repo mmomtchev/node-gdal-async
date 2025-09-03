@@ -1,4 +1,4 @@
-import * as gdal from 'gdal-async'
+import gdal from 'gdal-async'
 import { assert } from 'chai'
 import * as path from 'path'
 import * as fs from 'fs'

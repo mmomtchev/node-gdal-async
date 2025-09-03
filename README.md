@@ -172,11 +172,15 @@ try {
 TypeScript support is available beginning with `gdal-async@3.1.0`
 ```ts
 import * as gdal from 'gdal-async'
+// Alternatively and only with esModuleInterop = true in tsconfig.json
+// import gdal from 'gdal-async'
 
 const ds1: gdal.Dataset = gdal.open('sample.tif')
 const ds2: Promise<gdal.Dataset> = gdal.openAsync('sample.tif')
 ```
 In TypeScript `gdal` is a collection of named exports - as this is the preferred way of importing a native module in TypeScript and it does not impose the use of the `esModuleInterop` flag.
+
+If your project already has `esModuleInterop`, you can import it with the default import.
 
 #### About type generation
 

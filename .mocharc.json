@@ -1,0 +1,12 @@
+{
+  "spec": "test/*.test.ts",
+  "require": [
+    "tsx",
+    "tsconfig-paths/register",
+    "test/_common.ts",
+    "test/_hooks.ts"
+  ],
+  "reporter": "tap",
+  "timeout": 20000,
+  "v8-expose-gc": true
+}
