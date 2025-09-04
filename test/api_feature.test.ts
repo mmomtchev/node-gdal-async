@@ -555,6 +555,22 @@ describe('gdal.Feature', () => {
 			});
 			*/
     })
+    describe('style string', () => {
+      it('should get null when unset and allow set/clear', () => {
+        const feature = new gdal.Feature(defn)
+        assert.isNull(feature.getStyleString())
+        feature.setStyleString('PEN(c:#FF0000,w:5px)')
+        assert.equal(feature.getStyleString(), 'PEN(c:#FF0000,w:5px)')
+        feature.setStyleString(null)
+        assert.isNull(feature.getStyleString())
+      })
+      it('should throw when style arg is invalid type', () => {
+        const feature = new gdal.Feature(defn)
+        assert.throws(() => {
+          feature.setStyleString(123)
+        }, /style must be a string, null or undefined/)
+      })
+    })
     describe('getGeometry()', () => {
       it('should get geometry', () => {
         const feature = new gdal.Feature(defn)

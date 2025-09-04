@@ -28,6 +28,8 @@ void Feature::Initialize(Local<Object> target) {
   // Nan::SetPrototypeMethod(lcons, "getFieldDefn", getFieldDefn); (use
   // defn.fields.get() instead)
   Nan::SetPrototypeMethod(lcons, "setFrom", setFrom);
+  Nan::SetPrototypeMethod(lcons, "getStyleString", getStyleString);
+  Nan::SetPrototypeMethod(lcons, "setStyleString", setStyleString);
 
   // Note: This is used mainly for testing
   // TODO: Give node more info on the amount of memory a feature is using
@@ -408,6 +410,59 @@ NAN_GETTER(Feature::defnGetter) {
     return;
   }
   info.GetReturnValue().Set(FeatureDefn::New(feature->this_->GetDefnRef(), false));
+}
+
+/**
+ * Returns the OGR style string for this feature, if any.
+ *
+ * @method getStyleString
+ * @instance
+ * @memberof Feature
+ * @return {string|null}
+ */
+NAN_METHOD(Feature::getStyleString) {
+  Feature *feature = Nan::ObjectWrap::Unwrap<Feature>(info.This());
+  if (!feature->isAlive()) {
+    Nan::ThrowError("Feature object already destroyed");
+    return;
+  }
+  const char *psz = feature->this_->GetStyleString();
+  if (!psz) {
+    info.GetReturnValue().Set(Nan::Null());
+    return;
+  }
+  info.GetReturnValue().Set(Nan::New(psz).ToLocalChecked());
+}
+
+/**
+ * Sets the OGR style string for this feature. Pass null/undefined to clear.
+ *
+ * @throws {Error}
+ * @method setStyleString
+ * @instance
+ * @memberof Feature
+ * @param {string|null|undefined} style
+ */
+NAN_METHOD(Feature::setStyleString) {
+  Feature *feature = Nan::ObjectWrap::Unwrap<Feature>(info.This());
+  if (!feature->isAlive()) {
+    Nan::ThrowError("Feature object already destroyed");
+    return;
+  }
+
+  if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
+    // Clear style if null/undefined or no arg
+    feature->this_->SetStyleString(nullptr);
+    return;
+  }
+
+  if (!info[0]->IsString()) {
+    Nan::ThrowTypeError("style must be a string, null or undefined");
+    return;
+  }
+
+  Nan::Utf8String utf8(info[0]);
+  feature->this_->SetStyleString(*utf8);
 }
 
 NAN_SETTER(Feature::fidSetter) {
