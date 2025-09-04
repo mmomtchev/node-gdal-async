@@ -10,7 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
  - [mmomtchev/node-gdal-async#233](https://github.com/mmomtchev/node-gdal-async/issues/233): Support SQLite SQL dialect
+ - [mmomtchev/node-gdal-async#243](https://github.com/mmomtchev/node-gdal-async/pull/243), support for `Feature.{get|set}StyleString`
 
+### Changed
+ - [mmomtchev/node-gdal-async#242](https://github.com/mmomtchev/node-gdal-async/pull/242), TypeScript types correctly reflect that some functions can return `null` geometries
 
 ## [3.11.3] 2025-07-13
 
