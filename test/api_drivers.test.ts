@@ -184,8 +184,8 @@ describe('gdal.drivers', () => {
     it('should throw if the driver-specific options are invalid', () => {
       assert.throws(() => {
         const driver = gdal.drivers.get('GTiff')
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        driver.open(`${__dirname}/data/sample.tif`, 'r', 'GEOREF_SOURCES=NONE' as any)
+        // @ts-expect-error voluntary error
+        driver.open(`${__dirname}/data/sample.tif`, 'r', 'GEOREF_SOURCES=NONE')
       }, /Failed parsing options/)
     })
   })
@@ -257,8 +257,8 @@ describe('gdal.drivers', () => {
         driver.createCopy(
           outputFilename,
           gdal.open(`${__dirname}/data/12_791_1476.jpg`),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          'option=invalid' as any
+          // @ts-expect-error voluntary error
+          'option=invalid'
         )
       }, /Failed parsing options/)
     })

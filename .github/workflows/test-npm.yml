@@ -36,6 +36,10 @@ jobs:
         npm install
     - name: Install from npm
       run:  npm install --force gdal-async@${{ github.event.inputs.version }}
+    - name: Check TypeScript
+      run: cd test && tsc --noEmit
+      env:
+        TS_NODE_PROJECT: tsconfig.test.json
     - name: Run the unit tests
       run: |
         cd test
@@ -72,6 +76,10 @@ jobs:
         npm install
     - name: Rebuild with npm
       run: npm install --verbose --force gdal-async@${{ github.event.inputs.version }} --build-from-source
+    - name: Check TypeScript
+      run: cd test && tsc --noEmit
+      env:
+        TS_NODE_PROJECT: tsconfig.test.json
     - name: Run the unit tests
       run: |
         cd test

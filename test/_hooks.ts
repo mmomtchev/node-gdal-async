@@ -51,8 +51,8 @@ const bundledSkip = function (this: Mocha.Context) {
 }
 
 const cleanup = () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  delete (gdal as any).drivers
+  // @ts-expect-error not a public API
+  delete gdal.drivers
   global.gc!()
 }
 

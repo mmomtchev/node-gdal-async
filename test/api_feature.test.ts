@@ -214,8 +214,8 @@ describe('gdal.Feature', () => {
           const feature = new gdal.Feature(defn)
           assert.throws(() => {
             // In TypeScript these exceptions require disabling the type checks
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            (feature as any).defn = null
+            // @ts-expect-error voluntary error
+            feature.defn = null
           })
         })
       })
@@ -232,8 +232,8 @@ describe('gdal.Feature', () => {
         it('should throw error', () => {
           const feature = new gdal.Feature(defn)
           assert.throws(() => {
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            (feature as any).fields = null
+            // @ts-expect-error voluntary error
+            feature.fields = null
           }, /fields is a read-only property/)
         })
       })
@@ -343,12 +343,12 @@ describe('gdal.Feature', () => {
           it('should throw an error if the arguments are invalid', () => {
             const feature = new gdal.Feature(defn)
             assert.throws(() => {
-              /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-              (feature.fields as any).set(42)
+              // @ts-expect-error voluntary error
+              feature.fields.set(42)
             }, /expected an object/)
             assert.throws(() => {
-              /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-              (feature.fields as any).set(0, 1, 2)
+              // @ts-expect-error voluntary error
+              feature.fields.set(0, 1, 2)
             }, /Invalid number of arguments/)
           })
         })
@@ -382,8 +382,8 @@ describe('gdal.Feature', () => {
           it('should throw an error with no arguments', () => {
             const feature = new gdal.Feature(defn)
             assert.throws(() => {
-              /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-              (feature.fields as any).get()
+              // @ts-expect-error voluntary error
+              feature.fields.get()
             }, /Field index or name must be given/)
           })
         })
@@ -499,8 +499,8 @@ describe('gdal.Feature', () => {
           it('should throw an error if arguments are invalid', () => {
             const feature = new gdal.Feature(defn)
             assert.throws(() => {
-              /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-              (feature.fields as any).reset('bogus')
+              // @ts-expect-error voluntary error
+              feature.fields.reset('bogus')
             }, /fields must be an object/)
             assert.throws(() => {
               feature.fields.reset({ name: { invalid: true } })
@@ -567,6 +567,7 @@ describe('gdal.Feature', () => {
       it('should throw when style arg is invalid type', () => {
         const feature = new gdal.Feature(defn)
         assert.throws(() => {
+          // @ts-expect-error voluntary error
           feature.setStyleString(123)
         }, /style must be a string, null or undefined/)
       })

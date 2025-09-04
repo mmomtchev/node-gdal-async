@@ -190,8 +190,8 @@ ${Object.keys(metadata).map((k) => `    <MDI key="${k}">${metadata[k]}</MDI>`).j
       this.skip()
     }
     assert.throws(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (gdal.wrapVRT as any)()
+      // @ts-expect-error voluntary error
+      gdal.wrapVRT()
     }, /Dataset must have at least one RasterBand/)
 
     assert.throws(() => {

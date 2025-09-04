@@ -79,8 +79,8 @@ describe('gdal.Polygon', () => {
           polygon.rings.add(ring1)
           const ring2 = new gdal.LineString()
           assert.throws(() => {
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            polygon.rings.add(ring2 as any)
+            // @ts-expect-error voluntary error
+            polygon.rings.add(ring2)
           }, /must be a LinearRing/)
         })
       })

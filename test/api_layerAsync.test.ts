@@ -106,8 +106,8 @@ describe('gdal.LayerAsync', () => {
         it('should throw error', () => {
           prepare_dataset_layer_test('r', (dataset, layer) => {
             assert.throws(() => {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (layer as any).ds = null
+              // @ts-expect-error voluntary error
+              layer.ds = null
             }, /ds is a read-only property/)
           })
         })
@@ -168,8 +168,8 @@ describe('gdal.LayerAsync', () => {
         it('should throw error', () => {
           prepare_dataset_layer_test('r', (dataset, layer) => {
             assert.throws(() => {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (layer.srs as any) = 'ESPG:4326'
+              // @ts-expect-error voluntary error
+              layer.srs = 'ESPG:4326'
             }, /srs is a read-only property/)
           })
         })
@@ -196,8 +196,8 @@ describe('gdal.LayerAsync', () => {
         it('should throw error', () => {
           prepare_dataset_layer_test('r', (dataset, layer) => {
             assert.throws(() => {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (layer as any).name = null
+              // @ts-expect-error voluntary error
+              layer.name = null
             }, /name is a read-only property/)
           })
         })
@@ -224,8 +224,8 @@ describe('gdal.LayerAsync', () => {
         it('should throw error', () => {
           prepare_dataset_layer_test('r', (dataset, layer) => {
             assert.throws(() => {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (layer as any).geomType = null
+              // @ts-expect-error voluntary error
+              layer.geomType = null
             }, /geomType is a read-only property/)
           })
         })
@@ -457,8 +457,8 @@ describe('gdal.LayerAsync', () => {
         it('should throw error', () => {
           prepare_dataset_layer_test('r', (dataset, layer) => {
             assert.throws(() => {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (layer as any).features = null
+              // @ts-expect-error voluntary error
+              layer.features = null
             }, /features is a read-only property/)
           })
         })
@@ -715,8 +715,8 @@ describe('gdal.LayerAsync', () => {
         it('should throw error', () => {
           prepare_dataset_layer_test('w', (dataset, layer) => {
             assert.throws(() => {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (layer as any).fields = null
+              // @ts-expect-error voluntary error
+              layer.fields = null
             }, /fields is a read-only property/)
           })
         })

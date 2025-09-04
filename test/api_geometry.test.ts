@@ -317,8 +317,8 @@ describe('gdal.Geometry', () => {
       it('must require SpatialReference when setting', () => {
         const point = new gdal.Point(1, 2)
         assert.throws(() => {
-          /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-          point.srs = 'invalid' as any
+        // @ts-expect-error voluntary error
+          point.srs = 'invalid'
         })
       })
     })
@@ -512,10 +512,8 @@ describe('gdal.Geometry', () => {
         const point2 = new gdal.Point(10, 10)
         const distance_expected = Math.sqrt(10 * 10 + 10 * 10)
         const distance_actual = point1.distanceAsync(point2)
-        // TODO: this seems to be a bug in the TS bindings of chai
-        // distance_actual should be a Promise<number>, it is a number
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return assert.eventually.closeTo(distance_actual as any, distance_expected, 0.001)
+
+        return assert.eventually.closeTo(distance_actual, distance_expected, 0.001)
       })
     })
     describe('convexHull()', () => {
@@ -662,9 +660,7 @@ describe('gdal.Geometry', () => {
         const point = new gdal.Point(0, 0)
         const circle = point.bufferAsync(1, 1000) as Promise<gdal.Polygon>
         return assert.isFulfilled(Promise.all([ assert.eventually.instanceOf(circle, gdal.Polygon),
-          // TODO: this seems to be a bug in the TS bindings of chai
-          /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-          assert.eventually.closeTo(circle.then((r) => r.getArea()) as any, 3.1415, 0.0001)
+          assert.eventually.closeTo(circle.then((r) => r.getArea()), 3.1415, 0.0001)
         ]))
       })
     })

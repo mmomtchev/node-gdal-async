@@ -20,9 +20,8 @@ describe('gdal', () => {
         assert.isNull(gdal.lastError)
       })
       it('should return an object normally', () => {
-        // This is not a public API
-        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-        (gdal as any)._triggerCPLError()
+        // @ts-expect-error not a public API
+        gdal._triggerCPLError()
 
         assert.deepEqual(gdal.lastError, {
           code: gdal.CPLE_AppDefined,
@@ -33,18 +32,16 @@ describe('gdal', () => {
     })
     describe('set()', () => {
       it('should allow reset by setting to null', () => {
-        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-        (gdal as any)._triggerCPLError()
+        // @ts-expect-error not a public API
+        gdal._triggerCPLError()
 
-        assert.equal(!!gdal.lastError, true);
-        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-        (gdal as any).lastError = null
+        assert.equal(!!gdal.lastError, true)
+        gdal.lastError = null
         assert.isNull(gdal.lastError)
       })
       it('should throw when not null', () => {
         assert.throws(() => {
-        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-          (gdal as any).lastError = {}
+          gdal.lastError = {}
         }, /null/)
       })
     })
@@ -103,8 +100,8 @@ describe('gdal', () => {
   describe('decToDMS()', () => {
     it('should throw when axis not provided', () => {
       assert.throws(() => {
-        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-        (gdal as any).decToDMS(12.2)
+        // @ts-expect-error voluntary error
+        gdal.decToDMS(12.2)
       })
     })
     it('should return correct result', () => {

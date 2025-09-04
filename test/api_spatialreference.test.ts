@@ -406,8 +406,8 @@ describe('gdal.SpatialReference', () => {
     it('should return true if vertical coordinate system', () => {
       assert.equal(gdal.SpatialReference.fromWKT(compoundVertical).isVertical(), true)
       // This is a typo that will probably stay until 4.x
-      /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-      assert.equal((gdal.SpatialReference.fromWKT(compoundVertical) as any).isVectical(), true)
+      // @ts-expect-error breaking change
+      assert.equal((gdal.SpatialReference.fromWKT(compoundVertical)).isVectical(), true)
     })
     it('should return false if not vertical coordinate system', () => {
       assert.equal(gdal.SpatialReference.fromEPSG(2154).isVertical(), false)

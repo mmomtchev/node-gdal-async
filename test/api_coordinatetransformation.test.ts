@@ -57,8 +57,8 @@ describe('gdal.CoordinateTransformation', () => {
     })
     it('should throw on invalid arguments', () => {
       assert.throws(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ct.transformPoint({ x: 'a', y: 30 } as any)
+        // @ts-expect-error voluntary error
+        ct.transformPoint({ x: 'a', y: 30 })
       }, /point must contain numerical properties x and y/)
     })
   })
