@@ -25,8 +25,8 @@ describe('gdal.RasterBand', () => {
           const ds = gdal.open('temp', 'w', 'MEM', 256, 256, 1, gdal.GDT_Byte)
           const band = ds.bands.get(1)
           assert.throws(() => {
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            (band as any).ds = null
+            // @ts-expect-error voluntary error
+            band.ds = null
           })
         })
       })
@@ -173,8 +173,8 @@ describe('gdal.RasterBand', () => {
           const ds = gdal.open(`${__dirname}/data/dem_azimuth50_pa.img`)
           const band = ds.bands.get(1)
           assert.throws(() => {
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            (band as any).description = 'test'
+            // @ts-expect-error voluntary error
+            band.description = 'test'
           })
         })
       })
@@ -200,8 +200,8 @@ describe('gdal.RasterBand', () => {
           const ds = gdal.open('temp', 'w', 'MEM', 256, 256, 1, gdal.GDT_Byte)
           const band = ds.bands.get(1)
           assert.throws(() => {
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            (band as any).id = 5
+            // @ts-expect-error voluntary error
+            band.id = 5
           })
         })
       })
@@ -227,8 +227,8 @@ describe('gdal.RasterBand', () => {
           const ds = gdal.open('temp', 'w', 'MEM', 256, 256, 1, gdal.GDT_Byte)
           const band = ds.bands.get(1)
           assert.throws(() => {
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            (band as any).size = { x: 128, y: 128 }
+            // @ts-expect-error voluntary error
+            band.size = { x: 128, y: 128 }
           })
         })
       })
@@ -254,8 +254,8 @@ describe('gdal.RasterBand', () => {
           const ds = gdal.open('temp', 'w', 'MEM', 256, 256, 1, gdal.GDT_Byte)
           const band = ds.bands.get(1)
           assert.throws(() => {
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            (band as any).blockSize = { x: 128, y: 128 }
+            // @ts-expect-error voluntary error
+            band.blockSize = { x: 128, y: 128 }
           })
         })
       })
@@ -322,8 +322,8 @@ describe('gdal.RasterBand', () => {
           const ds = gdal.open('temp', 'w', 'MEM', 256, 256, 1, gdal.GDT_Byte)
           const band = ds.bands.get(1)
           assert.throws(() => {
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            (band as any).dataType = gdal.GDT_Float64
+            // @ts-expect-error voluntary error
+            band.dataType = gdal.GDT_Float64
           })
         })
       })
@@ -354,8 +354,8 @@ describe('gdal.RasterBand', () => {
           const ds = gdal.open('temp', 'w', 'MEM', 256, 256, 1, gdal.GDT_Byte)
           const band = ds.bands.get(1)
           assert.throws(() => {
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            (band as any).readOnly = true
+            // @ts-expect-error voluntary error
+            band.readOnly = true
           })
         })
       })
@@ -381,8 +381,8 @@ describe('gdal.RasterBand', () => {
           const ds = gdal.open('temp', 'w', 'MEM', 256, 256, 1, gdal.GDT_Byte)
           const band = ds.bands.get(1)
           assert.throws(() => {
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            (band as any).minimum = 5
+            // @ts-expect-error voluntary error
+            band.minimum = 5
           })
         })
       })
@@ -408,8 +408,8 @@ describe('gdal.RasterBand', () => {
           const ds = gdal.open('temp', 'w', 'MEM', 256, 256, 1, gdal.GDT_Byte)
           const band = ds.bands.get(1)
           assert.throws(() => {
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            (band as any).maximum = 5
+            // @ts-expect-error voluntary error
+            band.maximum = 5
           })
         })
       })
@@ -552,8 +552,8 @@ describe('gdal.RasterBand', () => {
           const ds = gdal.open('temp', 'w', 'MEM', 256, 256, 1, gdal.GDT_Byte)
           const band = ds.bands.get(1)
           assert.throws(() => {
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            (band as any).pixels = null
+            // @ts-expect-error voluntary error
+            band.pixels = null
           })
         })
       })
@@ -1592,8 +1592,8 @@ describe('gdal.RasterBand', () => {
           const ds = gdal.open('temp', 'w', 'MEM', 32, 32, 1, gdal.GDT_Byte)
           const band = ds.bands.get(1)
           assert.throws(() => {
-            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-            (band as any).overviews = null
+            // @ts-expect-error voluntary error
+            band.overviews = null
           })
         })
       })

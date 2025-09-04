@@ -4,8 +4,8 @@ console.log(`GDAL Version: ${gdal.version}, source: ${gdal.bundled ? 'bundled' :
 
 // gc tracing
 try {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (gdal as any).startLogging(`${__dirname}/artifacts/log.txt`)
+  // @ts-expect-error not a public API
+  gdal.startLogging(`${__dirname}/artifacts/log.txt`)
 } catch (_e) {
   /* ignore */
 }

@@ -30,8 +30,8 @@ describe('gdal.RasterBandAsync', () => {
             (e, ds) => {
               const band = ds.bands.get(1)
               assert.throws(() => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (band as any).description = 'test'
+                // @ts-expect-error voluntary error
+                band.description = 'test'
               })
             })
         })
@@ -89,8 +89,7 @@ describe('gdal.RasterBandAsync', () => {
       describe('readAsync() w/cb', () => {
         it('should not crash if the dataset is immediately closed', () => {
           // This test has good chances of triggering the event loop warning
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (gdal as any).eventLoopWarning = false
+          gdal.eventLoopWarning = false
           for (let i = 0; i < 20; i++) {
             const ds = gdal.open(`${__dirname}/data/sample.tif`)
             const band = ds.bands.get(1)
@@ -103,8 +102,7 @@ describe('gdal.RasterBandAsync', () => {
             band.pixels.readAsync(190, 290, w, h, undefined, undefined, () => undefined)
             ds.close()
           }
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (gdal as any).eventLoopWarning = true
+          gdal.eventLoopWarning = true
         })
         it('should return a TypedArray', () => {
           gdal.openAsync(`${__dirname}/data/sample.tif`, (e, ds) => {

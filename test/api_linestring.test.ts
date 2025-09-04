@@ -62,8 +62,8 @@ describe('gdal.LineString', () => {
         assert.instanceOf(a, gdal.LineString)
         assert.instanceOf(b, gdal.Point)
         assert.throws(() => {
-          /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-          a.addSubLineString(b as any)
+        // @ts-expect-error voluntary error
+          a.addSubLineString(b)
         })
       })
       it('should throw if given invalid indexes', () => {
