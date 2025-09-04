@@ -455,7 +455,7 @@ NAN_METHOD(MDArray::asDataset) {
  * @name srs
  * @instance
  * @memberof MDArray
- * @type {SpatialReference}
+ * @type {SpatialReference|null}
  */
 NAN_GETTER(MDArray::srsGetter) {
   NODE_UNWRAP_CHECK(MDArray, info.This(), array);

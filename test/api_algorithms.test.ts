@@ -58,7 +58,9 @@ describe('gdal', () => {
           (feature.fields.get('elev') - offset) % interval === 0,
           'contour used correct interval / base'
         )
-        assert.isFalse(feature.getGeometry().isEmpty())
+        const geom = feature.getGeometry()
+        assert.isNotNull(geom)
+        assert.isFalse(geom.isEmpty())
       })
     })
     it('should accept an array of fixed levels', () => {
@@ -84,7 +86,9 @@ describe('gdal', () => {
           elev,
           'contour elevation in array of fixed levels'
         )
-        assert.isFalse(feature.getGeometry().isEmpty())
+        const geom = feature.getGeometry()
+        assert.isNotNull(geom)
+        assert.isFalse(geom.isEmpty())
         if (actual_levels.indexOf(elev) === -1) actual_levels.push(elev)
       })
 
@@ -420,6 +424,7 @@ describe('gdal', () => {
       assert.equal(lyr.features.count(), 2)
       lyr.features.forEach((f) => {
         const geom = f.getGeometry()
+        assert.isNotNull(geom)
         assert.isFalse(geom.isEmpty())
         assert.instanceOf(geom, gdal.Polygon)
       })

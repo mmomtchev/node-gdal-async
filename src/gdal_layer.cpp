@@ -411,7 +411,7 @@ NAN_GETTER(Layer::dsGetter) {
  * @name srs
  * @instance
  * @memberof Layer
- * @type {SpatialReference}
+ * @type {SpatialReference|null}
  */
 NAN_GETTER(Layer::srsGetter) {
   Layer *layer = Nan::ObjectWrap::Unwrap<Layer>(info.This());

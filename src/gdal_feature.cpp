@@ -168,7 +168,7 @@ NAN_METHOD(Feature::toString) {
  * @method getGeometry
  * @instance
  * @memberof Feature
- * @return {Geometry}
+ * @return {Geometry|null}
  */
 NAN_METHOD(Feature::getGeometry) {
 
