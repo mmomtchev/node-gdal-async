@@ -200,7 +200,7 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v6
       with:
         python-version: "3.11"
     - name: ccache
@@ -235,7 +235,7 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: 20.x
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v6
       with:
         python-version: "3.11"
     - name: ccache
