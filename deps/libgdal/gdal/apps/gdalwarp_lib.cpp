@@ -2698,13 +2698,8 @@ static GDALDatasetH GDALWarpDirect(const char *pszDest, GDALDatasetH hDstDS,
                     GDALGetDescription(hSrcDS));
         }
 
-        /* --------------------------------------------------------------------
-         */
-        /*      For RPC warping add a few extra source pixels by default */
-        /*      (probably mostly needed in the RPC DEM case) */
-        /* --------------------------------------------------------------------
-         */
-
+        // For RPC warping add a few extra source pixels by default
+        // (probably mostly needed in the RPC DEM case)
         if (iSrc == 0 && (GDALGetMetadata(hSrcDS, "RPC") != nullptr &&
                           (pszMethod == nullptr || EQUAL(pszMethod, "RPC"))))
         {
@@ -2723,6 +2718,19 @@ static GDALDatasetH GDALWarpDirect(const char *pszDest, GDALDatasetH hDstDS,
                 CPLDebug("WARP", "Set SAMPLE_STEPS=ALL warping options due to "
                                  "RPC DEM warping");
                 psOptions->aosWarpOptions.SetNameValue("SAMPLE_STEPS", "ALL");
+            }
+        }
+        // Also do the same for GCP TPS warping, e.g. to solve use case of
+        // https://github.com/OSGeo/gdal/issues/12736
+        else if (iSrc == 0 &&
+                 (GDALGetGCPCount(hSrcDS) > 0 &&
+                  (pszMethod == nullptr || EQUAL(pszMethod, "TPS"))))
+        {
+            if (!psOptions->aosWarpOptions.FetchNameValue("SOURCE_EXTRA"))
+            {
+                CPLDebug(
+                    "WARP",
+                    "Set SOURCE_EXTRA=5 warping options due to TPS warping");
             }
         }
 
@@ -6409,6 +6417,11 @@ GDALWarpAppOptionsNew(char **papszArgv,
             psOptions->dfMinY = (*oTE)[1];
             psOptions->dfMaxX = (*oTE)[2];
             psOptions->dfMaxY = (*oTE)[3];
+            psOptions->aosTransformerOptions.SetNameValue(
+                "TARGET_EXTENT",
+                CPLSPrintf("%.17g,%.17g,%.17g,%.17g", psOptions->dfMinX,
+                           psOptions->dfMinY, psOptions->dfMaxX,
+                           psOptions->dfMaxY));
             psOptions->bCreateOutput = true;
         }
 
