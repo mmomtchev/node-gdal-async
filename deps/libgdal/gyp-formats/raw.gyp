@@ -36,7 +36,8 @@
 				"../gdal/frmts/raw/mffdataset.cpp",
 				"../gdal/frmts/raw/pauxdataset.cpp",
 				"../gdal/frmts/raw/rrasterdataset.cpp",
-				"../gdal/frmts/raw/nsidcbindataset.cpp"
+				"../gdal/frmts/raw/nsidcbindataset.cpp",
+				"../gdal/frmts/raw/btdataset.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/raw"
