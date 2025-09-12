@@ -39,7 +39,7 @@ jobs:
     - name: Run the unit tests
       run: |
         cd test
-        npx tsc -p test/tsconfig.test.json --noEmit
+        npx tsc -p tsconfig.test.json --noEmit
         npx mocha --v8-expose-gc --reporter=tap -r tsx -r _common.ts -r _hooks.ts --timeout 20000 *.test.ts
 
 
@@ -74,5 +74,5 @@ jobs:
     - name: Run the unit tests
       run: |
         cd test
-        npx tsc -p test/tsconfig.test.json --noEmit
+        npx tsc -p tsconfig.test.json --noEmit
         npx mocha --v8-expose-gc --reporter=tap -r tsx -r _common.ts -r _hooks.ts --timeout 20000 *.test.ts
