@@ -432,7 +432,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
     CPLErr err =
       gdal_band->RasterIO(GF_Read, x, y, w, h, data, buffer_w, buffer_h, type, pixel_space, line_space, extra.get());
 #ifdef DEBUG_MACOS_FREEZE
-    printf("RasterBandPixels::read RasterIO done\n");
+    printf("RasterBandPixels::read RasterIO done, err = %d\n", (int)err);
 #endif
 
     if (err != CE_None) throw CPLGetLastErrorMsg();
