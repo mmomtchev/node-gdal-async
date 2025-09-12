@@ -45,7 +45,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "AZURE_IMDS_OBJECT_ID", // from cpl_azure.cpp
    "AZURE_MAX_RESULTS", // from cpl_vsil_adls.cpp, cpl_vsil_az.cpp
    "AZURE_NO_SIGN_REQUEST", // from cpl_azure.cpp
-   "AZURE_SAS", // from cpl_azure.cpp, cpl_vsil_az.cpp
+   "AZURE_SAS", // from cpl_azure.cpp
    "AZURE_STORAGE_ACCESS_KEY", // from cpl_azure.cpp
    "AZURE_STORAGE_ACCESS_TOKEN", // from cpl_azure.cpp
    "AZURE_STORAGE_ACCOUNT", // from cpl_azure.cpp
@@ -401,6 +401,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "GDAL_USE_SSE", // from gdalgrid.cpp
    "GDAL_USE_SSSE3", // from cpl_cpu_features.cpp
    "GDAL_VALIDATE_CREATION_OPTIONS", // from gdaldataset.cpp, gdaldriver.cpp
+   "GDAL_VECTOR_CONCAT_MAX_OPENED_DATASETS", // from gdalalg_vector_concat.cpp
    "GDAL_VRT_ENABLE_PYTHON", // from vrtderivedrasterband.cpp
    "GDAL_VRT_PYTHON_EXCLUSIVE_LOCK", // from vrtderivedrasterband.cpp
    "GDAL_VRT_PYTHON_TRUSTED_MODULES", // from vrtderivedrasterband.cpp

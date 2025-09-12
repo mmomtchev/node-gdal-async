@@ -5,10 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-###
+### [3.11.4]
 
 
 ### Added
+ - GDAL 3.11.4
  - [mmomtchev/node-gdal-async#233](https://github.com/mmomtchev/node-gdal-async/issues/233): Support SQLite SQL dialect
  - [mmomtchev/node-gdal-async#243](https://github.com/mmomtchev/node-gdal-async/pull/243), support for `Feature.{get|set}StyleString`
 
