@@ -5,7 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+##
+
+### Changed
+
 ## [3.11.4] 2025-09-12
+ - Fix [mmomtchev/node-gdal-async#250](https://github.com/mmomtchev/node-gdal-async/issues/250), fix a leak of `Buffer` objects after using `vsimem.set` and `vsimem.release`
 
 ### Added
  - GDAL 3.11.4
