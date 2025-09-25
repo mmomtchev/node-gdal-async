@@ -24,7 +24,10 @@ Memfile::Memfile(void *data) : data(data) {
 }
 
 Memfile::~Memfile() {
-  if (persistent && !persistent->IsEmpty()) persistent->Reset();
+  if (persistent && !persistent->IsEmpty()) {
+    persistent->ClearWeak();
+    persistent->Reset();
+  }
   delete persistent;
 }
 
