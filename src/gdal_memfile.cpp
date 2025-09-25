@@ -24,10 +24,7 @@ Memfile::Memfile(void *data) : data(data) {
 }
 
 Memfile::~Memfile() {
-  if (persistent && !persistent->IsEmpty()) {
-    persistent->ClearWeak();
-    persistent->Reset();
-  }
+  if (persistent && !persistent->IsEmpty()) { persistent->Reset(); }
   delete persistent;
 }
 
@@ -35,6 +32,8 @@ void Memfile::weakCallback(const Nan::WeakCallbackInfo<Memfile> &file) {
   Memfile *mem = file.GetParameter();
   memfile_collection.erase(mem->data);
   VSIUnlink(mem->filename.c_str());
+  delete mem->persistent;
+  mem->persistent = nullptr;
   delete mem;
 }
 
