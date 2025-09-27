@@ -610,11 +610,13 @@ struct pixelFnCall {
 
 // This is the pixel function descriptor
 // The queue can be modified both by the main thread and the worker threads
+// (as this structure is stored in a vector, it must support realloc)
 struct pixelFn {
   Nan::Callback *fn;
   pixelFnCall call;
   uv_mutex_t callJS;
   uv_sem_t returnJS;
+  uv_async_t *async;
 };
 
 // Only the main thread can modify this and only by adding new elements
@@ -722,13 +724,16 @@ static CPLErr pixelFunc(
     return CE_Failure;
   }
 
-  uv_async_t *async = new uv_async_t;
-  async->data = &pixelFuncs[id];
-
 #ifdef DEBUG_MACOS_FREEZE
   printf("pixelFunc lock\n");
 #endif
+
+  // Only one dataset can use the JS function at a time
   uv_mutex_lock(&pixelFuncs[id].callJS);
+
+  uv_async_t *async = pixelFuncs[id].async;
+  async->data = &pixelFuncs[id];
+
   pixelFuncs[id].call = {
     papoSources,
     static_cast<size_t>(nSources),
@@ -746,19 +751,12 @@ static CPLErr pixelFunc(
     // Main thread = sync mode
     // Here we are abusing an uninitialized uv_async_t as a data holder
     callJSpfn(async);
-    delete async;
   } else {
     // Worker thread = async mode
-    int s = uv_async_init(uv_default_loop(), async, callJSpfn);
-    if (s != 0) {
-      CPLError(CE_Failure, CPLE_AppDefined, "Pixel function error: failed initialising async");
-      return CE_Failure;
-    }
-
 #ifdef DEBUG_MACOS_FREEZE
     printf("pixelFunc async send\n");
 #endif
-    s = uv_async_send(async);
+    int s = uv_async_send(async);
     if (s != 0) {
       CPLError(CE_Failure, CPLE_AppDefined, "Pixel function error: failed scheduling async");
       return CE_Failure;
@@ -768,14 +766,6 @@ static CPLErr pixelFunc(
     printf("pixelFunc wait on semaphore\n");
 #endif
     uv_sem_wait(&pixelFuncs[id].returnJS);
-
-    uv_close(reinterpret_cast<uv_handle_t *>(async), [](uv_handle_t *handle) {
-#ifdef DEBUG_MACOS_FREEZE
-      printf("pixelFunc destroy\n");
-#endif
-      uv_async_t *async = reinterpret_cast<uv_async_t *>(handle);
-      delete async;
-    });
   }
 #ifdef DEBUG_MACOS_FREEZE
   printf("pixelFunc unlock\n");
@@ -846,6 +836,13 @@ NAN_METHOD(Algorithms::toPixelFunc) {
     Nan::ThrowError("Failed creating a semaphore");
     return;
   }
+  pixelFuncs[uid].async = new uv_async_t;
+  s = uv_async_init(uv_default_loop(), pixelFuncs[uid].async, callJSpfn);
+  if (s != 0) {
+    Nan::ThrowError("Failed creating libuv async");
+    return;
+  }
+  uv_unref(reinterpret_cast<uv_handle_t *>(pixelFuncs[uid].async));
 
   std::string metadata;
   metadata.reserve(strlen(metadataTemplate) + 32);
