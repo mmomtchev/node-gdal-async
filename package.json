@@ -91,7 +91,7 @@
     "@petamoriken/float16": "^3.9.2",
     "nan": "^2.17.0",
     "node-gyp": "^11.0.0",
-    "xmlbuilder2": "^3.0.2",
+    "xmlbuilder2": "^4.0.0",
     "yatag": "^1.2.0"
   },
   "bundleDependencies": [
