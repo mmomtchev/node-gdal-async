@@ -25,7 +25,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Use Node.js 20.x
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@v6
       with:
         node-version: 20.x
     - name: ccache
@@ -74,7 +74,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Use Node.js 20.x
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@v6
       with:
         node-version: 20.x
     - name: ccache
@@ -99,7 +99,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Use Node.js 20.x
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@v6
       with:
         node-version: 20.x
     - name: ccache
@@ -125,7 +125,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Use Node.js 20.x
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@v6
       with:
         node-version: 20.x
     - name: ccache
@@ -151,7 +151,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Use Node.js 20.x
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@v6
       with:
         node-version: 20.x
     - name: ccache
@@ -171,7 +171,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Use Node.js 20.x
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@v6
       with:
         node-version: 20.x
     - name: ccache
@@ -197,7 +197,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@v6
       with:
         node-version: ${{ matrix.node-version }}
     - uses: actions/setup-python@v6
@@ -232,7 +232,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Use Node.js 20.x
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@v6
       with:
         node-version: 20.x
     - uses: actions/setup-python@v6
@@ -272,7 +272,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@v6
       with:
         node-version: ${{ matrix.node-version }}
     - run: npm install --ignore-scripts
@@ -292,7 +292,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Use Node.js 20.x
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@v6
       with:
         node-version: 20.x
     - run: npm install --ignore-scripts
