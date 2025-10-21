@@ -4,6 +4,7 @@ add_library(
   gdal_adbc.cpp
   gdalalgorithm.cpp
   gdalalgorithmregistry.cpp
+  gdalcomputedrasterband.cpp
   gdalopeninfo.cpp
   gdaldriver.cpp
   gdaldrivermanager.cpp
@@ -76,7 +77,7 @@ if (USE_PRECOMPILED_HEADERS)
     target_precompile_headers(gcore REUSE_FROM gdal_priv_header)
 endif()
 add_dependencies(gcore generate_gdal_version_h)
-target_compile_options(gcore PRIVATE ${GDAL_CXX_WARNING_FLAGS} ${WFLAG_OLD_STYLE_CAST} ${WFLAG_EFFCXX})
+target_compile_options(gcore PRIVATE ${GDAL_CXX_WARNING_FLAGS} ${WFLAG_OLD_STYLE_CAST} ${WFLAG_EFFCXX} ${WFLAG_DOUBLE_PROMOTION})
 target_include_directories(
   gcore
   PRIVATE $<TARGET_PROPERTY:ogrsf_generic,SOURCE_DIR> $<TARGET_PROPERTY:gdal_MEM,SOURCE_DIR>
@@ -153,6 +154,10 @@ if (ENABLE_PAM)
   target_compile_definitions(gcore PRIVATE -DPAM_ENABLED)
 endif ()
 
+if (GDAL_USE_MUPARSER)
+  target_compile_definitions(gcore PRIVATE -DHAVE_MUPARSER)
+endif()
+
 if (NOT GDAL_ENABLE_DRIVER_DERIVED)
   target_compile_definitions(gcore PRIVATE -DWITHOUT_DERIVED)
 endif ()
@@ -213,12 +218,36 @@ target_public_header(
   HEADERS
   ${CMAKE_CURRENT_BINARY_DIR}/gdal_version_full/gdal_version.h
   gdal.h
+  gdal_raster_cpp.h
+  gdal_multidim_cpp.h
+  gdal_vector_cpp.h
+  gdal_multidomainmetadata.h
+  gdal_majorobject.h
+  gdal_defaultoverviews.h
+  gdal_openinfo.h
+  gdal_gcp.h
+  gdal_geotransform.h
+  gdal_dataset.h
+  gdal_rasterblock.h
+  gdal_colortable.h
+  gdal_rasterband.h
+  gdal_computedrasterband.h
+  gdal_maskbands.h
+  gdal_driver.h
+  gdal_drivermanager.h
+  gdal_asyncreader.h
+  gdal_multidim.h
+  gdal_relationship.h
+  gdal_cpp_functions.h
   gdal_fwd.h
   gdalalgorithm.h
+  gdalalgorithm_c.h
+  gdalalgorithm_cpp.h
   gdaljp2metadata.h
   gdaljp2abstractdataset.h
   gdal_frmts.h
   gdal_pam.h
+  gdal_pam_multidim.h
   gdal_priv.h
   gdal_proxy.h
   gdal_rat.h

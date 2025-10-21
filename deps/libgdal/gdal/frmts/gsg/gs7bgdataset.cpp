@@ -21,6 +21,10 @@
 
 #include "gdal_frmts.h"
 #include "gdal_pam.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 
 /************************************************************************/
 /* ==================================================================== */
@@ -55,7 +59,7 @@ class GS7BGDataset final : public GDALPamDataset
     {
     }
 
-    ~GS7BGDataset();
+    ~GS7BGDataset() override;
 
     static int Identify(GDALOpenInfo *);
     static GDALDataset *Open(GDALOpenInfo *);
@@ -68,8 +72,8 @@ class GS7BGDataset final : public GDALPamDataset
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
 
-    CPLErr GetGeoTransform(double *padfGeoTransform) override;
-    CPLErr SetGeoTransform(double *padfGeoTransform) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
+    CPLErr SetGeoTransform(const GDALGeoTransform &gt) override;
 };
 
 const size_t GS7BGDataset::nHEADER_SIZE = 100;
@@ -107,7 +111,7 @@ class GS7BGRasterBand final : public GDALPamRasterBand
 
   public:
     GS7BGRasterBand(GS7BGDataset *, int);
-    ~GS7BGRasterBand();
+    ~GS7BGRasterBand() override;
 
     CPLErr IReadBlock(int, int, void *) override;
     CPLErr IWriteBlock(int, int, void *) override;
@@ -154,7 +158,7 @@ GS7BGRasterBand::~GS7BGRasterBand()
 CPLErr GS7BGRasterBand::ScanForMinMaxZ()
 
 {
-    GS7BGDataset *poGDS = reinterpret_cast<GS7BGDataset *>(poDS);
+    GS7BGDataset *poGDS = cpl::down_cast<GS7BGDataset *>(poDS);
     double *pafRowVals =
         (double *)VSI_MALLOC2_VERBOSE(nRasterXSize, sizeof(double));
 
@@ -245,7 +249,7 @@ CPLErr GS7BGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
     if (nBlockYOff < 0 || nBlockYOff > nRasterYSize - 1 || nBlockXOff != 0)
         return CE_Failure;
 
-    GS7BGDataset *poGDS = (GS7BGDataset *)(poDS);
+    GS7BGDataset *poGDS = cpl::down_cast<GS7BGDataset *>(poDS);
 
     if (VSIFSeekL(poGDS->fp,
                   (poGDS->nData_Position +
@@ -293,7 +297,7 @@ CPLErr GS7BGRasterBand::IWriteBlock(int nBlockXOff, int nBlockYOff,
     if (nBlockYOff < 0 || nBlockYOff > nRasterYSize - 1 || nBlockXOff != 0)
         return CE_Failure;
 
-    GS7BGDataset *poGDS = (GS7BGDataset *)(poDS);
+    GS7BGDataset *poGDS = cpl::down_cast<GS7BGDataset *>(poDS);
 
     if (pafRowMinZ == nullptr || pafRowMaxZ == nullptr || nMinZRow < 0 ||
         nMaxZRow < 0)
@@ -429,7 +433,7 @@ CPLErr GS7BGRasterBand::IWriteBlock(int nBlockXOff, int nBlockYOff,
 
 double GS7BGRasterBand::GetNoDataValue(int *pbSuccess)
 {
-    GS7BGDataset *poGDS = reinterpret_cast<GS7BGDataset *>(poDS);
+    GS7BGDataset *poGDS = cpl::down_cast<GS7BGDataset *>(poDS);
     if (pbSuccess)
         *pbSuccess = TRUE;
 
@@ -771,27 +775,20 @@ GDALDataset *GS7BGDataset::Open(GDALOpenInfo *poOpenInfo)
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr GS7BGDataset::GetGeoTransform(double *padfGeoTransform)
+CPLErr GS7BGDataset::GetGeoTransform(GDALGeoTransform &gt) const
 {
-    if (padfGeoTransform == nullptr)
-        return CE_Failure;
-
-    GS7BGRasterBand *poGRB = (GS7BGRasterBand *)GetRasterBand(1);
+    const GS7BGRasterBand *poGRB =
+        cpl::down_cast<const GS7BGRasterBand *>(GetRasterBand(1));
 
     if (poGRB == nullptr)
     {
-        padfGeoTransform[0] = 0;
-        padfGeoTransform[1] = 1;
-        padfGeoTransform[2] = 0;
-        padfGeoTransform[3] = 0;
-        padfGeoTransform[4] = 0;
-        padfGeoTransform[5] = 1;
+        gt = GDALGeoTransform();
         return CE_Failure;
     }
 
     /* check if we have a PAM GeoTransform stored */
     CPLPushErrorHandler(CPLQuietErrorHandler);
-    CPLErr eErr = GDALPamDataset::GetGeoTransform(padfGeoTransform);
+    CPLErr eErr = GDALPamDataset::GetGeoTransform(gt);
     CPLPopErrorHandler();
 
     if (eErr == CE_None)
@@ -801,16 +798,16 @@ CPLErr GS7BGDataset::GetGeoTransform(double *padfGeoTransform)
         return CE_Failure;
 
     /* calculate pixel size first */
-    padfGeoTransform[1] = (poGRB->dfMaxX - poGRB->dfMinX) / (nRasterXSize - 1);
-    padfGeoTransform[5] = (poGRB->dfMinY - poGRB->dfMaxY) / (nRasterYSize - 1);
+    gt[1] = (poGRB->dfMaxX - poGRB->dfMinX) / (nRasterXSize - 1);
+    gt[5] = (poGRB->dfMinY - poGRB->dfMaxY) / (nRasterYSize - 1);
 
     /* then calculate image origin */
-    padfGeoTransform[0] = poGRB->dfMinX - padfGeoTransform[1] / 2;
-    padfGeoTransform[3] = poGRB->dfMaxY - padfGeoTransform[5] / 2;
+    gt[0] = poGRB->dfMinX - gt[1] / 2;
+    gt[3] = poGRB->dfMaxY - gt[5] / 2;
 
     /* tilt/rotation does not supported by the GS grids */
-    padfGeoTransform[4] = 0.0;
-    padfGeoTransform[2] = 0.0;
+    gt[4] = 0.0;
+    gt[2] = 0.0;
 
     return CE_None;
 }
@@ -819,7 +816,7 @@ CPLErr GS7BGDataset::GetGeoTransform(double *padfGeoTransform)
 /*                          SetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr GS7BGDataset::SetGeoTransform(double *padfGeoTransform)
+CPLErr GS7BGDataset::SetGeoTransform(const GDALGeoTransform &gt)
 {
     if (eAccess == GA_ReadOnly)
     {
@@ -831,23 +828,18 @@ CPLErr GS7BGDataset::SetGeoTransform(double *padfGeoTransform)
     GS7BGRasterBand *poGRB =
         cpl::down_cast<GS7BGRasterBand *>(GetRasterBand(1));
 
-    if (padfGeoTransform == nullptr)
-        return CE_Failure;
-
     /* non-zero transform 2 or 4 or negative 1 or 5 not supported natively */
-    /*if( padfGeoTransform[2] != 0.0 || padfGeoTransform[4] != 0.0
-    || padfGeoTransform[1] < 0.0 || padfGeoTransform[5] < 0.0 )
-    eErr = GDALPamDataset::SetGeoTransform( padfGeoTransform );
+    /*if( gt[2] != 0.0 || gt[4] != 0.0
+    || gt[1] < 0.0 || gt[5] < 0.0 )
+    eErr = GDALPamDataset::SetGeoTransform( gt );
 
     if( eErr != CE_None )
     return eErr;*/
 
-    double dfMinX = padfGeoTransform[0] + padfGeoTransform[1] / 2;
-    double dfMaxX =
-        padfGeoTransform[1] * (nRasterXSize - 0.5) + padfGeoTransform[0];
-    double dfMinY =
-        padfGeoTransform[5] * (nRasterYSize - 0.5) + padfGeoTransform[3];
-    double dfMaxY = padfGeoTransform[3] + padfGeoTransform[5] / 2;
+    double dfMinX = gt[0] + gt[1] / 2;
+    double dfMaxX = gt[1] * (nRasterXSize - 0.5) + gt[0];
+    double dfMinY = gt[5] * (nRasterYSize - 0.5) + gt[3];
+    double dfMaxY = gt[3] + gt[5] / 2;
 
     CPLErr eErr =
         WriteHeader(fp, poGRB->nRasterXSize, poGRB->nRasterYSize, dfMinX,
@@ -1184,14 +1176,13 @@ GDALDataset *GS7BGDataset::CreateCopy(const char *pszFilename,
         return nullptr;
     }
 
-    double adfGeoTransform[6];
+    GDALGeoTransform gt;
+    poSrcDS->GetGeoTransform(gt);
 
-    poSrcDS->GetGeoTransform(adfGeoTransform);
-
-    double dfMinX = adfGeoTransform[0] + adfGeoTransform[1] / 2;
-    double dfMaxX = adfGeoTransform[1] * (nXSize - 0.5) + adfGeoTransform[0];
-    double dfMinY = adfGeoTransform[5] * (nYSize - 0.5) + adfGeoTransform[3];
-    double dfMaxY = adfGeoTransform[3] + adfGeoTransform[5] / 2;
+    double dfMinX = gt[0] + gt[1] / 2;
+    double dfMaxX = gt[1] * (nXSize - 0.5) + gt[0];
+    double dfMinY = gt[5] * (nYSize - 0.5) + gt[3];
+    double dfMaxY = gt[3] + gt[5] / 2;
     CPLErr eErr = WriteHeader(fp, nXSize, nYSize, dfMinX, dfMaxX, dfMinY,
                               dfMaxY, 0.0, 0.0);
 

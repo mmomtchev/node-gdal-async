@@ -199,7 +199,7 @@ class CPL_DLL MEMAbstractMDArray : virtual public GDALAbstractMDArray
         const std::string &osParentName, const std::string &osName,
         const std::vector<std::shared_ptr<GDALDimension>> &aoDimensions,
         const GDALExtendedDataType &oType);
-    ~MEMAbstractMDArray();
+    ~MEMAbstractMDArray() override;
 
     const std::vector<std::shared_ptr<GDALDimension>> &
     GetDimensions() const override
@@ -288,7 +288,7 @@ class CPL_DLL MEMMDArray CPL_NON_FINAL : public MEMAbstractMDArray,
         return array;
     }
 
-    ~MEMMDArray();
+    ~MEMMDArray() override;
 
     void Invalidate()
     {
@@ -408,7 +408,7 @@ class CPL_DLL MEMMDArray CPL_NON_FINAL : public MEMAbstractMDArray,
 class CPL_DLL MEMAttribute CPL_NON_FINAL : public MEMAbstractMDArray,
                                            public GDALAttribute
 {
-    std::weak_ptr<MEMAttributeHolder> m_poParent;
+    std::weak_ptr<MEMAttributeHolder> m_poParent{};
 
   protected:
     MEMAttribute(const std::string &osParentName, const std::string &osName,
@@ -447,7 +447,7 @@ class CPL_DLL MEMAttribute CPL_NON_FINAL : public MEMAbstractMDArray,
 class MEMDimension CPL_NON_FINAL : public GDALDimensionWeakIndexingVar
 {
     std::set<MEMMDArray *> m_oSetArrays{};
-    std::weak_ptr<MEMGroup> m_poParentGroup;
+    std::weak_ptr<MEMGroup> m_poParentGroup{};
 
   public:
     MEMDimension(const std::string &osParentName, const std::string &osName,

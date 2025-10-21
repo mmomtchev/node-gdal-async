@@ -76,7 +76,7 @@ typedef enum
 class FileGDBTable;
 class FileGDBIndex;
 
-class FileGDBField
+class FileGDBField /* non final */
 {
     friend class FileGDBTable;
 
@@ -180,7 +180,7 @@ class FileGDBField
 /*                         FileGDBGeomField                             */
 /************************************************************************/
 
-class FileGDBGeomField : public FileGDBField
+class FileGDBGeomField /* non final */ : public FileGDBField
 {
     friend class FileGDBTable;
 
@@ -216,9 +216,7 @@ class FileGDBGeomField : public FileGDBField
                      double dfYOrigin, double dfXYScale, double dfXYTolerance,
                      const std::vector<double> &adfSpatialIndexGridResolution);
 
-    virtual ~FileGDBGeomField()
-    {
-    }
+    ~FileGDBGeomField() override;
 
     const std::string &GetWKT() const
     {
@@ -346,7 +344,7 @@ class FileGDBGeomField : public FileGDBField
 /*                         FileGDBRasterField                           */
 /************************************************************************/
 
-class FileGDBRasterField : public FileGDBGeomField
+class FileGDBRasterField final : public FileGDBGeomField
 {
   public:
     enum class Type
@@ -372,9 +370,7 @@ class FileGDBRasterField : public FileGDBGeomField
     {
     }
 
-    virtual ~FileGDBRasterField()
-    {
-    }
+    ~FileGDBRasterField() override;
 
     const std::string &GetRasterColumnName() const
     {
@@ -398,13 +394,9 @@ class FileGDBIndex
     std::string m_osExpression{};
 
   public:
-    FileGDBIndex()
-    {
-    }
+    FileGDBIndex() = default;
 
-    virtual ~FileGDBIndex()
-    {
-    }
+    ~FileGDBIndex();
 
     const std::string &GetIndexName() const
     {
@@ -786,12 +778,10 @@ typedef enum
 /*                           FileGDBIterator                            */
 /************************************************************************/
 
-class FileGDBIterator
+class FileGDBIterator /* non final */
 {
   public:
-    virtual ~FileGDBIterator()
-    {
-    }
+    virtual ~FileGDBIterator() = default;
 
     virtual FileGDBTable *GetTable() = 0;
     virtual void Reset() = 0;
@@ -827,10 +817,13 @@ class FileGDBIterator
 /*                      FileGDBSpatialIndexIterator                     */
 /************************************************************************/
 
-class FileGDBSpatialIndexIterator : virtual public FileGDBIterator
+class FileGDBSpatialIndexIterator /* non final */
+    : virtual public FileGDBIterator
 {
   public:
     virtual bool SetEnvelope(const OGREnvelope &sFilterEnvelope) = 0;
+
+    ~FileGDBSpatialIndexIterator() override;
 
     static FileGDBSpatialIndexIterator *
     Build(FileGDBTable *poParent, const OGREnvelope &sFilterEnvelope);
@@ -840,12 +833,10 @@ class FileGDBSpatialIndexIterator : virtual public FileGDBIterator
 /*                       FileGDBOGRGeometryConverter                    */
 /************************************************************************/
 
-class FileGDBOGRGeometryConverter
+class FileGDBOGRGeometryConverter /* non final */
 {
   public:
-    virtual ~FileGDBOGRGeometryConverter()
-    {
-    }
+    virtual ~FileGDBOGRGeometryConverter();
 
     virtual OGRGeometry *GetAsGeometry(const OGRField *psField) = 0;
 

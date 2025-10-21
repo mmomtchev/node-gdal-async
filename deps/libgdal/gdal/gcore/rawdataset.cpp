@@ -15,15 +15,13 @@
 #include "cpl_vax.h"
 #include "rawdataset.h"
 
+#include <cassert>
 #include <climits>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
 #include <algorithm>
 #include <limits>
 #include <vector>
@@ -447,7 +445,7 @@ void RawRasterBand::DoByteSwap(void *pBuffer, size_t nValues, int nByteSkip,
     {
         if (GDALDataTypeIsComplex(eDataType))
         {
-            const int nWordSize = GDALGetDataTypeSize(eDataType) / 16;
+            const int nWordSize = GDALGetDataTypeSizeBytes(eDataType) / 2;
             GDALSwapWordsEx(pBuffer, nWordSize, nValues, nByteSkip);
             GDALSwapWordsEx(static_cast<GByte *>(pBuffer) + nWordSize,
                             nWordSize, nValues, nByteSkip);
@@ -845,6 +843,7 @@ bool RawRasterBand::FlushCurrentLine(bool bNeedUsableBufferAfter)
 {
     if (!bLoadedScanlineDirty)
         return true;
+    assert(pLineBuffer);
 
     bLoadedScanlineDirty = false;
 
@@ -1314,7 +1313,7 @@ CPLErr RawRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
                     if (GDALDataTypeIsComplex(eDataType))
                     {
                         const int nWordSize =
-                            GDALGetDataTypeSize(eDataType) / 16;
+                            GDALGetDataTypeSizeBytes(eDataType) / 2;
                         GDALSwapWords(pabyData, nWordSize, nXSize,
                                       nPixelOffset);
                         GDALSwapWords(static_cast<GByte *>(pabyData) +
@@ -1359,7 +1358,7 @@ CPLErr RawRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
                     if (GDALDataTypeIsComplex(eDataType))
                     {
                         const int nWordSize =
-                            GDALGetDataTypeSize(eDataType) / 16;
+                            GDALGetDataTypeSizeBytes(eDataType) / 2;
                         GDALSwapWords(pabyData, nWordSize, nXSize,
                                       nPixelOffset);
                         GDALSwapWords(static_cast<GByte *>(pabyData) +
@@ -1813,7 +1812,7 @@ bool RAWDatasetCheckMemoryUsage(int nXSize, int nYSize, int nBands, int nDTSize,
             " MB of RAM would be needed to open the dataset. If you are "
             "comfortable with this, you can set the RAW_MEM_ALLOC_LIMIT_MB "
             "configuration option to that value or above",
-            (nTotalBufferSize + MB_IN_BYTES - 1) / MB_IN_BYTES);
+            DIV_ROUND_UP(nTotalBufferSize, MB_IN_BYTES));
         return false;
     }
 

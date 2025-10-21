@@ -43,6 +43,7 @@
 #include <csetjmp>
 
 #include <algorithm>
+#include <array>
 
 #ifdef _MSC_VER
 #pragma warning(disable : 4611)
@@ -80,37 +81,37 @@ class PNGDataset final : public GDALPamDataset
 {
     friend class PNGRasterBand;
 
-    VSILFILE *fpImage;
-    png_structp hPNG;
-    png_infop psPNGInfo;
-    int nBitDepth;
-    int nColorType;  // PNG_COLOR_TYPE_*
-    int bInterlaced;
+    VSILFILE *fpImage{};
+    png_structp hPNG{};
+    png_infop psPNGInfo{};
+    int nBitDepth{8};
+    int nColorType{};  // PNG_COLOR_TYPE_*
+    int bInterlaced{};
 
-    int nBufferStartLine;
-    int nBufferLines;
-    int nLastLineRead;
-    GByte *pabyBuffer;
+    int nBufferStartLine{};
+    int nBufferLines{};
+    int nLastLineRead{-1};
+    GByte *pabyBuffer{};
 
-    GDALColorTable *poColorTable;
+    std::unique_ptr<GDALColorTable> poColorTable{};
 
-    int bGeoTransformValid;
-    double adfGeoTransform[6];
+    int bGeoTransformValid{};
+    GDALGeoTransform m_gt{};
 
     void CollectMetadata();
 
-    int bHasReadXMPMetadata;
+    int bHasReadXMPMetadata{};
     void CollectXMPMetadata();
 
     CPLErr LoadScanline(int);
     CPLErr LoadInterlacedChunk(int);
     void Restart();
 
-    int bHasTriedLoadWorldFile;
+    int bHasTriedLoadWorldFile{};
     void LoadWorldFile();
-    CPLString osWldFilename;
+    CPLString osWldFilename{};
 
-    int bHasReadICCMetadata;
+    int bHasReadICCMetadata{};
     void LoadICCProfile();
 
     bool m_bByteOrderIsLittleEndian = false;
@@ -121,9 +122,13 @@ class PNGDataset final : public GDALPamDataset
                                     const char *pszValue);
     static GDALDataset *OpenStage2(GDALOpenInfo *, PNGDataset *&);
 
+    CPL_DISALLOW_COPY_ASSIGN(PNGDataset)
+
   public:
     PNGDataset();
-    virtual ~PNGDataset();
+    ~PNGDataset() override;
+
+    CPLErr Close() override;
 
     static GDALDataset *Open(GDALOpenInfo *);
     static GDALDataset *CreateCopy(const char *pszFilename,
@@ -132,22 +137,21 @@ class PNGDataset final : public GDALPamDataset
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
 
-    virtual char **GetFileList(void) override;
+    char **GetFileList(void) override;
 
-    virtual CPLErr GetGeoTransform(double *) override;
-    virtual CPLErr FlushCache(bool bAtClosing) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
+    CPLErr FlushCache(bool bAtClosing) override;
 
-    virtual char **GetMetadataDomainList() override;
+    char **GetMetadataDomainList() override;
 
-    virtual char **GetMetadata(const char *pszDomain = "") override;
+    char **GetMetadata(const char *pszDomain = "") override;
     virtual const char *
     GetMetadataItem(const char *pszName,
                     const char *pszDomain = nullptr) override;
 
-    virtual CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
-                             GDALDataType, int, BANDMAP_TYPE, GSpacing,
-                             GSpacing, GSpacing,
-                             GDALRasterIOExtraArg *psExtraArg) override;
+    CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
+                     GDALDataType, int, BANDMAP_TYPE, GSpacing, GSpacing,
+                     GSpacing, GDALRasterIOExtraArg *psExtraArg) override;
 
 #ifdef ENABLE_WHOLE_IMAGE_OPTIMIZATION
     bool IsCompatibleOfSingleBlock() const;
@@ -156,7 +160,7 @@ class PNGDataset final : public GDALPamDataset
                           void *apabyBuffers[4]);
 #endif
 
-    jmp_buf sSetJmpContext;  // Semi-private.
+    jmp_buf sSetJmpContext{};  // Semi-private.
 
 #ifdef SUPPORT_CREATE
     int m_nBitDepth;
@@ -198,11 +202,7 @@ class PNGRasterBand final : public GDALPamRasterBand
   public:
     PNGRasterBand(PNGDataset *, int);
 
-    virtual ~PNGRasterBand()
-    {
-    }
-
-    virtual CPLErr IReadBlock(int, int, void *) override;
+    CPLErr IReadBlock(int, int, void *) override;
 
     virtual GDALSuggestedBlockAccessPattern
     GetSuggestedBlockAccessPattern() const override
@@ -210,21 +210,21 @@ class PNGRasterBand final : public GDALPamRasterBand
         return GSBAP_TOP_TO_BOTTOM;
     }
 
-    virtual GDALColorInterp GetColorInterpretation() override;
-    virtual GDALColorTable *GetColorTable() override;
+    GDALColorInterp GetColorInterpretation() override;
+    GDALColorTable *GetColorTable() override;
     CPLErr SetNoDataValue(double dfNewValue) override;
-    virtual double GetNoDataValue(int *pbSuccess = nullptr) override;
+    double GetNoDataValue(int *pbSuccess = nullptr) override;
 
-    virtual CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
-                             GDALDataType, GSpacing, GSpacing,
-                             GDALRasterIOExtraArg *psExtraArg) override;
+    CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
+                     GDALDataType, GSpacing, GSpacing,
+                     GDALRasterIOExtraArg *psExtraArg) override;
 
     int bHaveNoData;
     double dfNoDataValue;
 
 #ifdef SUPPORT_CREATE
     virtual CPLErr SetColorTable(GDALColorTable *);
-    virtual CPLErr IWriteBlock(int, int, void *) override;
+    CPLErr IWriteBlock(int, int, void *) override;
 
   protected:
     int m_bBandProvided[5];

@@ -5,8 +5,8 @@
 
 #ifndef GDAL_VERSION_MAJOR
 #  define GDAL_VERSION_MAJOR    3
-#  define GDAL_VERSION_MINOR    11
-#  define GDAL_VERSION_REV      5
+#  define GDAL_VERSION_MINOR    12
+#  define GDAL_VERSION_REV      0
 #  define GDAL_VERSION_BUILD    0
 #endif
 
@@ -23,14 +23,14 @@
 
 #if !defined(DO_NOT_DEFINE_GDAL_DATE_NAME)
 #ifndef GDAL_RELEASE_DATE
-#  define GDAL_RELEASE_DATE     20251029
+#  define GDAL_RELEASE_DATE     20251020
 #endif
 #ifndef GDAL_RELEASE_NAME
-#  define GDAL_RELEASE_NAME     "3.11.5"
+#  define GDAL_RELEASE_NAME     "3.12.0beta1"
 #endif
 
 #ifndef GDAL_RELEASE_NICKNAME
-#define GDAL_RELEASE_NICKNAME   "Eganville"
+#define GDAL_RELEASE_NICKNAME   "Chicoutimi"
 #endif
 
 #endif

@@ -154,12 +154,7 @@ GDALWarpKernel.
 /*                         GDALWarpOperation()                          */
 /************************************************************************/
 
-GDALWarpOperation::GDALWarpOperation()
-    : psOptions(nullptr), hIOMutex(nullptr), hWarpMutex(nullptr),
-      nChunkListCount(0), nChunkListMax(0), pasChunkList(nullptr),
-      bReportTimings(FALSE), nLastTimeReported(0), psThreadData(nullptr)
-{
-}
+GDALWarpOperation::GDALWarpOperation() = default;
 
 /************************************************************************/
 /*                         ~GDALWarpOperation()                         */
@@ -271,8 +266,7 @@ int GDALWarpOperation::ValidateOptions()
     }
 
     if (GDALDataTypeIsComplex(psOptions->eWorkingDataType) != 0 &&
-        (psOptions->eResampleAlg == GRA_Mode ||
-         psOptions->eResampleAlg == GRA_Max ||
+        (psOptions->eResampleAlg == GRA_Max ||
          psOptions->eResampleAlg == GRA_Min ||
          psOptions->eResampleAlg == GRA_Med ||
          psOptions->eResampleAlg == GRA_Q1 ||
@@ -443,6 +437,19 @@ int GDALWarpOperation::ValidateOptions()
         return FALSE;
     }
 
+    GDALRasterBandH hSrcBand =
+        GDALGetRasterBand(psOptions->hSrcDS, psOptions->panSrcBands[0]);
+    if (GDALGetMaskFlags(hSrcBand) == GMF_PER_DATASET &&
+        psOptions->padfSrcNoDataReal != nullptr)
+    {
+        CPLError(
+            CE_Warning, CPLE_AppDefined,
+            "Source dataset has both a per-dataset mask band and the warper "
+            "has been also configured with a source nodata value. Only taking "
+            "into account the latter (i.e. ignoring the per-dataset mask "
+            "band)");
+    }
+
     const bool bErrorOutIfEmptySourceWindow = CPLFetchBool(
         psOptions->papszWarpOptions, "ERROR_OUT_IF_EMPTY_SOURCE_WINDOW", true);
     if (!bErrorOutIfEmptySourceWindow &&
@@ -537,11 +544,20 @@ static void SetTieStrategy(GDALWarpOptions *psOptions, CPLErr *peErr)
  *
  * @param psNewOptions input set of warp options.  These are copied and may
  * be destroyed after this call by the application.
+ * @param pfnTransformer Transformer function that this GDALWarpOperation must use
+ * and own, or NULL. When pfnTransformer is not NULL, this implies that
+ * psNewOptions->pfnTransformer is NULL
+ * @param psOwnedTransformerArg Transformer argument that this GDALWarpOperation
+ * must use, and own, or NULL. When psOwnedTransformerArg is set, this implies that
+ * psNewOptions->pTransformerArg is NULL
  *
  * @return CE_None on success or CE_Failure if an error occurs.
  */
 
-CPLErr GDALWarpOperation::Initialize(const GDALWarpOptions *psNewOptions)
+CPLErr
+GDALWarpOperation::Initialize(const GDALWarpOptions *psNewOptions,
+                              GDALTransformerFunc pfnTransformer,
+                              GDALTransformerArgUniquePtr psOwnedTransformerArg)
 
 {
     /* -------------------------------------------------------------------- */
@@ -553,6 +569,19 @@ CPLErr GDALWarpOperation::Initialize(const GDALWarpOptions *psNewOptions)
     CPLErr eErr = CE_None;
 
     psOptions = GDALCloneWarpOptions(psNewOptions);
+
+    if (psOptions->pfnTransformer)
+    {
+        CPLAssert(pfnTransformer == nullptr);
+        CPLAssert(psOwnedTransformerArg.get() == nullptr);
+    }
+    else
+    {
+        m_psOwnedTransformerArg = std::move(psOwnedTransformerArg);
+        psOptions->pfnTransformer = pfnTransformer;
+        psOptions->pTransformerArg = m_psOwnedTransformerArg.get();
+    }
+
     psOptions->papszWarpOptions =
         CSLSetNameValue(psOptions->papszWarpOptions, "EXTRA_ELTS",
                         CPLSPrintf("%d", WARP_EXTRA_ELTS));
@@ -1356,8 +1385,9 @@ double GDALWarpOperation::GetWorkingMemoryForWindow(int nSrcXSize,
     /*      Based on the types of masks in use, how many bits will each     */
     /*      source pixel cost us?                                           */
     /* -------------------------------------------------------------------- */
-    int nSrcPixelCostInBits = GDALGetDataTypeSize(psOptions->eWorkingDataType) *
-                              psOptions->nBandCount;
+    int nSrcPixelCostInBits =
+        GDALGetDataTypeSizeBits(psOptions->eWorkingDataType) *
+        psOptions->nBandCount;
 
     if (psOptions->pfnSrcDensityMaskFunc != nullptr)
         nSrcPixelCostInBits += 32;  // Float mask?
@@ -1383,8 +1413,9 @@ double GDALWarpOperation::GetWorkingMemoryForWindow(int nSrcXSize,
     /* -------------------------------------------------------------------- */
     /*      What about the cost for the destination.                        */
     /* -------------------------------------------------------------------- */
-    int nDstPixelCostInBits = GDALGetDataTypeSize(psOptions->eWorkingDataType) *
-                              psOptions->nBandCount;
+    int nDstPixelCostInBits =
+        GDALGetDataTypeSizeBits(psOptions->eWorkingDataType) *
+        psOptions->nBandCount;
 
     if (psOptions->pfnDstDensityMaskFunc != nullptr)
         nDstPixelCostInBits += 32;
@@ -2267,7 +2298,8 @@ CPLErr GDALWarpOperation::WarpRegionToBuffer(
         oWK.panUnifiedSrcValid == nullptr && psOptions->nSrcAlphaBand <= 0 &&
         (GDALGetMaskFlags(hSrcBand) & GMF_PER_DATASET)
         // Need to double check for -nosrcalpha case.
-        && !(GDALGetMaskFlags(hSrcBand) & GMF_ALPHA) && nSrcXSize > 0 &&
+        && !(GDALGetMaskFlags(hSrcBand) & GMF_ALPHA) &&
+        psOptions->padfSrcNoDataReal == nullptr && nSrcXSize > 0 &&
         nSrcYSize > 0)
 
     {

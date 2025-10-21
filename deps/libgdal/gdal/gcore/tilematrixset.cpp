@@ -11,6 +11,7 @@
  ****************************************************************************/
 
 #include "cpl_json.h"
+#include "gdal_priv.h"
 #include "ogr_spatialref.h"
 
 #include <algorithm>
@@ -49,7 +50,7 @@ std::vector<std::string> TileMatrixSet::listPredefinedTileMatrixSets()
             {
                 std::string id(aosList[i] + strlen("tms_"),
                                nLen - (strlen("tms_") + strlen(".json")));
-                set.insert(id);
+                set.insert(std::move(id));
             }
         }
         for (const std::string &id : set)
@@ -316,7 +317,7 @@ std::unique_ptr<TileMatrixSet> TileMatrixSet::parse(const char *fileOrDef)
 
             else if (j.GetType() == CPLJSONObject::Type::Object)
             {
-                const std::string osURI = j.GetString("uri");
+                std::string osURI = j.GetString("uri");
                 if (!osURI.empty())
                     return osURI;
 
@@ -325,13 +326,13 @@ std::unique_ptr<TileMatrixSet> TileMatrixSet::parse(const char *fileOrDef)
                 const auto jWKT = j.GetObj("wkt");
                 if (jWKT.GetType() == CPLJSONObject::Type::String)
                 {
-                    const std::string osWKT = jWKT.ToString();
+                    std::string osWKT = jWKT.ToString();
                     if (!osWKT.empty())
                         return osWKT;
                 }
                 else if (jWKT.GetType() == CPLJSONObject::Type::Object)
                 {
-                    const std::string osWKT = jWKT.ToString();
+                    std::string osWKT = jWKT.ToString();
                     if (!osWKT.empty())
                         return osWKT;
                 }
@@ -583,21 +584,78 @@ TileMatrixSet::createRaster(int width, int height, int tileSize,
     {
         TileMatrix tm;
         tm.mId = CPLSPrintf("%d", i);
-        tm.mResX = dfResXFull * (1 << (zoomLevelCount - 1 - i));
-        tm.mResY = dfResYFull * (1 << (zoomLevelCount - 1 - i));
+        const int iRev = zoomLevelCount - 1 - i;
+        tm.mResX = dfResXFull * (1 << iRev);
+        tm.mResY = dfResYFull * (1 << iRev);
         tm.mScaleDenominator = tm.mResX / 0.28e-3;
         tm.mTopLeftX = poTMS->mBbox.mLowerCornerX;
         tm.mTopLeftY = poTMS->mBbox.mUpperCornerY;
         tm.mTileWidth = tileSize;
         tm.mTileHeight = tileSize;
-        tm.mMatrixWidth = std::max(
-            1, ((width >> (zoomLevelCount - 1 - i)) + tileSize - 1) / tileSize);
-        tm.mMatrixHeight =
-            std::max(1, ((height >> (zoomLevelCount - 1 - i)) + tileSize - 1) /
-                            tileSize);
+        tm.mMatrixWidth = std::max(1, DIV_ROUND_UP(width >> iRev, tileSize));
+        tm.mMatrixHeight = std::max(1, DIV_ROUND_UP(height >> iRev, tileSize));
         poTMS->mTileMatrixList.emplace_back(std::move(tm));
     }
     return poTMS;
+}
+
+/************************************************************************/
+/*                        exportToTMSJsonV1()                           */
+/************************************************************************/
+
+std::string TileMatrixSet::exportToTMSJsonV1() const
+{
+    CPLJSONObject oRoot;
+    oRoot["type"] = "TileMatrixSetType";
+    oRoot["title"] = mTitle;
+    oRoot["identifier"] = mIdentifier;
+    if (!mAbstract.empty())
+        oRoot["abstract"] = mAbstract;
+    if (!std::isnan(mBbox.mLowerCornerX))
+    {
+        CPLJSONObject oBbox;
+        oBbox["type"] = "BoundingBoxType";
+        oBbox["crs"] = mBbox.mCrs;
+        oBbox["lowerCorner"] = {mBbox.mLowerCornerX, mBbox.mLowerCornerY};
+        oBbox["upperCorner"] = {mBbox.mUpperCornerX, mBbox.mUpperCornerY};
+        oRoot["boundingBox"] = std::move(oBbox);
+    }
+    oRoot["supportedCRS"] = mCrs;
+    if (!mWellKnownScaleSet.empty())
+        oRoot["wellKnownScaleSet"] = mWellKnownScaleSet;
+
+    CPLJSONArray oTileMatrices;
+    for (const auto &tm : mTileMatrixList)
+    {
+        CPLJSONObject oTM;
+        oTM["type"] = "TileMatrixType";
+        oTM["identifier"] = tm.mId;
+        oTM["scaleDenominator"] = tm.mScaleDenominator;
+        oTM["topLeftCorner"] = {tm.mTopLeftX, tm.mTopLeftY};
+        oTM["tileWidth"] = tm.mTileWidth;
+        oTM["tileHeight"] = tm.mTileHeight;
+        oTM["matrixWidth"] = tm.mMatrixWidth;
+        oTM["matrixHeight"] = tm.mMatrixHeight;
+
+        if (!tm.mVariableMatrixWidthList.empty())
+        {
+            CPLJSONArray oVariableMatrixWidths;
+            for (const auto &vmw : tm.mVariableMatrixWidthList)
+            {
+                CPLJSONObject oVMW;
+                oVMW["coalesce"] = vmw.mCoalesce;
+                oVMW["minTileRow"] = vmw.mMinTileRow;
+                oVMW["maxTileRow"] = vmw.mMaxTileRow;
+                oVariableMatrixWidths.Add(oVMW);
+            }
+            oTM["variableMatrixWidth"] = oVariableMatrixWidths;
+        }
+
+        oTileMatrices.Add(oTM);
+    }
+    oRoot["tileMatrix"] = oTileMatrices;
+    return CPLString(oRoot.Format(CPLJSONObject::PrettyFormat::Pretty))
+        .replaceAll("\\/", '/');
 }
 
 }  // namespace gdal

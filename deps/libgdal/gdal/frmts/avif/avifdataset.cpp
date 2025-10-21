@@ -9,8 +9,10 @@
  * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
+#include "gdal_frmts.h"
 #include "gdal_pam.h"
 #include "cpl_minixml.h"
+#include "cpl_multiproc.h"
 #include "cpl_vsi_virtual.h"
 
 #include "avifdrivercore.h"
@@ -66,7 +68,9 @@ class GDALAVIFDataset final : public GDALPamDataset
         memset(&m_rgb, 0, sizeof(m_rgb));
     }
 
-    ~GDALAVIFDataset();
+    ~GDALAVIFDataset() override;
+
+    CPLErr Close() override;
 
     static GDALPamDataset *OpenStaticPAM(GDALOpenInfo *poOpenInfo);
 
@@ -82,7 +86,7 @@ class GDALAVIFDataset final : public GDALPamDataset
 
 #ifdef AVIF_HAS_OPAQUE_PROPERTIES
     const OGRSpatialReference *GetSpatialRef() const override;
-    virtual CPLErr GetGeoTransform(double *) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
     int GetGCPCount() override;
     const GDAL_GCP *GetGCPs() override;
     const OGRSpatialReference *GetGCPSpatialRef() const override;
@@ -151,11 +155,29 @@ class GDALAVIFIO
 
 GDALAVIFDataset::~GDALAVIFDataset()
 {
-    if (m_decoder)
+    GDALAVIFDataset::Close();
+}
+
+/************************************************************************/
+/*                                Close()                               */
+/************************************************************************/
+
+CPLErr GDALAVIFDataset::Close()
+{
+    CPLErr eErr = CE_None;
+
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
     {
-        avifDecoderDestroy(m_decoder);
-        avifRGBImageFreePixels(&m_rgb);
+        if (m_decoder)
+        {
+            avifDecoderDestroy(m_decoder);
+            avifRGBImageFreePixels(&m_rgb);
+        }
+        m_decoder = nullptr;
+
+        eErr = GDALPamDataset::Close();
     }
+    return eErr;
 }
 
 /************************************************************************/
@@ -375,9 +397,9 @@ const OGRSpatialReference *GDALAVIFDataset::GetSpatialRef() const
 /************************************************************************/
 /*                          GetGeoTransform()                           */
 /************************************************************************/
-CPLErr GDALAVIFDataset::GetGeoTransform(double *padfTransform)
+CPLErr GDALAVIFDataset::GetGeoTransform(GDALGeoTransform &gt) const
 {
-    return geoHEIF.GetGeoTransform(padfTransform);
+    return geoHEIF.GetGeoTransform(gt);
 }
 
 void GDALAVIFDataset::processProperties()
@@ -1065,21 +1087,13 @@ GDALDataset *GDALAVIFDataset::CreateCopy(const char *pszFilename,
 
 class GDALAVIFDriver final : public GDALDriver
 {
-    std::mutex m_oMutex{};
+    std::recursive_mutex m_oMutex{};
     bool m_bMetadataInitialized = false;
     void InitMetadata();
 
   public:
     const char *GetMetadataItem(const char *pszName,
-                                const char *pszDomain = "") override
-    {
-        std::lock_guard oLock(m_oMutex);
-        if (EQUAL(pszName, GDAL_DMD_CREATIONOPTIONLIST))
-        {
-            InitMetadata();
-        }
-        return GDALDriver::GetMetadataItem(pszName, pszDomain);
-    }
+                                const char *pszDomain = "") override;
 
     char **GetMetadata(const char *pszDomain) override
     {
@@ -1088,6 +1102,17 @@ class GDALAVIFDriver final : public GDALDriver
         return GDALDriver::GetMetadata(pszDomain);
     }
 };
+
+const char *GDALAVIFDriver::GetMetadataItem(const char *pszName,
+                                            const char *pszDomain)
+{
+    std::lock_guard oLock(m_oMutex);
+    if (EQUAL(pszName, GDAL_DMD_CREATIONOPTIONLIST))
+    {
+        InitMetadata();
+    }
+    return GDALDriver::GetMetadataItem(pszName, pszDomain);
+}
 
 void GDALAVIFDriver::InitMetadata()
 {

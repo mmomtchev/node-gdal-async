@@ -734,7 +734,6 @@ std::vector<unsigned char> SGeometry_Reader::serializeToWKB(size_t featureInd)
         default:
 
             throw SG_Exception_BadFeature();
-            break;
     }
 
     return ret;
@@ -808,9 +807,8 @@ void SGeometry_PropertyScanner::open(int container_id)
                 }
             }
 
-            std::string n(property_name);
             v_ids.push_back(curr);
-            v_headers.push_back(n);
+            v_headers.push_back(property_name);
         }
     }
 }

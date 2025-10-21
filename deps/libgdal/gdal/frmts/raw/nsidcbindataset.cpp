@@ -12,6 +12,7 @@
 
 #include "cpl_string.h"
 #include "gdal_frmts.h"
+#include "gdal_priv.h"
 #include "ogr_spatialref.h"
 #include "rawdataset.h"
 
@@ -85,14 +86,14 @@ class NSIDCbinDataset final : public GDALPamDataset
     CPLString osSRS{};
     NSIDCbinHeader sHeader{};
 
-    double adfGeoTransform[6];
+    GDALGeoTransform m_gt{};
     CPL_DISALLOW_COPY_ASSIGN(NSIDCbinDataset)
     OGRSpatialReference m_oSRS{};
 
   public:
     NSIDCbinDataset();
     ~NSIDCbinDataset() override;
-    CPLErr GetGeoTransform(double *) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
 
     const OGRSpatialReference *GetSpatialRef() const override;
     static GDALDataset *Open(GDALOpenInfo *);
@@ -184,7 +185,7 @@ double NSIDCbinRasterBand::GetScale(int *pbSuccess)
         *pbSuccess = TRUE;
     // again just use a constant unless we see other file variants
     // also, this might be fraction rather than percentage
-    // atof(reinterpret_cast<NSIDCbinDataset*>(poDS)->sHeader.scaling)/100;
+    // atof(cpl::down_cast<NSIDCbinDataset*>(poDS)->sHeader.scaling)/100;
     return 0.4;
 }
 
@@ -194,12 +195,6 @@ double NSIDCbinRasterBand::GetScale(int *pbSuccess)
 
 NSIDCbinDataset::NSIDCbinDataset() : fp(nullptr), m_oSRS(OGRSpatialReference())
 {
-    adfGeoTransform[0] = 0.0;
-    adfGeoTransform[1] = 1.0;
-    adfGeoTransform[2] = 0.0;
-    adfGeoTransform[3] = 0.0;
-    adfGeoTransform[4] = 0.0;
-    adfGeoTransform[5] = 1.0;
 }
 
 /************************************************************************/
@@ -330,23 +325,23 @@ GDALDataset *NSIDCbinDataset::Open(GDALOpenInfo *poOpenInfo)
     int epsg = -1;
     if (south)
     {
-        poDS->adfGeoTransform[0] = -3950000.0;
-        poDS->adfGeoTransform[1] = 25000;
-        poDS->adfGeoTransform[2] = 0.0;
-        poDS->adfGeoTransform[3] = 4350000.0;
-        poDS->adfGeoTransform[4] = 0.0;
-        poDS->adfGeoTransform[5] = -25000;
+        poDS->m_gt[0] = -3950000.0;
+        poDS->m_gt[1] = 25000;
+        poDS->m_gt[2] = 0.0;
+        poDS->m_gt[3] = 4350000.0;
+        poDS->m_gt[4] = 0.0;
+        poDS->m_gt[5] = -25000;
 
         epsg = 3976;
     }
     else
     {
-        poDS->adfGeoTransform[0] = -3837500;
-        poDS->adfGeoTransform[1] = 25000;
-        poDS->adfGeoTransform[2] = 0.0;
-        poDS->adfGeoTransform[3] = 5837500;
-        poDS->adfGeoTransform[4] = 0.0;
-        poDS->adfGeoTransform[5] = -25000;
+        poDS->m_gt[0] = -3837500;
+        poDS->m_gt[1] = 25000;
+        poDS->m_gt[2] = 0.0;
+        poDS->m_gt[3] = 5837500;
+        poDS->m_gt[4] = 0.0;
+        poDS->m_gt[5] = -25000;
 
         epsg = 3413;
     }
@@ -418,11 +413,10 @@ const OGRSpatialReference *NSIDCbinDataset::GetSpatialRef() const
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr NSIDCbinDataset::GetGeoTransform(double *padfTransform)
+CPLErr NSIDCbinDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
-    memcpy(padfTransform, adfGeoTransform, sizeof(double) * 6);
-
+    gt = m_gt;
     return CE_None;
 }
 

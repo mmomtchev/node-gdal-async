@@ -20,9 +20,6 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -503,7 +500,7 @@ CPLErr HFAField::SetInstValue(const char *pszField, int nIndexValue,
             nIntValue = INT_MAX;
         else if (dfDoubleValue < INT_MIN)
             nIntValue = INT_MIN;
-        else
+        else if (std::isfinite(dfDoubleValue))
             nIntValue = static_cast<int>(dfDoubleValue);
     }
     else if (chReqType == 'i')
@@ -816,7 +813,6 @@ CPLErr HFAField::SetInstValue(const char *pszField, int nIndexValue,
         default:
             CPLAssert(false);
             return CE_Failure;
-            break;
     }
 
     return CE_None;
@@ -1318,7 +1314,6 @@ bool HFAField::ExtractInstValue(const char *pszField, int nIndexValue,
 
         default:
             return false;
-            break;
     }
 
     // Return the appropriate representation.

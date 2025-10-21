@@ -134,7 +134,7 @@ int64 PCIDSK::atoint64( const char *str_value )
 /**
  * @brief Perform an endianness swap for a given buffer of pixels
  *
- * Baed on the provided data type, do an appropriate endianness swap for
+ * Based on the provided data type, do an appropriate endianness swap for
  * a buffer of pixels. Deals with the Complex case specially, in
  * particular.
  *
@@ -330,23 +330,23 @@ void PCIDSK::ParseTileFormat(const std::string& oOptionsIn,
 
     while (nStart != std::string::npos || nEnd != std::string::npos)
     {
-        const std::string oToken = oOptions.substr(nStart, nEnd - nStart);
+        std::string osToken = oOptions.substr(nStart, nEnd - nStart);
 
-        if (oToken.size() > 5 && STARTS_WITH(oToken.c_str(), "TILED"))
+        if (osToken.size() > 5 && STARTS_WITH(osToken.c_str(), "TILED"))
         {
             // the TILED entry can be TILED# or TILED=#
-            int nPos = oToken[5] == '=' ? 6 : 5;
+            int nPos = osToken[5] == '=' ? 6 : 5;
 
-            nTileSize = atoi(oToken.substr(nPos).c_str());
+            nTileSize = atoi(osToken.substr(nPos).c_str());
 
             if (nTileSize <= 0)
-                ThrowPCIDSKException("Invalid tile option: %s", oToken.c_str());
+                ThrowPCIDSKException("Invalid tile option: %s", osToken.c_str());
         }
-        else if (oToken == "NONE" || oToken == "RLE" ||
-                 STARTS_WITH(oToken.c_str(), "JPEG") ||
-                 STARTS_WITH(oToken.c_str(), "QUADTREE"))
+        else if (osToken == "NONE" || osToken == "RLE" ||
+                 STARTS_WITH(osToken.c_str(), "JPEG") ||
+                 STARTS_WITH(osToken.c_str(), "QUADTREE"))
         {
-            oCompress = oToken;
+            oCompress = std::move(osToken);
         }
 
         nStart = oOptions.find_first_not_of(" ", nEnd);

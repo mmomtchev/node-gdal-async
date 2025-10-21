@@ -20,6 +20,7 @@
 #include "gdalargumentparser.h"
 
 #include <algorithm>
+#include <limits>
 
 /************************************************************************/
 /*                        GDALAddoErrorHandler()                        */
@@ -224,7 +225,8 @@ static bool PartialRefreshFromSourceTimestamp(
 
     std::vector<GTISourceDesc> regions;
 
-    double dfTotalPixels = 0;
+    // Smallest positive double to avoid Coverity Scan complaining about divide_by_zero
+    double dfTotalPixels = std::numeric_limits<double>::min();
 
     if (dynamic_cast<VRTDataset *>(poDS))
     {
@@ -237,21 +239,21 @@ static bool PartialRefreshFromSourceTimestamp(
             return false;
         }
 
-        for (int i = 0; i < poVRTBand->nSources; ++i)
+        for (auto &poSource : poVRTBand->m_papoSources)
         {
-            auto poSource =
-                dynamic_cast<VRTSimpleSource *>(poVRTBand->papoSources[i]);
-            if (poSource)
+            auto poSimpleSource =
+                dynamic_cast<VRTSimpleSource *>(poSource.get());
+            if (poSimpleSource)
             {
                 VSIStatBufL sStatSource;
-                if (VSIStatL(poSource->GetSourceDatasetName().c_str(),
+                if (VSIStatL(poSimpleSource->GetSourceDatasetName().c_str(),
                              &sStatSource) == 0)
                 {
                     if (sStatSource.st_mtime > sStatOvr.st_mtime)
                     {
                         double dfXOff, dfYOff, dfXSize, dfYSize;
-                        poSource->GetDstWindow(dfXOff, dfYOff, dfXSize,
-                                               dfYSize);
+                        poSimpleSource->GetDstWindow(dfXOff, dfYOff, dfXSize,
+                                                     dfYSize);
                         constexpr double EPS = 1e-8;
                         int nXOff = static_cast<int>(dfXOff + EPS);
                         int nYOff = static_cast<int>(dfYOff + EPS);
@@ -284,7 +286,8 @@ static bool PartialRefreshFromSourceTimestamp(
 
                         dfTotalPixels += static_cast<double>(nXSize) * nYSize;
                         GTISourceDesc region;
-                        region.osFilename = poSource->GetSourceDatasetName();
+                        region.osFilename =
+                            poSimpleSource->GetSourceDatasetName();
                         region.nDstXOff = nXOff;
                         region.nDstYOff = nYOff;
                         region.nDstXSize = nXSize;
@@ -338,7 +341,7 @@ static bool PartialRefreshFromSourceTimestamp(
             {
                 printf("Refresh from source %s.\n", region.osFilename.c_str());
             }
-            double dfNextCurPixels =
+            const double dfNextCurPixels =
                 dfCurPixels +
                 static_cast<double>(region.nDstXSize) * region.nDstYSize;
             void *pScaledProgress = GDALCreateScaledProgress(
@@ -384,14 +387,14 @@ static bool PartialRefreshFromSourceExtent(
                        nMinSize, anOvrIndices))
         return false;
 
-    double adfGeoTransform[6];
-    if (poDS->GetGeoTransform(adfGeoTransform) != CE_None)
+    GDALGeoTransform gt;
+    if (poDS->GetGeoTransform(gt) != CE_None)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "Dataset has no geotransform");
         return false;
     }
-    double adfInvGT[6];
-    if (!GDALInvGeoTransform(adfGeoTransform, adfInvGT))
+    GDALGeoTransform invGT;
+    if (!gt.GetInverse(invGT))
     {
         return false;
     }
@@ -407,7 +410,8 @@ static bool PartialRefreshFromSourceExtent(
 
     std::vector<Region> regions;
 
-    double dfTotalPixels = 0;
+    // Smallest positive double to avoid Coverity Scan complaining about divide_by_zero
+    double dfTotalPixels = std::numeric_limits<double>::min();
     for (int i = 0; i < aosSources.size(); ++i)
     {
         auto poSrcDS = std::unique_ptr<GDALDataset>(GDALDataset::Open(
@@ -415,30 +419,24 @@ static bool PartialRefreshFromSourceExtent(
         if (!poSrcDS)
             return false;
 
-        double adfSrcGT[6];
-        if (poSrcDS->GetGeoTransform(adfSrcGT) != CE_None)
+        GDALGeoTransform srcGT;
+        if (poSrcDS->GetGeoTransform(srcGT) != CE_None)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
                      "Source dataset has no geotransform");
             return false;
         }
 
-        const double dfULX = adfSrcGT[0];
-        const double dfULY = adfSrcGT[3];
-        const double dfLRX = adfSrcGT[0] +
-                             poSrcDS->GetRasterXSize() * adfSrcGT[1] +
-                             poSrcDS->GetRasterYSize() * adfSrcGT[2];
-        const double dfLRY = adfSrcGT[3] +
-                             poSrcDS->GetRasterXSize() * adfSrcGT[4] +
-                             poSrcDS->GetRasterYSize() * adfSrcGT[5];
-        const double dfX1 =
-            adfInvGT[0] + adfInvGT[1] * dfULX + adfInvGT[2] * dfULY;
-        const double dfY1 =
-            adfInvGT[3] + adfInvGT[4] * dfULX + adfInvGT[5] * dfULY;
-        const double dfX2 =
-            adfInvGT[0] + adfInvGT[1] * dfLRX + adfInvGT[2] * dfLRY;
-        const double dfY2 =
-            adfInvGT[3] + adfInvGT[4] * dfLRX + adfInvGT[5] * dfLRY;
+        const double dfULX = srcGT[0];
+        const double dfULY = srcGT[3];
+        const double dfLRX = srcGT[0] + poSrcDS->GetRasterXSize() * srcGT[1] +
+                             poSrcDS->GetRasterYSize() * srcGT[2];
+        const double dfLRY = srcGT[3] + poSrcDS->GetRasterXSize() * srcGT[4] +
+                             poSrcDS->GetRasterYSize() * srcGT[5];
+        const double dfX1 = invGT[0] + invGT[1] * dfULX + invGT[2] * dfULY;
+        const double dfY1 = invGT[3] + invGT[4] * dfULX + invGT[5] * dfULY;
+        const double dfX2 = invGT[0] + invGT[1] * dfLRX + invGT[2] * dfLRY;
+        const double dfY2 = invGT[3] + invGT[4] * dfLRX + invGT[5] * dfLRY;
         constexpr double EPS = 1e-8;
         const int nXOff =
             static_cast<int>(std::max(0.0, std::min(dfX1, dfX2)) + EPS);
@@ -479,9 +477,8 @@ static bool PartialRefreshFromSourceExtent(
         {
             printf("Refresh from source %s.\n", region.osFileName.c_str());
         }
-        double dfNextCurPixels =
+        const double dfNextCurPixels =
             dfCurPixels + static_cast<double>(region.nXSize) * region.nYSize;
-        // coverity[divide_by_zero]
         void *pScaledProgress = GDALCreateScaledProgress(
             dfCurPixels / dfTotalPixels, dfNextCurPixels / dfTotalPixels,
             pfnProgress, pProgressArg);
@@ -513,21 +510,21 @@ static bool PartialRefreshFromProjWin(
                        nMinSize, anOvrIndices))
         return false;
 
-    double adfGeoTransform[6];
-    if (poDS->GetGeoTransform(adfGeoTransform) != CE_None)
+    GDALGeoTransform gt;
+    if (poDS->GetGeoTransform(gt) != CE_None)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "Dataset has no geotransform");
         return false;
     }
-    double adfInvGT[6];
-    if (!GDALInvGeoTransform(adfGeoTransform, adfInvGT))
+    GDALGeoTransform invGT;
+    if (!gt.GetInverse(invGT))
     {
         return false;
     }
-    const double dfX1 = adfInvGT[0] + adfInvGT[1] * dfULX + adfInvGT[2] * dfULY;
-    const double dfY1 = adfInvGT[3] + adfInvGT[4] * dfULX + adfInvGT[5] * dfULY;
-    const double dfX2 = adfInvGT[0] + adfInvGT[1] * dfLRX + adfInvGT[2] * dfLRY;
-    const double dfY2 = adfInvGT[3] + adfInvGT[4] * dfLRX + adfInvGT[5] * dfLRY;
+    const double dfX1 = invGT[0] + invGT[1] * dfULX + invGT[2] * dfULY;
+    const double dfY1 = invGT[3] + invGT[4] * dfULX + invGT[5] * dfULY;
+    const double dfX2 = invGT[0] + invGT[1] * dfLRX + invGT[2] * dfLRY;
+    const double dfY2 = invGT[3] + invGT[4] * dfLRX + invGT[5] * dfLRY;
     constexpr double EPS = 1e-8;
     const int nXOff =
         static_cast<int>(std::max(0.0, std::min(dfX1, dfX2)) + EPS);

@@ -12,6 +12,10 @@
 #include "cpl_string.h"
 #include "gdal_pam.h"
 #include "gdal_frmts.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 #include "iso8211.h"
 #include "ogr_spatialref.h"
 
@@ -42,7 +46,7 @@ class ADRGDataset final : public GDALPamDataset
 
     char **papszSubDatasets;
 
-    double adfGeoTransform[6];
+    GDALGeoTransform m_gt{};
 
     static char **GetGENListFromTHF(const char *pszFileName);
     static char **GetIMGListFromGEN(const char *pszFileName,
@@ -59,7 +63,7 @@ class ADRGDataset final : public GDALPamDataset
     ~ADRGDataset() override;
 
     const OGRSpatialReference *GetSpatialRef() const override;
-    CPLErr GetGeoTransform(double *padfGeoTransform) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
 
     char **GetMetadataDomainList() override;
     char **GetMetadata(const char *pszDomain = "") override;
@@ -147,7 +151,7 @@ GDALColorInterp ADRGRasterBand::GetColorInterpretation()
 CPLErr ADRGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
 
 {
-    ADRGDataset *l_poDS = (ADRGDataset *)this->poDS;
+    ADRGDataset *l_poDS = cpl::down_cast<ADRGDataset *>(poDS);
     int nBlock = nBlockYOff * l_poDS->NFC + nBlockXOff;
     if (nBlockXOff >= l_poDS->NFC || nBlockYOff >= l_poDS->NFL)
     {
@@ -201,7 +205,6 @@ ADRGDataset::ADRGDataset()
       LSO(0.0), PSO(0.0), ARV(0), BRV(0), papszSubDatasets(nullptr)
 {
     m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-    memset(adfGeoTransform, 0, sizeof(adfGeoTransform));
 }
 
 /************************************************************************/
@@ -315,12 +318,12 @@ const OGRSpatialReference *ADRGDataset::GetSpatialRef() const
 /*                        GetGeoTransform()                             */
 /************************************************************************/
 
-CPLErr ADRGDataset::GetGeoTransform(double *padfGeoTransform)
+CPLErr ADRGDataset::GetGeoTransform(GDALGeoTransform &gt) const
 {
     if (papszSubDatasets != nullptr)
         return CE_Failure;
 
-    memcpy(padfGeoTransform, adfGeoTransform, sizeof(double) * 6);
+    gt = m_gt;
 
     return CE_None;
 }
@@ -613,7 +616,7 @@ ADRGDataset *ADRGDataset::OpenDataset(const char *pszGENFileName,
     }
     CPLDebug("ADRG", "BAD=%s", osBAD.c_str());
 
-    DDFSubfieldDefn *subfieldDefn = fieldDefn->GetSubfield(14);
+    const DDFSubfieldDefn *subfieldDefn = fieldDefn->GetSubfield(14);
     if (!(strcmp(subfieldDefn->GetName(), "TIF") == 0 &&
           (subfieldDefn->GetFormat())[0] == 'A'))
     {
@@ -759,14 +762,13 @@ ADRGDataset *ADRGDataset::OpenDataset(const char *pszGENFileName,
     if (ZNA == 9)
     {
         // North Polar Case
-        poDS->adfGeoTransform[0] =
-            111319.4907933 * (90.0 - PSO) * sin(LSO * M_PI / 180.0);
-        poDS->adfGeoTransform[1] = 40075016.68558 / ARV;
-        poDS->adfGeoTransform[2] = 0.0;
-        poDS->adfGeoTransform[3] =
+        poDS->m_gt[0] = 111319.4907933 * (90.0 - PSO) * sin(LSO * M_PI / 180.0);
+        poDS->m_gt[1] = 40075016.68558 / ARV;
+        poDS->m_gt[2] = 0.0;
+        poDS->m_gt[3] =
             -111319.4907933 * (90.0 - PSO) * cos(LSO * M_PI / 180.0);
-        poDS->adfGeoTransform[4] = 0.0;
-        poDS->adfGeoTransform[5] = -40075016.68558 / ARV;
+        poDS->m_gt[4] = 0.0;
+        poDS->m_gt[5] = -40075016.68558 / ARV;
         poDS->m_oSRS.importFromWkt(
             "PROJCS[\"ARC_System_Zone_09\",GEOGCS[\"GCS_Sphere\","
             "DATUM[\"D_Sphere\",SPHEROID[\"Sphere\",6378137.0,0.0]],"
@@ -781,14 +783,12 @@ ADRGDataset *ADRGDataset::OpenDataset(const char *pszGENFileName,
     else if (ZNA == 18)
     {
         // South Polar Case
-        poDS->adfGeoTransform[0] =
-            111319.4907933 * (90.0 + PSO) * sin(LSO * M_PI / 180.0);
-        poDS->adfGeoTransform[1] = 40075016.68558 / ARV;
-        poDS->adfGeoTransform[2] = 0.0;
-        poDS->adfGeoTransform[3] =
-            111319.4907933 * (90.0 + PSO) * cos(LSO * M_PI / 180.0);
-        poDS->adfGeoTransform[4] = 0.0;
-        poDS->adfGeoTransform[5] = -40075016.68558 / ARV;
+        poDS->m_gt[0] = 111319.4907933 * (90.0 + PSO) * sin(LSO * M_PI / 180.0);
+        poDS->m_gt[1] = 40075016.68558 / ARV;
+        poDS->m_gt[2] = 0.0;
+        poDS->m_gt[3] = 111319.4907933 * (90.0 + PSO) * cos(LSO * M_PI / 180.0);
+        poDS->m_gt[4] = 0.0;
+        poDS->m_gt[5] = -40075016.68558 / ARV;
         poDS->m_oSRS.importFromWkt(
             "PROJCS[\"ARC_System_Zone_18\",GEOGCS[\"GCS_Sphere\","
             "DATUM[\"D_Sphere\",SPHEROID[\"Sphere\",6378137.0,0.0]],"
@@ -802,12 +802,12 @@ ADRGDataset *ADRGDataset::OpenDataset(const char *pszGENFileName,
     }
     else
     {
-        poDS->adfGeoTransform[0] = LSO;
-        poDS->adfGeoTransform[1] = 360. / ARV;
-        poDS->adfGeoTransform[2] = 0.0;
-        poDS->adfGeoTransform[3] = PSO;
-        poDS->adfGeoTransform[4] = 0.0;
-        poDS->adfGeoTransform[5] = -360. / BRV;
+        poDS->m_gt[0] = LSO;
+        poDS->m_gt[1] = 360. / ARV;
+        poDS->m_gt[2] = 0.0;
+        poDS->m_gt[3] = PSO;
+        poDS->m_gt[4] = 0.0;
+        poDS->m_gt[5] = -360. / BRV;
         poDS->m_oSRS.importFromWkt(SRS_WKT_WGS84_LAT_LONG);
     }
 
@@ -952,8 +952,7 @@ char **ADRGDataset::GetIMGListFromGEN(const char *pszFileName,
                                       int *pnRecordIndex)
 {
     DDFRecord *record = nullptr;
-    int nFilenames = 0;
-    char **papszFileNames = nullptr;
+    CPLStringList aosFilenames;
     int nRecordIndex = -1;
 
     if (pnRecordIndex)
@@ -1001,7 +1000,6 @@ char **ADRGDataset::GetIMGListFromGEN(const char *pszFileName,
             const char *NWO = record->GetStringSubfield("GEN", 0, "NWO", 0);
             if (NWO == nullptr)
             {
-                CSLDestroy(papszFileNames);
                 return nullptr;
             }
 
@@ -1019,23 +1017,27 @@ char **ADRGDataset::GetIMGListFromGEN(const char *pszFileName,
             const char *pszBAD = record->GetStringSubfield("SPR", 0, "BAD", 0);
             if (pszBAD == nullptr || strlen(pszBAD) != 12)
                 continue;
-            CPLString osBAD = pszBAD;
-            {
-                char *c = (char *)strchr(osBAD.c_str(), ' ');
-                if (c)
-                    *c = 0;
-            }
+            std::string osBAD = pszBAD;
+            const auto nSpacePos = osBAD.find(' ');
+            if (nSpacePos != std::string::npos)
+                osBAD.resize(nSpacePos);
             CPLDebug("ADRG", "BAD=%s", osBAD.c_str());
+            if (CPLHasPathTraversal(osBAD.c_str()))
+            {
+                CPLError(CE_Failure, CPLE_AppDefined,
+                         "Path traversal detected in %s", osBAD.c_str());
+                return nullptr;
+            }
 
             /* Build full IMG file name from BAD value */
             CPLString osGENDir(CPLGetDirnameSafe(pszFileName));
 
-            const CPLString osFileName =
+            std::string osFileName =
                 CPLFormFilenameSafe(osGENDir.c_str(), osBAD.c_str(), nullptr);
             VSIStatBufL sStatBuf;
-            if (VSIStatL(osFileName, &sStatBuf) == 0)
+            if (VSIStatL(osFileName.c_str(), &sStatBuf) == 0)
             {
-                osBAD = osFileName;
+                osBAD = std::move(osFileName);
                 CPLDebug("ADRG", "Building IMG full file name : %s",
                          osBAD.c_str());
             }
@@ -1065,18 +1067,14 @@ char **ADRGDataset::GetIMGListFromGEN(const char *pszFileName,
                 CSLDestroy(papszDirContent);
             }
 
-            if (nFilenames == 0 && pnRecordIndex)
+            if (aosFilenames.empty() && pnRecordIndex)
                 *pnRecordIndex = nRecordIndex;
 
-            papszFileNames = (char **)CPLRealloc(
-                papszFileNames, sizeof(char *) * (nFilenames + 2));
-            papszFileNames[nFilenames] = CPLStrdup(osBAD.c_str());
-            papszFileNames[nFilenames + 1] = nullptr;
-            nFilenames++;
+            aosFilenames.AddString(osBAD.c_str());
         }
     }
 
-    return papszFileNames;
+    return aosFilenames.StealList();
 }
 
 /************************************************************************/

@@ -94,6 +94,46 @@ MAIN_START(argc, argv)
     else
     {
         EarlySetConfigOptions(argc, argv);
+        for (int i = 1; i < argc; ++i)
+        {
+            // Used by gdal raster tile --parallel-method=spawn to pass
+            // config options in a stealth way
+            if (strcmp(argv[i], "--config-options-in-stdin") == 0)
+            {
+                std::string line;
+                constexpr int LINE_SIZE = 10 * 1024;
+                line.resize(LINE_SIZE);
+                while (fgets(line.data(), LINE_SIZE, stdin))
+                {
+                    if (strcmp(line.c_str(), "--config\n") == 0 &&
+                        fgets(line.data(), LINE_SIZE, stdin))
+                    {
+                        std::string osLine(line.c_str());
+                        if (!osLine.empty() && osLine.back() == '\n')
+                        {
+                            osLine.pop_back();
+                            char *pszUnescaped = CPLUnescapeString(
+                                osLine.c_str(), nullptr, CPLES_URL);
+                            char *pszKey = nullptr;
+                            const char *pszValue =
+                                CPLParseNameValue(pszUnescaped, &pszKey);
+                            if (pszKey && pszValue)
+                            {
+                                CPLSetConfigOption(pszKey, pszValue);
+                            }
+                            CPLFree(pszKey);
+                            CPLFree(pszUnescaped);
+                        }
+                    }
+                    else if (strcmp(line.c_str(), "END_CONFIG\n") == 0)
+                    {
+                        break;
+                    }
+                }
+
+                break;
+            }
+        }
     }
 
     auto alg = GDALGlobalAlgorithmRegistry::GetSingleton().Instantiate(
@@ -103,12 +143,43 @@ MAIN_START(argc, argv)
     // Register GDAL drivers
     GDALAllRegister();
 
+    alg->SetCalledFromCommandLine();
+
     if (bIsCompletion)
     {
         const bool bLastWordIsComplete =
             EQUAL(argv[argc - 1], "last_word_is_complete=true");
         if (STARTS_WITH(argv[argc - 1], "last_word_is_complete="))
             --argc;
+        else if (argc >= 2 && STARTS_WITH(argv[argc - 2], "prev=") &&
+                 STARTS_WITH(argv[argc - 1], "cur="))
+        {
+            const char *pszPrevVal = argv[argc - 2] + strlen("prev=");
+            const char *pszCurVal = argv[argc - 1] + strlen("cur=");
+            std::string osCurVal;
+            const bool bIsPrevValEqual = (strcmp(pszPrevVal, "=") == 0);
+            if (bIsPrevValEqual)
+            {
+                osCurVal = std::string("=").append(pszCurVal);
+                pszCurVal = osCurVal.c_str();
+            }
+            int iMatch = 0;
+            for (int i = 3; i < argc - 1; ++i)
+            {
+                if (bIsPrevValEqual ? (strstr(argv[i], pszCurVal) != nullptr)
+                                    : (strcmp(argv[i], pszCurVal) == 0))
+                {
+                    if (iMatch == 0)
+                        iMatch = i;
+                    else
+                        iMatch = -1;
+                }
+            }
+            if (iMatch > 0)
+                argc = iMatch + 1;
+            else
+                argc -= 2;
+        }
 
         // Process lines like "gdal completion gdal raster last_word_is_complete=true|false"
         EmitCompletion(std::move(alg),
@@ -150,11 +221,14 @@ MAIN_START(argc, argv)
                                                                : argv[i]);
     CSLDestroy(argv);
 
-    alg->SetCalledFromCommandLine();
-
     if (!alg->ParseCommandLineArguments(args))
     {
-        if (strstr(CPLGetLastErrorMsg(), "Do you mean") == nullptr)
+        if (strstr(CPLGetLastErrorMsg(), "Do you mean") == nullptr &&
+            strstr(CPLGetLastErrorMsg(), "Should be one among") == nullptr &&
+            strstr(CPLGetLastErrorMsg(), "Potential values for argument") ==
+                nullptr &&
+            strstr(CPLGetLastErrorMsg(),
+                   "Single potential value for argument") == nullptr)
         {
             fprintf(stderr, "%s", alg->GetUsageForCLI(true).c_str());
         }
@@ -162,7 +236,8 @@ MAIN_START(argc, argv)
     }
 
     {
-        const auto stdoutArg = alg->GetActualAlgorithm().GetArg("stdout");
+        const auto stdoutArg =
+            alg->GetActualAlgorithm().GetArg(GDAL_ARG_NAME_STDOUT);
         if (stdoutArg && stdoutArg->GetType() == GAAT_BOOLEAN)
             stdoutArg->Set(true);
     }
@@ -171,20 +246,21 @@ MAIN_START(argc, argv)
         alg->IsProgressBarRequested() ? GDALTermProgress : nullptr;
     void *pProgressData = nullptr;
 
-    int ret = 0;
-    if (alg->Run(pfnProgress, pProgressData) && alg->Finalize())
+    int ret = (alg->Run(pfnProgress, pProgressData) && alg->Finalize()) ? 0 : 1;
+
+    const auto outputArg =
+        alg->GetActualAlgorithm().GetArg(GDAL_ARG_NAME_OUTPUT_STRING);
+    if (outputArg && outputArg->GetType() == GAAT_STRING &&
+        outputArg->IsOutput())
     {
-        const auto outputArg =
-            alg->GetActualAlgorithm().GetArg("output-string");
-        if (outputArg && outputArg->GetType() == GAAT_STRING &&
-            outputArg->IsOutput())
-        {
-            printf("%s", outputArg->Get<std::string>().c_str());
-        }
+        printf("%s", outputArg->Get<std::string>().c_str());
     }
-    else
+
+    const auto retCodeArg = alg->GetActualAlgorithm().GetArg("return-code");
+    if (retCodeArg && retCodeArg->GetType() == GAAT_INTEGER &&
+        retCodeArg->IsOutput())
     {
-        ret = 1;
+        ret = retCodeArg->Get<int>();
     }
 
     return ret;

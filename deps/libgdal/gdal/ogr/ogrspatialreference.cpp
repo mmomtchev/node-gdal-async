@@ -63,7 +63,7 @@ bool GDALThreadLocalDatasetCacheIsInDestruction();
 
 struct OGRSpatialReference::Private
 {
-    struct Listener : public OGR_SRSNode::Listener
+    struct Listener final : public OGR_SRSNode::Listener
     {
         OGRSpatialReference::Private *m_poObj = nullptr;
 
@@ -74,10 +74,7 @@ struct OGRSpatialReference::Private
         Listener(const Listener &) = delete;
         Listener &operator=(const Listener &) = delete;
 
-        void notifyChange(OGR_SRSNode *) override
-        {
-            m_poObj->nodesChanged();
-        }
+        void notifyChange(OGR_SRSNode *) override;
     };
 
     OGRSpatialReference *m_poSelf = nullptr;
@@ -93,6 +90,7 @@ struct OGRSpatialReference::Private
     std::vector<std::string> m_wktImportWarnings{};
     std::vector<std::string> m_wktImportErrors{};
     CPLString m_osAreaName{};
+    CPLString m_celestialBodyName{};
 
     bool m_bIsThreadSafe = false;
     bool m_bNodesChanged = false;
@@ -196,6 +194,11 @@ struct OGRSpatialReference::Private
         return OptionalLockGuard(this);
     }
 };
+
+void OGRSpatialReference::Private::Listener::notifyChange(OGR_SRSNode *)
+{
+    m_poObj->nodesChanged();
+}
 
 #define TAKE_OPTIONAL_LOCK()                                                   \
     auto lock = d->GetOptionalLockGuard();                                     \
@@ -930,7 +933,6 @@ OGRSpatialReference::~OGRSpatialReference()
  *
  * @param poSRS the object to delete
  *
- * @since GDAL 1.7.0
  */
 
 void OGRSpatialReference::DestroySpatialReference(OGRSpatialReference *poSRS)
@@ -1425,6 +1427,73 @@ const char *OSRGetName(OGRSpatialReferenceH hSRS)
     VALIDATE_POINTER1(hSRS, "OSRGetName", nullptr);
 
     return ToPointer(hSRS)->GetName();
+}
+
+/************************************************************************/
+/*                       GetCelestialBodyName()                         */
+/************************************************************************/
+
+/**
+ * \brief Return the name of the celestial body of this CRS.
+ *
+ * e.g. "Earth" for an Earth CRS
+ *
+ * The returned value is only short lived and should not be used after other
+ * calls to methods on this object.
+ *
+ * @since GDAL 3.12 and PROJ 8.1
+ */
+
+const char *OGRSpatialReference::GetCelestialBodyName() const
+{
+#if PROJ_AT_LEAST_VERSION(8, 1, 0)
+
+    TAKE_OPTIONAL_LOCK();
+
+    d->refreshProjObj();
+    if (!d->m_pj_crs)
+        return nullptr;
+    d->demoteFromBoundCRS();
+    const char *name =
+        proj_get_celestial_body_name(d->getPROJContext(), d->m_pj_crs);
+    if (name)
+    {
+        d->m_celestialBodyName = name;
+    }
+    d->undoDemoteFromBoundCRS();
+    return d->m_celestialBodyName.c_str();
+#else
+    if (std::fabs(GetSemiMajor(nullptr) - SRS_WGS84_SEMIMAJOR) <=
+        0.05 * SRS_WGS84_SEMIMAJOR)
+        return "Earth";
+    const char *pszAuthName = GetAuthorityName(nullptr);
+    if (pszAuthName && EQUAL(pszAuthName, "EPSG"))
+        return "Earth";
+    return nullptr;
+#endif
+}
+
+/************************************************************************/
+/*                       OSRGetCelestialBodyName()                      */
+/************************************************************************/
+
+/**
+ * \brief Return the name of the celestial body of this CRS.
+ *
+ * e.g. "Earth" for an Earth CRS
+ *
+ * The returned value is only short lived and should not be used after other
+ * calls to methods on this object.
+ *
+ * @since GDAL 3.12 and PROJ 8.1
+ */
+
+const char *OSRGetCelestialBodyName(OGRSpatialReferenceH hSRS)
+
+{
+    VALIDATE_POINTER1(hSRS, "GetCelestialBodyName", nullptr);
+
+    return ToPointer(hSRS)->GetCelestialBodyName();
 }
 
 /************************************************************************/
@@ -2161,7 +2230,6 @@ OGRErr OSRExportToPROJJSON(OGRSpatialReferenceH hSRS, char **ppszReturn,
  *
  * @return OGRERR_NONE if import succeeds, or OGRERR_CORRUPT_DATA if it
  * fails for any reason.
- * @since GDAL 2.3
  */
 
 OGRErr OGRSpatialReference::importFromWkt(const char **ppszInput)
@@ -2316,7 +2384,7 @@ OGRErr OGRSpatialReference::importFromWkt(const char **ppszInput,
  *
  * @return OGRERR_NONE if import succeeds, or OGRERR_CORRUPT_DATA if it
  * fails for any reason.
- * @deprecated GDAL 2.3. Use importFromWkt(const char**) or importFromWkt(const
+ * @deprecated Use importFromWkt(const char**) or importFromWkt(const
  * char*)
  */
 
@@ -2342,7 +2410,6 @@ OGRErr OGRSpatialReference::importFromWkt(char **ppszInput)
  *
  * @return OGRERR_NONE if import succeeds, or OGRERR_CORRUPT_DATA if it
  * fails for any reason.
- * @since GDAL 2.3
  */
 
 OGRErr OGRSpatialReference::importFromWkt(const char *pszInput)
@@ -2657,7 +2724,6 @@ OGRErr OSRSetAngularUnits(OGRSpatialReferenceH hSRS, const char *pszUnits,
  *
  * @return the value to multiply by angular distances to transform them to
  * radians.
- * @since GDAL 2.3.0
  */
 
 double OGRSpatialReference::GetAngularUnits(const char **ppszName) const
@@ -2744,7 +2810,7 @@ double OGRSpatialReference::GetAngularUnits(const char **ppszName) const
  *
  * @return the value to multiply by angular distances to transform them to
  * radians.
- * @deprecated GDAL 2.3.0. Use GetAngularUnits(const char**) const.
+ * @deprecated Use GetAngularUnits(const char**) const.
  */
 
 double OGRSpatialReference::GetAngularUnits(char **ppszName) const
@@ -2930,7 +2996,6 @@ OGRErr OSRSetLinearUnits(OGRSpatialReferenceH hSRS, const char *pszUnits,
  *
  * @return OGRERR_NONE on success.
  *
- * @since OGR 1.9.0
  */
 
 OGRErr OGRSpatialReference::SetTargetLinearUnits(const char *pszTargetKey,
@@ -3015,7 +3080,6 @@ OGRErr OGRSpatialReference::SetTargetLinearUnits(const char *pszTargetKey,
  *
  * This function is the same as OGRSpatialReference::SetTargetLinearUnits()
  *
- * @since OGR 1.9.0
  */
 OGRErr OSRSetTargetLinearUnits(OGRSpatialReferenceH hSRS,
                                const char *pszTargetKey, const char *pszUnits,
@@ -3049,7 +3113,7 @@ OGRErr OSRSetTargetLinearUnits(OGRSpatialReferenceH hSRS,
  *
  * @return the value to multiply by linear distances to transform them to
  * meters.
- * @deprecated GDAL 2.3.0. Use GetLinearUnits(const char**) const.
+ * @deprecated Use GetLinearUnits(const char**) const.
  */
 
 double OGRSpatialReference::GetLinearUnits(char **ppszName) const
@@ -3074,7 +3138,6 @@ double OGRSpatialReference::GetLinearUnits(char **ppszName) const
  *
  * @return the value to multiply by linear distances to transform them to
  * meters.
- * @since GDAL 2.3.0
  */
 
 double OGRSpatialReference::GetLinearUnits(const char **ppszName) const
@@ -3122,8 +3185,7 @@ double OSRGetLinearUnits(OGRSpatialReferenceH hSRS, char **ppszName)
  * @return the value to multiply by linear distances to transform them to
  * meters.
  *
- * @since OGR 1.9.0
- * @deprecated GDAL 2.3.0. Use GetTargetLinearUnits(const char*, const char**)
+ * @deprecated Use GetTargetLinearUnits(const char*, const char**)
  * const.
  */
 
@@ -3299,7 +3361,6 @@ double OGRSpatialReference::GetTargetLinearUnits(const char *pszTargetKey,
  * @return the value to multiply by linear distances to transform them to
  * meters.
  *
- * @since GDAL 2.3.0
  */
 
 double OGRSpatialReference::GetTargetLinearUnits(const char *pszTargetKey,
@@ -3319,7 +3380,6 @@ double OGRSpatialReference::GetTargetLinearUnits(const char *pszTargetKey,
  *
  * This function is the same as OGRSpatialReference::GetTargetLinearUnits()
  *
- * @since OGR 1.9.0
  */
 double OSRGetTargetLinearUnits(OGRSpatialReferenceH hSRS,
                                const char *pszTargetKey, char **ppszName)
@@ -3354,7 +3414,7 @@ double OSRGetTargetLinearUnits(OGRSpatialReferenceH hSRS,
  *
  * @return the offset to the GEOGCS prime meridian from greenwich in decimal
  * degrees.
- * @deprecated GDAL 2.3.0. Use GetPrimeMeridian(const char**) const.
+ * @deprecated Use GetPrimeMeridian(const char**) const.
  */
 
 double OGRSpatialReference::GetPrimeMeridian(const char **ppszName) const
@@ -3419,7 +3479,6 @@ double OGRSpatialReference::GetPrimeMeridian(const char **ppszName) const
  *
  * @return the offset to the GEOGCS prime meridian from greenwich in decimal
  * degrees.
- * @since GDAL 2.3.0
  */
 
 double OGRSpatialReference::GetPrimeMeridian(char **ppszName) const
@@ -4813,6 +4872,52 @@ OGRErr OGRSpatialReference::importFromCRSURL(const char *pszURL)
 {
     TAKE_OPTIONAL_LOCK();
 
+#if !PROJ_AT_LEAST_VERSION(9, 1, 0)
+    if (strcmp(pszURL, "http://www.opengis.net/def/crs/OGC/0/CRS84h") == 0)
+    {
+        PJ *obj = proj_create(
+            d->getPROJContext(),
+            "GEOGCRS[\"WGS 84 longitude-latitude-height\",\n"
+            "    ENSEMBLE[\"World Geodetic System 1984 ensemble\",\n"
+            "        MEMBER[\"World Geodetic System 1984 (Transit)\"],\n"
+            "        MEMBER[\"World Geodetic System 1984 (G730)\"],\n"
+            "        MEMBER[\"World Geodetic System 1984 (G873)\"],\n"
+            "        MEMBER[\"World Geodetic System 1984 (G1150)\"],\n"
+            "        MEMBER[\"World Geodetic System 1984 (G1674)\"],\n"
+            "        MEMBER[\"World Geodetic System 1984 (G1762)\"],\n"
+            "        MEMBER[\"World Geodetic System 1984 (G2139)\"],\n"
+            "        MEMBER[\"World Geodetic System 1984 (G2296)\"],\n"
+            "        ELLIPSOID[\"WGS 84\",6378137,298.257223563,\n"
+            "            LENGTHUNIT[\"metre\",1]],\n"
+            "        ENSEMBLEACCURACY[2.0]],\n"
+            "    PRIMEM[\"Greenwich\",0,\n"
+            "        ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+            "    CS[ellipsoidal,3],\n"
+            "        AXIS[\"geodetic longitude (Lon)\",east,\n"
+            "            ORDER[1],\n"
+            "            ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+            "        AXIS[\"geodetic latitude (Lat)\",north,\n"
+            "            ORDER[2],\n"
+            "            ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+            "        AXIS[\"ellipsoidal height (h)\",up,\n"
+            "            ORDER[3],\n"
+            "            LENGTHUNIT[\"metre\",1]],\n"
+            "    USAGE[\n"
+            "        SCOPE[\"3D system frequently used in GIS, Web APIs and "
+            "Web applications\"],\n"
+            "        AREA[\"World.\"],\n"
+            "        BBOX[-90,-180,90,180]],\n"
+            "    ID[\"OGC\",\"CRS84h\"]]");
+        if (!obj)
+        {
+            return OGRERR_FAILURE;
+        }
+        Clear();
+        d->setPjCRS(obj);
+        return OGRERR_NONE;
+    }
+#endif
+
 #if PROJ_AT_LEAST_VERSION(8, 1, 0)
     if (strlen(pszURL) >= 10000)
     {
@@ -5269,7 +5374,6 @@ double OSRGetInvFlattening(OGRSpatialReferenceH hSRS, OGRErr *pnErr)
  * \brief Get spheroid eccentricity
  *
  * @return eccentricity (or -1 in case of error)
- * @since GDAL 2.3
  */
 
 double OGRSpatialReference::GetEccentricity() const
@@ -5297,7 +5401,6 @@ double OGRSpatialReference::GetEccentricity() const
  * \brief Get spheroid squared eccentricity
  *
  * @return squared eccentricity (or -1 in case of error)
- * @since GDAL 2.3
  */
 
 double OGRSpatialReference::GetSquaredEccentricity() const
@@ -5431,7 +5534,6 @@ OGRErr OSRSetLocalCS(OGRSpatialReferenceH hSRS, const char *pszName)
  *
  * @return OGRERR_NONE on success.
  *
- * @since OGR 1.9.0
  */
 
 OGRErr OGRSpatialReference::SetGeocCS(const char *pszName)
@@ -5501,7 +5603,6 @@ OGRErr OGRSpatialReference::SetGeocCS(const char *pszName)
  *
  * This function is the same as OGRSpatialReference::SetGeocCS()
  *
- * @since OGR 1.9.0
  */
 OGRErr OSRSetGeocCS(OGRSpatialReferenceH hSRS, const char *pszName)
 
@@ -5534,7 +5635,6 @@ OGRErr OSRSetGeocCS(OGRSpatialReferenceH hSRS, const char *pszName)
  *
  * @return OGRERR_NONE on success.
  *
- * @since OGR 1.9.0
  */
 
 OGRErr OGRSpatialReference::SetVertCS(const char *pszVertCSName,
@@ -5578,7 +5678,6 @@ OGRErr OGRSpatialReference::SetVertCS(const char *pszVertCSName,
  *
  * This function is the same as OGRSpatialReference::SetVertCS()
  *
- * @since OGR 1.9.0
  */
 OGRErr OSRSetVertCS(OGRSpatialReferenceH hSRS, const char *pszVertCSName,
                     const char *pszVertDatumName, int nVertDatumType)
@@ -8840,7 +8939,6 @@ char *OGRSpatialReference::GetOGCURN() const
  *
  * This method is the same as the C function OSRStripVertical().
  *
- * @since OGR 1.8.0
  */
 
 OGRErr OGRSpatialReference::StripVertical()
@@ -9143,7 +9241,6 @@ int OSRIsProjected(OGRSpatialReferenceH hSRS)
  * @return TRUE if this contains a GEOCCS node indicating a it is a
  * geocentric coordinate system.
  *
- * @since OGR 1.9.0
  */
 
 int OGRSpatialReference::IsGeocentric() const
@@ -9166,7 +9263,6 @@ int OGRSpatialReference::IsGeocentric() const
  *
  * This function is the same as OGRSpatialReference::IsGeocentric().
  *
- * @since OGR 1.9.0
  */
 int OSRIsGeocentric(OGRSpatialReferenceH hSRS)
 
@@ -9399,7 +9495,6 @@ int OSRIsLocal(OGRSpatialReferenceH hSRS)
  * vertical coordinate system. Also if it is a CompoundCRS made of a
  * VerticalCRS
  *
- * @since OGR 1.8.0
  */
 
 int OGRSpatialReference::IsVertical() const
@@ -9441,7 +9536,6 @@ int OGRSpatialReference::IsVertical() const
  *
  * This function is the same as OGRSpatialReference::IsVertical().
  *
- * @since OGR 1.8.0
  */
 int OSRIsVertical(OGRSpatialReferenceH hSRS)
 
@@ -10021,7 +10115,6 @@ int OSRIsSameEx(OGRSpatialReferenceH hSRS1, OGRSpatialReferenceH hSRS2,
  * @param papszOptions lists of options. None supported currently.
  * @return a new SRS, or NULL in case of error.
  *
- * @since GDAL 2.3
  */
 OGRSpatialReference *OGRSpatialReference::convertToOtherProjection(
     const char *pszTargetProjection,
@@ -10124,7 +10217,6 @@ OGRSpatialReference *OGRSpatialReference::convertToOtherProjection(
  * @param papszOptions lists of options. None supported currently.
  * @return a new SRS, or NULL in case of error.
  *
- * @since GDAL 2.3
  */
 OGRSpatialReferenceH
 OSRConvertToOtherProjection(OGRSpatialReferenceH hSRS,
@@ -10164,7 +10256,6 @@ OSRConvertToOtherProjection(OGRSpatialReferenceH hSRS,
  * @return an array of SRS that match the passed SRS, or NULL. Must be freed
  * with OSRFreeSRSArray()
  *
- * @since GDAL 2.3
  */
 OGRSpatialReferenceH *OSRFindMatches(OGRSpatialReferenceH hSRS,
                                      char **papszOptions, int *pnEntries,
@@ -10188,7 +10279,6 @@ OGRSpatialReferenceH *OSRFindMatches(OGRSpatialReferenceH hSRS,
  * \brief Free return of OSRIdentifyMatches()
  *
  * @param pahSRS array of SRS (must be NULL terminated)
- * @since GDAL 2.3
  */
 void OSRFreeSRSArray(OGRSpatialReferenceH *pahSRS)
 {
@@ -11355,7 +11445,6 @@ OGRErr OGRSpatialReference::importFromMICoordSys(const char *pszCoordSys)
  * @param dfSemiMinor Semi-minor axis length.
  *
  * @return inverse flattening, or 0 if both axis are equal.
- * @since GDAL 2.0
  */
 
 double OSRCalcInvFlattening(double dfSemiMajor, double dfSemiMinor)
@@ -11383,7 +11472,6 @@ double OSRCalcInvFlattening(double dfSemiMajor, double dfSemiMinor)
  * @param dfInvFlattening Inverse flattening or 0 for sphere.
  *
  * @return semi-minor axis
- * @since GDAL 2.0
  */
 
 double OSRCalcSemiMinorFromInvFlattening(double dfSemiMajor,
@@ -11418,7 +11506,6 @@ static CPLMutex *hMutex = nullptr;
  * operation.
  *
  * @return instance.
- * @since GDAL 2.0
  */
 
 OGRSpatialReference *OGRSpatialReference::GetWGS84SRS()
@@ -11791,7 +11878,6 @@ OGRErr OSRMorphFromESRI(OGRSpatialReferenceH hSRS)
  * @return an array of SRS that match the passed SRS, or NULL. Must be freed
  * with OSRFreeSRSArray()
  *
- * @since GDAL 2.3
  *
  * @see OGRSpatialReference::FindBestMatch()
  */
@@ -12335,7 +12421,6 @@ int OSREPSGTreatsAsLatLong(OGRSpatialReferenceH hSRS)
  *
  * @return TRUE or FALSE.
  *
- * @since OGR 1.10.0
  */
 
 int OGRSpatialReference::EPSGTreatsAsNorthingEasting() const
@@ -12389,7 +12474,6 @@ int OGRSpatialReference::EPSGTreatsAsNorthingEasting() const
  * This function is the same as
  * OGRSpatialReference::EPSGTreatsAsNorthingEasting().
  *
- * @since OGR 1.10.0
  */
 
 int OSREPSGTreatsAsNorthingEasting(OGRSpatialReferenceH hSRS)
@@ -12909,6 +12993,17 @@ OSRGetCRSInfoListFromDatabase(const char *pszAuthName,
             projList[i]->projection_method_name
                 ? CPLStrdup(projList[i]->projection_method_name)
                 : nullptr;
+#if PROJ_AT_LEAST_VERSION(8, 1, 0)
+        res[i]->pszCelestialBodyName =
+            projList[i]->celestial_body_name
+                ? CPLStrdup(projList[i]->celestial_body_name)
+                : nullptr;
+#else
+        res[i]->pszCelestialBodyName =
+            res[i]->pszAuthName && EQUAL(res[i]->pszAuthName, "EPSG")
+                ? CPLStrdup("Earth")
+                : nullptr;
+#endif
     }
     res[nResultCount] = nullptr;
     proj_crs_info_list_destroy(projList);
@@ -12935,6 +13030,7 @@ void OSRDestroyCRSInfoList(OSRCRSInfo **list)
             CPLFree(list[i]->pszName);
             CPLFree(list[i]->pszAreaName);
             CPLFree(list[i]->pszProjectionMethod);
+            CPLFree(list[i]->pszCelestialBodyName);
             delete list[i];
         }
         delete[] list;

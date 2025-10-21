@@ -12,9 +12,8 @@
  ****************************************************************************/
 
 #include "gdal_priv.h"
+#include "gdal_frmts.h"
 #include "ogrsf_frmts.h"
-
-extern "C" void GDALRegister_NULL();
 
 /************************************************************************/
 /*                          GDALNullDataset                             */
@@ -25,26 +24,28 @@ class GDALNullDataset final : public GDALDataset
     int m_nLayers;
     OGRLayer **m_papoLayers;
 
+    CPL_DISALLOW_COPY_ASSIGN(GDALNullDataset)
+
   public:
     GDALNullDataset();
-    virtual ~GDALNullDataset();
+    ~GDALNullDataset() override;
 
-    virtual int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return m_nLayers;
     }
 
-    virtual OGRLayer *GetLayer(int) override;
+    const OGRLayer *GetLayer(int) const override;
 
     OGRLayer *ICreateLayer(const char *pszName,
                            const OGRGeomFieldDefn *poGeomFieldDefn,
                            CSLConstList papszOptions) override;
 
-    virtual int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 
     CPLErr SetSpatialRef(const OGRSpatialReference *poSRS) override;
 
-    virtual CPLErr SetGeoTransform(double *) override;
+    CPLErr SetGeoTransform(const GDALGeoTransform &gt) override;
 
     static GDALDataset *Open(GDALOpenInfo *poOpenInfo);
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
@@ -61,13 +62,13 @@ class GDALNullRasterBand final : public GDALRasterBand
   public:
     explicit GDALNullRasterBand(GDALDataType eDT);
 
-    virtual CPLErr IReadBlock(int, int, void *) override;
-    virtual CPLErr IWriteBlock(int, int, void *) override;
-    virtual CPLErr IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
-                             int nXSize, int nYSize, void *pData, int nBufXSize,
-                             int nBufYSize, GDALDataType eBufType,
-                             GSpacing nPixelSpace, GSpacing nLineSpace,
-                             GDALRasterIOExtraArg *psExtraArg) override;
+    CPLErr IReadBlock(int, int, void *) override;
+    CPLErr IWriteBlock(int, int, void *) override;
+    CPLErr IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSize,
+                     int nYSize, void *pData, int nBufXSize, int nBufYSize,
+                     GDALDataType eBufType, GSpacing nPixelSpace,
+                     GSpacing nLineSpace,
+                     GDALRasterIOExtraArg *psExtraArg) override;
 };
 
 /************************************************************************/
@@ -79,33 +80,35 @@ class GDALNullLayer final : public OGRLayer
     OGRFeatureDefn *poFeatureDefn;
     OGRSpatialReference *poSRS = nullptr;
 
+    CPL_DISALLOW_COPY_ASSIGN(GDALNullLayer)
+
   public:
     GDALNullLayer(const char *pszLayerName, const OGRSpatialReference *poSRS,
                   OGRwkbGeometryType eType);
-    virtual ~GDALNullLayer();
+    ~GDALNullLayer() override;
 
-    virtual OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return poFeatureDefn;
     }
 
-    virtual OGRSpatialReference *GetSpatialRef() override
+    const OGRSpatialReference *GetSpatialRef() const override
     {
         return poSRS;
     }
 
-    virtual void ResetReading() override
+    void ResetReading() override
     {
     }
 
-    virtual int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 
-    virtual OGRFeature *GetNextFeature() override
+    OGRFeature *GetNextFeature() override
     {
         return nullptr;
     }
 
-    virtual OGRErr ICreateFeature(OGRFeature *) override
+    OGRErr ICreateFeature(OGRFeature *) override
     {
         return OGRERR_NONE;
     }
@@ -227,7 +230,7 @@ OGRLayer *GDALNullDataset::ICreateLayer(const char *pszLayerName,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int GDALNullDataset::TestCapability(const char *pszCap)
+int GDALNullDataset::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, ODsCCreateLayer))
@@ -241,7 +244,7 @@ int GDALNullDataset::TestCapability(const char *pszCap)
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *GDALNullDataset::GetLayer(int iLayer)
+const OGRLayer *GDALNullDataset::GetLayer(int iLayer) const
 
 {
     if (iLayer < 0 || iLayer >= m_nLayers)
@@ -264,7 +267,7 @@ CPLErr GDALNullDataset::SetSpatialRef(const OGRSpatialReference *)
 /*                          SetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr GDALNullDataset::SetGeoTransform(double *)
+CPLErr GDALNullDataset::SetGeoTransform(const GDALGeoTransform &)
 
 {
     return CE_None;
@@ -288,10 +291,11 @@ GDALDataset *GDALNullDataset::Open(GDALOpenInfo *poOpenInfo)
     GDALDataType eDT = GDT_Byte;
     for (int iType = 1; iType < GDT_TypeCount; iType++)
     {
-        if (GDALGetDataTypeName((GDALDataType)iType) != nullptr &&
-            EQUAL(GDALGetDataTypeName((GDALDataType)iType), pszDTName))
+        if (GDALGetDataTypeName(static_cast<GDALDataType>(iType)) != nullptr &&
+            EQUAL(GDALGetDataTypeName(static_cast<GDALDataType>(iType)),
+                  pszDTName))
         {
-            eDT = (GDALDataType)iType;
+            eDT = static_cast<GDALDataType>(iType);
             break;
         }
     }
@@ -348,7 +352,7 @@ GDALNullLayer::~GDALNullLayer()
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int GDALNullLayer::TestCapability(const char *pszCap)
+int GDALNullLayer::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, OLCSequentialWrite))
@@ -382,7 +386,7 @@ void GDALRegister_NULL()
     poDriver = new GDALDriver();
 
     poDriver->SetDescription("NULL");
-    poDriver->SetMetadataItem(GDAL_DMD_CONNECTION_PREFIX, "NULL: ");
+    poDriver->SetMetadataItem(GDAL_DMD_CONNECTION_PREFIX, "NULL:");
     poDriver->SetMetadataItem(GDAL_DCAP_RASTER, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_VECTOR, "YES");
     poDriver->SetMetadataItem(GDAL_DCAP_CREATE_LAYER, "YES");

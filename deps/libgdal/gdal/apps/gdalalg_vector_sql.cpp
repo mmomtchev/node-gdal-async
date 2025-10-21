@@ -16,6 +16,7 @@
 #include "ogrsf_frmts.h"
 #include "ogrlayerpool.h"
 
+#include <mutex>
 #include <set>
 
 //! @cond Doxygen_Suppress
@@ -25,22 +26,40 @@
 #endif
 
 /************************************************************************/
+/*           GDALVectorSQLAlgorithm::GetConstructorOptions()            */
+/************************************************************************/
+
+/* static */ GDALVectorSQLAlgorithm::ConstructorOptions
+GDALVectorSQLAlgorithm::GetConstructorOptions(bool standaloneStep)
+{
+    ConstructorOptions opts;
+    opts.SetStandaloneStep(standaloneStep);
+    opts.SetOutputDatasetRequired(false);
+    opts.SetUpdateMutualExclusionGroup("output-update");
+    opts.SetOutputDatasetMutualExclusionGroup("output-update");
+    opts.SetAddInputLayerNameArgument(false);
+    opts.SetAddOutputLayerNameArgument(false);
+    return opts;
+}
+
+/************************************************************************/
 /*           GDALVectorSQLAlgorithm::GDALVectorSQLAlgorithm()           */
 /************************************************************************/
 
 GDALVectorSQLAlgorithm::GDALVectorSQLAlgorithm(bool standaloneStep)
     : GDALVectorPipelineStepAlgorithm(NAME, DESCRIPTION, HELP_URL,
-                                      standaloneStep)
+                                      GetConstructorOptions(standaloneStep))
 {
-    AddArg("sql", 0, _("SQL statement(s)"), &m_sql)
-        .SetPositional()
-        .SetRequired()
-        .SetPackedValuesAllowed(false)
-        .SetReadFromFileAtSyntaxAllowed()
-        .SetMetaVar("<statement>|@<filename>")
-        .SetRemoveSQLCommentsEnabled();
-    AddArg("output-layer", standaloneStep ? 0 : 'l', _("Output layer name(s)"),
-           &m_outputLayer);
+    auto &sqlArg = AddArg("sql", 0, _("SQL statement(s)"), &m_sql)
+                       .SetRequired()
+                       .SetPackedValuesAllowed(false)
+                       .SetReadFromFileAtSyntaxAllowed()
+                       .SetMetaVar("<statement>|@<filename>")
+                       .SetRemoveSQLCommentsEnabled();
+    if (!standaloneStep)
+        sqlArg.SetPositional();
+    AddArg(GDAL_ARG_NAME_OUTPUT_LAYER, standaloneStep ? 0 : 'l',
+           _("Output layer name(s)"), &m_outputLayer);
     AddArg("dialect", 0, _("SQL dialect (e.g. OGRSQL, SQLITE)"), &m_dialect);
 }
 
@@ -61,12 +80,14 @@ class GDALVectorSQLAlgorithmDataset final : public GDALDataset
     explicit GDALVectorSQLAlgorithmDataset(GDALDataset &oSrcDS)
         : m_oSrcDS(oSrcDS)
     {
+        m_oSrcDS.Reference();
     }
 
     ~GDALVectorSQLAlgorithmDataset() override
     {
         for (OGRLayer *poLayer : m_layers)
             m_oSrcDS.ReleaseResultSet(poLayer);
+        m_oSrcDS.ReleaseRef();
     }
 
     void AddLayer(OGRLayer *poLayer)
@@ -74,12 +95,12 @@ class GDALVectorSQLAlgorithmDataset final : public GDALDataset
         m_layers.push_back(poLayer);
     }
 
-    int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return static_cast<int>(m_layers.size());
     }
 
-    OGRLayer *GetLayer(int idx) override
+    OGRLayer *GetLayer(int idx) const override
     {
         return idx >= 0 && idx < GetLayerCount() ? m_layers[idx] : nullptr;
     }
@@ -95,7 +116,8 @@ namespace
 
 class ProxiedSQLLayer final : public OGRProxiedLayer
 {
-    OGRFeatureDefn *m_poLayerDefn = nullptr;
+    mutable OGRFeatureDefn *m_poLayerDefn = nullptr;
+    mutable std::mutex m_oMutex{};
 
     CPL_DISALLOW_COPY_ASSIGN(ProxiedSQLLayer)
 
@@ -110,19 +132,21 @@ class ProxiedSQLLayer final : public OGRProxiedLayer
         SetDescription(osName.c_str());
     }
 
-    ~ProxiedSQLLayer()
+    ~ProxiedSQLLayer() override
     {
         if (m_poLayerDefn)
             m_poLayerDefn->Release();
     }
 
-    const char *GetName() override
+    const char *GetName() const override
     {
         return GetDescription();
     }
 
-    OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
+        std::lock_guard oLock(m_oMutex);
+
         if (!m_poLayerDefn)
         {
             m_poLayerDefn = OGRProxiedLayer::GetLayerDefn()->Clone();
@@ -139,7 +163,7 @@ class GDALVectorSQLAlgorithmDatasetMultiLayer final : public GDALDataset
     // active one.
     OGRLayerPool m_oPool{1};
     GDALDataset &m_oSrcDS;
-    std::vector<std::unique_ptr<OGRLayer>> m_layers{};
+    std::vector<std::unique_ptr<ProxiedSQLLayer>> m_layers{};
 
     struct UserData
     {
@@ -164,6 +188,13 @@ class GDALVectorSQLAlgorithmDatasetMultiLayer final : public GDALDataset
     explicit GDALVectorSQLAlgorithmDatasetMultiLayer(GDALDataset &oSrcDS)
         : m_oSrcDS(oSrcDS)
     {
+        m_oSrcDS.Reference();
+    }
+
+    ~GDALVectorSQLAlgorithmDatasetMultiLayer() override
+    {
+        m_layers.clear();
+        m_oSrcDS.ReleaseRef();
     }
 
     void AddLayer(const std::string &osSQL, const std::string &osDialect,
@@ -188,18 +219,17 @@ class GDALVectorSQLAlgorithmDatasetMultiLayer final : public GDALDataset
         { delete static_cast<UserData *>(pUserDataIn); };
 
         auto pUserData = new UserData(m_oSrcDS, osSQL, osDialect, osLayerName);
-        auto poLayer = std::make_unique<ProxiedSQLLayer>(
+        m_layers.emplace_back(std::make_unique<ProxiedSQLLayer>(
             osLayerName, &m_oPool, OpenLayer, CloseLayer, DeleteUserData,
-            pUserData);
-        m_layers.push_back(std::move(poLayer));
+            pUserData));
     }
 
-    int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return static_cast<int>(m_layers.size());
     }
 
-    OGRLayer *GetLayer(int idx) override
+    OGRLayer *GetLayer(int idx) const override
     {
         return idx >= 0 && idx < GetLayerCount() ? m_layers[idx].get()
                                                  : nullptr;
@@ -211,10 +241,45 @@ class GDALVectorSQLAlgorithmDatasetMultiLayer final : public GDALDataset
 /*                 GDALVectorSQLAlgorithm::RunStep()                    */
 /************************************************************************/
 
-bool GDALVectorSQLAlgorithm::RunStep(GDALProgressFunc, void *)
+bool GDALVectorSQLAlgorithm::RunStep(GDALPipelineStepRunContext &)
 {
     auto poSrcDS = m_inputDataset[0].GetDatasetRef();
     CPLAssert(poSrcDS);
+
+    auto outputArg = GetArg(GDAL_ARG_NAME_OUTPUT);
+    if (outputArg && !outputArg->IsExplicitlySet())
+    {
+        // Mode where we update a dataset.
+        for (const auto &sql : m_sql)
+        {
+            const auto nErrorCounter = CPLGetErrorCounter();
+            OGRLayer *poLayer = poSrcDS->ExecuteSQL(
+                sql.c_str(), nullptr,
+                m_dialect.empty() ? nullptr : m_dialect.c_str());
+            const bool bResultSet = poLayer != nullptr;
+            poSrcDS->ReleaseResultSet(poLayer);
+            if (bResultSet && !m_quiet)
+            {
+                ReportError(CE_Warning, CPLE_AppDefined,
+                            "Execution of the SQL statement '%s' returned a "
+                            "result set. It will be ignored. You may silence "
+                            "this warning with the 'quiet' argument.",
+                            sql.c_str());
+            }
+            else if (CPLGetErrorCounter() > nErrorCounter &&
+                     CPLGetLastErrorType() == CE_Failure)
+            {
+                ReportError(CE_Failure, CPLE_AppDefined,
+                            "Execution of the SQL statement '%s' failed.%s",
+                            sql.c_str(),
+                            m_update ? ""
+                                     : " Perhaps you need to specify the "
+                                       "'update' argument?");
+                return false;
+            }
+        }
+        return true;
+    }
 
     CPLAssert(m_outputDataset.GetName().empty());
     CPLAssert(!m_outputDataset.GetDatasetRef());
@@ -287,16 +352,15 @@ bool GDALVectorSQLAlgorithm::RunStep(GDALProgressFunc, void *)
             {
                 osLayerName = m_outputLayer[aosLayerNames.size()];
             }
-            else if (cpl::contains(setOutputLayerNames,
-                                   poLayer->GetDescription()))
+            else
             {
-                int num = 1;
-                do
+                osLayerName = poLayer->GetDescription();
+                for (int num = 2;
+                     cpl::contains(setOutputLayerNames, osLayerName); ++num)
                 {
                     osLayerName = poLayer->GetDescription();
-                    ++num;
                     osLayerName += std::to_string(num);
-                } while (cpl::contains(setOutputLayerNames, osLayerName));
+                }
             }
 
             if (!osLayerName.empty())
@@ -324,5 +388,7 @@ bool GDALVectorSQLAlgorithm::RunStep(GDALProgressFunc, void *)
 
     return true;
 }
+
+GDALVectorSQLAlgorithmStandalone::~GDALVectorSQLAlgorithmStandalone() = default;
 
 //! @endcond

@@ -42,7 +42,7 @@ class HFADataset final : public GDALPamDataset
     bool bMetadataDirty = false;
 
     bool bGeoDirty = false;
-    double adfGeoTransform[6];
+    GDALGeoTransform m_gt{};
     OGRSpatialReference m_oSRS{};
 
     bool bIgnoreUTM = false;
@@ -58,15 +58,14 @@ class HFADataset final : public GDALPamDataset
                        Efga_Polynomial *pasPolyListReverse);
 
   protected:
-    virtual CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
-                             GDALDataType, int, BANDMAP_TYPE,
-                             GSpacing nPixelSpace, GSpacing nLineSpace,
-                             GSpacing nBandSpace,
-                             GDALRasterIOExtraArg *psExtraArg) override;
+    CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
+                     GDALDataType, int, BANDMAP_TYPE, GSpacing nPixelSpace,
+                     GSpacing nLineSpace, GSpacing nBandSpace,
+                     GDALRasterIOExtraArg *psExtraArg) override;
 
   public:
     HFADataset();
-    virtual ~HFADataset();
+    ~HFADataset() override;
 
     static int Identify(GDALOpenInfo *);
     static CPLErr Rename(const char *pszNewName, const char *pszOldName);
@@ -82,29 +81,28 @@ class HFADataset final : public GDALPamDataset
                                    void *pProgressData);
     static CPLErr Delete(const char *pszFilename);
 
-    virtual char **GetFileList() override;
+    char **GetFileList() override;
 
     const OGRSpatialReference *GetSpatialRef() const override;
     CPLErr SetSpatialRef(const OGRSpatialReference *poSRS) override;
 
-    virtual CPLErr GetGeoTransform(double *) override;
-    virtual CPLErr SetGeoTransform(double *) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
+    CPLErr SetGeoTransform(const GDALGeoTransform &gt) override;
 
-    virtual int GetGCPCount() override;
+    int GetGCPCount() override;
     const OGRSpatialReference *GetGCPSpatialRef() const override;
-    virtual const GDAL_GCP *GetGCPs() override;
+    const GDAL_GCP *GetGCPs() override;
 
-    virtual CPLErr SetMetadata(char **, const char * = "") override;
-    virtual CPLErr SetMetadataItem(const char *, const char *,
-                                   const char * = "") override;
+    CPLErr SetMetadata(char **, const char * = "") override;
+    CPLErr SetMetadataItem(const char *, const char *,
+                           const char * = "") override;
 
-    virtual CPLErr FlushCache(bool bAtClosing) override;
-    virtual CPLErr IBuildOverviews(const char *pszResampling, int nOverviews,
-                                   const int *panOverviewList, int nListBands,
-                                   const int *panBandList,
-                                   GDALProgressFunc pfnProgress,
-                                   void *pProgressData,
-                                   CSLConstList papszOptions) override;
+    CPLErr FlushCache(bool bAtClosing) override;
+    CPLErr IBuildOverviews(const char *pszResampling, int nOverviews,
+                           const int *panOverviewList, int nListBands,
+                           const int *panBandList, GDALProgressFunc pfnProgress,
+                           void *pProgressData,
+                           CSLConstList papszOptions) override;
 };
 
 /************************************************************************/
@@ -142,39 +140,38 @@ class HFARasterBand final : public GDALPamRasterBand
 
   public:
     HFARasterBand(HFADataset *, int, int);
-    virtual ~HFARasterBand();
+    ~HFARasterBand() override;
 
-    virtual CPLErr IReadBlock(int, int, void *) override;
-    virtual CPLErr IWriteBlock(int, int, void *) override;
+    CPLErr IReadBlock(int, int, void *) override;
+    CPLErr IWriteBlock(int, int, void *) override;
 
-    virtual const char *GetDescription() const override;
-    virtual void SetDescription(const char *) override;
+    const char *GetDescription() const override;
+    void SetDescription(const char *) override;
 
-    virtual GDALColorInterp GetColorInterpretation() override;
-    virtual GDALColorTable *GetColorTable() override;
-    virtual CPLErr SetColorTable(GDALColorTable *) override;
-    virtual int GetOverviewCount() override;
-    virtual GDALRasterBand *GetOverview(int) override;
+    GDALColorInterp GetColorInterpretation() override;
+    GDALColorTable *GetColorTable() override;
+    CPLErr SetColorTable(GDALColorTable *) override;
+    int GetOverviewCount() override;
+    GDALRasterBand *GetOverview(int) override;
 
-    virtual double GetMinimum(int *pbSuccess = nullptr) override;
-    virtual double GetMaximum(int *pbSuccess = nullptr) override;
-    virtual double GetNoDataValue(int *pbSuccess = nullptr) override;
-    virtual CPLErr SetNoDataValue(double dfValue) override;
+    double GetMinimum(int *pbSuccess = nullptr) override;
+    double GetMaximum(int *pbSuccess = nullptr) override;
+    double GetNoDataValue(int *pbSuccess = nullptr) override;
+    CPLErr SetNoDataValue(double dfValue) override;
 
-    virtual CPLErr SetMetadata(char **, const char * = "") override;
-    virtual CPLErr SetMetadataItem(const char *, const char *,
-                                   const char * = "") override;
+    CPLErr SetMetadata(char **, const char * = "") override;
+    CPLErr SetMetadataItem(const char *, const char *,
+                           const char * = "") override;
     virtual CPLErr BuildOverviews(const char *, int, const int *,
                                   GDALProgressFunc, void *,
                                   CSLConstList papszOptions) override;
 
-    virtual CPLErr GetDefaultHistogram(double *pdfMin, double *pdfMax,
-                                       int *pnBuckets, GUIntBig **ppanHistogram,
-                                       int bForce, GDALProgressFunc,
-                                       void *pProgressData) override;
+    CPLErr GetDefaultHistogram(double *pdfMin, double *pdfMax, int *pnBuckets,
+                               GUIntBig **ppanHistogram, int bForce,
+                               GDALProgressFunc, void *pProgressData) override;
 
-    virtual GDALRasterAttributeTable *GetDefaultRAT() override;
-    virtual CPLErr SetDefaultRAT(const GDALRasterAttributeTable *) override;
+    GDALRasterAttributeTable *GetDefaultRAT() override;
+    CPLErr SetDefaultRAT(const GDALRasterAttributeTable *) override;
 };
 
 class HFAAttributeField
@@ -201,6 +198,7 @@ class HFARasterAttributeTable final : public GDALRasterAttributeTable
 
     std::vector<HFAAttributeField> aoFields;
     int nRows;
+    mutable std::vector<GByte> m_abyWKB{};
 
     bool bLinearBinning;
     double dfRow0Min;
@@ -224,7 +222,7 @@ class HFARasterAttributeTable final : public GDALRasterAttributeTable
         aField.bIsBinValues = bIsBinValues;
         aField.bConvertColors = bConvertColors;
 
-        aoFields.push_back(aField);
+        aoFields.push_back(std::move(aField));
     }
 
     void CreateDT()
@@ -236,40 +234,55 @@ class HFARasterAttributeTable final : public GDALRasterAttributeTable
 
   public:
     HFARasterAttributeTable(HFARasterBand *poBand, const char *pszName);
-    virtual ~HFARasterAttributeTable();
+    ~HFARasterAttributeTable() override;
 
     GDALRasterAttributeTable *Clone() const override;
 
-    virtual int GetColumnCount() const override;
+    int GetColumnCount() const override;
 
-    virtual const char *GetNameOfCol(int) const override;
-    virtual GDALRATFieldUsage GetUsageOfCol(int) const override;
-    virtual GDALRATFieldType GetTypeOfCol(int) const override;
+    const char *GetNameOfCol(int) const override;
+    GDALRATFieldUsage GetUsageOfCol(int) const override;
+    GDALRATFieldType GetTypeOfCol(int) const override;
 
-    virtual int GetColOfUsage(GDALRATFieldUsage) const override;
+    int GetColOfUsage(GDALRATFieldUsage) const override;
 
-    virtual int GetRowCount() const override;
+    int GetRowCount() const override;
 
-    virtual const char *GetValueAsString(int iRow, int iField) const override;
-    virtual int GetValueAsInt(int iRow, int iField) const override;
-    virtual double GetValueAsDouble(int iRow, int iField) const override;
+    const char *GetValueAsString(int iRow, int iField) const override;
+    int GetValueAsInt(int iRow, int iField) const override;
+    double GetValueAsDouble(int iRow, int iField) const override;
+    bool GetValueAsBoolean(int iRow, int iField) const override;
+    GDALRATDateTime GetValueAsDateTime(int iRow, int iField) const override;
+    const GByte *GetValueAsWKBGeometry(int iRow, int iField,
+                                       size_t &nWKBSize) const override;
 
-    virtual void SetValue(int iRow, int iField, const char *pszValue) override;
-    virtual void SetValue(int iRow, int iField, double dfValue) override;
-    virtual void SetValue(int iRow, int iField, int nValue) override;
+    CPLErr SetValue(int iRow, int iField, const char *pszValue) override;
+    CPLErr SetValue(int iRow, int iField, double dfValue) override;
+    CPLErr SetValue(int iRow, int iField, int nValue) override;
+    CPLErr SetValue(int iRow, int iField, bool bValue) override;
+    CPLErr SetValue(int iRow, int iField,
+                    const GDALRATDateTime &sDateTime) override;
+    CPLErr SetValue(int iRow, int iField, const void *pabyWKB,
+                    size_t nWKBSize) override;
 
-    virtual CPLErr ValuesIO(GDALRWFlag eRWFlag, int iField, int iStartRow,
-                            int iLength, double *pdfData) override;
-    virtual CPLErr ValuesIO(GDALRWFlag eRWFlag, int iField, int iStartRow,
-                            int iLength, int *pnData) override;
-    virtual CPLErr ValuesIO(GDALRWFlag eRWFlag, int iField, int iStartRow,
-                            int iLength, char **papszStrList) override;
+    CPLErr ValuesIO(GDALRWFlag eRWFlag, int iField, int iStartRow, int iLength,
+                    double *pdfData) override;
+    CPLErr ValuesIO(GDALRWFlag eRWFlag, int iField, int iStartRow, int iLength,
+                    int *pnData) override;
+    CPLErr ValuesIO(GDALRWFlag eRWFlag, int iField, int iStartRow, int iLength,
+                    char **papszStrList) override;
+    CPLErr ValuesIO(GDALRWFlag eRWFlag, int iField, int iStartRow, int iLength,
+                    bool *pbData) override;
+    CPLErr ValuesIO(GDALRWFlag eRWFlag, int iField, int iStartRow, int iLength,
+                    GDALRATDateTime *psDateTime) override;
+    CPLErr ValuesIO(GDALRWFlag eRWFlag, int iField, int iStartRow, int iLength,
+                    GByte **ppabyWKB, size_t *pnWKBSize) override;
 
-    virtual int ChangesAreWrittenToFile() override;
-    virtual void SetRowCount(int iCount) override;
+    int ChangesAreWrittenToFile() override;
+    void SetRowCount(int iCount) override;
 
-    virtual int GetRowOfValue(double dfValue) const override;
-    virtual int GetRowOfValue(int nValue) const override;
+    int GetRowOfValue(double dfValue) const override;
+    int GetRowOfValue(int nValue) const override;
 
     virtual CPLErr CreateColumn(const char *pszFieldName,
                                 GDALRATFieldType eFieldType,
@@ -279,11 +292,11 @@ class HFARasterAttributeTable final : public GDALRasterAttributeTable
     virtual int GetLinearBinning(double *pdfRow0Min,
                                  double *pdfBinSize) const override;
 
-    virtual CPLXMLNode *Serialize() const override;
+    CPLXMLNode *Serialize() const override;
 
-    virtual CPLErr SetTableType(const GDALRATTableType eInTableType) override;
-    virtual GDALRATTableType GetTableType() const override;
-    virtual void RemoveStatistics() override;
+    CPLErr SetTableType(const GDALRATTableType eInTableType) override;
+    GDALRATTableType GetTableType() const override;
+    void RemoveStatistics() override;
 
   protected:
     CPLErr ColorsIO(GDALRWFlag eRWFlag, int iField, int iStartRow, int iLength,

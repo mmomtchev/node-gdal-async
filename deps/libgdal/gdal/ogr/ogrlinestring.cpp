@@ -45,11 +45,6 @@ int DoubleToIntClamp(double dfValue)
 
 /**
  * \brief Copy constructor.
- *
- * Note: before GDAL 2.1, only the default implementation of the constructor
- * existed, which could be unsafe to use.
- *
- * @since GDAL 2.1
  */
 
 OGRSimpleCurve::OGRSimpleCurve(const OGRSimpleCurve &other)
@@ -103,11 +98,6 @@ OGRSimpleCurve::~OGRSimpleCurve()
 
 /**
  * \brief Assignment operator.
- *
- * Note: before GDAL 2.1, only the default implementation of the operator
- * existed, which could be unsafe to use.
- *
- * @since GDAL 2.1
  */
 
 OGRSimpleCurve &OGRSimpleCurve::operator=(const OGRSimpleCurve &other)
@@ -1031,7 +1021,10 @@ bool OGRSimpleCurve::setPointsM(int nPointsIn, const OGRRawPoint *paoPointsIn,
         return false;
 
     if (nPointsIn)
-        memcpy(paoPoints, paoPointsIn, sizeof(OGRRawPoint) * nPointsIn);
+    {
+        const void *pUnaligned = paoPointsIn;
+        memcpy(paoPoints, pUnaligned, sizeof(OGRRawPoint) * nPointsIn);
+    }
 
     /* -------------------------------------------------------------------- */
     /*      Check measures.                                                 */
@@ -1045,7 +1038,10 @@ bool OGRSimpleCurve::setPointsM(int nPointsIn, const OGRRawPoint *paoPointsIn,
         if (!AddM())
             return false;
         if (padfM && nPointsIn)
-            memcpy(padfM, padfMIn, sizeof(double) * nPointsIn);
+        {
+            const void *pUnaligned = padfMIn;
+            memcpy(padfM, pUnaligned, sizeof(double) * nPointsIn);
+        }
     }
     return true;
 }
@@ -1082,7 +1078,10 @@ bool OGRSimpleCurve::setPoints(int nPointsIn, const OGRRawPoint *paoPointsIn,
         return false;
 
     if (nPointsIn)
-        memcpy(paoPoints, paoPointsIn, sizeof(OGRRawPoint) * nPointsIn);
+    {
+        const void *pUnaligned = paoPointsIn;
+        memcpy(paoPoints, pUnaligned, sizeof(OGRRawPoint) * nPointsIn);
+    }
 
     /* -------------------------------------------------------------------- */
     /*      Check 2D/3D.                                                    */
@@ -1096,7 +1095,10 @@ bool OGRSimpleCurve::setPoints(int nPointsIn, const OGRRawPoint *paoPointsIn,
         if (!Make3D())
             return false;
         if (padfZ && nPointsIn)
-            memcpy(padfZ, padfZIn, sizeof(double) * nPointsIn);
+        {
+            const void *pUnaligned = padfZIn;
+            memcpy(padfZ, pUnaligned, sizeof(double) * nPointsIn);
+        }
     }
 
     /* -------------------------------------------------------------------- */
@@ -1111,7 +1113,10 @@ bool OGRSimpleCurve::setPoints(int nPointsIn, const OGRRawPoint *paoPointsIn,
         if (!AddM())
             return false;
         if (padfM && nPointsIn)
-            memcpy(padfM, padfMIn, sizeof(double) * nPointsIn);
+        {
+            const void *pUnaligned = padfMIn;
+            memcpy(padfM, pUnaligned, sizeof(double) * nPointsIn);
+        }
     }
     return true;
 }
@@ -1147,7 +1152,10 @@ bool OGRSimpleCurve::setPoints(int nPointsIn, const OGRRawPoint *paoPointsIn,
         return false;
 
     if (nPointsIn)
-        memcpy(paoPoints, paoPointsIn, sizeof(OGRRawPoint) * nPointsIn);
+    {
+        const void *pUnaligned = paoPointsIn;
+        memcpy(paoPoints, pUnaligned, sizeof(OGRRawPoint) * nPointsIn);
+    }
 
     /* -------------------------------------------------------------------- */
     /*      Check 2D/3D.                                                    */
@@ -1161,7 +1169,10 @@ bool OGRSimpleCurve::setPoints(int nPointsIn, const OGRRawPoint *paoPointsIn,
         if (!Make3D())
             return false;
         if (padfZ && nPointsIn)
-            memcpy(padfZ, padfZIn, sizeof(double) * nPointsIn);
+        {
+            const void *pUnaligned = padfZIn;
+            memcpy(padfZ, pUnaligned, sizeof(double) * nPointsIn);
+        }
     }
     return true;
 }
@@ -1215,7 +1226,8 @@ bool OGRSimpleCurve::setPoints(int nPointsIn, const double *padfX,
 
     if (padfZ && padfZIn && nPointsIn)
     {
-        memcpy(padfZ, padfZIn, sizeof(double) * nPointsIn);
+        const void *pUnaligned = padfZIn;
+        memcpy(padfZ, pUnaligned, sizeof(double) * nPointsIn);
     }
     return true;
 }
@@ -1268,7 +1280,8 @@ bool OGRSimpleCurve::setPointsM(int nPointsIn, const double *padfX,
 
     if (padfMIn && padfM && nPointsIn)
     {
-        memcpy(padfM, padfMIn, sizeof(double) * nPointsIn);
+        const void *pUnaligned = padfMIn;
+        memcpy(padfM, pUnaligned, sizeof(double) * nPointsIn);
     }
     return true;
 }
@@ -1333,9 +1346,15 @@ bool OGRSimpleCurve::setPoints(int nPointsIn, const double *padfX,
     }
 
     if (padfZ != nullptr && padfZIn && nPointsIn)
-        memcpy(padfZ, padfZIn, sizeof(double) * nPointsIn);
+    {
+        const void *pUnaligned = padfZIn;
+        memcpy(padfZ, pUnaligned, sizeof(double) * nPointsIn);
+    }
     if (padfM != nullptr && padfMIn && nPointsIn)
-        memcpy(padfM, padfMIn, sizeof(double) * nPointsIn);
+    {
+        const void *pUnaligned = padfMIn;
+        memcpy(padfM, pUnaligned, sizeof(double) * nPointsIn);
+    }
     return true;
 }
 
@@ -1362,17 +1381,21 @@ void OGRSimpleCurve::getPoints(OGRRawPoint *paoPointsOut,
     if (!paoPointsOut || nPointCount == 0)
         return;
 
-    memcpy(paoPointsOut, paoPoints, sizeof(OGRRawPoint) * nPointCount);
+    {
+        void *pUnaligned = paoPointsOut;
+        memcpy(pUnaligned, paoPoints, sizeof(OGRRawPoint) * nPointCount);
+    }
 
     /* -------------------------------------------------------------------- */
     /*      Check 2D/3D.                                                    */
     /* -------------------------------------------------------------------- */
     if (padfZOut)
     {
+        void *pUnaligned = padfZOut;
         if (padfZ)
-            memcpy(padfZOut, padfZ, sizeof(double) * nPointCount);
+            memcpy(pUnaligned, padfZ, sizeof(double) * nPointCount);
         else
-            memset(padfZOut, 0, sizeof(double) * nPointCount);
+            memset(pUnaligned, 0, sizeof(double) * nPointCount);
     }
 }
 
@@ -1399,8 +1422,6 @@ void OGRSimpleCurve::getPoints(OGRRawPoint *paoPointsOut,
  * @param pabyM a buffer of at last size (nMStride * nPointCount) bytes, may be
  * NULL.
  * @param nMStride the number of bytes between 2 elements of pabyM.
- *
- * @since OGR 2.1.0
  */
 
 void OGRSimpleCurve::getPoints(void *pabyX, int nXStride, void *pabyY,
@@ -2211,7 +2232,6 @@ double OGRSimpleCurve::Project(const OGRPoint *poPoint) const
  * @return a newly allocated linestring now owned by the caller, or NULL on
  * failure.
  *
- * @since OGR 1.11.0
  */
 
 OGRLineString *OGRSimpleCurve::getSubLine(double dfDistanceFrom,
@@ -2861,11 +2881,6 @@ OGRPointIterator *OGRSimpleCurve::getPointIterator() const
 
 /**
  * \brief Copy constructor.
- *
- * Note: before GDAL 2.1, only the default implementation of the constructor
- * existed, which could be unsafe to use.
- *
- * @since GDAL 2.1
  */
 
 OGRLineString::OGRLineString(const OGRLineString &) = default;
@@ -2888,11 +2903,6 @@ OGRLineString::OGRLineString(OGRLineString &&) = default;
 
 /**
  * \brief Assignment operator.
- *
- * Note: before GDAL 2.1, only the default implementation of the operator
- * existed, which could be unsafe to use.
- *
- * @since GDAL 2.1
  */
 
 OGRLineString &OGRLineString::operator=(const OGRLineString &other)

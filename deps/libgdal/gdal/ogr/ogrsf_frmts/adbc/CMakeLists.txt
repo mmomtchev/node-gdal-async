@@ -5,10 +5,11 @@ add_gdal_driver(
       ogradbcdriver.cpp
       ogradbcdataset.cpp
       ogradbclayer.cpp
+      ogradbcbigquerylayer.cpp
   CORE_SOURCES ogradbcdrivercore.cpp
   PLUGIN_CAPABLE
   NO_SHARED_SYMBOL_WITH_CORE
-  STRONG_CXX_WFLAGS)
+)
 
 if(TARGET ogr_ADBC_core AND GDAL_USE_ADBCDRIVERMANAGER AND TARGET AdbcDriverManager::adbc_driver_manager_shared)
     target_compile_definitions(ogr_ADBC_core PRIVATE OGR_ADBC_HAS_DRIVER_MANAGER)

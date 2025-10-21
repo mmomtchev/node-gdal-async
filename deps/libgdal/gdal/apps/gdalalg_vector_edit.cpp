@@ -30,29 +30,7 @@ GDALVectorEditAlgorithm::GDALVectorEditAlgorithm(bool standaloneStep)
                                       standaloneStep)
 {
     AddActiveLayerArg(&m_activeLayer);
-    AddArg("geometry-type", 0, _("Layer geometry type"), &m_geometryType)
-        .SetAutoCompleteFunction(
-            [](const std::string &currentValue)
-            {
-                std::vector<std::string> oRet;
-                for (const char *type :
-                     {"GEOMETRY", "POINT", "LINESTRING", "POLYGON",
-                      "MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON",
-                      "GEOMETRYCOLLECTION", "CURVE", "CIRCULARSTRING",
-                      "COMPOUNDCURVE", "SURFACE", "CURVEPOLYGON", "MULTICURVE",
-                      "MULTISURFACE", "POLYHEDRALSURFACE", "TIN"})
-                {
-                    if (currentValue.empty() ||
-                        STARTS_WITH(type, currentValue.c_str()))
-                    {
-                        oRet.push_back(type);
-                        oRet.push_back(std::string(type).append("Z"));
-                        oRet.push_back(std::string(type).append("M"));
-                        oRet.push_back(std::string(type).append("ZM"));
-                    }
-                }
-                return oRet;
-            });
+    AddGeometryTypeArg(&m_geometryType, _("Layer geometry type"));
 
     AddArg("crs", 0, _("Override CRS (without reprojection)"), &m_overrideCrs)
         .AddHiddenAlias("a_srs")
@@ -85,6 +63,10 @@ GDALVectorEditAlgorithm::GDALVectorEditAlgorithm(bool standaloneStep)
     AddArg("unset-layer-metadata", 0, _("Remove layer metadata item"),
            &m_unsetLayerMetadata)
         .SetMetaVar("<KEY>");
+
+    AddArg("unset-fid", 0,
+           _("Unset the identifier of each feature and the FID column name"),
+           &m_unsetFID);
 }
 
 /************************************************************************/
@@ -101,9 +83,9 @@ class GDALVectorEditAlgorithmLayer final : public GDALVectorPipelineOutputLayer
         bool bChangeGeomType, OGRwkbGeometryType eType,
         const std::string &overrideCrs,
         const std::vector<std::string> &layerMetadata,
-        const std::vector<std::string> &unsetLayerMetadata)
+        const std::vector<std::string> &unsetLayerMetadata, bool unsetFID)
         : GDALVectorPipelineOutputLayer(oSrcLayer),
-          m_bOverrideCrs(!overrideCrs.empty())
+          m_bOverrideCrs(!overrideCrs.empty()), m_unsetFID(unsetFID)
     {
         SetDescription(oSrcLayer.GetDescription());
         SetMetadata(oSrcLayer.GetMetadata());
@@ -158,14 +140,21 @@ class GDALVectorEditAlgorithmLayer final : public GDALVectorPipelineOutputLayer
         }
     }
 
-    ~GDALVectorEditAlgorithmLayer()
+    ~GDALVectorEditAlgorithmLayer() override
     {
         m_poFeatureDefn->Release();
         if (m_poSRS)
             m_poSRS->Release();
     }
 
-    OGRFeatureDefn *GetLayerDefn() override
+    const char *GetFIDColumn() const override
+    {
+        if (m_unsetFID)
+            return "";
+        return m_srcLayer.GetFIDColumn();
+    }
+
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return m_poFeatureDefn;
     }
@@ -184,10 +173,12 @@ class GDALVectorEditAlgorithmLayer final : public GDALVectorPipelineOutputLayer
                     poGeom->assignSpatialReference(m_poSRS);
             }
         }
+        if (m_unsetFID)
+            poSrcFeature->SetFID(OGRNullFID);
         apoOutFeatures.push_back(std::move(poSrcFeature));
     }
 
-    int TestCapability(const char *pszCap) override
+    int TestCapability(const char *pszCap) const override
     {
         if (EQUAL(pszCap, OLCStringsAsUTF8) ||
             EQUAL(pszCap, OLCCurveGeometries) || EQUAL(pszCap, OLCZGeometries))
@@ -197,6 +188,7 @@ class GDALVectorEditAlgorithmLayer final : public GDALVectorPipelineOutputLayer
 
   private:
     const bool m_bOverrideCrs;
+    const bool m_unsetFID;
     OGRFeatureDefn *m_poFeatureDefn = nullptr;
     OGRSpatialReference *m_poSRS = nullptr;
 
@@ -209,7 +201,7 @@ class GDALVectorEditAlgorithmLayer final : public GDALVectorPipelineOutputLayer
 /*                GDALVectorEditAlgorithm::RunStep()                    */
 /************************************************************************/
 
-bool GDALVectorEditAlgorithm::RunStep(GDALProgressFunc, void *)
+bool GDALVectorEditAlgorithm::RunStep(GDALPipelineStepRunContext &)
 {
     auto poSrcDS = m_inputDataset[0].GetDatasetRef();
     CPLAssert(poSrcDS);
@@ -224,13 +216,6 @@ bool GDALVectorEditAlgorithm::RunStep(GDALProgressFunc, void *)
     if (!m_geometryType.empty())
     {
         eType = OGRFromOGCGeomType(m_geometryType.c_str());
-        if (wkbFlatten(eType) == wkbUnknown &&
-            !STARTS_WITH_CI(m_geometryType.c_str(), "GEOMETRY"))
-        {
-            ReportError(CE_Failure, CPLE_AppDefined,
-                        "Invalid geometry type '%s'", m_geometryType.c_str());
-            return false;
-        }
         bChangeGeomType = true;
     }
 
@@ -268,7 +253,7 @@ bool GDALVectorEditAlgorithm::RunStep(GDALProgressFunc, void *)
                             std::make_unique<GDALVectorEditAlgorithmLayer>(
                                 *poSrcLayer, m_activeLayer, bChangeGeomType,
                                 eType, m_overrideCrs, m_layerMetadata,
-                                m_unsetLayerMetadata));
+                                m_unsetLayerMetadata, m_unsetFID));
         }
     }
 
@@ -277,5 +262,8 @@ bool GDALVectorEditAlgorithm::RunStep(GDALProgressFunc, void *)
 
     return ret;
 }
+
+GDALVectorEditAlgorithmStandalone::~GDALVectorEditAlgorithmStandalone() =
+    default;
 
 //! @endcond

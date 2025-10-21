@@ -3,7 +3,7 @@ add_gdal_driver(
   PLUGIN_CAPABLE
   NO_DEPS
   SOURCES gdaltileindexdataset.cpp
-          STRONG_CXX_WFLAGS)
+)
 gdal_standard_includes(gdal_GTI)
 target_include_directories(gdal_GTI PRIVATE ${GDAL_RASTER_FORMAT_SOURCE_DIR}/vrt
                                             $<TARGET_PROPERTY:ogrsf_generic,SOURCE_DIR>)
@@ -27,4 +27,8 @@ endif()
 
 if (GDAL_ENABLE_ARM_NEON_OPTIMIZATIONS)
   target_compile_definitions(gdal_GTI PRIVATE -DUSE_NEON_OPTIMIZATIONS)
+endif()
+
+if (GDAL_ENABLE_ALGORITHMS)
+  target_compile_definitions(gdal_GTI PRIVATE -DGDAL_ENABLE_ALGORITHMS)
 endif()

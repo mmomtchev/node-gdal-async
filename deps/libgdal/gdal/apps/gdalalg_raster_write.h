@@ -31,8 +31,24 @@ class GDALRasterWriteAlgorithm final : public GDALRasterPipelineStepAlgorithm
 
     GDALRasterWriteAlgorithm();
 
+    bool CanBeLastStep() const override
+    {
+        return true;
+    }
+
+    bool GeneratesFilesFromUserInput() const override
+    {
+        return true;
+    }
+
+    bool IsNativelyStreamingCompatible() const override
+    {
+        return false;
+    }
+
   private:
-    bool RunStep(GDALProgressFunc pfnProgress, void *pProgressData) override;
+    friend class GDALRasterPipelineStepAlgorithm;
+    bool RunStep(GDALPipelineStepRunContext &ctxt) override;
 };
 
 //! @endcond

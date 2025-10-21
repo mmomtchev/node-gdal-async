@@ -17,6 +17,10 @@
 #include <climits>
 #include "gdal_frmts.h"
 #include "gdal_pam.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 #include "northwood.h"
 #include "ogrmitabspatialref.h"
 
@@ -77,7 +81,7 @@ class NWT_GRDDataset final : public GDALPamDataset
 
   public:
     NWT_GRDDataset();
-    ~NWT_GRDDataset();
+    ~NWT_GRDDataset() override;
 
     static GDALDataset *Open(GDALOpenInfo *);
     static int Identify(GDALOpenInfo *);
@@ -93,8 +97,8 @@ class NWT_GRDDataset final : public GDALPamDataset
                                    void *pProgressData);
 #endif
 
-    CPLErr GetGeoTransform(double *padfTransform) override;
-    CPLErr SetGeoTransform(double *padfTransform) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
+    CPLErr SetGeoTransform(const GDALGeoTransform &gt) override;
     CPLErr FlushCache(bool bAtClosing) override;
 
     const OGRSpatialReference *GetSpatialRef() const override;
@@ -122,12 +126,12 @@ class NWT_GRDRasterBand final : public GDALPamRasterBand
   public:
     NWT_GRDRasterBand(NWT_GRDDataset *, int, int);
 
-    virtual CPLErr IReadBlock(int, int, void *) override;
-    virtual CPLErr IWriteBlock(int, int, void *) override;
-    virtual double GetNoDataValue(int *pbSuccess) override;
-    virtual CPLErr SetNoDataValue(double dfNoData) override;
+    CPLErr IReadBlock(int, int, void *) override;
+    CPLErr IWriteBlock(int, int, void *) override;
+    double GetNoDataValue(int *pbSuccess) override;
+    CPLErr SetNoDataValue(double dfNoData) override;
 
-    virtual GDALColorInterp GetColorInterpretation() override;
+    GDALColorInterp GetColorInterpretation() override;
 };
 
 /************************************************************************/
@@ -479,15 +483,15 @@ CPLErr NWT_GRDDataset::FlushCache(bool bAtClosing)
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr NWT_GRDDataset::GetGeoTransform(double *padfTransform)
+CPLErr NWT_GRDDataset::GetGeoTransform(GDALGeoTransform &gt) const
 {
-    padfTransform[0] = pGrd->dfMinX - (pGrd->dfStepSize * 0.5);
-    padfTransform[3] = pGrd->dfMaxY + (pGrd->dfStepSize * 0.5);
-    padfTransform[1] = pGrd->dfStepSize;
-    padfTransform[2] = 0.0;
+    gt[0] = pGrd->dfMinX - (pGrd->dfStepSize * 0.5);
+    gt[3] = pGrd->dfMaxY + (pGrd->dfStepSize * 0.5);
+    gt[1] = pGrd->dfStepSize;
+    gt[2] = 0.0;
 
-    padfTransform[4] = 0.0;
-    padfTransform[5] = -1 * pGrd->dfStepSize;
+    gt[4] = 0.0;
+    gt[5] = -1 * pGrd->dfStepSize;
 
     return CE_None;
 }
@@ -496,22 +500,22 @@ CPLErr NWT_GRDDataset::GetGeoTransform(double *padfTransform)
 /*                          SetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr NWT_GRDDataset::SetGeoTransform(double *padfTransform)
+CPLErr NWT_GRDDataset::SetGeoTransform(const GDALGeoTransform &gt)
 {
-    if (padfTransform[2] != 0.0 || padfTransform[4] != 0.0)
+    if (gt[2] != 0.0 || gt[4] != 0.0)
     {
 
         CPLError(CE_Failure, CPLE_NotSupported,
                  "GRD datasets do not support skew/rotation");
         return CE_Failure;
     }
-    pGrd->dfStepSize = padfTransform[1];
+    pGrd->dfStepSize = gt[1];
 
     // GRD format sets the min/max coordinates to the centre of the
     // cell; We must account for this when copying the GDAL geotransform
     // which references the top left corner
-    pGrd->dfMinX = padfTransform[0] + (pGrd->dfStepSize * 0.5);
-    pGrd->dfMaxY = padfTransform[3] - (pGrd->dfStepSize * 0.5);
+    pGrd->dfMinX = gt[0] + (pGrd->dfStepSize * 0.5);
+    pGrd->dfMaxY = gt[3] - (pGrd->dfStepSize * 0.5);
 
     // Now set the miny and maxx
     pGrd->dfMaxX = pGrd->dfMinX + (pGrd->dfStepSize * (nRasterXSize - 1));
@@ -627,7 +631,7 @@ GDALDataset *NWT_GRDDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     VSIFSeekL(poDS->fp, 0, SEEK_SET);
     VSIFReadL(poDS->abyHeader, 1, 1024, poDS->fp);
-    poDS->pGrd = reinterpret_cast<NWT_GRID *>(calloc(1, sizeof(NWT_GRID)));
+    poDS->pGrd = static_cast<NWT_GRID *>(calloc(1, sizeof(NWT_GRID)));
     if (!poDS->pGrd)
     {
         delete poDS;

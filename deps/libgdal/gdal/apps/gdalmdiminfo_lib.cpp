@@ -17,6 +17,7 @@
 #include "cpl_json.h"
 #include "cpl_json_streaming_writer.h"
 #include "gdal_priv.h"
+#include "gdal_rat.h"
 #include "gdalargumentparser.h"
 #include <limits>
 #include <set>
@@ -75,8 +76,77 @@ static void DumpDataType(const GDALExtendedDataType &dt,
             break;
 
         case GEDTC_NUMERIC:
-            serializer.Add(GDALGetDataTypeName(dt.GetNumericDataType()));
+        {
+            auto poRAT = dt.GetRAT();
+            if (poRAT)
+            {
+                auto objContext(serializer.MakeObjectContext());
+                serializer.AddObjKey("name");
+                serializer.Add(dt.GetName());
+                serializer.AddObjKey("type");
+                serializer.Add(GDALGetDataTypeName(dt.GetNumericDataType()));
+                serializer.AddObjKey("attribute_table");
+                auto arrayContext(serializer.MakeArrayContext());
+                const int nRows = poRAT->GetRowCount();
+                const int nCols = poRAT->GetColumnCount();
+                for (int iRow = 0; iRow < nRows; ++iRow)
+                {
+                    auto obj2Context(serializer.MakeObjectContext());
+                    for (int iCol = 0; iCol < nCols; ++iCol)
+                    {
+                        serializer.AddObjKey(poRAT->GetNameOfCol(iCol));
+                        switch (poRAT->GetTypeOfCol(iCol))
+                        {
+                            case GFT_Integer:
+                                serializer.Add(
+                                    poRAT->GetValueAsInt(iRow, iCol));
+                                break;
+                            case GFT_Real:
+                                serializer.Add(
+                                    poRAT->GetValueAsDouble(iRow, iCol));
+                                break;
+                            case GFT_String:
+                                serializer.Add(
+                                    poRAT->GetValueAsString(iRow, iCol));
+                                break;
+                            case GFT_Boolean:
+                                serializer.Add(
+                                    poRAT->GetValueAsBoolean(iRow, iCol));
+                                break;
+                            case GFT_DateTime:
+                            {
+                                const auto sDateTime =
+                                    poRAT->GetValueAsDateTime(iRow, iCol);
+                                serializer.Add(
+                                    GDALRasterAttributeTable::DateTimeToString(
+                                        sDateTime));
+                                break;
+                            }
+                            case GFT_WKBGeometry:
+                            {
+                                size_t nWKBSize = 0;
+                                const GByte *pabyWKB =
+                                    poRAT->GetValueAsWKBGeometry(iRow, iCol,
+                                                                 nWKBSize);
+                                std::string osWKT =
+                                    GDALRasterAttributeTable::WKBGeometryToWKT(
+                                        pabyWKB, nWKBSize);
+                                if (osWKT.empty())
+                                    serializer.AddNull();
+                                else
+                                    serializer.Add(osWKT);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                serializer.Add(GDALGetDataTypeName(dt.GetNumericDataType()));
+            }
             break;
+        }
 
         case GEDTC_COMPOUND:
         {
@@ -642,7 +712,7 @@ DumpDimensions(const std::shared_ptr<GDALGroup> &rootGroup,
     auto arrayContext(serializer.MakeArrayContext());
     for (const auto &dim : dims)
     {
-        const std::string osFullname(dim->GetFullName());
+        std::string osFullname(dim->GetFullName());
         if (alreadyDumpedDimensions.find(osFullname) !=
             alreadyDumpedDimensions.end())
         {
@@ -689,7 +759,7 @@ DumpDimensions(const std::shared_ptr<GDALGroup> &rootGroup,
             {
                 std::set<std::string> alreadyDumpedDimensionsLocal(
                     alreadyDumpedDimensions);
-                alreadyDumpedDimensionsLocal.insert(osFullname);
+                alreadyDumpedDimensionsLocal.insert(std::move(osFullname));
 
                 auto indexingVariableContext(serializer.MakeObjectContext());
                 serializer.AddObjKey(poIndexingVariable->GetName());
@@ -992,6 +1062,17 @@ static void DumpGroup(const std::shared_ptr<GDALGroup> &rootGroup,
         serializer.AddObjKey("dimensions");
         DumpDimensions(rootGroup, dims, serializer, psOptions,
                        alreadyDumpedDimensions);
+    }
+
+    const auto &types = group->GetDataTypes();
+    if (!types.empty())
+    {
+        serializer.AddObjKey("datatypes");
+        auto arrayContext(serializer.MakeArrayContext());
+        for (const auto &dt : types)
+        {
+            DumpDataType(*(dt.get()), serializer);
+        }
     }
 
     CPLStringList aosOptionsGetArray(psOptions->aosArrayOptions);

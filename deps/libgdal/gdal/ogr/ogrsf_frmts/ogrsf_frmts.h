@@ -181,7 +181,7 @@ class CPL_DLL OGRLayer : public GDALMajorObject
 
   public:
     OGRLayer();
-    virtual ~OGRLayer();
+    ~OGRLayer() override;
 
     /** Return begin of feature iterator.
      *
@@ -191,7 +191,6 @@ class CPL_DLL OGRLayer : public GDALMajorObject
      * OGRFeatureUniquePtr reference is reused.
      *
      * Only one iterator per layer can be active at a time.
-     * @since GDAL 2.3
      */
     FeatureIterator begin();
 
@@ -239,12 +238,19 @@ class CPL_DLL OGRLayer : public GDALMajorObject
 
     virtual OGRErr DeleteFeature(GIntBig nFID) CPL_WARN_UNUSED_RESULT;
 
-    virtual const char *GetName();
-    virtual OGRwkbGeometryType GetGeomType();
-    virtual OGRFeatureDefn *GetLayerDefn() = 0;
+    virtual const char *GetName() const;
+    virtual OGRwkbGeometryType GetGeomType() const;
+    virtual const OGRFeatureDefn *GetLayerDefn() const = 0;
+
+    OGRFeatureDefn *GetLayerDefn()
+    {
+        return const_cast<OGRFeatureDefn *>(
+            const_cast<const OGRLayer *>(this)->GetLayerDefn());
+    }
+
     virtual int FindFieldIndex(const char *pszFieldName, int bExactMatch);
 
-    virtual OGRSpatialReference *GetSpatialRef();
+    virtual const OGRSpatialReference *GetSpatialRef() const;
 
     /** Return type of OGRLayer::GetSupportedSRSList() */
     typedef std::vector<
@@ -265,12 +271,12 @@ class CPL_DLL OGRLayer : public GDALMajorObject
     OGRErr GetExtent3D(int iGeomField, OGREnvelope3D *psExtent,
                        bool bForce = true) CPL_WARN_UNUSED_RESULT;
 
-    virtual int TestCapability(const char *) = 0;
+    virtual int TestCapability(const char *) const = 0;
 
     virtual OGRErr Rename(const char *pszNewName) CPL_WARN_UNUSED_RESULT;
 
     virtual OGRErr CreateField(const OGRFieldDefn *poField,
-                               int bApproxOK = TRUE);
+                               int bApproxOK = TRUE) CPL_WARN_UNUSED_RESULT;
     virtual OGRErr DeleteField(int iField);
     virtual OGRErr ReorderFields(int *panMap);
     virtual OGRErr AlterFieldDefn(int iField, OGRFieldDefn *poNewFieldDefn,
@@ -301,8 +307,8 @@ class CPL_DLL OGRLayer : public GDALMajorObject
     virtual void FinishRollbackTransaction(const std::string &osSavepointName);
     //! @endcond
 
-    virtual const char *GetFIDColumn();
-    virtual const char *GetGeometryColumn();
+    virtual const char *GetFIDColumn() const;
+    virtual const char *GetGeometryColumn() const;
 
     virtual OGRErr SetIgnoredFields(CSLConstList papszFields);
 
@@ -372,7 +378,6 @@ class CPL_DLL OGRLayer : public GDALMajorObject
     //! @endcond
 
     /** Convert a OGRLayer* to a OGRLayerH.
-     * @since GDAL 2.3
      */
     static inline OGRLayerH ToHandle(OGRLayer *poLayer)
     {
@@ -380,7 +385,6 @@ class CPL_DLL OGRLayer : public GDALMajorObject
     }
 
     /** Convert a OGRLayerH to a OGRLayer*.
-     * @since GDAL 2.3
      */
     static inline OGRLayer *FromHandle(OGRLayerH hLayer)
     {
@@ -461,7 +465,6 @@ class CPL_DLL OGRLayer : public GDALMajorObject
  * std::unique_ptr&lt;OGRFeature&gt; reference is reused.
  *
  * Only one iterator per layer can be active at a time.
- * @since GDAL 2.3
  * @see OGRLayer::begin()
  */
 inline OGRLayer::FeatureIterator begin(OGRLayer *poLayer)
@@ -487,7 +490,10 @@ using OGRLayerUniquePtr = std::unique_ptr<OGRLayer>;
 /************************************************************************/
 
 /** Template class offering a GetNextFeature() implementation relying on
- * GetNextRawFeature()
+ * GetNextRawFeature().
+ * OGRGetNextFeatureThroughRaw::GetNextFeature() calls GetNextRawFeature()
+ * and takes care of applying the spatial and attribute filters, making
+ * their taking into account in GetNextRawFeature() unnecessary.
  *
  * @since GDAL 3.2
  */
@@ -548,7 +554,7 @@ template <class BaseLayer> class OGRGetNextFeatureThroughRaw
  * When an OGRDataSource is destroyed, all its associated OGRLayers objects
  * are also destroyed.
  *
- * NOTE: Starting with GDAL 2.0, it is *NOT* safe to cast the handle of
+ * NOTE: It is *NOT* safe to cast the handle of
  * a C function that returns a OGRDataSourceH to a OGRDataSource*. If a C++
  * object is needed, the handle should be cast to GDALDataset*.
  *
@@ -559,6 +565,8 @@ class CPL_DLL OGRDataSource : public GDALDataset
 {
   public:
     OGRDataSource();
+    ~OGRDataSource() override;
+
     //! @cond Doxygen_Suppress
     virtual const char *GetName()
         OGR_DEPRECATED("Use GDALDataset class instead") = 0;
@@ -583,7 +591,7 @@ class CPL_DLL OGRDataSource : public GDALDataset
  * The list of available drivers is normally managed by the
  * OGRSFDriverRegistrar.
  *
- * NOTE: Starting with GDAL 2.0, it is *NOT* safe to cast the handle of
+ * NOTE: It is *NOT* safe to cast the handle of
  * a C function that returns a OGRSFDriverH to a OGRSFDriver*. If a C++ object
  * is needed, the handle should be cast to GDALDriver*.
  *
@@ -594,7 +602,7 @@ class CPL_DLL OGRSFDriver : public GDALDriver
 {
   public:
     //! @cond Doxygen_Suppress
-    virtual ~OGRSFDriver();
+    ~OGRSFDriver() override;
 
     virtual const char *GetName()
         OGR_DEPRECATED("Use GDALDriver class instead") = 0;

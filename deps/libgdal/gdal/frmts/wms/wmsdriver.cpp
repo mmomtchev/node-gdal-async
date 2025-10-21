@@ -43,6 +43,10 @@
 GDALWMSDataset::StringMap_t GDALWMSDataset::cfg;
 CPLMutex *GDALWMSDataset::cfgmtx = nullptr;
 
+WMSMiniDriver::~WMSMiniDriver() = default;
+WMSMiniDriverFactory::~WMSMiniDriverFactory() = default;
+GDALWMSCacheImpl::~GDALWMSCacheImpl() = default;
+
 /************************************************************************/
 /*              GDALWMSDatasetGetConfigFromURL()                        */
 /************************************************************************/
@@ -55,8 +59,8 @@ static CPLXMLNode *GDALWMSDatasetGetConfigFromURL(GDALOpenInfo *poOpenInfo)
 
     const CPLString osLayer = CPLURLGetValue(pszBaseURL, "LAYERS");
     CPLString osVersion = CPLURLGetValue(pszBaseURL, "VERSION");
-    const CPLString osSRS = CPLURLGetValue(pszBaseURL, "SRS");
-    const CPLString osCRS = CPLURLGetValue(pszBaseURL, "CRS");
+    CPLString osSRS = CPLURLGetValue(pszBaseURL, "SRS");
+    CPLString osCRS = CPLURLGetValue(pszBaseURL, "CRS");
     CPLString osBBOX = CPLURLGetValue(pszBaseURL, "BBOX");
     CPLString osFormat = CPLURLGetValue(pszBaseURL, "FORMAT");
     const CPLString osTransparent = CPLURLGetValue(pszBaseURL, "TRANSPARENT");
@@ -118,7 +122,7 @@ static CPLXMLNode *GDALWMSDatasetGetConfigFromURL(GDALOpenInfo *poOpenInfo)
                      "WMS version 1.3 and above expects CRS however SRS was "
                      "set instead.");
         }
-        osSRSValue = osCRS;
+        osSRSValue = std::move(osCRS);
         osSRSTag = "CRS";
     }
     else
@@ -129,7 +133,7 @@ static CPLXMLNode *GDALWMSDatasetGetConfigFromURL(GDALOpenInfo *poOpenInfo)
                      "WMS version 1.1.1 and below expects SRS however CRS was "
                      "set instead.");
         }
-        osSRSValue = osSRS;
+        osSRSValue = std::move(osSRS);
         osSRSTag = "SRS";
     }
 
@@ -292,8 +296,8 @@ static CPLXMLNode *GDALWMSDatasetGetConfigFromURL(GDALOpenInfo *poOpenInfo)
         }
     }
 
-    nXSize = (int)dXSize;
-    nYSize = (int)dYSize;
+    nXSize = static_cast<int>(dXSize);
+    nYSize = static_cast<int>(dYSize);
 
     bool bTransparent = !osTransparent.empty() && CPLTestBool(osTransparent);
 
@@ -477,12 +481,12 @@ static CPLXMLNode *GDALWMSDatasetGetConfigFromTileMap(CPLXMLNode *psXML)
 
     while (nLevelCount > 0)
     {
-        GIntBig nXSizeBig = (GIntBig)((dfMaxX - dfMinX) / dfPixelSize + 0.5);
-        GIntBig nYSizeBig = (GIntBig)((dfMaxY - dfMinY) / dfPixelSize + 0.5);
-        if (nXSizeBig < INT_MAX && nYSizeBig < INT_MAX)
+        double dfXSizeBig = (dfMaxX - dfMinX) / dfPixelSize + 0.5;
+        double dfYSizeBig = (dfMaxY - dfMinY) / dfPixelSize + 0.5;
+        if (dfXSizeBig < INT_MAX && dfYSizeBig < INT_MAX)
         {
-            nXSize = (int)nXSizeBig;
-            nYSize = (int)nYSizeBig;
+            nXSize = static_cast<int>(dfXSizeBig);
+            nYSize = static_cast<int>(dfYSizeBig);
             break;
         }
         CPLDebug(
@@ -638,10 +642,11 @@ static CPLXMLNode *GDALWMSDatasetGetConfigFromArcGISJSON(const char *pszURL,
     }
 
     const int nLevelCountOri = nLevelCount;
-    while ((double)nTileCountX * nTileWidth * (1 << nLevelCount) > INT_MAX)
+    while (static_cast<double>(nTileCountX) * nTileWidth * (1 << nLevelCount) >
+           INT_MAX)
         nLevelCount--;
     while (nLevelCount >= 0 &&
-           (double)nTileHeight * (1 << nLevelCount) > INT_MAX)
+           static_cast<double>(nTileHeight) * (1 << nLevelCount) > INT_MAX)
         nLevelCount--;
     if (nLevelCount != nLevelCountOri)
         CPLDebug("WMS",
@@ -713,7 +718,8 @@ GDALDataset *GDALWMSDataset::Open(GDALOpenInfo *poOpenInfo)
     CPLErr ret = CE_None;
 
     const char *pszFilename = poOpenInfo->pszFilename;
-    const char *pabyHeader = (const char *)poOpenInfo->pabyHeader;
+    const char *pabyHeader =
+        reinterpret_cast<const char *>(poOpenInfo->pabyHeader);
 
     if (!WMSDriverIdentify(poOpenInfo))
         return nullptr;
@@ -750,7 +756,7 @@ GDALDataset *GDALWMSDataset::Open(GDALOpenInfo *poOpenInfo)
             return nullptr;
         }
         config = GDALWMSDatasetGetConfigFromArcGISJSON(
-            osURL, (const char *)psResult->pabyData);
+            osURL, reinterpret_cast<const char *>(psResult->pabyData));
         CPLHTTPDestroyResult(psResult);
     }
 
@@ -822,7 +828,8 @@ GDALDataset *GDALWMSDataset::Open(GDALOpenInfo *poOpenInfo)
                     CPLGetXMLValue(psTileMapService, "href", nullptr);
                 if (pszHref)
                 {
-                    poRet = (GDALDataset *)GDALOpen(pszHref, GA_ReadOnly);
+                    poRet = GDALDataset::Open(
+                        pszHref, GDAL_OF_RASTER | GDAL_OF_VERBOSE_ERROR);
                 }
             }
         }
@@ -858,10 +865,11 @@ GDALDataset *GDALWMSDataset::Open(GDALOpenInfo *poOpenInfo)
             return nullptr;
         }
         int nXSize, nYSize;
-        const char *pszMaxSize =
-            strstr((const char *)psResult->pabyData, "Max-size:");
+        const char *pszMaxSize = strstr(
+            reinterpret_cast<const char *>(psResult->pabyData), "Max-size:");
         const char *pszResolutionNumber =
-            strstr((const char *)psResult->pabyData, "Resolution-number:");
+            strstr(reinterpret_cast<const char *>(psResult->pabyData),
+                   "Resolution-number:");
         if (pszMaxSize &&
             sscanf(pszMaxSize + strlen("Max-size:"), "%d %d", &nXSize,
                    &nYSize) == 2 &&
@@ -1115,17 +1123,14 @@ void WMSDeregister(CPL_UNUSED GDALDriver *d)
 
 // Define a minidriver factory type, create one and register it
 #define RegisterMinidriver(name)                                               \
-    class WMSMiniDriverFactory_##name : public WMSMiniDriverFactory            \
+    class WMSMiniDriverFactory_##name final : public WMSMiniDriverFactory      \
     {                                                                          \
       public:                                                                  \
         WMSMiniDriverFactory_##name()                                          \
         {                                                                      \
             m_name = CPLString(#name);                                         \
         }                                                                      \
-        virtual ~WMSMiniDriverFactory_##name()                                 \
-        {                                                                      \
-        }                                                                      \
-        virtual WMSMiniDriver *New() const override                            \
+        WMSMiniDriver *New() const override                                    \
         {                                                                      \
             return new WMSMiniDriver_##name;                                   \
         }                                                                      \

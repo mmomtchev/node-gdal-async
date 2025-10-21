@@ -35,7 +35,7 @@
  */
 GNMGenericLayer::GNMGenericLayer(OGRLayer *poLayer,
                                  GNMGenericNetwork *poNetwork)
-    : OGRLayer(), m_soLayerName(poLayer->GetName()), m_poLayer(poLayer),
+    : m_soLayerName(poLayer->GetName()), m_poLayer(poLayer),
       m_poNetwork(poNetwork)
 {
 }
@@ -43,16 +43,14 @@ GNMGenericLayer::GNMGenericLayer(OGRLayer *poLayer,
 /**
  * ~GNMGenericLayer
  */
-GNMGenericLayer::~GNMGenericLayer()
-{
-}
+GNMGenericLayer::~GNMGenericLayer() = default;
 
-const char *GNMGenericLayer::GetFIDColumn()
+const char *GNMGenericLayer::GetFIDColumn() const
 {
     return GNM_SYSFIELD_GFID;
 }
 
-const char *GNMGenericLayer::GetGeometryColumn()
+const char *GNMGenericLayer::GetGeometryColumn() const
 {
     return m_poLayer->GetGeometryColumn();
 }
@@ -231,18 +229,19 @@ OGRErr GNMGenericLayer::DeleteFeature(GIntBig nFID)
     OGRFeature::DestroyFeature(poFeature);
 
     // delete from graph
-    if (m_poNetwork->DisconnectFeaturesWithId((GNMGFID)nFID) != CE_None)
+    if (m_poNetwork->DisconnectFeaturesWithId(static_cast<GNMGFID>(nFID)) !=
+        CE_None)
         return CE_Failure;
 
     return m_poLayer->DeleteFeature(it->second);
 }
 
-const char *GNMGenericLayer::GetName()
+const char *GNMGenericLayer::GetName() const
 {
     return m_soLayerName;
 }
 
-OGRwkbGeometryType GNMGenericLayer::GetGeomType()
+OGRwkbGeometryType GNMGenericLayer::GetGeomType() const
 {
     return m_poLayer->GetGeomType();
 }
@@ -252,7 +251,7 @@ int GNMGenericLayer::FindFieldIndex(const char *pszFieldName, int bExactMatch)
     return m_poLayer->FindFieldIndex(pszFieldName, bExactMatch);
 }
 
-OGRSpatialReference *GNMGenericLayer::GetSpatialRef()
+const OGRSpatialReference *GNMGenericLayer::GetSpatialRef() const
 {
     return m_poLayer->GetSpatialRef();
 }
@@ -268,7 +267,7 @@ OGRErr GNMGenericLayer::IGetExtent(int iGeomField, OGREnvelope *psExtent,
     return m_poLayer->GetExtent(iGeomField, psExtent, bForce);
 }
 
-int GNMGenericLayer::TestCapability(const char *pszCapability)
+int GNMGenericLayer::TestCapability(const char *pszCapability) const
 {
     return m_poLayer->TestCapability(pszCapability);
 }
@@ -343,7 +342,7 @@ OGRErr GNMGenericLayer::RollbackTransaction()
     return m_poLayer->RollbackTransaction();
 }
 
-OGRFeatureDefn *GNMGenericLayer::GetLayerDefn()
+const OGRFeatureDefn *GNMGenericLayer::GetLayerDefn() const
 {
     // TODO: hide GNM_SYSFIELD_GFID filed
     return m_poLayer->GetLayerDefn();

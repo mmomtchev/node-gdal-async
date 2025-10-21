@@ -23,6 +23,7 @@
 #include "cpl_conv.h"
 #include "cpl_error.h"
 #include "cpl_http.h"
+#include "cpl_multiproc.h"  // CPLSleep()
 #include "cpl_string.h"
 #include "cpl_vsi.h"
 #include "cpl_vsi_error.h"
@@ -95,8 +96,7 @@ CPLErr OGRGeoJSONDataSource::Close()
 bool OGRGeoJSONDataSource::DealWithOgrSchemaOpenOption(
     const GDALOpenInfo *poOpenInfo)
 {
-
-    std::string osFieldsSchemaOverrideParam =
+    const std::string osFieldsSchemaOverrideParam =
         CSLFetchNameValueDef(poOpenInfo->papszOpenOptions, "OGR_SCHEMA", "");
 
     if (!osFieldsSchemaOverrideParam.empty())
@@ -109,100 +109,22 @@ bool OGRGeoJSONDataSource::DealWithOgrSchemaOpenOption(
             return false;
         }
 
-        OGRSchemaOverride osSchemaOverride;
-        if (!osSchemaOverride.LoadFromJSON(osFieldsSchemaOverrideParam) ||
-            !osSchemaOverride.IsValid())
+        OGRSchemaOverride oSchemaOverride;
+        const auto nErrorCount = CPLGetErrorCounter();
+        if (!oSchemaOverride.LoadFromJSON(osFieldsSchemaOverrideParam) ||
+            !oSchemaOverride.IsValid())
         {
+            if (nErrorCount == CPLGetErrorCounter())
+            {
+                CPLError(CE_Failure, CPLE_AppDefined,
+                         "Content of OGR_SCHEMA in %s is not valid",
+                         osFieldsSchemaOverrideParam.c_str());
+            }
             return false;
         }
 
-        const auto &oLayerOverrides = osSchemaOverride.GetLayerOverrides();
-        for (const auto &oLayer : oLayerOverrides)
-        {
-            const auto &oLayerName = oLayer.first;
-            const auto &oLayerFieldOverride = oLayer.second;
-            const bool bIsFullOverride{oLayerFieldOverride.IsFullOverride()};
-            auto oFieldOverrides = oLayerFieldOverride.GetFieldOverrides();
-            std::vector<OGRFieldDefn *> aoFields;
-
-            CPLDebug("GeoJSON", "Applying schema override for layer %s",
-                     oLayerName.c_str());
-
-            // Fail if the layer name does not exist
-            auto poLayer = GetLayerByName(oLayerName.c_str());
-            if (poLayer == nullptr)
-            {
-                CPLError(CE_Failure, CPLE_AppDefined,
-                         "Layer %s not found in GeoJSON file",
-                         oLayerName.c_str());
-                return false;
-            }
-
-            // Patch field definitions
-            auto poLayerDefn = poLayer->GetLayerDefn();
-            for (int i = 0; i < poLayerDefn->GetFieldCount(); i++)
-            {
-                auto poFieldDefn = poLayerDefn->GetFieldDefn(i);
-                auto oFieldOverride =
-                    oFieldOverrides.find(poFieldDefn->GetNameRef());
-                if (oFieldOverride != oFieldOverrides.cend())
-                {
-                    if (oFieldOverride->second.GetFieldType().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetType(
-                                oFieldOverride->second.GetFieldType().value());
-                    if (oFieldOverride->second.GetFieldWidth().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetWidth(
-                                oFieldOverride->second.GetFieldWidth().value());
-                    if (oFieldOverride->second.GetFieldPrecision().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetPrecision(
-                                oFieldOverride->second.GetFieldPrecision()
-                                    .value());
-                    if (oFieldOverride->second.GetFieldSubType().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetSubType(
-                                oFieldOverride->second.GetFieldSubType()
-                                    .value());
-                    if (oFieldOverride->second.GetFieldName().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetName(oFieldOverride->second.GetFieldName()
-                                          .value()
-                                          .c_str());
-
-                    if (bIsFullOverride)
-                    {
-                        aoFields.push_back(poFieldDefn);
-                    }
-                    oFieldOverrides.erase(oFieldOverride);
-                }
-            }
-
-            // Error if any field override is not found
-            if (!oFieldOverrides.empty())
-            {
-                CPLError(CE_Failure, CPLE_AppDefined,
-                         "Field %s not found in layer %s",
-                         oFieldOverrides.cbegin()->first.c_str(),
-                         oLayerName.c_str());
-                return false;
-            }
-
-            // Remove fields not in the override
-            if (bIsFullOverride)
-            {
-                for (int i = poLayerDefn->GetFieldCount() - 1; i >= 0; i--)
-                {
-                    auto poFieldDefn = poLayerDefn->GetFieldDefn(i);
-                    if (std::find(aoFields.begin(), aoFields.end(),
-                                  poFieldDefn) == aoFields.end())
-                    {
-                        whileUnsealing(poLayerDefn)->DeleteFieldDefn(i);
-                    }
-                }
-            }
-        }
+        if (!oSchemaOverride.DefaultApply(this, "GeoJSON"))
+            return false;
     }
     return true;
 }
@@ -334,7 +256,7 @@ int OGRGeoJSONDataSource::Open(GDALOpenInfo *poOpenInfo,
 /*                           GetLayerCount()                            */
 /************************************************************************/
 
-int OGRGeoJSONDataSource::GetLayerCount()
+int OGRGeoJSONDataSource::GetLayerCount() const
 {
     return nLayers_;
 }
@@ -343,7 +265,7 @@ int OGRGeoJSONDataSource::GetLayerCount()
 /*                           GetLayer()                                 */
 /************************************************************************/
 
-OGRLayer *OGRGeoJSONDataSource::GetLayer(int nLayer)
+const OGRLayer *OGRGeoJSONDataSource::GetLayer(int nLayer) const
 {
     if (0 <= nLayer && nLayer < nLayers_)
     {
@@ -748,7 +670,7 @@ OGRGeoJSONDataSource::ICreateLayer(const char *pszNameIn,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRGeoJSONDataSource::TestCapability(const char *pszCap)
+int OGRGeoJSONDataSource::TestCapability(const char *pszCap) const
 {
     if (EQUAL(pszCap, ODsCCreateLayer))
         return fpOut_ != nullptr && nLayers_ == 0;

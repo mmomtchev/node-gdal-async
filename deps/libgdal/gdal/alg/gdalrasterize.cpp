@@ -1087,9 +1087,9 @@ static CPLErr GDALRasterizeGeometriesInternal(
         bNeedToFreeTransformer = true;
 
         char **papszTransformerOptions = nullptr;
-        double adfGeoTransform[6] = {0.0};
-        if (poDS->GetGeoTransform(adfGeoTransform) != CE_None &&
-            poDS->GetGCPCount() == 0 && poDS->GetMetadata("RPC") == nullptr)
+        GDALGeoTransform gt;
+        if (poDS->GetGeoTransform(gt) != CE_None && poDS->GetGCPCount() == 0 &&
+            poDS->GetMetadata("RPC") == nullptr)
         {
             papszTransformerOptions = CSLSetNameValue(
                 papszTransformerOptions, "DST_METHOD", "NO_GEOTRANSFORM");
@@ -1181,7 +1181,7 @@ static CPLErr GDALRasterizeGeometriesInternal(
             nYChunkSize = poDS->GetRasterYSize();
 
         CPLDebug("GDAL", "Rasterizer operating on %d swaths of %d scanlines.",
-                 (poDS->GetRasterYSize() + nYChunkSize - 1) / nYChunkSize,
+                 DIV_ROUND_UP(poDS->GetRasterYSize(), nYChunkSize),
                  nYChunkSize);
 
         pabyChunkBuf = static_cast<unsigned char *>(VSI_MALLOC2_VERBOSE(
@@ -1259,10 +1259,8 @@ static CPLErr GDALRasterizeGeometriesInternal(
         /*      the block size of the output file. */
         /* --------------------------------------------------------------------
          */
-        const int nXBlocks =
-            (poBand->GetXSize() + nXBlockSize - 1) / nXBlockSize;
-        const int nYBlocks =
-            (poBand->GetYSize() + nYBlockSize - 1) / nYBlockSize;
+        const int nXBlocks = DIV_ROUND_UP(poBand->GetXSize(), nXBlockSize);
+        const int nYBlocks = DIV_ROUND_UP(poBand->GetYSize(), nYBlockSize);
 
         const GDALDataType eType =
             poBand->GetRasterDataType() == GDT_Byte ? GDT_Byte : GDT_Float64;
@@ -1589,8 +1587,7 @@ CPLErr GDALRasterizeLayers(GDALDatasetH hDS, int nBandCount, int *panBandList,
         nYChunkSize = poDS->GetRasterYSize();
 
     CPLDebug("GDAL", "Rasterizer operating on %d swaths of %d scanlines.",
-             (poDS->GetRasterYSize() + nYChunkSize - 1) / nYChunkSize,
-             nYChunkSize);
+             DIV_ROUND_UP(poDS->GetRasterYSize(), nYChunkSize), nYChunkSize);
     unsigned char *pabyChunkBuf = static_cast<unsigned char *>(
         VSI_MALLOC2_VERBOSE(nYChunkSize, nScanlineBytes));
     if (pabyChunkBuf == nullptr)
@@ -1678,7 +1675,7 @@ CPLErr GDALRasterizeLayers(GDALDatasetH hDS, int nBandCount, int *panBandList,
             char *pszProjection = nullptr;
             bNeedToFreeTransformer = true;
 
-            OGRSpatialReference *poSRS = poLayer->GetSpatialRef();
+            const OGRSpatialReference *poSRS = poLayer->GetSpatialRef();
             if (!poSRS)
             {
                 if (poDS->GetSpatialRef() != nullptr ||
@@ -1702,8 +1699,8 @@ CPLErr GDALRasterizeLayers(GDALDatasetH hDS, int nBandCount, int *panBandList,
             if (pszProjection != nullptr)
                 papszTransformerOptions = CSLSetNameValue(
                     papszTransformerOptions, "SRC_SRS", pszProjection);
-            double adfGeoTransform[6] = {};
-            if (poDS->GetGeoTransform(adfGeoTransform) != CE_None &&
+            GDALGeoTransform gt;
+            if (poDS->GetGeoTransform(gt) != CE_None &&
                 poDS->GetGCPCount() == 0 && poDS->GetMetadata("RPC") == nullptr)
             {
                 papszTransformerOptions = CSLSetNameValue(
@@ -2030,7 +2027,7 @@ CPLErr GDALRasterizeLayersBuf(
             char *pszProjection = nullptr;
             bNeedToFreeTransformer = true;
 
-            OGRSpatialReference *poSRS = poLayer->GetSpatialRef();
+            const OGRSpatialReference *poSRS = poLayer->GetSpatialRef();
             if (!poSRS)
             {
                 CPLError(CE_Warning, CPLE_AppDefined,

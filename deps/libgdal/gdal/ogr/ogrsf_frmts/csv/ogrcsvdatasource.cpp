@@ -40,8 +40,10 @@
 class OGRCSVEditableLayerSynchronizer final
     : public IOGREditableLayerSynchronizer
 {
-    OGRCSVLayer *m_poCSVLayer;
-    char **m_papszOpenOptions;
+    OGRCSVLayer *m_poCSVLayer = nullptr;
+    char **m_papszOpenOptions = nullptr;
+
+    CPL_DISALLOW_COPY_ASSIGN(OGRCSVEditableLayerSynchronizer)
 
   public:
     OGRCSVEditableLayerSynchronizer(OGRCSVLayer *poCSVLayer,
@@ -51,7 +53,7 @@ class OGRCSVEditableLayerSynchronizer final
     {
     }
 
-    virtual ~OGRCSVEditableLayerSynchronizer() override;
+    ~OGRCSVEditableLayerSynchronizer() override;
 
     virtual OGRErr EditableSyncToDisk(OGRLayer *poEditableLayer,
                                       OGRLayer **ppoDecoratedLayer) override;
@@ -300,7 +302,7 @@ OGRErr OGRCSVEditableLayerSynchronizer::EditableSyncToDisk(
 
 class OGRCSVEditableLayer final : public IOGRCSVLayer, public OGREditableLayer
 {
-    std::set<CPLString> m_oSetFields;
+    std::set<CPLString> m_oSetFields{};
 
   public:
     OGRCSVEditableLayer(OGRCSVLayer *poCSVLayer, CSLConstList papszOpenOptions);
@@ -319,10 +321,10 @@ class OGRCSVEditableLayer final : public IOGRCSVLayer, public OGREditableLayer
 
     virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
-    virtual OGRErr DeleteField(int iField) override;
+    OGRErr DeleteField(int iField) override;
     virtual OGRErr AlterFieldDefn(int iField, OGRFieldDefn *poNewFieldDefn,
                                   int nFlagsIn) override;
-    virtual GIntBig GetFeatureCount(int bForce = TRUE) override;
+    GIntBig GetFeatureCount(int bForce = TRUE) override;
 };
 
 /************************************************************************/
@@ -436,7 +438,7 @@ OGRCSVDataSource::~OGRCSVDataSource()
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRCSVDataSource::TestCapability(const char *pszCap)
+int OGRCSVDataSource::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, ODsCCreateLayer))
@@ -461,7 +463,7 @@ int OGRCSVDataSource::TestCapability(const char *pszCap)
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGRCSVDataSource::GetLayer(int iLayer)
+const OGRLayer *OGRCSVDataSource::GetLayer(int iLayer) const
 
 {
     if (iLayer < 0 || iLayer >= static_cast<int>(m_apoLayers.size()))
@@ -476,7 +478,7 @@ OGRLayer *OGRCSVDataSource::GetLayer(int iLayer)
 
 CPLString OGRCSVDataSource::GetRealExtension(CPLString osFilename)
 {
-    const CPLString osExt = CPLGetExtensionSafe(osFilename);
+    CPLString osExt = CPLGetExtensionSafe(osFilename);
     if (STARTS_WITH(osFilename, "/vsigzip/") && EQUAL(osExt, "gz"))
     {
         if (osFilename.size() > 7 &&
@@ -728,7 +730,7 @@ const std::vector<int> &OGRCSVDataSource::DeletedFieldIndexes() const
 bool OGRCSVDataSource::DealWithOgrSchemaOpenOption(
     CSLConstList papszOpenOptionsIn)
 {
-    std::string osFieldsSchemaOverrideParam =
+    const std::string osFieldsSchemaOverrideParam =
         CSLFetchNameValueDef(papszOpenOptionsIn, "OGR_SCHEMA", "");
 
     if (!osFieldsSchemaOverrideParam.empty())
@@ -740,99 +742,26 @@ bool OGRCSVDataSource::DealWithOgrSchemaOpenOption(
             return false;
         }
 
-        OGRSchemaOverride osSchemaOverride;
-        if (!osSchemaOverride.LoadFromJSON(osFieldsSchemaOverrideParam) ||
-            !osSchemaOverride.IsValid())
+        OGRSchemaOverride oSchemaOverride;
+        const auto nErrorCount = CPLGetErrorCounter();
+        if (!oSchemaOverride.LoadFromJSON(osFieldsSchemaOverrideParam) ||
+            !oSchemaOverride.IsValid())
         {
+            if (nErrorCount == CPLGetErrorCounter())
+            {
+                CPLError(CE_Failure, CPLE_AppDefined,
+                         "Content of OGR_SCHEMA in %s is not valid",
+                         osFieldsSchemaOverrideParam.c_str());
+            }
             return false;
         }
 
-        const auto &oLayerOverrides = osSchemaOverride.GetLayerOverrides();
-        for (const auto &oLayer : oLayerOverrides)
+        if (!oSchemaOverride.DefaultApply(
+                this, "CSV",
+                [this](OGRLayer *, int iField)
+                { m_oDeletedFieldIndexes.push_back(iField); }))
         {
-            const auto &oLayerName = oLayer.first;
-            const auto &oLayerFieldOverride = oLayer.second;
-            const bool bIsFullOverride{oLayerFieldOverride.IsFullOverride()};
-            auto oFieldOverrides = oLayerFieldOverride.GetFieldOverrides();
-            std::vector<OGRFieldDefn *> aoFields;
-
-            CPLDebug("CSV", "Applying schema override for layer %s",
-                     oLayerName.c_str());
-
-            // Fail if the layer name does not exist
-            auto poLayer = GetLayerByName(oLayerName.c_str());
-            if (poLayer == nullptr)
-            {
-                CPLError(CE_Failure, CPLE_AppDefined,
-                         "Layer %s not found in CSV file", oLayerName.c_str());
-                return false;
-            }
-
-            // Patch field definitions
-            auto poLayerDefn = poLayer->GetLayerDefn();
-            for (int i = 0; i < poLayerDefn->GetFieldCount(); i++)
-            {
-                auto poFieldDefn = poLayerDefn->GetFieldDefn(i);
-                auto oFieldOverride =
-                    oFieldOverrides.find(poFieldDefn->GetNameRef());
-                if (oFieldOverride != oFieldOverrides.cend())
-                {
-                    if (oFieldOverride->second.GetFieldType().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetType(
-                                oFieldOverride->second.GetFieldType().value());
-                    if (oFieldOverride->second.GetFieldWidth().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetWidth(
-                                oFieldOverride->second.GetFieldWidth().value());
-                    if (oFieldOverride->second.GetFieldPrecision().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetPrecision(
-                                oFieldOverride->second.GetFieldPrecision()
-                                    .value());
-                    if (oFieldOverride->second.GetFieldSubType().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetSubType(
-                                oFieldOverride->second.GetFieldSubType()
-                                    .value());
-                    if (oFieldOverride->second.GetFieldName().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetName(oFieldOverride->second.GetFieldName()
-                                          .value()
-                                          .c_str());
-
-                    if (bIsFullOverride)
-                    {
-                        aoFields.push_back(poFieldDefn);
-                    }
-                    oFieldOverrides.erase(oFieldOverride);
-                }
-            }
-
-            // Error if any field override is not found
-            if (!oFieldOverrides.empty())
-            {
-                CPLError(CE_Failure, CPLE_AppDefined,
-                         "Field %s not found in layer %s",
-                         oFieldOverrides.cbegin()->first.c_str(),
-                         oLayerName.c_str());
-                return false;
-            }
-
-            // Remove fields not in the override
-            if (bIsFullOverride)
-            {
-                for (int i = poLayerDefn->GetFieldCount() - 1; i >= 0; i--)
-                {
-                    auto poFieldDefn = poLayerDefn->GetFieldDefn(i);
-                    if (std::find(aoFields.begin(), aoFields.end(),
-                                  poFieldDefn) == aoFields.end())
-                    {
-                        whileUnsealing(poLayerDefn)->DeleteFieldDefn(i);
-                        m_oDeletedFieldIndexes.push_back(i);
-                    }
-                }
-            }
+            return false;
         }
     }
     return true;
@@ -982,7 +911,7 @@ bool OGRCSVDataSource::OpenTable(const char *pszFilename,
     {
         CPLError(CE_Warning, CPLE_AppDefined,
                  "SEPARATOR=%s not understood, use one of COMMA, "
-                 "SEMICOLON, TAB, SPACE or PIPE",
+                 "SEMICOLON, TAB, SPACE or PIPE.",
                  pszDelimiter);
     }
 
@@ -1093,6 +1022,13 @@ OGRCSVDataSource::ICreateLayer(const char *pszLayerName,
     }
     else
     {
+        if (CPLLaunderForFilenameSafe(pszLayerName, nullptr) != pszLayerName)
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Illegal characters in '%s' to form a valid filename",
+                     pszLayerName);
+            return nullptr;
+        }
         osFilename = CPLFormFilenameSafe(pszName, pszLayerName, "csv");
     }
 
@@ -1119,11 +1055,13 @@ OGRCSVDataSource::ICreateLayer(const char *pszLayerName,
             chDelimiter = '\t';
         else if (EQUAL(pszDelimiter, "SPACE"))
             chDelimiter = ' ';
+        else if (EQUAL(pszDelimiter, "PIPE"))
+            chDelimiter = '|';
         else
         {
             CPLError(CE_Warning, CPLE_AppDefined,
-                     "SEPARATOR=%s not understood, use one of "
-                     "COMMA, SEMICOLON, SPACE or TAB.",
+                     "SEPARATOR=%s not understood, use one of COMMA, "
+                     "SEMICOLON, TAB, SPACE or PIPE.",
                      pszDelimiter);
         }
     }
@@ -1243,13 +1181,17 @@ OGRCSVDataSource::ICreateLayer(const char *pszLayerName,
     if (pszWriteBOM)
         poCSVLayer->SetWriteBOM(CPLTestBool(pszWriteBOM));
 
-    if (poCSVLayer->GetLayerDefn()->GetGeomFieldCount() > 0 &&
-        poSrcGeomFieldDefn)
+    auto poFeatureDefn = poCSVLayer->GetLayerDefn();
+    if (poFeatureDefn->GetGeomFieldCount() > 0 && poSrcGeomFieldDefn)
     {
-        auto poGeomFieldDefn = poCSVLayer->GetLayerDefn()->GetGeomFieldDefn(0);
+        auto poGeomFieldDefn = poFeatureDefn->GetGeomFieldDefn(0);
         poGeomFieldDefn->SetCoordinatePrecision(
             poSrcGeomFieldDefn->GetCoordinatePrecision());
     }
+
+    poCSVLayer->SetWriteHeader(CPLTestBool(CSLFetchNameValueDef(
+        papszOptions, "HEADER",
+        CSLFetchNameValueDef(papszOptions, "HEADERS", "YES"))));
 
     if (osFilename != "/vsistdout/")
         m_apoLayers.emplace_back(std::make_unique<OGRCSVEditableLayer>(

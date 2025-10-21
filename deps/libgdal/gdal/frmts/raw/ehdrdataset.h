@@ -25,9 +25,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
 
 #include <limits>
 #include <memory>
@@ -62,7 +59,7 @@ class EHdrDataset final : public RawDataset
     CPLString osHeaderExt{};
 
     bool bGotTransform{};
-    double adfGeoTransform[6]{0, 1, 0, 0, 0, 1};
+    GDALGeoTransform m_gt{};
     OGRSpatialReference m_oSRS{};
 
     bool bHDRDirty{};
@@ -87,8 +84,8 @@ class EHdrDataset final : public RawDataset
     EHdrDataset();
     ~EHdrDataset() override;
 
-    CPLErr GetGeoTransform(double *padfTransform) override;
-    CPLErr SetGeoTransform(double *padfTransform) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
+    CPLErr SetGeoTransform(const GDALGeoTransform &gt) override;
 
     const OGRSpatialReference *GetSpatialRef() const override
     {

@@ -117,7 +117,7 @@ class WBuffer
  * Abstract class for a committable transaction
  *
  */
-class OGR_SGFS_Transaction
+class OGR_SGFS_Transaction /* non final */
 {
     int varId = INVALID_VAR_ID;
 
@@ -152,9 +152,7 @@ class OGR_SGFS_Transaction
     /* ~OGR_SGFS_Transaction()
      * Empty. Simply here to stop the compiler from complaining...
      */
-    virtual ~OGR_SGFS_Transaction()
-    {
-    }
+    virtual ~OGR_SGFS_Transaction();
 
     /* OGR_SGFS_Transaction()
      * Empty. Simply here to stop one of the CI machines from complaining...
@@ -215,7 +213,7 @@ MTPtr genericLogDataRead(int varId, VSILFILE *f)
 /* OGR_SGFS_NC_Char_Transaction
  * Writes to an NC_CHAR variable
  */
-class OGR_SGFS_NC_Char_Transaction : public OGR_SGFS_Transaction
+class OGR_SGFS_NC_Char_Transaction final : public OGR_SGFS_Transaction
 {
     std::string char_rep;
 
@@ -249,7 +247,7 @@ class OGR_SGFS_NC_Char_Transaction : public OGR_SGFS_Transaction
  * Writes to an NC_CHAR variable, using vara instead of var1
  * Used to store 2D character array values, specifically
  */
-class OGR_SGFS_NC_CharA_Transaction : public OGR_SGFS_Transaction
+class OGR_SGFS_NC_CharA_Transaction final : public OGR_SGFS_Transaction
 {
     std::string char_rep;
     size_t counts[2];
@@ -282,7 +280,7 @@ class OGR_SGFS_NC_CharA_Transaction : public OGR_SGFS_Transaction
 };
 
 template <class VClass, nc_type ntype>
-class OGR_SGFS_NC_Transaction_Generic : public OGR_SGFS_Transaction
+class OGR_SGFS_NC_Transaction_Generic final : public OGR_SGFS_Transaction
 {
     VClass rep;
 
@@ -344,7 +342,7 @@ typedef OGR_SGFS_NC_Transaction_Generic<unsigned short, NC_USHORT>
 /* OGR_SGFS_NC_String_Transaction
  * Writes to an NC_STRING variable, in a similar manner as NC_Char
  */
-class OGR_SGFS_NC_String_Transaction : public OGR_SGFS_Transaction
+class OGR_SGFS_NC_String_Transaction final : public OGR_SGFS_Transaction
 {
     std::string char_rep;
 
@@ -606,90 +604,60 @@ class WBufferManager
 };
 
 // Exception Classes
-class SGWriter_Exception : public SG_Exception
+class SGWriter_Exception /* non final */ : public SG_Exception
 {
   public:
-    const char *get_err_msg() override
+    SGWriter_Exception()
+        : SG_Exception("A general error occurred when writing a netCDF dataset")
     {
-        return "A general error occurred when writing a netCDF dataset";
+    }
+
+    explicit SGWriter_Exception(const std::string &s) : SG_Exception(s)
+    {
     }
 };
 
-class SGWriter_Exception_NCWriteFailure : public SGWriter_Exception
+class SGWriter_Exception_NCWriteFailure final : public SGWriter_Exception
 {
-    std::string msg;
-
   public:
-    const char *get_err_msg() override
-    {
-        return this->msg.c_str();
-    }
-
     SGWriter_Exception_NCWriteFailure(const char *layer_name,
                                       const char *failure_name,
                                       const char *failure_type);
 };
 
-class SGWriter_Exception_NCInqFailure : public SGWriter_Exception
+class SGWriter_Exception_NCInqFailure final : public SGWriter_Exception
 {
-    std::string msg;
-
   public:
-    const char *get_err_msg() override
-    {
-        return this->msg.c_str();
-    }
-
     SGWriter_Exception_NCInqFailure(const char *layer_name,
                                     const char *failure_name,
                                     const char *failure_type);
 };
 
-class SGWriter_Exception_NCDefFailure : public SGWriter_Exception
+class SGWriter_Exception_NCDefFailure final : public SGWriter_Exception
 {
-    std::string msg;
-
   public:
-    const char *get_err_msg() override
-    {
-        return this->msg.c_str();
-    }
-
     SGWriter_Exception_NCDefFailure(const char *layer_name,
                                     const char *failure_name,
                                     const char *failure_type);
 };
 
-class SGWriter_Exception_NullGeometry : public SGWriter_Exception
+class SGWriter_Exception_NullGeometry final : public SGWriter_Exception
 {
-    std::string msg;
-
   public:
-    const char *get_err_msg() override
-    {
-        return this->msg.c_str();
-    }
-
     SGWriter_Exception_NullGeometry()
-        : msg("A null  geometry was detected when writing a netCDF file. "
+        : SGWriter_Exception(
+              "A null  geometry was detected when writing a netCDF file. "
               "Empty geometries are not allowed.")
     {
     }
 };
 
-class SGWriter_Exception_NCDelFailure : public SGWriter_Exception
+class SGWriter_Exception_NCDelFailure final : public SGWriter_Exception
 {
-    std::string msg;
-
   public:
-    const char *get_err_msg() override
-    {
-        return this->msg.c_str();
-    }
-
     SGWriter_Exception_NCDelFailure(const char *layer, const char *what)
-        : msg("[" + std::string(layer) +
-              "] Failed to delete: " + std::string(what))
+        : SGWriter_Exception("[" + std::string(layer) +
+                             "] Failed to delete: " + std::string(what))
     {
     }
 };

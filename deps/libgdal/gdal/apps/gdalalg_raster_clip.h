@@ -35,8 +35,9 @@ class GDALRasterClipAlgorithm /* non final */
     explicit GDALRasterClipAlgorithm(bool standaloneStep = false);
 
   private:
-    bool RunStep(GDALProgressFunc pfnProgress, void *pProgressData) override;
+    bool RunStep(GDALPipelineStepRunContext &ctxt) override;
 
+    std::vector<int> m_window{};
     bool m_onlyBBOX{false};
     bool m_allowExtentOutsideSource{false};
     bool m_addAlpha{false};
@@ -53,6 +54,8 @@ class GDALRasterClipAlgorithmStandalone final : public GDALRasterClipAlgorithm
         : GDALRasterClipAlgorithm(/* standaloneStep = */ true)
     {
     }
+
+    ~GDALRasterClipAlgorithmStandalone() override;
 };
 
 //! @endcond

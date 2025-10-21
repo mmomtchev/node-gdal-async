@@ -12,6 +12,11 @@
 
 #include "cpl_json.h"
 #include "cpl_http.h"
+#include "gdal_frmts.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 #include "vrtdataset.h"
 #include "ogr_spatialref.h"
 
@@ -71,6 +76,7 @@ class STACITDataset final : public VRTDataset
 
   public:
     STACITDataset();
+    ~STACITDataset() override;
 
     static int Identify(GDALOpenInfo *poOpenInfo);
     static GDALDataset *OpenStatic(GDALOpenInfo *poOpenInfo);
@@ -85,6 +91,8 @@ STACITDataset::STACITDataset() : VRTDataset(0, 0)
     poDriver = nullptr;  // cancel what the VRTDataset did
     SetWritable(false);
 }
+
+STACITDataset::~STACITDataset() = default;
 
 /************************************************************************/
 /*                             Identify()                               */
@@ -213,7 +221,7 @@ static void ParseAsset(const CPLJSONObject &jAsset,
 
     const auto osAssetName = jAsset.GetName();
 
-    const auto osHref = jAsset["href"].ToString();
+    std::string osHref = jAsset["href"].ToString();
     if (osHref.empty())
     {
         CPLError(CE_Warning, CPLE_AppDefined, "Missing href on asset %s",
@@ -279,7 +287,7 @@ static void ParseAsset(const CPLJSONObject &jAsset,
     }
 
     AssetItem item;
-    item.osFilename = osHref;
+    item.osFilename = std::move(osHref);
     item.osDateTime = oProperties["datetime"].ToString();
 
     // Figure out item bounds and width/height
@@ -420,7 +428,7 @@ static void ParseAsset(const CPLJSONObject &jAsset,
     auto &assets = asset.assets[osProjUserString];
 
     // Add item
-    assets.assets.emplace_back(item);
+    assets.assets.emplace_back(std::move(item));
 }
 
 /************************************************************************/
@@ -500,14 +508,8 @@ bool STACITDataset::SetupDataset(
     nRasterYSize = static_cast<int>(dfYSize);
 
     // Set geotransform
-    double adfGeoTransform[6];
-    adfGeoTransform[0] = dfXMin;
-    adfGeoTransform[1] = dfXRes;
-    adfGeoTransform[2] = 0;
-    adfGeoTransform[3] = dfYMax;
-    adfGeoTransform[4] = 0;
-    adfGeoTransform[5] = -dfYRes;
-    SetGeoTransform(adfGeoTransform);
+    GDALGeoTransform gt{dfXMin, dfXRes, 0, dfYMax, 0, -dfYRes};
+    SetGeoTransform(gt);
 
     // Set SRS
     OGRSpatialReference oSRS;
@@ -550,19 +552,9 @@ bool STACITDataset::SetupDataset(
                 osRet += osFilename;
             }
         }
-        else if (STARTS_WITH(osFilename.c_str(), "file://"))
-        {
-            osRet = osFilename.substr(strlen("file://"));
-        }
-        else if (STARTS_WITH(osFilename.c_str(), "s3://"))
-        {
-            osRet = "/vsis3/";
-            osRet += osFilename.substr(strlen("s3://"));
-        }
-
         else
         {
-            osRet = osFilename;
+            osRet = VSIURIToVSIPath(osFilename);
         }
         return osRet;
     };

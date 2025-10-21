@@ -540,7 +540,7 @@ GetDimensionDesc(DimensionRemapper &oDimRemapper,
             if (aosTokens.size() != 1 && aosTokens.size() != 2)
             {
                 CPLError(CE_Failure, CPLE_AppDefined,
-                         "Invalid number of valus in subset specification.");
+                         "Invalid number of values in subset specification.");
                 return nullptr;
             }
 
@@ -855,8 +855,8 @@ static bool TranslateArray(
     const std::string &arraySpec,
     const std::shared_ptr<GDALGroup> &poSrcRootGroup,
     const std::shared_ptr<GDALGroup> &poSrcGroup,
-    const std::shared_ptr<GDALGroup> &poDstRootGroup,
-    std::shared_ptr<GDALGroup> &poDstGroup, GDALDataset *poSrcDS,
+    const std::shared_ptr<VRTGroup> &poDstRootGroup,
+    std::shared_ptr<VRTGroup> &poDstGroup, GDALDataset *poSrcDS,
     std::map<std::string, std::shared_ptr<GDALDimension>> &mapSrcToDstDims,
     std::map<std::string, std::shared_ptr<GDALDimension>> &mapDstDimFullNames,
     const GDALMultiDimTranslateOptions *psOptions)
@@ -896,6 +896,10 @@ static bool TranslateArray(
                 return false;
             }
         }
+    }
+    else if (band < 0)
+    {
+        srcArray = poSrcDS->AsMDArray();
     }
     else
     {
@@ -1188,31 +1192,76 @@ static bool TranslateArray(
             }
             else
             {
-                double adfGT[6];
-                if (poSrcDS->GetGeoTransform(adfGT) == CE_None &&
-                    adfGT[2] == 0.0 && adfGT[4] == 0.0)
+                bool bIndexingVarCreated = false;
+                if (srcIndexVar->GetName() == "X" ||
+                    srcIndexVar->GetName() == "Y")
                 {
-                    auto var = std::dynamic_pointer_cast<VRTMDArray>(
-                        poDstGroup->CreateMDArray(
+                    GDALGeoTransform gt;
+                    if (poSrcDS->GetGeoTransform(gt) == CE_None &&
+                        gt[2] == 0.0 && gt[4] == 0.0)
+                    {
+                        auto var = poDstGroup->CreateVRTMDArray(
                             newDimName, {dstDim},
-                            GDALExtendedDataType::Create(GDT_Float64)));
+                            GDALExtendedDataType::Create(GDT_Float64));
+                        if (var)
+                        {
+                            const double dfStart =
+                                srcIndexVar->GetName() == "X"
+                                    ? gt[0] + (range.m_nStartIdx + 0.5) * gt[1]
+                                    : gt[3] + (range.m_nStartIdx + 0.5) * gt[5];
+                            const double dfIncr =
+                                (srcIndexVar->GetName() == "X" ? gt[1]
+                                                               : gt[5]) *
+                                range.m_nIncr;
+                            auto poSource = std::make_unique<
+                                VRTMDArraySourceRegularlySpaced>(dfStart,
+                                                                 dfIncr);
+                            var->AddSource(std::move(poSource));
+                            bIndexingVarCreated = true;
+                        }
+                        // else: error emitted by CreateVRTMDArray()
+                    }
+                }
+
+                // Arbitrary: to avoid blowing up RAM
+                constexpr size_t MAX_SIZE_FOR_INDEXING_VAR = 1000 * 1000;
+                if (!bIndexingVarCreated &&
+                    srcIndexVar->GetDimensionCount() == 1 &&
+                    srcIndexVar->GetDataType().GetClass() != GEDTC_COMPOUND &&
+                    srcIndexVar->GetDimensions()[0]->GetSize() <
+                        MAX_SIZE_FOR_INDEXING_VAR)
+                {
+                    auto var = poDstGroup->CreateVRTMDArray(
+                        newDimName, {dstDim}, srcIndexVar->GetDataType());
                     if (var)
                     {
-                        const double dfStart =
-                            srcIndexVar->GetName() == "X"
-                                ? adfGT[0] +
-                                      (range.m_nStartIdx + 0.5) * adfGT[1]
-                                : adfGT[3] +
-                                      (range.m_nStartIdx + 0.5) * adfGT[5];
-                        const double dfIncr =
-                            (srcIndexVar->GetName() == "X" ? adfGT[1]
-                                                           : adfGT[5]) *
-                            range.m_nIncr;
-                        std::unique_ptr<VRTMDArraySourceRegularlySpaced>
-                            poSource(new VRTMDArraySourceRegularlySpaced(
-                                dfStart, dfIncr));
+                        std::vector<GUInt64> anOffset = {0};
+                        const size_t nCount = static_cast<size_t>(
+                            srcIndexVar->GetDimensions()[0]->GetSize());
+                        std::vector<size_t> anCount = {nCount};
+                        std::vector<GByte> abyValues;
+                        abyValues.resize(srcIndexVar->GetDataType().GetSize() *
+                                         nCount);
+                        const GInt64 arrayStep[] = {1};
+                        const GPtrDiff_t anBufferStride[] = {1};
+                        srcIndexVar->Read(anOffset.data(), anCount.data(),
+                                          arrayStep, anBufferStride,
+                                          srcIndexVar->GetDataType(),
+                                          abyValues.data());
+                        auto poSource =
+                            std::make_unique<VRTMDArraySourceInlinedValues>(
+                                var.get(),
+                                /* bIsConstantValue = */ false,
+                                std::move(anOffset), std::move(anCount),
+                                std::move(abyValues));
                         var->AddSource(std::move(poSource));
                     }
+                    // else: error emitted by CreateVRTMDArray()
+                }
+                else if (!bIndexingVarCreated)
+                {
+                    CPLDebug("GDAL", "Cannot create indexing variable for %s",
+                             srcIndexVar->GetName().c_str());
                 }
             }
 
@@ -1227,10 +1276,27 @@ static bool TranslateArray(
     {
         outputType = GDALExtendedDataType(tmpArray->GetDataType());
     }
-    auto dstArray =
-        poDstGroup->CreateMDArray(dstArrayName, dstArrayDims, outputType);
-    auto dstArrayVRT = std::dynamic_pointer_cast<VRTMDArray>(dstArray);
-    if (!dstArrayVRT)
+
+    CPLStringList aosArrayCO;
+    if (!bResampled && anTransposedAxis.empty() && viewExpr.empty() &&
+        psOptions->aosSubset.empty() && psOptions->aosScaleFactor.empty() &&
+        srcArray->GetDimensionCount() == dstArrayDims.size())
+    {
+        const auto anBlockSize = srcArray->GetBlockSize();
+        std::string osBlockSize;
+        for (auto v : anBlockSize)
+        {
+            if (!osBlockSize.empty())
+                osBlockSize += ',';
+            osBlockSize += std::to_string(v);
+        }
+        if (!osBlockSize.empty())
+            aosArrayCO.SetNameValue("BLOCKSIZE", osBlockSize.c_str());
+    }
+
+    auto dstArray = poDstGroup->CreateVRTMDArray(dstArrayName, dstArrayDims,
+                                                 outputType, aosArrayCO.List());
+    if (!dstArray)
         return false;
 
     GUInt64 nCurCost = 0;
@@ -1312,7 +1378,7 @@ static bool TranslateArray(
     {
         auto poSource = std::make_unique<VRTMDArraySourceRegularlySpaced>(
             dfStart, dfIncrement);
-        dstArrayVRT->AddSource(std::move(poSource));
+        dstArray->AddSource(std::move(poSource));
     }
     else
     {
@@ -1325,20 +1391,18 @@ static bool TranslateArray(
         }
         std::vector<GUInt64> anStep(dimCount, 1);
         std::vector<GUInt64> anDstOffset(dimCount);
-        std::unique_ptr<VRTMDArraySourceFromArray> poSource(
-            new VRTMDArraySourceFromArray(
-                dstArrayVRT.get(), false, false, poSrcDS->GetDescription(),
-                band < 0 ? srcArray->GetFullName() : std::string(),
-                band >= 1 ? CPLSPrintf("%d", band) : std::string(),
-                std::move(anTransposedAxis),
-                bResampled
-                    ? (viewExpr.empty()
-                           ? std::string("resample=true")
-                           : std::string("resample=true,").append(viewExpr))
-                    : std::move(viewExpr),
-                std::move(anSrcOffset), std::move(anCount), std::move(anStep),
-                std::move(anDstOffset)));
-        dstArrayVRT->AddSource(std::move(poSource));
+        auto poSource = std::make_unique<VRTMDArraySourceFromArray>(
+            dstArray.get(), false, false, poSrcDS->GetDescription(),
+            band < 0 ? srcArray->GetFullName() : std::string(),
+            band >= 1 ? CPLSPrintf("%d", band) : std::string(),
+            std::move(anTransposedAxis),
+            bResampled ? (viewExpr.empty()
+                              ? std::string("resample=true")
+                              : std::string("resample=true,").append(viewExpr))
+                       : std::move(viewExpr),
+            std::move(anSrcOffset), std::move(anCount), std::move(anStep),
+            std::move(anDstOffset));
+        dstArray->AddSource(std::move(poSource));
     }
 
     return true;
@@ -1374,8 +1438,8 @@ GetGroup(const std::shared_ptr<GDALGroup> &poRootGroup,
 
 static bool CopyGroup(
     DimensionRemapper &oDimRemapper,
-    const std::shared_ptr<GDALGroup> &poDstRootGroup,
-    std::shared_ptr<GDALGroup> &poDstGroup,
+    const std::shared_ptr<VRTGroup> &poDstRootGroup,
+    std::shared_ptr<VRTGroup> &poDstGroup,
     const std::shared_ptr<GDALGroup> &poSrcRootGroup,
     const std::shared_ptr<GDALGroup> &poSrcGroup, GDALDataset *poSrcDS,
     std::map<std::string, std::shared_ptr<GDALDimension>> &mapSrcToDstDims,
@@ -1468,7 +1532,7 @@ static bool CopyGroup(
             {
                 return false;
             }
-            auto dstSubGroup = poDstGroup->CreateGroup(name);
+            auto dstSubGroup = poDstGroup->CreateVRTGroup(name);
             if (!dstSubGroup)
             {
                 return false;
@@ -1531,7 +1595,7 @@ static bool ParseGroupSpec(const std::string &groupSpec, std::string &srcName,
 /*                           TranslateInternal()                        */
 /************************************************************************/
 
-static bool TranslateInternal(std::shared_ptr<GDALGroup> &poDstRootGroup,
+static bool TranslateInternal(std::shared_ptr<VRTGroup> &poDstRootGroup,
                               GDALDataset *poSrcDS,
                               const GDALMultiDimTranslateOptions *psOptions)
 {
@@ -1600,7 +1664,7 @@ static bool TranslateInternal(std::shared_ptr<GDALGroup> &poDstRootGroup,
                     return false;
                 if (dstName.empty())
                     dstName = poSrcGroup->GetName();
-                auto dstSubGroup = poDstRootGroup->CreateGroup(dstName);
+                auto dstSubGroup = poDstRootGroup->CreateVRTGroup(dstName);
                 if (!dstSubGroup ||
                     !CopyGroup(oDimRemapper, poDstRootGroup, dstSubGroup,
                                poSrcRootGroup, poSrcGroup, poSrcDS,
@@ -1890,11 +1954,11 @@ GDALMultiDimTranslate(const char *pszDest, GDALDatasetH hDstDS, int nSrcCount,
          !psOptions->aosSubset.empty() || !psOptions->aosScaleFactor.empty() ||
          !psOptions->aosArrayOptions.empty()))
     {
-        poTmpDS.reset(VRTDataset::CreateMultiDimensional("", nullptr, nullptr));
-        CPLAssert(poTmpDS);
-        poTmpSrcDS = poTmpDS.get();
+        auto poVRTDS =
+            VRTDataset::CreateVRTMultiDimensional("", nullptr, nullptr);
+        CPLAssert(poVRTDS);
 
-        auto poDstRootGroup = poTmpDS->GetRootGroup();
+        auto poDstRootGroup = poVRTDS->GetRootVRTGroup();
         CPLAssert(poDstRootGroup);
 
         if (!TranslateInternal(poDstRootGroup, poSrcDS, psOptions))
@@ -1908,6 +1972,9 @@ GDALMultiDimTranslate(const char *pszDest, GDALDatasetH hDstDS, int nSrcCount,
             }
             return nullptr;
         }
+
+        poTmpDS = std::move(poVRTDS);
+        poTmpSrcDS = poTmpDS.get();
     }
 
     auto poRG(poTmpSrcDS->GetRootGroup());

@@ -40,17 +40,17 @@ OGRGNMWrappedResultLayer::OGRGNMWrappedResultLayer(GDALDataset *poDSIn,
     // create standard fields
 
     OGRFieldDefn oFieldGID(GNM_SYSFIELD_GFID, GNMGFIDInt);
-    poLayer->CreateField(&oFieldGID);
+    CPL_IGNORE_RET_VAL(poLayer->CreateField(&oFieldGID));
 
     OGRFieldDefn oFieldLayerName(GNM_SYSFIELD_LAYERNAME, OFTString);
     oFieldLayerName.SetWidth(254);
-    poLayer->CreateField(&oFieldLayerName);
+    CPL_IGNORE_RET_VAL(poLayer->CreateField(&oFieldLayerName));
 
     OGRFieldDefn oFieldNo(GNM_SYSFIELD_PATHNUM, OFTInteger);
-    poLayer->CreateField(&oFieldNo);
+    CPL_IGNORE_RET_VAL(poLayer->CreateField(&oFieldNo));
 
     OGRFieldDefn oFieldType(GNM_SYSFIELD_TYPE, OFTString);  // EDGE or VERTEX
-    poLayer->CreateField(&oFieldType);
+    CPL_IGNORE_RET_VAL(poLayer->CreateField(&oFieldType));
 }
 
 OGRGNMWrappedResultLayer::~OGRGNMWrappedResultLayer()
@@ -78,7 +78,7 @@ OGRFeature *OGRGNMWrappedResultLayer::GetFeature(GIntBig nFID)
     return poLayer->GetFeature(nFID);
 }
 
-OGRFeatureDefn *OGRGNMWrappedResultLayer::GetLayerDefn()
+const OGRFeatureDefn *OGRGNMWrappedResultLayer::GetLayerDefn() const
 {
     return poLayer->GetLayerDefn();
 }
@@ -88,7 +88,7 @@ GIntBig OGRGNMWrappedResultLayer::GetFeatureCount(int bForce)
     return poLayer->GetFeatureCount(bForce);
 }
 
-int OGRGNMWrappedResultLayer::TestCapability(const char *pszCap)
+int OGRGNMWrappedResultLayer::TestCapability(const char *pszCap) const
 {
     return poLayer->TestCapability(pszCap);
 }
@@ -106,17 +106,17 @@ OGRGNMWrappedResultLayer::CreateGeomField(const OGRGeomFieldDefn *poField,
     return poLayer->CreateGeomField(poField, bApproxOK);
 }
 
-const char *OGRGNMWrappedResultLayer::GetFIDColumn()
+const char *OGRGNMWrappedResultLayer::GetFIDColumn() const
 {
     return poLayer->GetFIDColumn();
 }
 
-const char *OGRGNMWrappedResultLayer::GetGeometryColumn()
+const char *OGRGNMWrappedResultLayer::GetGeometryColumn() const
 {
     return poLayer->GetGeometryColumn();
 }
 
-OGRSpatialReference *OGRGNMWrappedResultLayer::GetSpatialRef()
+const OGRSpatialReference *OGRGNMWrappedResultLayer::GetSpatialRef() const
 {
     return poLayer->GetSpatialRef();
 }
@@ -129,35 +129,34 @@ OGRErr OGRGNMWrappedResultLayer::InsertFeature(OGRFeature *poFeature,
     VALIDATE_POINTER1(poFeature, "Input feature is invalid",
                       OGRERR_INVALID_HANDLE);
     // add fields from input feature
-    OGRFeatureDefn *poSrcDefn = poFeature->GetDefnRef();
-    OGRFeatureDefn *poDstFDefn = GetLayerDefn();
+    const OGRFeatureDefn *poSrcDefn = poFeature->GetDefnRef();
+    const OGRFeatureDefn *poDstFDefn = GetLayerDefn();
     if (nullptr == poSrcDefn || nullptr == poDstFDefn)
         return OGRERR_INVALID_HANDLE;
 
-    int nSrcFieldCount = poSrcDefn->GetFieldCount();
+    const int nSrcFieldCount = poSrcDefn->GetFieldCount();
     int nDstFieldCount = poDstFDefn->GetFieldCount();
-    int iField, *panMap;
 
     // Initialize the index-to-index map to -1's
-    panMap = (int *)CPLMalloc(sizeof(int) * nSrcFieldCount);
-    for (iField = 0; iField < nSrcFieldCount; iField++)
-        panMap[iField] = -1;
+    std::vector<int> anMap(nSrcFieldCount, -1);
 
-    for (iField = 0; iField < nSrcFieldCount; iField++)
+    for (int iField = 0; iField < nSrcFieldCount; iField++)
     {
-        OGRFieldDefn *poSrcFieldDefn = poSrcDefn->GetFieldDefn(iField);
+        const OGRFieldDefn *poSrcFieldDefn = poSrcDefn->GetFieldDefn(iField);
         OGRFieldDefn oFieldDefn(poSrcFieldDefn);
 
         /* The field may have been already created at layer creation */
-        int iDstField = poDstFDefn->GetFieldIndex(oFieldDefn.GetNameRef());
+        const int iDstField =
+            poDstFDefn->GetFieldIndex(oFieldDefn.GetNameRef());
         if (iDstField >= 0)
         {
-            // TODO: by now skip fields with different types. In future shoul
+            // TODO: by now skip fields with different types. In future should
             // cast types
-            OGRFieldDefn *poDstField = poDstFDefn->GetFieldDefn(iDstField);
+            const OGRFieldDefn *poDstField =
+                poDstFDefn->GetFieldDefn(iDstField);
             if (nullptr != poDstField &&
                 oFieldDefn.GetType() == poDstField->GetType())
-                panMap[iField] = iDstField;
+                anMap[iField] = iDstField;
         }
         else if (CreateField(&oFieldDefn) == OGRERR_NONE)
         {
@@ -171,21 +170,19 @@ OGRErr OGRGNMWrappedResultLayer::InsertFeature(OGRFeature *poFeature,
             }
             else
             {
-                panMap[iField] = nDstFieldCount;
+                anMap[iField] = nDstFieldCount;
                 nDstFieldCount++;
             }
         }
     }
 
-    OGRFeature *poInsertFeature = OGRFeature::CreateFeature(GetLayerDefn());
-    if (poInsertFeature->SetFrom(poFeature, panMap, TRUE) != OGRERR_NONE)
+    auto poInsertFeature = std::make_unique<OGRFeature>(GetLayerDefn());
+    if (poInsertFeature->SetFrom(poFeature, anMap.data(), TRUE) != OGRERR_NONE)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Unable to translate feature " CPL_FRMT_GIB
                  " from layer %s.\n",
                  poFeature->GetFID(), soLayerName.c_str());
-        OGRFeature::DestroyFeature(poInsertFeature);
-        CPLFree(panMap);
         return OGRERR_FAILURE;
     }
 
@@ -196,16 +193,7 @@ OGRErr OGRGNMWrappedResultLayer::InsertFeature(OGRFeature *poFeature,
     poInsertFeature->SetField(GNM_SYSFIELD_TYPE, bIsEdge ? "EDGE" : "VERTEX");
 
     CPLErrorReset();
-    if (CreateFeature(poInsertFeature) != OGRERR_NONE)
-    {
-        OGRFeature::DestroyFeature(poInsertFeature);
-        CPLFree(panMap);
-        return OGRERR_FAILURE;
-    }
-
-    OGRFeature::DestroyFeature(poInsertFeature);
-    CPLFree(panMap);
-    return OGRERR_NONE;
+    return CreateFeature(poInsertFeature.get());
 }
 
 OGRErr OGRGNMWrappedResultLayer::ISetFeature(OGRFeature *poFeature)

@@ -29,6 +29,7 @@
 #include "cpl_vsi.h"
 #include "cpl_vsi_virtual.h"
 #include "cpl_worker_thread_pool.h"
+#include "gdal_priv.h"
 #include "ogr_proj_p.h"  // OSRGetProjTLSContext()
 #include "tif_jxl.h"
 #include "tifvsi.h"
@@ -328,6 +329,10 @@ std::tuple<CPLErr, bool> GTiffDataset::Finalize()
                     }
                 }
             }
+
+            if (IsMarkedSuppressOnClose())
+                m_fpL->CancelCreation();
+
             if (VSIFCloseL(m_fpL) != 0)
             {
                 eErr = CE_Failure;
@@ -528,7 +533,7 @@ CPLErr GTiffDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
     else if (eRWFlag == GF_Write && nBands > 1 &&
              m_nPlanarConfig == PLANARCONFIG_CONTIG &&
              // Could be extended to "odd bit" case, but more work
-             m_nBitsPerSample == GDALGetDataTypeSize(eDataType) &&
+             m_nBitsPerSample == GDALGetDataTypeSizeBits(eDataType) &&
              nXSize == nBufXSize && nYSize == nBufYSize &&
              nBandCount == nBands && !m_bLoadedBlockDirty &&
              (nXOff % m_nBlockXSize) == 0 && (nYOff % m_nBlockYSize) == 0 &&
@@ -976,9 +981,10 @@ void GTiffDataset::RestoreVolatileParameters(TIFF *hTIFF)
             TIFFSetField(hTIFF, TIFFTAG_JXL_LOSSYNESS,
                          m_bJXLLossless ? JXL_LOSSLESS : JXL_LOSSY);
             TIFFSetField(hTIFF, TIFFTAG_JXL_EFFORT, m_nJXLEffort);
-            TIFFSetField(hTIFF, TIFFTAG_JXL_DISTANCE, m_fJXLDistance);
+            TIFFSetField(hTIFF, TIFFTAG_JXL_DISTANCE,
+                         static_cast<double>(m_fJXLDistance));
             TIFFSetField(hTIFF, TIFFTAG_JXL_ALPHA_DISTANCE,
-                         m_fJXLAlphaDistance);
+                         static_cast<double>(m_fJXLAlphaDistance));
         }
 #endif
     }
@@ -1165,6 +1171,24 @@ void GTiffDataset::ScanDirectories()
                     // poODS->m_nZLevel = m_nZLevel;
                     // poODS->m_nLZMAPreset = m_nLZMAPreset;
                     // poODS->m_nZSTDLevel = m_nZSTDLevel;
+
+                    if (const char *pszOverviewResampling =
+                            m_oGTiffMDMD.GetMetadataItem("OVERVIEW_RESAMPLING",
+                                                         "IMAGE_STRUCTURE"))
+                    {
+                        for (int iBand = 1; iBand <= poODS->GetRasterCount();
+                             ++iBand)
+                        {
+                            auto poOBand = cpl::down_cast<GTiffRasterBand *>(
+                                poODS->GetRasterBand(iBand));
+                            if (poOBand->GetMetadataItem("RESAMPLING") ==
+                                nullptr)
+                            {
+                                poOBand->m_oGTiffMDMD.SetMetadataItem(
+                                    "RESAMPLING", pszOverviewResampling);
+                            }
+                        }
+                    }
                 }
             }
             // Embedded mask of the main image.
@@ -1399,10 +1423,12 @@ void GTiffDataset::ScanDirectories()
 /*                         GetInternalHandle()                          */
 /************************************************************************/
 
-void *GTiffDataset::GetInternalHandle(const char * /* pszHandleName */)
+void *GTiffDataset::GetInternalHandle(const char *pszHandleName)
 
 {
-    return m_hTIFF;
+    if (pszHandleName && EQUAL(pszHandleName, "TIFF_HANDLE"))
+        return m_hTIFF;
+    return nullptr;
 }
 
 /************************************************************************/

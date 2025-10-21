@@ -890,7 +890,7 @@ static int JXLPostEncode(TIFF *tif)
                    td->td_extrasamples == td->td_samplesperpixel - 3 &&
                    (td->td_sampleinfo[0] != EXTRASAMPLE_UNASSALPHA ||
                     !bAlphaDistanceSameAsMainChannel))))
-        {  // rgb without alpha, or differente distance for alpha vs non-alpha
+        {  // rgb without alpha, or different distance for alpha vs non-alpha
             // channels
             format.num_channels = 3;
             basic_info.num_color_channels = 3;
@@ -1224,11 +1224,12 @@ static int JXLVSetField(TIFF *tif, uint32_t tag, va_list ap)
 
         case TIFFTAG_JXL_DISTANCE:
         {
-            float distance = (float)va_arg(ap, double);
+            const double dfDistance = va_arg(ap, double);
+            const float distance = (float)dfDistance;
             if (distance < 0 || distance > 15)
             {
                 TIFFErrorExtR(tif, module, "Invalid value for Distance: %f",
-                              distance);
+                              dfDistance);
                 return 0;
             }
             sp->distance = distance;
@@ -1237,13 +1238,14 @@ static int JXLVSetField(TIFF *tif, uint32_t tag, va_list ap)
 
         case TIFFTAG_JXL_ALPHA_DISTANCE:
         {
-            float alpha_distance = (float)va_arg(ap, double);
+            const double dfAlphaDistance = va_arg(ap, double);
+            const float alpha_distance = (float)dfAlphaDistance;
             if (alpha_distance != -1 &&
                 (alpha_distance < 0 || alpha_distance > 15))
             {
                 TIFFErrorExtR(tif, module,
                               "Invalid value for AlphaDistance: %f",
-                              alpha_distance);
+                              dfAlphaDistance);
                 return 0;
             }
             sp->alpha_distance = alpha_distance;

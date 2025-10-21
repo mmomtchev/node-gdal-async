@@ -551,25 +551,24 @@ void RCMCalibRasterBand::ReadNoiseLevels()
 
     // Load Beta Nought, Sigma Nought, Gamma noise levels
     // Loop through all nodes with spaces
-    CPLXMLNode *psReferenceNoiseLevelNode =
+    const CPLXMLNode *psReferenceNoiseLevelNode =
         CPLGetXMLNode(psNoiseLevels.get(), "=noiseLevels");
     if (!psReferenceNoiseLevelNode)
         return;
 
-    CPLXMLNode *psNodeInc;
-    for (psNodeInc = psReferenceNoiseLevelNode->psChild; psNodeInc != nullptr;
-         psNodeInc = psNodeInc->psNext)
+    for (const CPLXMLNode *psNodeInc = psReferenceNoiseLevelNode->psChild;
+         psNodeInc != nullptr; psNodeInc = psNodeInc->psNext)
     {
         if (EQUAL(psNodeInc->pszValue, "referenceNoiseLevel"))
         {
-            CPLXMLNode *psCalibType =
+            const CPLXMLNode *psCalibType =
                 CPLGetXMLNode(psNodeInc, "sarCalibrationType");
-            CPLXMLNode *psPixelFirstNoiseValue =
+            const CPLXMLNode *psPixelFirstNoiseValue =
                 CPLGetXMLNode(psNodeInc, "pixelFirstNoiseValue");
-            CPLXMLNode *psStepSize = CPLGetXMLNode(psNodeInc, "stepSize");
-            CPLXMLNode *psNumberOfValues =
+            const CPLXMLNode *psStepSize = CPLGetXMLNode(psNodeInc, "stepSize");
+            const CPLXMLNode *psNumberOfValues =
                 CPLGetXMLNode(psNodeInc, "numberOfValues");
-            CPLXMLNode *psNoiseLevelValues =
+            const CPLXMLNode *psNoiseLevelValues =
                 CPLGetXMLNode(psNodeInc, "noiseLevelValues");
 
             if (psCalibType != nullptr && psPixelFirstNoiseValue != nullptr &&
@@ -959,20 +958,6 @@ CPLErr RCMCalibRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
 /************************************************************************/
 
 /************************************************************************/
-/*                             RCMDataset()                             */
-/************************************************************************/
-
-RCMDataset::RCMDataset()
-{
-    adfGeoTransform[0] = 0.0;
-    adfGeoTransform[1] = 1.0;
-    adfGeoTransform[2] = 0.0;
-    adfGeoTransform[3] = 0.0;
-    adfGeoTransform[4] = 0.0;
-    adfGeoTransform[5] = 1.0;
-}
-
-/************************************************************************/
 /*                            ~RCMDataset()                             */
 /************************************************************************/
 
@@ -1136,7 +1121,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
         return nullptr;
     }
 
-    CPLXMLNode *psSceneAttributes =
+    const CPLXMLNode *psSceneAttributes =
         CPLGetXMLNode(psProduct.get(), "=product.sceneAttributes");
     if (psSceneAttributes == nullptr)
     {
@@ -1145,7 +1130,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
         return nullptr;
     }
 
-    CPLXMLNode *psImageAttributes = CPLGetXMLNode(
+    const CPLXMLNode *psImageAttributes = CPLGetXMLNode(
         psProduct.get(), "=product.sceneAttributes.imageAttributes");
     if (psImageAttributes == nullptr)
     {
@@ -1164,7 +1149,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
         return nullptr;
     }
 
-    CPLXMLNode *psImageReferenceAttributes =
+    const CPLXMLNode *psImageReferenceAttributes =
         CPLGetXMLNode(psProduct.get(), "=product.imageReferenceAttributes");
     if (psImageReferenceAttributes == nullptr)
     {
@@ -1174,7 +1159,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
         return nullptr;
     }
 
-    CPLXMLNode *psImageGenerationParameters =
+    const CPLXMLNode *psImageGenerationParameters =
         CPLGetXMLNode(psProduct.get(), "=product.imageGenerationParameters");
     if (psImageGenerationParameters == nullptr)
     {
@@ -1408,9 +1393,9 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Open each of the data files as a complex band.                  */
     /* -------------------------------------------------------------------- */
-    char *pszBeta0LUT = nullptr;
-    char *pszGammaLUT = nullptr;
-    char *pszSigma0LUT = nullptr;
+    std::string osBeta0LUT;
+    std::string osGammaLUT;
+    std::string osSigma0LUT;
     // Same file for all calibrations except the calibration is plit inside the
     // XML
     std::string osNoiseLevelsValues;
@@ -1418,7 +1403,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
     const CPLString osPath = CPLGetPathSafe(osMDFilename);
 
     /* Get a list of all polarizations */
-    CPLXMLNode *psSourceAttrs =
+    const CPLXMLNode *psSourceAttrs =
         CPLGetXMLNode(poDS->psProduct.get(), "=product.sourceAttributes");
     if (psSourceAttrs == nullptr)
     {
@@ -1429,7 +1414,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
         return nullptr;
     }
 
-    CPLXMLNode *psRadarParameters = CPLGetXMLNode(
+    const CPLXMLNode *psRadarParameters = CPLGetXMLNode(
         poDS->psProduct.get(), "=product.sourceAttributes.radarParameters");
     if (psRadarParameters == nullptr)
     {
@@ -1479,8 +1464,8 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
     while (iss >> pol)
         imageBandCount++;
 
-    CPLXMLNode *psNode = psImageAttributes->psChild;
-    for (; psNode != nullptr; psNode = psNode->psNext)
+    for (const CPLXMLNode *psNode = psImageAttributes->psChild;
+         psNode != nullptr; psNode = psNode->psNext)
     {
         /* Find the tif or ntf filename */
         if (psNode->eType != CXT_Element || !(EQUAL(psNode->pszValue, "ipdf")))
@@ -1547,10 +1532,16 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
 
     if (pszIncidenceAngleFileName != nullptr)
     {
-        CPLString osIncidenceAngleFilePath = CPLFormFilenameSafe(
+        if (CPLHasPathTraversal(pszIncidenceAngleFileName))
+        {
+            CPLError(CE_Failure, CPLE_NotSupported,
+                     "Path traversal detected in %s",
+                     pszIncidenceAngleFileName);
+            return nullptr;
+        }
+        const CPLString osIncidenceAngleFilePath = CPLFormFilenameSafe(
             CPLFormFilenameSafe(osPath, CALIBRATION_FOLDER, nullptr).c_str(),
             pszIncidenceAngleFileName, nullptr);
-
         /* Check if the file exist */
         if (IsValidXMLFile(osIncidenceAngleFilePath))
         {
@@ -1617,7 +1608,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
             CPLString(aosPolarizationsGrids[iPoleInx]).toupper();
 
         // Look if the NoiseLevel file xml exist for the
-        CPLXMLNode *psRefNode = psImageReferenceAttributes->psChild;
+        const CPLXMLNode *psRefNode = psImageReferenceAttributes->psChild;
         for (; psRefNode != nullptr; psRefNode = psRefNode->psNext)
         {
             if (EQUAL(psRefNode->pszValue, "noiseLevelFileName") && bCanCalib)
@@ -1659,13 +1650,20 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
                 /* --------------------------------------------------------------------
                  */
 
-                const CPLString oNoiseLevelPath = CPLFormFilenameSafe(
+                if (CPLHasPathTraversal(pszNoiseLevelFile))
+                {
+                    CPLError(CE_Failure, CPLE_NotSupported,
+                             "Path traversal detected in %s",
+                             pszNoiseLevelFile);
+                    return nullptr;
+                }
+                CPLString oNoiseLevelPath = CPLFormFilenameSafe(
                     CPLFormFilenameSafe(osPath, CALIBRATION_FOLDER, nullptr)
                         .c_str(),
                     pszNoiseLevelFile, nullptr);
                 if (IsValidXMLFile(oNoiseLevelPath))
                 {
-                    osNoiseLevelsValues = oNoiseLevelPath;
+                    osNoiseLevelsValues = std::move(oNoiseLevelPath);
                 }
             }
         }
@@ -1716,6 +1714,12 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
                 /*      called 'calibration' from the 'metadata' folder */
                 /* --------------------------------------------------------------------
                  */
+                if (CPLHasPathTraversal(pszLUTFile))
+                {
+                    CPLError(CE_Failure, CPLE_NotSupported,
+                             "Path traversal detected in %s", pszLUTFile);
+                    return nullptr;
+                }
                 const CPLString osLUTFilePath = CPLFormFilenameSafe(
                     CPLFormFilenameSafe(osPath, CALIBRATION_FOLDER, nullptr)
                         .c_str(),
@@ -1729,8 +1733,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
 
                     CPLString pszBuf(
                         FormatCalibration(szBETA0, osMDFilename.c_str()));
-                    CPLFree(pszBeta0LUT);
-                    pszBeta0LUT = VSIStrdup(osLUTFilePath);
+                    osBeta0LUT = osLUTFilePath;
 
                     const char *oldLut =
                         poDS->GetMetadataItem("BETA_NOUGHT_LUT");
@@ -1767,8 +1770,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
 
                     CPLString pszBuf(
                         FormatCalibration(szSIGMA0, osMDFilename.c_str()));
-                    CPLFree(pszSigma0LUT);
-                    pszSigma0LUT = VSIStrdup(osLUTFilePath);
+                    osSigma0LUT = osLUTFilePath;
 
                     const char *oldLut =
                         poDS->GetMetadataItem("SIGMA_NOUGHT_LUT");
@@ -1806,8 +1808,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
 
                     CPLString pszBuf(
                         FormatCalibration(szGAMMA, osMDFilename.c_str()));
-                    CPLFree(pszGammaLUT);
-                    pszGammaLUT = VSIStrdup(osLUTFilePath);
+                    osGammaLUT = osLUTFilePath;
 
                     const char *oldLut = poDS->GetMetadataItem("GAMMA_LUT");
                     if (oldLut == nullptr)
@@ -1869,8 +1870,22 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
         /*      Form full filename (path of product.xml + basename). */
         /* --------------------------------------------------------------------
          */
-        char *pszFullname = CPLStrdup(
-            CPLFormFilenameSafe(osPath, pszBasedFilename, nullptr).c_str());
+        std::string osPathImage = osPath;
+        std::string osBasedImage = pszBasedFilename;
+        if (STARTS_WITH(osBasedImage.c_str(), "../") ||
+            STARTS_WITH(osBasedImage.c_str(), "..\\"))
+        {
+            osPathImage = CPLGetPathSafe(osPath);
+            osBasedImage = osBasedImage.substr(strlen("../"));
+        }
+        if (CPLHasPathTraversal(osBasedImage.c_str()))
+        {
+            CPLError(CE_Failure, CPLE_NotSupported,
+                     "Path traversal detected in %s", osBasedImage.c_str());
+            return nullptr;
+        }
+        const std::string osFullname = CPLFormFilenameSafe(
+            osPathImage.c_str(), osBasedImage.c_str(), nullptr);
 
         /* --------------------------------------------------------------------
          */
@@ -1878,20 +1893,14 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
         /* --------------------------------------------------------------------
          */
         auto poBandFile = std::unique_ptr<GDALDataset>(GDALDataset::Open(
-            pszFullname, GDAL_OF_RASTER | GDAL_OF_VERBOSE_ERROR));
-        if (poBandFile == nullptr)
+            osFullname.c_str(), GDAL_OF_RASTER | GDAL_OF_VERBOSE_ERROR));
+        if (poBandFile == nullptr || poBandFile->GetRasterCount() == 0)
         {
-            CPLFree(pszFullname);
-            continue;
-        }
-        if (poBandFile->GetRasterCount() == 0)
-        {
-            CPLFree(pszFullname);
             continue;
         }
 
         poDS->papszExtraFiles =
-            CSLAddString(poDS->papszExtraFiles, pszFullname);
+            CSLAddString(poDS->papszExtraFiles, osFullname.c_str());
 
         /* Some CFloat32 NITF files have nBitsPerSample incorrectly reported */
         /* as 16, and get misinterpreted as CInt16.  Check the underlying NITF
@@ -1904,7 +1913,6 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
             checkBandFileMappingRCM(eDataType, poBandFile.get(), bIsNITF);
         if (b == BANDERROR)
         {
-            CPLFree(pszFullname);
             CPLError(CE_Failure, CPLE_AppDefined,
                      "The underlying band files do not have an appropriate "
                      "data type.");
@@ -1929,25 +1937,24 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
         }
         else
         {
-            const char *pszLUT = nullptr;
+            const char *pszLUT = osSigma0LUT.c_str();
             switch (eCalib)
             {
                 case Sigma0:
-                    pszLUT = pszSigma0LUT;
+                    pszLUT = osSigma0LUT.c_str();
                     break;
                 case Beta0:
-                    pszLUT = pszBeta0LUT;
+                    pszLUT = osBeta0LUT.c_str();
                     break;
                 case Gamma:
-                    pszLUT = pszGammaLUT;
+                    pszLUT = osGammaLUT.c_str();
                     break;
                 default:
                     /* we should bomb gracefully... */
-                    pszLUT = pszSigma0LUT;
+                    break;
             }
-            if (!pszLUT)
+            if (pszLUT[0] == '\0')
             {
-                CPLFree(pszFullname);
                 CPLError(CE_Failure, CPLE_AppDefined, "LUT missing.");
                 return nullptr;
             }
@@ -1964,15 +1971,13 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
             }
             else
             {
-                // Whatever the datatype was previoulsy set
+                // Whatever the datatype was previously set
                 RCMCalibRasterBand *poBand = new RCMCalibRasterBand(
                     poDS.get(), pszPole, eDataType, poBandFile.release(),
                     eCalib, pszLUT, osNoiseLevelsValues.c_str(), eDataType);
                 poDS->SetBand(poDS->GetRasterCount() + 1, poBand);
             }
         }
-
-        CPLFree(pszFullname);
     }
 
     if (poDS->papszSubDatasets != nullptr && eCalib == None)
@@ -2060,12 +2065,12 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
     /*      Collect Map projection/Geotransform information, if present.DONE */
     /*      In RCM, there is no file that indicates                         */
     /* -------------------------------------------------------------------- */
-    CPLXMLNode *psMapProjection = CPLGetXMLNode(
+    const CPLXMLNode *psMapProjection = CPLGetXMLNode(
         psImageReferenceAttributes, "geographicInformation.mapProjection");
 
     if (psMapProjection != nullptr)
     {
-        CPLXMLNode *psPos =
+        const CPLXMLNode *psPos =
             CPLGetXMLNode(psMapProjection, "positioningInformation");
 
         pszItem =
@@ -2108,14 +2113,12 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
                 CPLGetXMLValue(psPos, "upperRightCorner.mapCoordinate.northing",
                                "0.0"),
                 nullptr);
-            poDS->adfGeoTransform[1] = (tr_x - tl_x) / (poDS->nRasterXSize - 1);
-            poDS->adfGeoTransform[4] = (tr_y - tl_y) / (poDS->nRasterXSize - 1);
-            poDS->adfGeoTransform[2] = (bl_x - tl_x) / (poDS->nRasterYSize - 1);
-            poDS->adfGeoTransform[5] = (bl_y - tl_y) / (poDS->nRasterYSize - 1);
-            poDS->adfGeoTransform[0] = (tl_x - 0.5 * poDS->adfGeoTransform[1] -
-                                        0.5 * poDS->adfGeoTransform[2]);
-            poDS->adfGeoTransform[3] = (tl_y - 0.5 * poDS->adfGeoTransform[4] -
-                                        0.5 * poDS->adfGeoTransform[5]);
+            poDS->m_gt[1] = (tr_x - tl_x) / (poDS->nRasterXSize - 1);
+            poDS->m_gt[4] = (tr_y - tl_y) / (poDS->nRasterXSize - 1);
+            poDS->m_gt[2] = (bl_x - tl_x) / (poDS->nRasterYSize - 1);
+            poDS->m_gt[5] = (bl_y - tl_y) / (poDS->nRasterYSize - 1);
+            poDS->m_gt[0] = (tl_x - 0.5 * poDS->m_gt[1] - 0.5 * poDS->m_gt[2]);
+            poDS->m_gt[3] = (tl_y - 0.5 * poDS->m_gt[4] - 0.5 * poDS->m_gt[5]);
 
             /* Use bottom right pixel to test geotransform */
             const double br_x = CPLStrtod(
@@ -2126,22 +2129,19 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
                 CPLGetXMLValue(psPos, "lowerRightCorner.mapCoordinate.northing",
                                "0.0"),
                 nullptr);
-            const double testx =
-                poDS->adfGeoTransform[0] +
-                poDS->adfGeoTransform[1] * (poDS->nRasterXSize - 0.5) +
-                poDS->adfGeoTransform[2] * (poDS->nRasterYSize - 0.5);
-            const double testy =
-                poDS->adfGeoTransform[3] +
-                poDS->adfGeoTransform[4] * (poDS->nRasterXSize - 0.5) +
-                poDS->adfGeoTransform[5] * (poDS->nRasterYSize - 0.5);
+            const double testx = poDS->m_gt[0] +
+                                 poDS->m_gt[1] * (poDS->nRasterXSize - 0.5) +
+                                 poDS->m_gt[2] * (poDS->nRasterYSize - 0.5);
+            const double testy = poDS->m_gt[3] +
+                                 poDS->m_gt[4] * (poDS->nRasterXSize - 0.5) +
+                                 poDS->m_gt[5] * (poDS->nRasterYSize - 0.5);
 
             /* Give 1/4 pixel numerical error leeway in calculating location
             based on affine transform */
             if ((fabs(testx - br_x) >
-                 fabs(0.25 *
-                      (poDS->adfGeoTransform[1] + poDS->adfGeoTransform[2]))) ||
-                (fabs(testy - br_y) > fabs(0.25 * (poDS->adfGeoTransform[4] +
-                                                   poDS->adfGeoTransform[5]))))
+                 fabs(0.25 * (poDS->m_gt[1] + poDS->m_gt[2]))) ||
+                (fabs(testy - br_y) >
+                 fabs(0.25 * (poDS->m_gt[4] + poDS->m_gt[5]))))
             {
                 CPLError(CE_Warning, CPLE_AppDefined,
                          "WARNING: Unexpected error in calculating affine "
@@ -2157,7 +2157,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Collect Projection String Information.DONE                      */
     /* -------------------------------------------------------------------- */
-    CPLXMLNode *psEllipsoid =
+    const CPLXMLNode *psEllipsoid =
         CPLGetXMLNode(psImageReferenceAttributes,
                       "geographicInformation.ellipsoidParameters");
 
@@ -2208,10 +2208,10 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
                 CPLGetXMLValue(psMapProjection, "mapProjectionDescriptor", "");
             bool bUseProjInfo = false;
 
-            CPLXMLNode *psUtmParams =
+            const CPLXMLNode *psUtmParams =
                 CPLGetXMLNode(psMapProjection, "utmProjectionParameters");
 
-            CPLXMLNode *psNspParams =
+            const CPLXMLNode *psNspParams =
                 CPLGetXMLNode(psMapProjection, "nspProjectionParameters");
 
             if ((psUtmParams != nullptr) && poDS->bHaveGeoTransform)
@@ -2309,7 +2309,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     /*      Collect GCPs.DONE */
     /* -------------------------------------------------------------------- */
-    CPLXMLNode *psGeoGrid = CPLGetXMLNode(
+    const CPLXMLNode *psGeoGrid = CPLGetXMLNode(
         psImageReferenceAttributes, "geographicInformation.geolocationGrid");
 
     if (psGeoGrid != nullptr)
@@ -2317,7 +2317,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
         /* count GCPs */
         poDS->nGCPCount = 0;
 
-        for (psNode = psGeoGrid->psChild; psNode != nullptr;
+        for (const CPLXMLNode *psNode = psGeoGrid->psChild; psNode != nullptr;
              psNode = psNode->psNext)
         {
             if (EQUAL(psNode->pszValue, "imageTiePoint"))
@@ -2329,7 +2329,7 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
 
         poDS->nGCPCount = 0;
 
-        for (psNode = psGeoGrid->psChild; psNode != nullptr;
+        for (const CPLXMLNode *psNode = psGeoGrid->psChild; psNode != nullptr;
              psNode = psNode->psNext)
         {
             GDAL_GCP *psGCP = poDS->pasGCPList + poDS->nGCPCount;
@@ -2356,17 +2356,10 @@ GDALDataset *RCMDataset::Open(GDALOpenInfo *poOpenInfo)
         }
     }
 
-    if (pszBeta0LUT)
-        CPLFree(pszBeta0LUT);
-    if (pszSigma0LUT)
-        CPLFree(pszSigma0LUT);
-    if (pszGammaLUT)
-        CPLFree(pszGammaLUT);
-
     /* -------------------------------------------------------------------- */
     /*      Collect RPC.DONE */
     /* -------------------------------------------------------------------- */
-    CPLXMLNode *psRationalFunctions = CPLGetXMLNode(
+    const CPLXMLNode *psRationalFunctions = CPLGetXMLNode(
         psImageReferenceAttributes, "geographicInformation.rationalFunctions");
     if (psRationalFunctions != nullptr)
     {
@@ -2529,10 +2522,10 @@ const OGRSpatialReference *RCMDataset::GetSpatialRef() const
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr RCMDataset::GetGeoTransform(double *padfTransform)
+CPLErr RCMDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
-    memcpy(padfTransform, adfGeoTransform, sizeof(double) * 6);
+    gt = m_gt;
 
     if (bHaveGeoTransform)
     {

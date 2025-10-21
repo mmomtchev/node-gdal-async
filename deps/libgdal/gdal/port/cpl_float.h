@@ -72,6 +72,19 @@ GUInt16 CPL_DLL CPLFloatToHalf(GUInt32 iFloat32, bool &bHasWarned);
 GUInt16 CPL_DLL CPLConvertFloatToHalf(float fFloat32);
 float CPL_DLL CPLConvertHalfToFloat(GUInt16 nHalf);
 
+#if defined(__F16C__)
+#include <immintrin.h>
+#ifndef GDALCopyXMMToInt16_defined
+#define GDALCopyXMMToInt16_defined
+
+static inline void GDALCopyXMMToInt16(const __m128i xmm, void *pDest)
+{
+    GInt16 i = static_cast<GInt16>(_mm_extract_epi16(xmm, 0));
+    memcpy(pDest, &i, 2);
+}
+#endif
+#endif
+
 namespace cpl
 {
 
@@ -270,14 +283,32 @@ struct Float16
                               iMantissa);
     }
 
-    template <typename T> static repr toRepr(T fValue)
+    template <typename T> static repr toRepr(T value)
     {
-        return computeToRepr(static_cast<compute>(fValue));
+#ifdef __F16C__
+        float fValue = static_cast<float>(value);
+        __m128 xmm_float = _mm_load_ss(&fValue);
+        const __m128i xmm_hfloat =
+            _mm_cvtps_ph(xmm_float, _MM_FROUND_TO_NEAREST_INT);
+        repr hfValueOut;
+        GDALCopyXMMToInt16(xmm_hfloat, &hfValueOut);
+        return hfValueOut;
+#else
+        return computeToRepr(static_cast<compute>(value));
+#endif
     }
 
     template <typename T> static T fromRepr(repr rValue)
     {
+#ifdef __F16C__
+        __m128i xmm;
+        memcpy(&xmm, &rValue, sizeof(repr));
+        float fValueOut;
+        _mm_store_ss(&fValueOut, _mm_cvtph_ps(xmm));
+        return static_cast<T>(fValueOut);
+#else
         return static_cast<T>(reprToCompute(rValue));
+#endif
     }
 
 #endif  // #ifndef HAVE__FLOAT16
@@ -291,6 +322,7 @@ struct Float16
         return reprToCompute(rValue);
     }
 
+    // cppcheck-suppress uninitMemberVar
     Float16() = default;
     Float16(const Float16 &) = default;
     Float16(Float16 &&) = default;
@@ -360,32 +392,32 @@ struct Float16
                                                                                \
     friend double operator OP(double x, Float16 y)                             \
     {                                                                          \
-        return x OP y.get();                                                   \
+        return x OP static_cast<double>(y.get());                              \
     }                                                                          \
                                                                                \
     friend float operator OP(float x, Float16 y)                               \
     {                                                                          \
-        return x OP y.get();                                                   \
+        return x OP static_cast<float>(y.get());                               \
     }                                                                          \
                                                                                \
     friend Float16 operator OP(int x, Float16 y)                               \
     {                                                                          \
-        return x OP y.get();                                                   \
+        return x OP static_cast<float>(y.get());                               \
     }                                                                          \
                                                                                \
     friend double operator OP(Float16 x, double y)                             \
     {                                                                          \
-        return x.get() OP y;                                                   \
+        return static_cast<double>(x.get()) OP y;                              \
     }                                                                          \
                                                                                \
     friend float operator OP(Float16 x, float y)                               \
     {                                                                          \
-        return x.get() OP y;                                                   \
+        return static_cast<float>(x.get()) OP y;                               \
     }                                                                          \
                                                                                \
     friend Float16 operator OP(Float16 x, int y)                               \
     {                                                                          \
-        return x.get() OP y;                                                   \
+        return static_cast<float>(x.get()) OP y;                               \
     }
 
     GDAL_DEFINE_ARITHOP(+)
@@ -406,32 +438,32 @@ struct Float16
                                                                                \
     friend bool operator OP(float x, Float16 y)                                \
     {                                                                          \
-        return x OP y.get();                                                   \
+        return x OP static_cast<float>(y.get());                               \
     }                                                                          \
                                                                                \
     friend bool operator OP(double x, Float16 y)                               \
     {                                                                          \
-        return x OP y.get();                                                   \
+        return x OP static_cast<double>(y.get());                              \
     }                                                                          \
                                                                                \
     friend bool operator OP(int x, Float16 y)                                  \
     {                                                                          \
-        return x OP y.get();                                                   \
+        return x OP static_cast<float>(y.get());                               \
     }                                                                          \
                                                                                \
     friend bool operator OP(Float16 x, float y)                                \
     {                                                                          \
-        return x.get() OP y;                                                   \
+        return static_cast<float>(x.get()) OP y;                               \
     }                                                                          \
                                                                                \
     friend bool operator OP(Float16 x, double y)                               \
     {                                                                          \
-        return x.get() OP y;                                                   \
+        return static_cast<double>(x.get()) OP y;                              \
     }                                                                          \
                                                                                \
     friend bool operator OP(Float16 x, int y)                                  \
     {                                                                          \
-        return x.get() OP y;                                                   \
+        return static_cast<float>(x.get()) OP y;                               \
     }
 
     GDAL_DEFINE_COMPARISON(==)

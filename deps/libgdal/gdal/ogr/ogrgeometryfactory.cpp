@@ -128,7 +128,6 @@ OGRErr OGRGeometryFactory::createFromWkb(const void *pabyData,
  * @return OGRERR_NONE if all goes well, otherwise any of
  * OGRERR_NOT_ENOUGH_DATA, OGRERR_UNSUPPORTED_GEOMETRY_TYPE, or
  * OGRERR_CORRUPT_DATA may be returned.
- * @since GDAL 2.3
  */
 
 OGRErr OGRGeometryFactory::createFromWkb(const void *pabyData,
@@ -470,7 +469,6 @@ OGRErr OGRGeometryFactory::createFromWkt(const char **ppszData,
  * @return OGRERR_NONE if all goes well, otherwise any of
  * OGRERR_NOT_ENOUGH_DATA, OGRERR_UNSUPPORTED_GEOMETRY_TYPE, or
  * OGRERR_CORRUPT_DATA may be returned.
- * @since GDAL 2.3
  */
 
 OGRErr OGRGeometryFactory::createFromWkt(const char *pszData,
@@ -545,6 +543,42 @@ OGRErr CPL_DLL OGR_G_CreateFromWkt(char **ppszData, OGRSpatialReferenceH hSRS,
         const_cast<const char **>(ppszData),
         OGRSpatialReference::FromHandle(hSRS),
         reinterpret_cast<OGRGeometry **>(phGeometry));
+}
+
+/************************************************************************/
+/*                    OGR_G_CreateFromEnvelope()                        */
+/************************************************************************/
+/**
+ * \brief Create a Polygon geometry from an envelope
+ *
+ *
+ * @param dfMinX minimum X coordinate
+ * @param dfMinY minimum Y coordinate
+ * @param dfMaxX maximum X coordinate
+ * @param dfMaxY maximum Y coordinate
+ * @param hSRS handle to the spatial reference to be assigned to the
+ *             created geometry object. This may be NULL.
+ *
+ * @return the newly created geometry. Should be freed with
+ *          OGR_G_DestroyGeometry() after use.
+ * @since 3.12
+ */
+
+OGRGeometryH CPL_DLL OGR_G_CreateFromEnvelope(double dfMinX, double dfMinY,
+                                              double dfMaxX, double dfMaxY,
+                                              OGRSpatialReferenceH hSRS)
+
+{
+    auto poPolygon =
+        std::make_unique<OGRPolygon>(dfMinX, dfMinY, dfMaxX, dfMaxY);
+
+    if (hSRS)
+    {
+        poPolygon->assignSpatialReference(
+            OGRSpatialReference::FromHandle(hSRS));
+    }
+
+    return OGRGeometry::ToHandle(poPolygon.release());
 }
 
 /************************************************************************/
@@ -731,15 +765,15 @@ void OGR_G_DestroyGeometry(OGRGeometryH hGeom)
  *
  * Tries to force the provided geometry to be a polygon. This effects a change
  * on multipolygons.
- * Starting with GDAL 2.0, curve polygons or closed curves will be changed to
- * polygons.  The passed in geometry is consumed and a new one returned (or
+ * Curve polygons or closed curves will be changed to polygons.
+ * The passed in geometry is consumed and a new one returned (or
  * potentially the same one).
  *
  * Note: the resulting polygon may break the Simple Features rules for polygons,
  * for example when converting from a multi-part multipolygon.
  *
  * @param poGeom the input geometry - ownership is passed to the method.
- * @return new geometry, or nullptr in case of error
+ * @return new geometry.
  */
 
 OGRGeometry *OGRGeometryFactory::forceToPolygon(OGRGeometry *poGeom)
@@ -853,7 +887,7 @@ OGRGeometry *OGRGeometryFactory::forceToPolygon(OGRGeometry *poGeom)
  * OGRGeometryFactory::forceToPolygon().
  *
  * @param hGeom handle to the geometry to convert (ownership surrendered).
- * @return the converted geometry (ownership to caller), or NULL in case of error
+ * @return the converted geometry (ownership to caller).
  *
  * @since GDAL/OGR 1.8.0
  */
@@ -876,7 +910,7 @@ OGRGeometryH OGR_G_ForceToPolygon(OGRGeometryH hGeom)
  * this just effects a change on polygons.  The passed in geometry is
  * consumed and a new one returned (or potentially the same one).
  *
- * @return new geometry, or nullptr in case of error
+ * @return new geometry.
  */
 
 OGRGeometry *OGRGeometryFactory::forceToMultiPolygon(OGRGeometry *poGeom)
@@ -1021,7 +1055,7 @@ OGRGeometry *OGRGeometryFactory::forceToMultiPolygon(OGRGeometry *poGeom)
  * OGRGeometryFactory::forceToMultiPolygon().
  *
  * @param hGeom handle to the geometry to convert (ownership surrendered).
- * @return the converted geometry (ownership to caller), or NULL in case of error
+ * @return the converted geometry (ownership to caller).
  *
  * @since GDAL/OGR 1.8.0
  */
@@ -2206,7 +2240,7 @@ OGRGeometry *OGRGeometryFactory::organizePolygons(OGRGeometry **papoPolygons,
  * The following GML3 elements are parsed : Surface,
  * MultiSurface, PolygonPatch, Triangle, Rectangle, Curve, MultiCurve,
  * LineStringSegment, Arc, Circle, CompositeSurface, OrientableSurface, Solid,
- * Tin, TriangulatedSurface.
+ * Shell, Tin, TriangulatedSurface.
  *
  * Arc and Circle elements are returned as curves by default. Stroking to
  * linestrings can be done with
@@ -4176,7 +4210,7 @@ struct OGRGeomTransformer
 
 /** Create a geometry transformer.
  *
- * This is a enhanced version of OGR_G_Transform().
+ * This is an enhanced version of OGR_G_Transform().
  *
  * When reprojecting geometries from a Polar Stereographic projection or a
  * projection naturally crossing the antimeridian (like UTM Zone 60) to a
@@ -4329,7 +4363,6 @@ static inline double DISTANCE(double x1, double y1, double x2, double y2)
  *
  * @return OGRLineString geometry representing an approximation of the arc.
  *
- * @since OGR 1.8.0
  */
 
 OGRGeometry *OGRGeometryFactory::approximateArcAngles(
@@ -4486,7 +4519,6 @@ OGRGeometry *OGRGeometryFactory::approximateArcAngles(
  *
  * @return OGRLineString geometry representing an approximation of the arc.
  *
- * @since OGR 1.8.0
  */
 
 OGRGeometryH CPL_DLL OGR_G_ApproximateArcAngles(
@@ -4509,7 +4541,7 @@ OGRGeometryH CPL_DLL OGR_G_ApproximateArcAngles(
  *
  * Tries to force the provided geometry to be a line string.  This nominally
  * effects a change on multilinestrings.
- * In GDAL 2.0, for polygons or curvepolygons that have a single exterior ring,
+ * For polygons or curvepolygons that have a single exterior ring,
  * it will return the ring. For circular strings or compound curves, it will
  * return an approximated line string.
  *
@@ -4723,7 +4755,6 @@ OGRGeometryH OGR_G_ForceToLineString(OGRGeometryH hGeom)
  * @param papszOptions options as a null-terminated list of strings or NULL.
  * @return new geometry, or nullptr in case of error.
  *
- * @since GDAL 2.0
  */
 
 OGRGeometry *OGRGeometryFactory::forceTo(OGRGeometry *poGeom,
@@ -5161,11 +5192,8 @@ OGRGeometry *OGRGeometryFactory::forceTo(OGRGeometry *poGeom,
     else if (eTargetTypeFlat == wkbMultiPolygon)
     {
         poGeom = forceToMultiPolygon(poGeom);
-        if (poGeom)
-        {
-            poGeom->set3D(OGR_GT_HasZ(eTargetType));
-            poGeom->setMeasured(OGR_GT_HasM(eTargetType));
-        }
+        poGeom->set3D(OGR_GT_HasZ(eTargetType));
+        poGeom->setMeasured(OGR_GT_HasM(eTargetType));
     }
     else if (eTargetTypeFlat == wkbMultiLineString)
     {
@@ -5197,7 +5225,6 @@ OGRGeometry *OGRGeometryFactory::forceTo(OGRGeometry *poGeom,
  * @param papszOptions options as a null-terminated list of strings or NULL.
  * @return new geometry.
  *
- * @since GDAL 2.0
  */
 
 OGRGeometryH OGR_G_ForceTo(OGRGeometryH hGeom, OGRwkbGeometryType eTargetType,
@@ -5206,6 +5233,72 @@ OGRGeometryH OGR_G_ForceTo(OGRGeometryH hGeom, OGRwkbGeometryType eTargetType,
 {
     return OGRGeometry::ToHandle(OGRGeometryFactory::forceTo(
         OGRGeometry::FromHandle(hGeom), eTargetType, papszOptions));
+}
+
+/************************************************************************/
+/*                        makeCompatibleWith()                          */
+/************************************************************************/
+
+/**
+ * \brief Adjust a geometry to be compatible with a specified geometry type.
+ *
+ * This is a soft version of forceTo() that:
+ * - converts single geometry type to a multi-geometry type if eTargetType is
+ *   a multi-geometry type (e.g. wkbMultiPolygon) and the single geometry type
+ *   is compatible with it (e.g. wkbPolygon)
+ * - insert components of multi-geometries that are not wkbGeometryCollection
+ *   into a GeometryCollection, when eTargetType == wkbGeometryCollection
+ * - insert single geometries into a GeometryCollection, when
+ *   eTargetType == wkbGeometryCollection.
+ * - convert a single-part multi-geometry to the specified target single
+ *   geometry type. e.g a MultiPolygon to a Polygon
+ * - in other cases, the geometry is returned unmodified.
+ *
+ * @param poGeom the input geometry - ownership is passed to the method.
+ * @param eTargetType target output geometry type.
+ *                    Typically a layer geometry type.
+ * @return a geometry (potentially poGeom itself)
+ *
+ * @since GDAL 3.12
+ */
+
+std::unique_ptr<OGRGeometry>
+OGRGeometryFactory::makeCompatibleWith(std::unique_ptr<OGRGeometry> poGeom,
+                                       OGRwkbGeometryType eTargetType)
+{
+    const auto eGeomType = poGeom->getGeometryType();
+    const auto eFlattenTargetType = wkbFlatten(eTargetType);
+    if (eFlattenTargetType != wkbUnknown &&
+        eFlattenTargetType != wkbFlatten(eGeomType))
+    {
+        if (OGR_GT_GetCollection(eGeomType) == eFlattenTargetType)
+        {
+            poGeom.reset(
+                OGRGeometryFactory::forceTo(poGeom.release(), eTargetType));
+        }
+        else if (eGeomType == OGR_GT_GetCollection(eTargetType) &&
+                 poGeom->toGeometryCollection()->getNumGeometries() == 1)
+        {
+            poGeom = poGeom->toGeometryCollection()->stealGeometry(0);
+        }
+        else if (eFlattenTargetType == wkbGeometryCollection)
+        {
+            auto poGeomColl = std::make_unique<OGRGeometryCollection>();
+            if (OGR_GT_IsSubClassOf(eGeomType, wkbGeometryCollection))
+            {
+                for (const auto *poSubGeom : *(poGeom->toGeometryCollection()))
+                {
+                    poGeomColl->addGeometry(poSubGeom);
+                }
+            }
+            else
+            {
+                poGeomColl->addGeometry(std::move(poGeom));
+            }
+            poGeom = std::move(poGeomColl);
+        }
+    }
+    return poGeom;
 }
 
 /************************************************************************/
@@ -5233,7 +5326,6 @@ OGRGeometryH OGR_G_ForceTo(OGRGeometryH hGeom, OGRwkbGeometryType eTargetType,
  * @param alpha2 angle between center and final point, in radians (output)
  * @return TRUE if the points are not aligned and define an arc circle.
  *
- * @since GDAL 2.0
  */
 
 int OGRGeometryFactory::GetCurveParameters(double x0, double y0, double x1,
@@ -5495,7 +5587,6 @@ static bool OGRGF_NeedSwithArcOrder(double x0, double y0, double x2, double y2)
  *
  * @return the converted geometry (ownership to caller).
  *
- * @since GDAL 2.0
  */
 /* clang-format on */
 
@@ -6271,7 +6362,6 @@ static int OGRGF_DetectArc(const OGRLineString *poLS, int i,
  *
  * @return the converted geometry (ownership to caller).
  *
- * @since GDAL 2.0
  */
 
 OGRCurve *OGRGeometryFactory::curveFromLineString(
@@ -6380,7 +6470,6 @@ OGRCurve *OGRGeometryFactory::curveFromLineString(
  * @param nSize (new in GDAL 3.4) Optional length of the string
  *              if it is not null-terminated
  * @return a geometry on success, or NULL on error.
- * @since GDAL 2.3
  */
 OGRGeometry *OGRGeometryFactory::createFromGeoJson(const char *pszJsonString,
                                                    int nSize)
@@ -6403,7 +6492,6 @@ OGRGeometry *OGRGeometryFactory::createFromGeoJson(const char *pszJsonString,
  * @brief Create geometry from GeoJson fragment.
  * @param oJsonObject The JSONObject class describes the GeoJSON geometry.
  * @return a geometry on success, or NULL on error.
- * @since GDAL 2.3
  */
 OGRGeometry *
 OGRGeometryFactory::createFromGeoJson(const CPLJSONObject &oJsonObject)
@@ -6416,5 +6504,7 @@ OGRGeometryFactory::createFromGeoJson(const CPLJSONObject &oJsonObject)
     // TODO: Move from GeoJSON driver functions create geometry here, and
     // replace json-c specific json_object to CPLJSONObject
     return OGRGeoJSONReadGeometry(
-        static_cast<json_object *>(oJsonObject.GetInternalHandle()));
+               static_cast<json_object *>(oJsonObject.GetInternalHandle()),
+               /* bHasM = */ false, /* OGRSpatialReference* = */ nullptr)
+        .release();
 }

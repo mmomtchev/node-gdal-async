@@ -62,6 +62,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunknown-pragmas"
 #pragma clang diagnostic ignored "-Wdocumentation"
+#pragma clang diagnostic ignored "-Wdocumentation-unknown-command"
 #endif
 
 #if defined(HAVE_SPATIALITE) && !defined(SPATIALITE_DLOPEN)
@@ -185,18 +186,15 @@ bool OGRSQLiteBaseDataSource::InitSpatialite()
 
 void OGRSQLiteBaseDataSource::FinishSpatialite()
 {
+    // Current implementation of spatialite_cleanup_ex() (as of libspatialite 5.1)
+    // is not re-entrant due to the use of xmlCleanupParser()
+    // Cf https://groups.google.com/g/spatialite-users/c/tsfZ_GDrRKs/m/aj-Dt4xoBQAJ?utm_medium=email&utm_source=footer
+    static std::mutex oCleanupMutex;
+    std::lock_guard oLock(oCleanupMutex);
+
     if (hSpatialiteCtxt != nullptr)
     {
-        auto ctxt = hSpatialiteCtxt;
-        {
-            // Current implementation of spatialite_cleanup_ex() (as of libspatialite 5.1)
-            // is not re-entrant due to the use of xmlCleanupParser()
-            // Cf https://groups.google.com/g/spatialite-users/c/tsfZ_GDrRKs/m/aj-Dt4xoBQAJ?utm_medium=email&utm_source=footer
-            static std::mutex oCleanupMutex;
-            std::lock_guard oLock(oCleanupMutex);
-            pfn_spatialite_cleanup_ex(ctxt);
-        }
-        // coverity[thread1_overwrites_value_in_field]
+        pfn_spatialite_cleanup_ex(hSpatialiteCtxt);
         hSpatialiteCtxt = nullptr;
     }
 }
@@ -253,7 +251,7 @@ void OGRSQLiteDriverUnload(GDALDriver *)
 bool OGRSQLiteBaseDataSource::DealWithOgrSchemaOpenOption(
     CSLConstList papszOpenOptionsIn)
 {
-    std::string osFieldsSchemaOverrideParam =
+    const std::string osFieldsSchemaOverrideParam =
         CSLFetchNameValueDef(papszOpenOptionsIn, "OGR_SCHEMA", "");
 
     if (!osFieldsSchemaOverrideParam.empty())
@@ -265,99 +263,22 @@ bool OGRSQLiteBaseDataSource::DealWithOgrSchemaOpenOption(
             return false;
         }
 
-        OGRSchemaOverride osSchemaOverride;
-        if (!osSchemaOverride.LoadFromJSON(osFieldsSchemaOverrideParam) ||
-            !osSchemaOverride.IsValid())
+        OGRSchemaOverride oSchemaOverride;
+        const auto nErrorCount = CPLGetErrorCounter();
+        if (!oSchemaOverride.LoadFromJSON(osFieldsSchemaOverrideParam) ||
+            !oSchemaOverride.IsValid())
         {
+            if (nErrorCount == CPLGetErrorCounter())
+            {
+                CPLError(CE_Failure, CPLE_AppDefined,
+                         "Content of OGR_SCHEMA in %s is not valid",
+                         osFieldsSchemaOverrideParam.c_str());
+            }
             return false;
         }
 
-        const auto &oLayerOverrides = osSchemaOverride.GetLayerOverrides();
-        for (const auto &oLayer : oLayerOverrides)
-        {
-            const auto &oLayerName = oLayer.first;
-            const auto &oLayerFieldOverride = oLayer.second;
-            const bool bIsFullOverride{oLayerFieldOverride.IsFullOverride()};
-            auto oFieldOverrides = oLayerFieldOverride.GetFieldOverrides();
-            std::vector<OGRFieldDefn *> aoFields;
-
-            CPLDebug("SQLite", "Applying schema override for layer %s",
-                     oLayerName.c_str());
-
-            // Fail if the layer name does not exist
-            auto poLayer = GetLayerByName(oLayerName.c_str());
-            if (poLayer == nullptr)
-            {
-                CPLError(CE_Failure, CPLE_AppDefined,
-                         "Layer %s not found in SQLite DB", oLayerName.c_str());
-                return false;
-            }
-
-            // Patch field definitions
-            auto poLayerDefn = poLayer->GetLayerDefn();
-            for (int i = 0; i < poLayerDefn->GetFieldCount(); i++)
-            {
-                auto poFieldDefn = poLayerDefn->GetFieldDefn(i);
-                auto oFieldOverride =
-                    oFieldOverrides.find(poFieldDefn->GetNameRef());
-                if (oFieldOverride != oFieldOverrides.cend())
-                {
-                    if (oFieldOverride->second.GetFieldType().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetType(
-                                oFieldOverride->second.GetFieldType().value());
-                    if (oFieldOverride->second.GetFieldWidth().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetWidth(
-                                oFieldOverride->second.GetFieldWidth().value());
-                    if (oFieldOverride->second.GetFieldPrecision().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetPrecision(
-                                oFieldOverride->second.GetFieldPrecision()
-                                    .value());
-                    if (oFieldOverride->second.GetFieldSubType().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetSubType(
-                                oFieldOverride->second.GetFieldSubType()
-                                    .value());
-                    if (oFieldOverride->second.GetFieldName().has_value())
-                        whileUnsealing(poFieldDefn)
-                            ->SetName(oFieldOverride->second.GetFieldName()
-                                          .value()
-                                          .c_str());
-
-                    if (bIsFullOverride)
-                    {
-                        aoFields.push_back(poFieldDefn);
-                    }
-                    oFieldOverrides.erase(oFieldOverride);
-                }
-            }
-
-            // Error if any field override is not found
-            if (!oFieldOverrides.empty())
-            {
-                CPLError(CE_Failure, CPLE_AppDefined,
-                         "Field %s not found in layer %s",
-                         oFieldOverrides.cbegin()->first.c_str(),
-                         oLayerName.c_str());
-                return false;
-            }
-
-            // Remove fields not in the override
-            if (bIsFullOverride)
-            {
-                for (int i = poLayerDefn->GetFieldCount() - 1; i >= 0; i--)
-                {
-                    auto poFieldDefn = poLayerDefn->GetFieldDefn(i);
-                    if (std::find(aoFields.begin(), aoFields.end(),
-                                  poFieldDefn) == aoFields.end())
-                    {
-                        whileUnsealing(poLayerDefn)->DeleteFieldDefn(i);
-                    }
-                }
-            }
-        }
+        if (!oSchemaOverride.DefaultApply(this, "SQLite"))
+            return false;
     }
     return true;
 }
@@ -971,15 +892,7 @@ int OGRSQLiteBaseDataSource::prepareSql(sqlite3 *db, const char *zSql,
 /*                        OGRSQLiteDataSource()                         */
 /************************************************************************/
 
-OGRSQLiteDataSource::OGRSQLiteDataSource()
-{
-    m_adfGeoTransform[0] = 0.0;
-    m_adfGeoTransform[1] = 1.0;
-    m_adfGeoTransform[2] = 0.0;
-    m_adfGeoTransform[3] = 0.0;
-    m_adfGeoTransform[4] = 0.0;
-    m_adfGeoTransform[5] = 1.0;
-}
+OGRSQLiteDataSource::OGRSQLiteDataSource() = default;
 
 /************************************************************************/
 /*                        ~OGRSQLiteDataSource()                        */
@@ -2926,8 +2839,10 @@ bool OGRSQLiteDataSource::OpenVirtualTable(const char *pszName,
         {
             OGRGeometry *poGeom = poFeature->GetGeometryRef();
             if (poGeom)
+            {
                 whileUnsealing(poLayer->GetLayerDefn())
                     ->SetGeomType(poGeom->getGeometryType());
+            }
             delete poFeature;
         }
         poLayer->ResetReading();
@@ -3004,7 +2919,7 @@ bool OGRSQLiteDataSource::OpenView(const char *pszViewName,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRSQLiteDataSource::TestCapability(const char *pszCap)
+int OGRSQLiteDataSource::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, ODsCCreateLayer) || EQUAL(pszCap, ODsCDeleteLayer) ||
@@ -3024,7 +2939,7 @@ int OGRSQLiteDataSource::TestCapability(const char *pszCap)
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRSQLiteBaseDataSource::TestCapability(const char *pszCap)
+int OGRSQLiteBaseDataSource::TestCapability(const char *pszCap) const
 {
     if (EQUAL(pszCap, ODsCTransactions))
         return true;
@@ -3038,7 +2953,7 @@ int OGRSQLiteBaseDataSource::TestCapability(const char *pszCap)
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGRSQLiteDataSource::GetLayer(int iLayer)
+const OGRLayer *OGRSQLiteDataSource::GetLayer(int iLayer) const
 
 {
     if (iLayer < 0 || iLayer >= static_cast<int>(m_apoLayers.size()))
@@ -3719,9 +3634,6 @@ OGRSQLiteDataSource::ICreateLayer(const char *pszLayerNameIn,
         /* Only if linked against SpatiaLite and the datasource was created as a
          * SpatiaLite DB */
         if (m_bIsSpatiaLiteDB && IsSpatialiteLoaded())
-#else
-        if (0)
-#endif
         {
             if (pszSI != nullptr && EQUAL(pszSI, "IMMEDIATE"))
             {
@@ -3732,6 +3644,7 @@ OGRSQLiteDataSource::ICreateLayer(const char *pszLayerNameIn,
                 bDeferredSpatialIndexCreation = true;
             }
         }
+#endif
     }
     else if (m_bHaveGeometryColumns)
     {
@@ -4562,9 +4475,13 @@ int OGRSQLiteDataSource::FetchSRSId(const OGRSpatialReference *poSRS)
                 {
                     std::unique_ptr<OGRSpatialReference,
                                     OGRSpatialReferenceReleaser>
-                        poCachedSRS(new OGRSpatialReference(oSRS));
-                    poCachedSRS->SetAxisMappingStrategy(
-                        OAMS_TRADITIONAL_GIS_ORDER);
+                        poCachedSRS;
+                    poCachedSRS.reset(oSRS.Clone());
+                    if (poCachedSRS)
+                    {
+                        poCachedSRS->SetAxisMappingStrategy(
+                            OAMS_TRADITIONAL_GIS_ORDER);
+                    }
                     AddSRIDToCache(nSRSId, std::move(poCachedSRS));
                 }
 
@@ -4664,9 +4581,9 @@ int OGRSQLiteDataSource::FetchSRSId(const OGRSpatialReference *poSRS)
 
         if (nSRSId != m_nUndefinedSRID)
         {
-            auto poSRSClone = std::unique_ptr<OGRSpatialReference,
-                                              OGRSpatialReferenceReleaser>(
-                new OGRSpatialReference(oSRS));
+            std::unique_ptr<OGRSpatialReference, OGRSpatialReferenceReleaser>
+                poSRSClone;
+            poSRSClone.reset(oSRS.Clone());
             AddSRIDToCache(nSRSId, std::move(poSRSClone));
         }
 

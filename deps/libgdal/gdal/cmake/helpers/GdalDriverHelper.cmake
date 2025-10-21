@@ -121,7 +121,7 @@ function(_set_driver_core_sources _KEY _DRIVER_TARGET)
 endfunction()
 
 function(add_gdal_driver)
-    set(_options BUILTIN PLUGIN_CAPABLE NO_DEPS STRONG_CXX_WFLAGS CXX_WFLAGS_EFFCXX NO_CXX_WFLAGS NO_SHARED_SYMBOL_WITH_CORE SKIP_GDAL_PRIV_HEADER)
+    set(_options BUILTIN PLUGIN_CAPABLE NO_DEPS NO_WFLAG_OLD_STYLE_CAST NO_CXX_WFLAGS_EFFCXX NO_CXX_WFLAGS NO_SHARED_SYMBOL_WITH_CORE SKIP_GDAL_PRIV_HEADER)
     set(_oneValueArgs TARGET DESCRIPTION DEF PLUGIN_CAPABLE_IF DRIVER_NAME_OPTION)
     set(_multiValueArgs SOURCES CORE_SOURCES)
     cmake_parse_arguments(_DRIVER "${_options}" "${_oneValueArgs}" "${_multiValueArgs}" ${ARGN})
@@ -132,6 +132,10 @@ function(add_gdal_driver)
     if (NOT _DRIVER_SOURCES)
         message(FATAL_ERROR "ADD_GDAL_DRIVER(): SOURCES is a mandatory argument.")
     endif ()
+
+    if(DEFINED _DRIVER_UNPARSED_ARGUMENTS)
+        message(FATAL_ERROR "add_gdal_driver(): unknown arguments found: ${_DRIVER_UNPARSED_ARGUMENTS}")
+    endif()
 
     # Set *_FORMATS properties for summary and gdal_config utility
     string(FIND "${_DRIVER_TARGET}" "ogr" IS_OGR)
@@ -334,12 +338,19 @@ function(add_gdal_driver)
         target_precompile_headers(${_DRIVER_TARGET} REUSE_FROM gdal_priv_header)
     endif()
 
-    if (_DRIVER_CXX_WFLAGS_EFFCXX)
-        target_compile_options(${_DRIVER_TARGET} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${GDAL_CXX_WARNING_FLAGS} ${WFLAG_EFFCXX}>)
-    elseif (_DRIVER_STRONG_CXX_WFLAGS)
-        target_compile_options(${_DRIVER_TARGET} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${GDAL_CXX_WARNING_FLAGS} ${WFLAG_OLD_STYLE_CAST} ${WFLAG_EFFCXX}>)
-    elseif( NOT _DRIVER_NO_CXX_WFLAGS )
-        target_compile_options(${_DRIVER_TARGET} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${GDAL_CXX_WARNING_FLAGS}>)
+    set(CXX_FLAG_SET)
+
+    if( NOT _DRIVER_NO_CXX_WFLAGS )
+        set(CXX_FLAG_SET ${CXX_FLAG_SET} ${GDAL_CXX_WARNING_FLAGS})
+    endif()
+    if (NOT _DRIVER_NO_CXX_WFLAGS_EFFCXX)
+        set(CXX_FLAG_SET ${CXX_FLAG_SET} ${WFLAG_EFFCXX})
+    endif()
+    if (NOT _DRIVER_NO_WFLAG_OLD_STYLE_CAST)
+        set(CXX_FLAG_SET ${CXX_FLAG_SET} ${WFLAG_OLD_STYLE_CAST})
+    endif()
+    if (CXX_FLAG_SET)
+        target_compile_options(${_DRIVER_TARGET} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CXX_FLAG_SET}>)
     endif()
     target_compile_options(${_DRIVER_TARGET} PRIVATE $<$<COMPILE_LANGUAGE:C>:${GDAL_C_WARNING_FLAGS}>)
     if (NOT STANDALONE)
@@ -483,7 +494,7 @@ macro(check_depend_condition variable depends)
     endif()
 endmacro()
 
-# gdal_dependent_format(format desc depend) do followings:
+# gdal_dependent_format(format desc depend) do the following:
 # - add subdirectory 'format'
 # - define option "GDAL_ENABLE_DRIVER_NAME" then set to default OFF/ON
 # - when enabled, add definition"-DFRMT_format"
@@ -531,7 +542,7 @@ macro(gdal_optional_format format desc)
     endif ()
 endmacro()
 
-# ogr_dependent_driver(NAME desc depend) do followings:
+# ogr_dependent_driver(NAME desc depend) do the following:
 # - define option "OGR_ENABLE_DRIVER_<name>" with default OFF
 # - add subdirectory 'name'
 # - when dependency specified by depend fails, force OFF
@@ -549,7 +560,7 @@ macro(ogr_dependent_driver name desc depend)
     endif ()
 endmacro()
 
-# ogr_optional_driver(name desc) do followings:
+# ogr_optional_driver(name desc) do the following:
 # - define option "OGR_ENABLE_DRIVER_<name>" with default OFF
 # - add subdirectory 'name' when enabled
 macro(ogr_optional_driver name desc)

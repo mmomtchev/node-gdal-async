@@ -31,18 +31,20 @@ class OGRGPSBabelDataSource final : public GDALDataset
     CPLString osTmpFileName{};
     GDALDataset *poGPXDS = nullptr;
 
+    CPL_DISALLOW_COPY_ASSIGN(OGRGPSBabelDataSource)
+
   public:
     OGRGPSBabelDataSource();
-    virtual ~OGRGPSBabelDataSource();
+    ~OGRGPSBabelDataSource() override;
 
-    virtual int CloseDependentDatasets() override;
+    int CloseDependentDatasets() override;
 
-    virtual int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return nLayers;
     }
 
-    virtual OGRLayer *GetLayer(int) override;
+    const OGRLayer *GetLayer(int) const override;
 
     int Open(const char *pszFilename, const char *pszGPSBabelDriverNameIn,
              char **papszOpenOptions);
@@ -57,21 +59,23 @@ class OGRGPSBabelDataSource final : public GDALDataset
 
 class OGRGPSBabelWriteDataSource final : public GDALDataset
 {
-    char *pszGPSBabelDriverName;
-    char *pszFilename;
-    CPLString osTmpFileName;
-    GDALDataset *poGPXDS;
+    char *pszGPSBabelDriverName{};
+    char *pszFilename{};
+    CPLString osTmpFileName{};
+    GDALDataset *poGPXDS{};
 
     bool Convert();
 
+    CPL_DISALLOW_COPY_ASSIGN(OGRGPSBabelWriteDataSource)
+
   public:
     OGRGPSBabelWriteDataSource();
-    virtual ~OGRGPSBabelWriteDataSource();
+    ~OGRGPSBabelWriteDataSource() override;
 
-    virtual int GetLayerCount() override;
-    virtual OGRLayer *GetLayer(int) override;
+    int GetLayerCount() const override;
+    const OGRLayer *GetLayer(int) const override;
 
-    virtual int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 
     OGRLayer *ICreateLayer(const char *pszName,
                            const OGRGeomFieldDefn *poGeomFieldDefn,

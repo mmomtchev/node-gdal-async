@@ -23,6 +23,8 @@
 
 using namespace PCIDSK;
 
+PCIDSKToutinSegment::~PCIDSKToutinSegment() = default;
+
 CPCIDSKToutinModelSegment::CPCIDSKToutinModelSegment(PCIDSKFile *fileIn,
                                                    int segmentIn,
                                                    const char *segment_pointer) :
@@ -1297,7 +1299,6 @@ int CPCIDSKToutinModelSegment::GetModel( int nSensor )
 
     default:
         return ThrowPCIDSKException(0, "Invalid sensor type.");
-        break;
     }
 
     return (nModel);

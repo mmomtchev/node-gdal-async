@@ -33,7 +33,7 @@ class S100BaseDataset CPL_NON_FINAL : public GDALPamDataset
     std::shared_ptr<GDALGroup> m_poRootGroup{};
     OGRSpatialReference m_oSRS{};
     bool m_bHasGT = false;
-    double m_adfGeoTransform[6] = {0, 1, 0, 0, 0, 1};
+    GDALGeoTransform m_gt{};
     std::string m_osMetadataFile{};
 
     explicit S100BaseDataset(const std::string &osFilename);
@@ -41,7 +41,7 @@ class S100BaseDataset CPL_NON_FINAL : public GDALPamDataset
     bool Init();
 
   public:
-    CPLErr GetGeoTransform(double *) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
     const OGRSpatialReference *GetSpatialRef() const override;
 
     char **GetFileList() override;
@@ -58,10 +58,14 @@ bool S100GetDimensions(
     std::vector<std::shared_ptr<GDALDimension>> &apoDims,
     std::vector<std::shared_ptr<GDALMDArray>> &apoIndexingVars);
 
-bool S100GetGeoTransform(const GDALGroup *poGroup, double adfGeoTransform[6],
+bool S100GetGeoTransform(const GDALGroup *poGroup, GDALGeoTransform &gt,
                          bool bNorthUp);
 
-void S100ReadVerticalDatum(GDALDataset *poDS, const GDALGroup *poRootGroup);
+constexpr const char *S100_VERTICAL_DATUM_MEANING = "VERTICAL_DATUM_MEANING";
+constexpr const char *S100_VERTICAL_DATUM_ABBREV = "VERTICAL_DATUM_ABBREV";
+constexpr const char *S100_VERTICAL_DATUM_NAME = "VERTICAL_DATUM_NAME";
+
+void S100ReadVerticalDatum(GDALMajorObject *poMO, const GDALGroup *poGroup);
 
 std::string S100ReadMetadata(GDALDataset *poDS, const std::string &osFilename,
                              const GDALGroup *poRootGroup);

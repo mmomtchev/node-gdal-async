@@ -333,7 +333,7 @@ typedef struct
     // GDALRefreshGenImgProjTransformer() must do something or not.
     bool bCheckWithInvertPROJ;
 
-    // Set to TRUE when the transformation pipline is a custom one.
+    // Set to TRUE when the transformation pipeline is a custom one.
     bool bHasCustomTransformationPipeline;
 
 } GDALGenImgProjTransformInfo;
@@ -387,14 +387,14 @@ struct FloatEqualityTest
     }
 };
 
-bool GDALComputeAreaOfInterest(OGRSpatialReference *poSRS, double adfGT[6],
-                               int nXSize, int nYSize,
+bool GDALComputeAreaOfInterest(const OGRSpatialReference *poSRS,
+                               double adfGT[6], int nXSize, int nYSize,
                                double &dfWestLongitudeDeg,
                                double &dfSouthLatitudeDeg,
                                double &dfEastLongitudeDeg,
                                double &dfNorthLatitudeDeg);
 
-bool GDALComputeAreaOfInterest(OGRSpatialReference *poSRS, double dfX1,
+bool GDALComputeAreaOfInterest(const OGRSpatialReference *poSRS, double dfX1,
                                double dfY1, double dfX2, double dfY2,
                                double &dfWestLongitudeDeg,
                                double &dfSouthLatitudeDeg,

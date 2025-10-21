@@ -54,16 +54,16 @@ class OGRSOSILayer final : public OGRLayer
   public:
     OGRSOSILayer(OGRSOSIDataSource *poPar, OGRFeatureDefn *poFeatDefn,
                  LC_FILADM *poFil, S2I *poHeadDefn);
-    ~OGRSOSILayer();
+    ~OGRSOSILayer() override;
 
     void ResetReading() override;
     OGRFeature *GetNextFeature() override;
-    OGRFeatureDefn *GetLayerDefn() override;
+    const OGRFeatureDefn *GetLayerDefn() const override;
 #ifdef WRITE_SUPPORT
     OGRErr CreateField(OGRFieldDefn *poField, int bApproxOK = TRUE) override;
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
 #endif
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 };
 
 /************************************************************************
@@ -103,18 +103,18 @@ class OGRSOSIDataSource final : public GDALDataset
     S2I *poTextHeaders;
 
     OGRSOSIDataSource();
-    ~OGRSOSIDataSource();
+    ~OGRSOSIDataSource() override;
 
     int Open(const char *pszFilename, int bUpdate);
 #ifdef WRITE_SUPPORT
     int Create(const char *pszFilename);
 #endif
-    int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return nLayers;
     }
 
-    OGRLayer *GetLayer(int) override;
+    const OGRLayer *GetLayer(int) const override;
 #ifdef WRITE_SUPPORT
     OGRLayer *ICreateLayer(const char *pszName,
                            const OGRSpatialReference *poSpatialRef = NULL,
@@ -137,7 +137,6 @@ class OGRSOSISimpleDataType
   public:
     OGRSOSISimpleDataType();
     OGRSOSISimpleDataType(const char *pszName, OGRFieldType nType);
-    ~OGRSOSISimpleDataType();
 
     void setType(const char *pszName, OGRFieldType nType);
 
@@ -158,6 +157,7 @@ class OGRSOSIDataType
     int nElementCount = 0;
 
     OGRSOSIDataType &operator=(const OGRSOSIDataType &) = delete;
+    OGRSOSIDataType &operator=(OGRSOSIDataType &&) = delete;
 
   public:
     explicit OGRSOSIDataType(int nSize);

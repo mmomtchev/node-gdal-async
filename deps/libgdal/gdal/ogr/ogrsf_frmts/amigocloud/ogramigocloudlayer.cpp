@@ -14,6 +14,8 @@
 #include "ogr_p.h"
 #include "ogrlibjsonutils.h"
 
+OGRAmigoCloudGeomFieldDefn::~OGRAmigoCloudGeomFieldDefn() = default;
+
 /************************************************************************/
 /*                         OGRAmigoCloudLayer()                            */
 /************************************************************************/
@@ -59,9 +61,10 @@ void OGRAmigoCloudLayer::ResetReading()
 /*                           GetLayerDefn()                             */
 /************************************************************************/
 
-OGRFeatureDefn *OGRAmigoCloudLayer::GetLayerDefn()
+const OGRFeatureDefn *OGRAmigoCloudLayer::GetLayerDefn() const
 {
-    return GetLayerDefnInternal(nullptr);
+    return const_cast<OGRAmigoCloudLayer *>(this)->GetLayerDefnInternal(
+        nullptr);
 }
 
 /************************************************************************/
@@ -252,7 +255,7 @@ OGRFeature *OGRAmigoCloudLayer::GetNextFeature()
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRAmigoCloudLayer::TestCapability(const char *pszCap)
+int OGRAmigoCloudLayer::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, OLCStringsAsUTF8))

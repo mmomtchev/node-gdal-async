@@ -129,8 +129,7 @@ int OGRODBCDataSource::OpenMDB(GDALOpenInfo *poOpenInfo)
 
                 osLayerName += pszTableName;
 
-                const CPLString osLCTableName(CPLString(osLayerName).tolower());
-                m_aosAllLCTableNames.insert(osLCTableName);
+                m_aosAllLCTableNames.insert(CPLString(osLayerName).tolower());
 
                 aosTableNames.emplace_back(osLayerName);
             }
@@ -474,7 +473,7 @@ int OGRODBCDataSource::OpenTable(const char *pszNewName, const char *pszGeomCol)
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRODBCDataSource::TestCapability(CPL_UNUSED const char *pszCap)
+int OGRODBCDataSource::TestCapability(const char *) const
 {
     return FALSE;
 }
@@ -483,7 +482,7 @@ int OGRODBCDataSource::TestCapability(CPL_UNUSED const char *pszCap)
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGRODBCDataSource::GetLayer(int iLayer)
+const OGRLayer *OGRODBCDataSource::GetLayer(int iLayer) const
 
 {
     if (iLayer < 0 || iLayer >= nLayers)

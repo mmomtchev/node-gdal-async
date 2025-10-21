@@ -291,7 +291,8 @@ void OGROCIDataSource::ValidateLayer(const char *pszLayerName)
     /* -------------------------------------------------------------------- */
     /*      Verify we have an FID and geometry column for this table.       */
     /* -------------------------------------------------------------------- */
-    OGROCITableLayer *poLayer = (OGROCITableLayer *)papoLayers[iLayer];
+    OGROCITableLayer *poLayer =
+        cpl::down_cast<OGROCITableLayer *>(papoLayers[iLayer]);
 
     if (strlen(poLayer->GetFIDColumn()) == 0)
     {
@@ -643,7 +644,7 @@ OGROCIDataSource::ICreateLayer(const char *pszLayerName,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGROCIDataSource::TestCapability(const char *pszCap)
+int OGROCIDataSource::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, ODsCCreateLayer) && bDSUpdate)
@@ -662,7 +663,7 @@ int OGROCIDataSource::TestCapability(const char *pszCap)
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGROCIDataSource::GetLayer(int iLayer)
+const OGRLayer *OGROCIDataSource::GetLayer(int iLayer) const
 
 {
     if (iLayer < 0 || iLayer >= nLayers)

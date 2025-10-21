@@ -40,7 +40,7 @@ class CALSDataset final : public GDALPamDataset
     {
     }
 
-    ~CALSDataset();
+    ~CALSDataset() override;
 
     static int Identify(GDALOpenInfo *poOpenInfo);
     static GDALDataset *Open(GDALOpenInfo *);
@@ -71,10 +71,7 @@ class CALSRasterBand final : public GDALPamRasterBand
         eDataType = GDT_Byte;
     }
 
-    CPLErr IReadBlock(int nBlockXOff, int nBlockYOff, void *pData) override
-    {
-        return poUnderlyingBand->ReadBlock(nBlockXOff, nBlockYOff, pData);
-    }
+    CPLErr IReadBlock(int nBlockXOff, int nBlockYOff, void *pData) override;
 
     CPLErr IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSize,
                      int nYSize, void *pData, int nBufXSize, int nBufYSize,
@@ -113,6 +110,11 @@ class CALSRasterBand final : public GDALPamRasterBand
         return pszRet;
     }
 };
+
+CPLErr CALSRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pData)
+{
+    return poUnderlyingBand->ReadBlock(nBlockXOff, nBlockYOff, pData);
+}
 
 /************************************************************************/
 /* ==================================================================== */
@@ -158,23 +160,30 @@ class CALSWrapperSrcBand final : public GDALPamRasterBand
                      int nYSize, void *pData, int nBufXSize, int nBufYSize,
                      GDALDataType eBufType, GSpacing nPixelSpace,
                      GSpacing nLineSpace,
-                     GDALRasterIOExtraArg *psExtraArg) override
-    {
-        const CPLErr eErr = poSrcDS->GetRasterBand(1)->RasterIO(
-            eRWFlag, nXOff, nYOff, nXSize, nYSize, pData, nBufXSize, nBufYSize,
-            eBufType, nPixelSpace, nLineSpace, psExtraArg);
-        if (bInvertValues)
-        {
-            for (int j = 0; j < nBufYSize; j++)
-            {
-                for (int i = 0; i < nBufXSize; i++)
-                    ((GByte *)pData)[j * nLineSpace + i * nPixelSpace] =
-                        1 - ((GByte *)pData)[j * nLineSpace + i * nPixelSpace];
-            }
-        }
-        return eErr;
-    }
+                     GDALRasterIOExtraArg *psExtraArg) override;
 };
+
+CPLErr CALSWrapperSrcBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
+                                     int nXSize, int nYSize, void *pData,
+                                     int nBufXSize, int nBufYSize,
+                                     GDALDataType eBufType,
+                                     GSpacing nPixelSpace, GSpacing nLineSpace,
+                                     GDALRasterIOExtraArg *psExtraArg)
+{
+    const CPLErr eErr = poSrcDS->GetRasterBand(1)->RasterIO(
+        eRWFlag, nXOff, nYOff, nXSize, nYSize, pData, nBufXSize, nBufYSize,
+        eBufType, nPixelSpace, nLineSpace, psExtraArg);
+    if (bInvertValues)
+    {
+        for (int j = 0; j < nBufYSize; j++)
+        {
+            for (int i = 0; i < nBufXSize; i++)
+                ((GByte *)pData)[j * nLineSpace + i * nPixelSpace] =
+                    1 - ((GByte *)pData)[j * nLineSpace + i * nPixelSpace];
+        }
+    }
+    return eErr;
+}
 
 /************************************************************************/
 /* ==================================================================== */
@@ -192,7 +201,11 @@ class CALSWrapperSrcDataset final : public GDALPamDataset
         SetBand(1, new CALSWrapperSrcBand(poSrcDS));
         SetMetadataItem("TIFFTAG_DOCUMENTNAME", pszPadding);
     }
+
+    ~CALSWrapperSrcDataset() override;
 };
+
+CALSWrapperSrcDataset::~CALSWrapperSrcDataset() = default;
 
 /************************************************************************/
 /* ==================================================================== */
@@ -511,25 +524,25 @@ GDALDataset *CALSDataset::CreateCopy(const char *pszFilename,
     CPLString osField;
     osField = "srcdocid: NONE";
     // cppcheck-suppress redundantCopy
-    memcpy(szBuffer, osField, osField.size());
+    memcpy(szBuffer, osField.c_str(), osField.size());
 
     osField = "dstdocid: NONE";
-    memcpy(szBuffer + 128, osField, osField.size());
+    memcpy(szBuffer + 128, osField.c_str(), osField.size());
 
     osField = "txtfilid: NONE";
-    memcpy(szBuffer + 128 * 2, osField, osField.size());
+    memcpy(szBuffer + 128 * 2, osField.c_str(), osField.size());
 
     osField = "figid: NONE";
-    memcpy(szBuffer + 128 * 3, osField, osField.size());
+    memcpy(szBuffer + 128 * 3, osField.c_str(), osField.size());
 
     osField = "srcgph: NONE";
-    memcpy(szBuffer + 128 * 4, osField, osField.size());
+    memcpy(szBuffer + 128 * 4, osField.c_str(), osField.size());
 
     osField = "doccls: NONE";
-    memcpy(szBuffer + 128 * 5, osField, osField.size());
+    memcpy(szBuffer + 128 * 5, osField.c_str(), osField.size());
 
     osField = "rtype: 1";
-    memcpy(szBuffer + 128 * 6, osField, osField.size());
+    memcpy(szBuffer + 128 * 6, osField.c_str(), osField.size());
 
     int nAngle1 = 0;
     int nAngle2 = 270;
@@ -542,11 +555,11 @@ GDALDataset *CALSDataset::CreateCopy(const char *pszFilename,
         nAngle2 = atoi(pszLineProgression);
     }
     osField = CPLSPrintf("rorient: %03d,%03d", nAngle1, nAngle2);
-    memcpy(szBuffer + 128 * 7, osField, osField.size());
+    memcpy(szBuffer + 128 * 7, osField.c_str(), osField.size());
 
     osField = CPLSPrintf("rpelcnt: %06d,%06d", poSrcDS->GetRasterXSize(),
                          poSrcDS->GetRasterYSize());
-    memcpy(szBuffer + 128 * 8, osField, osField.size());
+    memcpy(szBuffer + 128 * 8, osField.c_str(), osField.size());
 
     int nDensity = 200;
     const char *pszXRes = poSrcDS->GetMetadataItem("TIFFTAG_XRESOLUTION");
@@ -560,10 +573,10 @@ GDALDataset *CALSDataset::CreateCopy(const char *pszFilename,
             nDensity = 200;
     }
     osField = CPLSPrintf("rdensty: %04d", nDensity);
-    memcpy(szBuffer + 128 * 9, osField, osField.size());
+    memcpy(szBuffer + 128 * 9, osField.c_str(), osField.size());
 
     osField = "notes: NONE";
-    memcpy(szBuffer + 128 * 10, osField, osField.size());
+    memcpy(szBuffer + 128 * 10, osField.c_str(), osField.size());
     VSIFWriteL(szBuffer, 1, 2048, fp);
     VSIFCloseL(fp);
 

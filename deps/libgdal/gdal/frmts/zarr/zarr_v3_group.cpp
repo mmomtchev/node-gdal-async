@@ -187,6 +187,17 @@ ZarrV3Group::ZarrV3Group(
 
 ZarrV3Group::~ZarrV3Group()
 {
+    ZarrV3Group::Close();
+}
+
+/************************************************************************/
+/*                            Close()                                   */
+/************************************************************************/
+
+bool ZarrV3Group::Close()
+{
+    bool bRet = ZarrGroupBase::Close();
+
     if (m_bValid && m_oAttrGroup.IsModified())
     {
         CPLJSONDocument oDoc;
@@ -196,8 +207,10 @@ ZarrV3Group::~ZarrV3Group()
         oRoot.Add("attributes", m_oAttrGroup.Serialize());
         const std::string osZarrJsonFilename = CPLFormFilenameSafe(
             m_osDirectoryName.c_str(), "zarr.json", nullptr);
-        oDoc.Save(osZarrJsonFilename);
+        bRet = oDoc.Save(osZarrJsonFilename) && bRet;
     }
+
+    return bRet;
 }
 
 /************************************************************************/
@@ -720,7 +733,8 @@ std::shared_ptr<GDALMDArray> ZarrV3Group::CreateMDArray(
         poArray->SetCodecs(std::move(poCodecs));
     poArray->SetUpdatable(true);
     poArray->SetDefinitionModified(true);
-    poArray->Flush();
+    if (!cpl::starts_with(osFilename, "/vsi") && !poArray->Flush())
+        return nullptr;
     RegisterArray(poArray);
 
     return poArray;

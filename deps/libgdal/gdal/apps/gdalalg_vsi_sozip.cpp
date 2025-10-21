@@ -106,12 +106,7 @@ class GDALVSISOZIPCreateBaseAlgorithm /* non final */ : public GDALAlgorithm
                 .SetMinCharCount(1);
 
         AddOutputStringArg(&m_output);
-        AddArg("quiet", 'q', _("Quiet mode"), &m_quiet).SetOnlyForCLI();
-        AddArg("stdout", 0,
-               _("Directly output on stdout. If enabled, "
-                 "output-string will be empty"),
-               &m_stdout)
-            .SetHiddenForCLI();
+        AddStdoutArg(&m_stdout);
     }
 
   private:
@@ -127,7 +122,6 @@ class GDALVSISOZIPCreateBaseAlgorithm /* non final */ : public GDALAlgorithm
     std::string m_contentType{};
     std::string m_output{};
     bool m_stdout = false;
-    bool m_quiet = false;
 
     bool RunImpl(GDALProgressFunc, void *) override;
 
@@ -357,7 +351,11 @@ class GDALVSISOZIPCreateAlgorithm final : public GDALVSISOZIPCreateBaseAlgorithm
         : GDALVSISOZIPCreateBaseAlgorithm(NAME, DESCRIPTION, HELP_URL, false)
     {
     }
+
+    ~GDALVSISOZIPCreateAlgorithm() override;
 };
+
+GDALVSISOZIPCreateAlgorithm::~GDALVSISOZIPCreateAlgorithm() = default;
 
 /************************************************************************/
 /*                  GDALVSISOZIPOptimizeAlgorithm                       */
@@ -376,7 +374,11 @@ class GDALVSISOZIPOptimizeAlgorithm final
         : GDALVSISOZIPCreateBaseAlgorithm(NAME, DESCRIPTION, HELP_URL, true)
     {
     }
+
+    ~GDALVSISOZIPOptimizeAlgorithm() override;
 };
+
+GDALVSISOZIPOptimizeAlgorithm::~GDALVSISOZIPOptimizeAlgorithm() = default;
 
 /************************************************************************/
 /*                      GDALVSISOZIPListAlgorithm                       */
@@ -488,24 +490,15 @@ class GDALVSISOZIPValidateAlgorithm final : public GDALAlgorithm
             .SetRequired()
             .SetPositional();
         AddOutputStringArg(&m_output);
-        AddArg("quiet", 'q', _("Quiet mode"), &m_quiet)
-            .SetOnlyForCLI()
-            .SetMutualExclusionGroup("quiet-verbose");
         AddArg("verbose", 'v', _("Turn on verbose mode"), &m_verbose)
-            .SetOnlyForCLI()
-            .SetMutualExclusionGroup("quiet-verbose");
-        AddArg("stdout", 0,
-               _("Directly output on stdout. If enabled, "
-                 "output-string will be empty"),
-               &m_stdout)
-            .SetHiddenForCLI();
+            .SetHiddenForAPI();
+        AddStdoutArg(&m_stdout);
     }
 
   private:
     std::string m_zipFilename{};
     std::string m_output{};
     bool m_stdout = false;
-    bool m_quiet = false;
     bool m_verbose = false;
 
     bool RunImpl(GDALProgressFunc, void *) override;
@@ -849,6 +842,18 @@ GDALVSISOZIPAlgorithm::GDALVSISOZIPAlgorithm()
     RegisterSubAlgorithm<GDALVSISOZIPOptimizeAlgorithm>();
     RegisterSubAlgorithm<GDALVSISOZIPListAlgorithm>();
     RegisterSubAlgorithm<GDALVSISOZIPValidateAlgorithm>();
+}
+
+/************************************************************************/
+/*               GDALVSISOZIPAlgorithm::RunImpl()                       */
+/************************************************************************/
+
+bool GDALVSISOZIPAlgorithm::RunImpl(GDALProgressFunc, void *)
+{
+    CPLError(CE_Failure, CPLE_AppDefined,
+             "The Run() method should not be called directly on the \"gdal "
+             "sozip\" program.");
+    return false;
 }
 
 //! @endcond

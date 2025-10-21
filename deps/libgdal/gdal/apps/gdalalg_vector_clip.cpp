@@ -85,12 +85,12 @@ class GDALVectorClipAlgorithmLayer final : public GDALVectorPipelineOutputLayer
         m_poFeatureDefn->Reference();
     }
 
-    ~GDALVectorClipAlgorithmLayer()
+    ~GDALVectorClipAlgorithmLayer() override
     {
         m_poFeatureDefn->Release();
     }
 
-    OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return m_poFeatureDefn;
     }
@@ -101,10 +101,11 @@ class GDALVectorClipAlgorithmLayer final : public GDALVectorPipelineOutputLayer
     {
         std::unique_ptr<OGRGeometry> poIntersection;
         auto poGeom = poSrcFeature->GetGeometryRef();
-        if (poGeom)
-        {
-            poIntersection.reset(poGeom->Intersection(m_poClipGeom.get()));
-        }
+
+        if (poGeom == nullptr)
+            return;
+
+        poIntersection.reset(poGeom->Intersection(m_poClipGeom.get()));
         if (!poIntersection)
             return;
         poIntersection->assignSpatialReference(
@@ -112,9 +113,11 @@ class GDALVectorClipAlgorithmLayer final : public GDALVectorPipelineOutputLayer
 
         poSrcFeature->SetFDefnUnsafe(m_poFeatureDefn);
 
+        const auto eSrcGeomType = wkbFlatten(poGeom->getGeometryType());
         const auto eFeatGeomType =
             wkbFlatten(poIntersection->getGeometryType());
-        if (m_eFlattenSrcLayerGeomType != wkbUnknown &&
+        if (eFeatGeomType != eSrcGeomType &&
+            m_eFlattenSrcLayerGeomType != wkbUnknown &&
             m_eFlattenSrcLayerGeomType != eFeatGeomType)
         {
             // If the intersection is a collection of geometry and the
@@ -158,7 +161,7 @@ class GDALVectorClipAlgorithmLayer final : public GDALVectorPipelineOutputLayer
         }
     }
 
-    int TestCapability(const char *pszCap) override
+    int TestCapability(const char *pszCap) const override
     {
         if (EQUAL(pszCap, OLCStringsAsUTF8) ||
             EQUAL(pszCap, OLCCurveGeometries) || EQUAL(pszCap, OLCZGeometries))
@@ -182,7 +185,7 @@ class GDALVectorClipAlgorithmLayer final : public GDALVectorPipelineOutputLayer
 /*                 GDALVectorClipAlgorithm::RunStep()                   */
 /************************************************************************/
 
-bool GDALVectorClipAlgorithm::RunStep(GDALProgressFunc, void *)
+bool GDALVectorClipAlgorithm::RunStep(GDALPipelineStepRunContext &)
 {
     auto poSrcDS = m_inputDataset[0].GetDatasetRef();
     CPLAssert(poSrcDS);
@@ -265,5 +268,8 @@ bool GDALVectorClipAlgorithm::RunStep(GDALProgressFunc, void *)
 
     return ret;
 }
+
+GDALVectorClipAlgorithmStandalone::~GDALVectorClipAlgorithmStandalone() =
+    default;
 
 //! @endcond

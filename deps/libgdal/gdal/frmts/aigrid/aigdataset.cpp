@@ -16,6 +16,11 @@
 #include "cpl_string.h"
 #include "gdal_frmts.h"
 #include "gdal_pam.h"
+#include "gdal_colortable.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 #include "gdal_rat.h"
 #include "ogr_spatialref.h"
 
@@ -55,7 +60,7 @@ class AIGDataset final : public GDALPamDataset
 
     static GDALDataset *Open(GDALOpenInfo *);
 
-    CPLErr GetGeoTransform(double *) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
     const OGRSpatialReference *GetSpatialRef() const override;
     char **GetFileList(void) override;
 };
@@ -124,7 +129,7 @@ AIGRasterBand::AIGRasterBand(AIGDataset *poDSIn, int nBandIn)
 CPLErr AIGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
 
 {
-    AIGDataset *poODS = (AIGDataset *)poDS;
+    AIGDataset *poODS = cpl::down_cast<AIGDataset *>(poDS);
     GInt32 *panGridRaster;
 
     if (poODS->psInfo->nCellType == AIG_CELLTYPE_INT)
@@ -182,7 +187,7 @@ CPLErr AIGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
 GDALRasterAttributeTable *AIGRasterBand::GetDefaultRAT()
 
 {
-    AIGDataset *poODS = (AIGDataset *)poDS;
+    AIGDataset *poODS = cpl::down_cast<AIGDataset *>(poDS);
 
     /* -------------------------------------------------------------------- */
     /*      Read info raster attribute table, if present.                   */
@@ -206,7 +211,7 @@ GDALRasterAttributeTable *AIGRasterBand::GetDefaultRAT()
 double AIGRasterBand::GetMinimum(int *pbSuccess)
 
 {
-    AIGDataset *poODS = (AIGDataset *)poDS;
+    AIGDataset *poODS = cpl::down_cast<AIGDataset *>(poDS);
 
     if (pbSuccess != nullptr)
         *pbSuccess = TRUE;
@@ -221,7 +226,7 @@ double AIGRasterBand::GetMinimum(int *pbSuccess)
 double AIGRasterBand::GetMaximum(int *pbSuccess)
 
 {
-    AIGDataset *poODS = (AIGDataset *)poDS;
+    AIGDataset *poODS = cpl::down_cast<AIGDataset *>(poDS);
 
     if (pbSuccess != nullptr)
         *pbSuccess = TRUE;
@@ -258,7 +263,7 @@ double AIGRasterBand::GetNoDataValue(int *pbSuccess)
 GDALColorInterp AIGRasterBand::GetColorInterpretation()
 
 {
-    AIGDataset *poODS = (AIGDataset *)poDS;
+    AIGDataset *poODS = cpl::down_cast<AIGDataset *>(poDS);
 
     if (poODS->poCT != nullptr)
         return GCI_PaletteIndex;
@@ -273,7 +278,7 @@ GDALColorInterp AIGRasterBand::GetColorInterpretation()
 GDALColorTable *AIGRasterBand::GetColorTable()
 
 {
-    AIGDataset *poODS = (AIGDataset *)poDS;
+    AIGDataset *poODS = cpl::down_cast<AIGDataset *>(poDS);
 
     if (poODS->poCT != nullptr)
         return poODS->poCT;
@@ -354,7 +359,7 @@ class AIGErrorDescription
   public:
     CPLErr eErr;
     CPLErrorNum no;
-    CPLString osMsg;
+    std::string osMsg;
 };
 
 static void CPL_STDCALL AIGErrorHandlerVATOpen(CPLErr eErr, CPLErrorNum no,
@@ -371,7 +376,7 @@ static void CPL_STDCALL AIGErrorHandlerVATOpen(CPLErr eErr, CPLErrorNum no,
     oError.eErr = eErr;
     oError.no = no;
     oError.osMsg = msg;
-    paoErrors->push_back(oError);
+    paoErrors->push_back(std::move(oError));
 }
 
 /************************************************************************/
@@ -480,7 +485,8 @@ void AIGDataset::ReadRAT()
                     const char *pszTmp =
                         (const char *)(pasFields[iField].pszStr);
                     CPLString osStrValue(pszTmp);
-                    poRAT->SetValue(iRecord - 1, iField, osStrValue.Trim());
+                    poRAT->SetValue(iRecord - 1, iField,
+                                    osStrValue.Trim().c_str());
                 }
                 break;
 
@@ -750,16 +756,16 @@ GDALDataset *AIGDataset::Open(GDALOpenInfo *poOpenInfo)
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr AIGDataset::GetGeoTransform(double *padfTransform)
+CPLErr AIGDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
-    padfTransform[0] = psInfo->dfLLX;
-    padfTransform[1] = psInfo->dfCellSizeX;
-    padfTransform[2] = 0;
+    gt[0] = psInfo->dfLLX;
+    gt[1] = psInfo->dfCellSizeX;
+    gt[2] = 0;
 
-    padfTransform[3] = psInfo->dfURY;
-    padfTransform[4] = 0;
-    padfTransform[5] = -psInfo->dfCellSizeY;
+    gt[3] = psInfo->dfURY;
+    gt[4] = 0;
+    gt[5] = -psInfo->dfCellSizeY;
 
     return CE_None;
 }

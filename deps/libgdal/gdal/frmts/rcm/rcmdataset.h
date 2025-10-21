@@ -42,7 +42,7 @@ class RCMDataset final : public GDALPamDataset
     OGRSpatialReference m_oSRS{};
     OGRSpatialReference m_oGCPSRS{};
     char **papszSubDatasets = nullptr;
-    double adfGeoTransform[6];
+    GDALGeoTransform m_gt{};
     bool bHaveGeoTransform = false;
     bool bPerPolarizationScaling = false;
     bool isComplexData = false;
@@ -56,23 +56,23 @@ class RCMDataset final : public GDALPamDataset
     CPL_DISALLOW_COPY_ASSIGN(RCMDataset)
 
   protected:
-    virtual int CloseDependentDatasets() override;
+    int CloseDependentDatasets() override;
 
   public:
-    RCMDataset();
-    virtual ~RCMDataset();
+    RCMDataset() = default;
+    ~RCMDataset() override;
 
-    virtual int GetGCPCount() override;
+    int GetGCPCount() override;
 
     const OGRSpatialReference *GetGCPSpatialRef() const override;
-    virtual const GDAL_GCP *GetGCPs() override;
+    const GDAL_GCP *GetGCPs() override;
 
     const OGRSpatialReference *GetSpatialRef() const override;
-    virtual CPLErr GetGeoTransform(double *) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
 
-    virtual char **GetMetadataDomainList() override;
-    virtual char **GetMetadata(const char *pszDomain = "") override;
-    virtual char **GetFileList(void) override;
+    char **GetMetadataDomainList() override;
+    char **GetMetadata(const char *pszDomain = "") override;
+    char **GetFileList(void) override;
 
     static GDALDataset *Open(GDALOpenInfo *);
 
@@ -155,9 +155,9 @@ class RCMRasterBand final : public GDALPamRasterBand
                   const char *pszPole, GDALDataset *poBandFile,
                   bool bTwoBandComplex, bool isOneFilePerPol, bool isNITF);
 
-    virtual ~RCMRasterBand();
+    ~RCMRasterBand() override;
 
-    virtual CPLErr IReadBlock(int, int, void *) override;
+    CPLErr IReadBlock(int, int, void *) override;
 
     static GDALDataset *Open(GDALOpenInfo *);
 };
@@ -204,7 +204,7 @@ class RCMCalibRasterBand final : public GDALPamRasterBand
                        GDALDataType eType, GDALDataset *poBandDataset,
                        eCalibration eCalib, const char *pszLUT,
                        const char *pszNoiseLevels, GDALDataType eOriginalType);
-    ~RCMCalibRasterBand();
+    ~RCMCalibRasterBand() override;
 
     CPLErr IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage) override;
 };

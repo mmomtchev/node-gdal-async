@@ -40,15 +40,28 @@ ZarrV2Group::Create(const std::shared_ptr<ZarrSharedResource> &poSharedResource,
 
 ZarrV2Group::~ZarrV2Group()
 {
+    ZarrV2Group::Close();
+}
+
+/************************************************************************/
+/*                            Close()                                   */
+/************************************************************************/
+
+bool ZarrV2Group::Close()
+{
+    bool bRet = ZarrGroupBase::Close();
+
     if (m_bValid && m_oAttrGroup.IsModified())
     {
         CPLJSONDocument oDoc;
         oDoc.SetRoot(m_oAttrGroup.Serialize());
         const std::string osAttrFilename =
             CPLFormFilenameSafe(m_osDirectoryName.c_str(), ".zattrs", nullptr);
-        oDoc.Save(osAttrFilename);
+        bRet = oDoc.Save(osAttrFilename) && bRet;
         m_poSharedResource->SetZMetadataItem(osAttrFilename, oDoc.GetRoot());
     }
+
+    return bRet;
 }
 
 /************************************************************************/
@@ -341,7 +354,7 @@ void ZarrV2Group::InitFromZMetadata(const CPLJSONObject &obj)
         if (osName.size() > strlen("/.zattrs") &&
             osName.substr(osName.size() - strlen("/.zattrs")) == "/.zattrs")
         {
-            const auto osObjectFullnameNoLeadingSlash =
+            std::string osObjectFullnameNoLeadingSlash =
                 osName.substr(0, osName.size() - strlen("/.zattrs"));
             auto poSubGroup = std::dynamic_pointer_cast<ZarrV2Group>(
                 OpenGroupFromFullname('/' + osObjectFullnameNoLeadingSlash));
@@ -356,7 +369,7 @@ void ZarrV2Group::InitFromZMetadata(const CPLJSONObject &obj)
                 {
                     const auto nLastSlashPos =
                         osObjectFullnameNoLeadingSlash.rfind('/');
-                    const auto osArrayName =
+                    const std::string osArrayName =
                         (nLastSlashPos == std::string::npos)
                             ? osObjectFullnameNoLeadingSlash
                             : osObjectFullnameNoLeadingSlash.substr(
@@ -374,7 +387,8 @@ void ZarrV2Group::InitFromZMetadata(const CPLJSONObject &obj)
                     else
                     {
                         ArrayDesc desc;
-                        desc.osArrayFullname = osObjectFullnameNoLeadingSlash;
+                        desc.osArrayFullname =
+                            std::move(osObjectFullnameNoLeadingSlash);
                         desc.poArray = oIter->second;
                         desc.poAttrs = &child;
                         aoRegularArrays.emplace_back(std::move(desc));
@@ -1121,7 +1135,8 @@ std::shared_ptr<GDALMDArray> ZarrV2Group::CreateMDArray(
     poArray->SetFilters(oFilters);
     poArray->SetUpdatable(true);
     poArray->SetDefinitionModified(true);
-    poArray->Flush();
+    if (!cpl::starts_with(osZarrayFilename, "/vsi") && !poArray->Flush())
+        return nullptr;
     RegisterArray(poArray);
 
     return poArray;

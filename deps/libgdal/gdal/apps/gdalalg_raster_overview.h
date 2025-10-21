@@ -21,12 +21,14 @@
 
 #include "gdalalg_raster_overview_add.h"
 #include "gdalalg_raster_overview_delete.h"
+#include "gdalalg_raster_overview_refresh.h"
 
 /************************************************************************/
 /*                      GDALRasterOverviewAlgorithm                     */
 /************************************************************************/
 
-class GDALRasterOverviewAlgorithm final : public GDALAlgorithm
+class GDALRasterOverviewAlgorithm /* non final */
+    : public GDALRasterPipelineStepAlgorithm
 {
   public:
     static constexpr const char *NAME = "overview";
@@ -35,20 +37,42 @@ class GDALRasterOverviewAlgorithm final : public GDALAlgorithm
     static constexpr const char *HELP_URL =
         "/programs/gdal_raster_overview.html";
 
-    GDALRasterOverviewAlgorithm() : GDALAlgorithm(NAME, DESCRIPTION, HELP_URL)
+    explicit GDALRasterOverviewAlgorithm(bool standaloneStep = false)
+        : GDALRasterPipelineStepAlgorithm(NAME, DESCRIPTION, HELP_URL,
+                                          ConstructorOptions()
+                                              .SetStandaloneStep(standaloneStep)
+                                              .SetAddDefaultArguments(false))
     {
-        RegisterSubAlgorithm<GDALRasterOverviewAlgorithmAdd>();
-        RegisterSubAlgorithm<GDALRasterOverviewAlgorithmDelete>();
+        if (standaloneStep)
+        {
+            RegisterSubAlgorithm<GDALRasterOverviewAlgorithmAddStandalone>();
+            RegisterSubAlgorithm<GDALRasterOverviewAlgorithmDelete>();
+            RegisterSubAlgorithm<GDALRasterOverviewAlgorithmRefresh>();
+        }
+        else
+        {
+            RegisterSubAlgorithm<GDALRasterOverviewAlgorithmAdd>();
+        }
     }
 
   private:
-    bool RunImpl(GDALProgressFunc, void *) override
+    bool RunStep(GDALPipelineStepRunContext &ctxt) override;
+};
+
+/************************************************************************/
+/*                 GDALRasterOverviewAlgorithmStandalone                */
+/************************************************************************/
+
+class GDALRasterOverviewAlgorithmStandalone final
+    : public GDALRasterOverviewAlgorithm
+{
+  public:
+    GDALRasterOverviewAlgorithmStandalone()
+        : GDALRasterOverviewAlgorithm(/* standaloneStep = */ true)
     {
-        CPLError(CE_Failure, CPLE_AppDefined,
-                 "The Run() method should not be called directly on the \"gdal "
-                 "raster overview\" program.");
-        return false;
     }
+
+    ~GDALRasterOverviewAlgorithmStandalone() override;
 };
 
 //! @endcond

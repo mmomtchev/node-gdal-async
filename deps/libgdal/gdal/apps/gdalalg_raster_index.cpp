@@ -32,7 +32,8 @@ GDALRasterIndexAlgorithm::GDALRasterIndexAlgorithm()
 {
     AddProgressArg();
     AddInputDatasetArg(&m_inputDatasets, GDAL_OF_RASTER)
-        .SetAutoOpenDataset(false);
+        .SetAutoOpenDataset(false)
+        .SetDatasetInputFlags(GADV_NAME);
     GDALVectorOutputAbstractAlgorithm::AddAllOutputArgs();
 
     AddCommonOptions();
@@ -87,10 +88,10 @@ void GDALRasterIndexAlgorithm::AddCommonOptions()
            &m_locationName)
         .SetDefault(m_locationName)
         .SetMinCharCount(1);
-    AddArg("absolute-path", 0,
-           _("Whether the path to the input datasets should be stored as an "
-             "absolute path"),
-           &m_writeAbsolutePaths);
+    AddAbsolutePathArg(
+        &m_writeAbsolutePaths,
+        _("Whether the path to the input datasets should be stored as an "
+          "absolute path"));
     AddArg("dst-crs", 0, _("Destination CRS"), &m_crs)
         .SetIsCRSArg()
         .AddHiddenAlias("t_srs");
@@ -104,6 +105,9 @@ void GDALRasterIndexAlgorithm::AddCommonOptions()
                                 { return ParseAndValidateKeyValue(arg); });
         arg.AddHiddenAlias("mo");
     }
+
+    AddArg("skip-errors", 0, _("Skip errors related to input datasets"),
+           &m_skipErrors);
 }
 
 /************************************************************************/
@@ -134,6 +138,12 @@ bool GDALRasterIndexAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         return false;
 
     CPLStringList aosOptions;
+    aosOptions.push_back("--invoked-from-gdal-raster-index");
+
+    if (m_skipErrors)
+    {
+        aosOptions.push_back("-skip_errors");
+    }
     if (m_recursive)
     {
         aosOptions.push_back("-recursive");

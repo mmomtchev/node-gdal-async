@@ -163,29 +163,22 @@ typedef HMODULE LibraryHandle;
 /*                          LoadPythonAPI()                             */
 /************************************************************************/
 
-#if defined(LOAD_NOCHECK_WITH_NAME) && defined(HAVE_DLFCN_H) && !defined(_WIN32)
-static LibraryHandle libHandleStatic = nullptr;
-#endif
-
 /** Load the subset of the Python C API that we need */
 static bool LoadPythonAPI()
 {
-    static bool bInit = false;
-    if (bInit)
-        return true;
+    static int nInit = -1;
+    if (nInit >= 0)
+        return nInit == TRUE;
+    nInit = FALSE;
 
 #ifdef LOAD_NOCHECK_WITH_NAME
-    // The static here is just to avoid Coverity warning about resource leak.
-    LibraryHandle libHandle = nullptr;
-
+    static LibraryHandle libHandle = nullptr;
     const char *pszPythonSO = CPLGetConfigOption("PYTHONSO", nullptr);
 #if defined(HAVE_DLFCN_H) && !defined(_WIN32)
 
     // First try in the current process in case the python symbols would
     // be already loaded
-    (void)libHandle;
     libHandle = dlopen(nullptr, RTLD_LAZY);
-    libHandleStatic = libHandle;
     if (libHandle != nullptr &&
         dlsym(libHandle, "Py_SetProgramName") != nullptr)
     {
@@ -193,6 +186,8 @@ static bool LoadPythonAPI()
     }
     else
     {
+        if (libHandle)
+            dlclose(libHandle);
         libHandle = nullptr;
     }
 
@@ -417,9 +412,8 @@ static bool LoadPythonAPI()
             "libpython3.8." SO_EXT,  "libpython3.9." SO_EXT,
             "libpython3.10." SO_EXT, "libpython3.11." SO_EXT,
             "libpython3.12." SO_EXT, "libpython3.13." SO_EXT,
-            "libpython3.7m." SO_EXT, "libpython3.6m." SO_EXT,
-            "libpython3.5m." SO_EXT, "libpython3.4m." SO_EXT,
-            "libpython3.3." SO_EXT,  "libpython3.2." SO_EXT};
+            "libpython3.14." SO_EXT, "libpython3.7m." SO_EXT,
+            "libpython3.6m." SO_EXT, "libpython3.5m." SO_EXT};
         for (size_t i = 0;
              libHandle == nullptr && i < CPL_ARRAYSIZE(apszPythonSO); ++i)
         {
@@ -615,8 +609,8 @@ static bool LoadPythonAPI()
     {
         const char *const apszPythonSO[] = {
             "python38.dll",  "python39.dll",  "python310.dll", "python311.dll",
-            "python312.dll", "python313.dll", "python37.dll",  "python36.dll",
-            "python35.dll",  "python34.dll",  "python33.dll",  "python32.dll"};
+            "python312.dll", "python313.dll", "python314.dll", "python37.dll",
+            "python36.dll",  "python35.dll"};
         UINT uOldErrorMode;
         uOldErrorMode =
             SetErrorMode(SEM_NOOPENFILEERRORBOX | SEM_FAILCRITICALERRORS);
@@ -795,11 +789,12 @@ static bool LoadPythonAPI()
 #else   // LOAD_NOCHECK_WITH_NAME
     CPLError(CE_Failure, CPLE_AppDefined,
              "This platform doesn't support dynamic loading of "
-             "libraries") return false;
+             "libraries");
+    return false;
 #endif  // LOAD_NOCHECK_WITH_NAME
 
-    bInit = true;
-    return bInit;
+    nInit = true;
+    return true;
 }
 
 //! @cond Doxygen_Suppress

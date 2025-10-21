@@ -29,7 +29,7 @@ inline OGRArrowDataset::OGRArrowDataset(
 /*                            SetLayer()                                */
 /************************************************************************/
 
-inline void OGRArrowDataset::SetLayer(std::unique_ptr<OGRArrowLayer> &&poLayer)
+inline void OGRArrowDataset::SetLayer(std::unique_ptr<IOGRArrowLayer> &&poLayer)
 {
     m_poLayer = std::move(poLayer);
 }
@@ -71,7 +71,9 @@ OGRArrowDataset::GetFieldDomain(const std::string &name) const
     if (iter == m_oMapDomainNameToCol.end())
         return nullptr;
     return m_oMapFieldDomains
-        .insert(std::pair(name, m_poLayer->BuildDomain(name, iter->second)))
+        .insert(
+            std::pair(name, m_poLayer->GetUnderlyingArrowLayer()->BuildDomain(
+                                name, iter->second)))
         .first->second.get();
 }
 
@@ -79,7 +81,7 @@ OGRArrowDataset::GetFieldDomain(const std::string &name) const
 /*                           GetLayerCount()                            */
 /************************************************************************/
 
-inline int OGRArrowDataset::GetLayerCount()
+inline int OGRArrowDataset::GetLayerCount() const
 {
     return m_poLayer ? 1 : 0;
 }
@@ -88,9 +90,9 @@ inline int OGRArrowDataset::GetLayerCount()
 /*                             GetLayer()                               */
 /************************************************************************/
 
-inline OGRLayer *OGRArrowDataset::GetLayer(int idx)
+inline const OGRLayer *OGRArrowDataset::GetLayer(int idx) const
 {
-    return idx == 0 ? m_poLayer.get() : nullptr;
+    return idx == 0 ? m_poLayer->GetLayer() : nullptr;
 }
 
 #endif /* OGARROWDATASET_HPP_INCLUDED */

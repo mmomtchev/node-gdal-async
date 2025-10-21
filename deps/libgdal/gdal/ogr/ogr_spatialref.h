@@ -390,6 +390,8 @@ class CPL_DLL OGRSpatialReference
     int IsSame(const OGRSpatialReference *,
                const char *const *papszOptions) const;
 
+    const char *GetCelestialBodyName() const;
+
     void Clear();
     OGRErr SetLocalCS(const char *);
     OGRErr SetProjCS(const char *);
@@ -724,7 +726,6 @@ class CPL_DLL OGRSpatialReference
     static OGRSpatialReference *GetWGS84SRS();
 
     /** Convert a OGRSpatialReference* to a OGRSpatialReferenceH.
-     * @since GDAL 2.3
      */
     static inline OGRSpatialReferenceH ToHandle(OGRSpatialReference *poSRS)
     {
@@ -732,7 +733,6 @@ class CPL_DLL OGRSpatialReference
     }
 
     /** Convert a OGRSpatialReferenceH to a OGRSpatialReference*.
-     * @since GDAL 2.3
      */
     static inline OGRSpatialReference *FromHandle(OGRSpatialReferenceH hSRS)
     {
@@ -771,9 +771,7 @@ struct CPL_DLL OGRSpatialReferenceReleaser
 class CPL_DLL OGRCoordinateTransformation
 {
   public:
-    virtual ~OGRCoordinateTransformation()
-    {
-    }
+    virtual ~OGRCoordinateTransformation();
 
     static void DestroyCT(OGRCoordinateTransformation *poCT);
 
@@ -935,7 +933,6 @@ class CPL_DLL OGRCoordinateTransformation
 
     /** Convert a OGRCoordinateTransformation* to a
      * OGRCoordinateTransformationH.
-     * @since GDAL 2.3
      */
     static inline OGRCoordinateTransformationH
     ToHandle(OGRCoordinateTransformation *poCT)
@@ -945,7 +942,6 @@ class CPL_DLL OGRCoordinateTransformation
 
     /** Convert a OGRCoordinateTransformationH to a
      * OGRCoordinateTransformation*.
-     * @since GDAL 2.3
      */
     static inline OGRCoordinateTransformation *
     FromHandle(OGRCoordinateTransformationH hCT)
@@ -968,6 +964,17 @@ class CPL_DLL OGRCoordinateTransformation
      * @since GDAL 3.3
      */
     virtual OGRCoordinateTransformation *GetInverse() const = 0;
+
+  protected:
+    /*! @cond Doxygen_Suppress */
+    OGRCoordinateTransformation() = default;
+    OGRCoordinateTransformation(const OGRCoordinateTransformation &) = default;
+    OGRCoordinateTransformation &
+    operator=(const OGRCoordinateTransformation &) = default;
+    OGRCoordinateTransformation(OGRCoordinateTransformation &&) = default;
+    OGRCoordinateTransformation &
+    operator=(OGRCoordinateTransformation &&) = default;
+    /*! @endcond */
 };
 
 OGRCoordinateTransformation CPL_DLL *

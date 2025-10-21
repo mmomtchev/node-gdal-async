@@ -13,6 +13,8 @@
 #ifndef VSIARROWFILESYSTEM_HPP_INCLUDED
 #define VSIARROWFILESYSTEM_HPP_INCLUDED
 
+#include "cpl_multiproc.h"
+
 #include "arrow/util/config.h"
 
 #include "ograrrowrandomaccessfile.h"
@@ -22,6 +24,11 @@
 #include <mutex>
 #include <vector>
 #include <utility>
+
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wweak-vtables"
+#endif
 
 /************************************************************************/
 /*                         VSIArrowFileSystem                           */
@@ -139,8 +146,7 @@ class VSIArrowFileSystem final : public arrow::fs::FileSystem
                 bParquetFound = EQUAL(
                     CPLGetExtensionSafe(psEntry->pszName).c_str(), "parquet");
 
-            const std::string osFilename =
-                select.base_dir + '/' + psEntry->pszName;
+            std::string osFilename = select.base_dir + '/' + psEntry->pszName;
             int nMode = psEntry->nMode;
             if (!psEntry->bModeKnown)
             {
@@ -155,12 +161,12 @@ class VSIArrowFileSystem final : public arrow::fs::FileSystem
             else if (VSI_ISDIR(nMode))
                 fileType = arrow::fs::FileType::Directory;
 
-            arrow::fs::FileInfo info(osFilename, fileType);
+            arrow::fs::FileInfo info(std::move(osFilename), fileType);
             if (fileType == arrow::fs::FileType::File && psEntry->bSizeKnown)
             {
                 info.set_size(psEntry->nSize);
             }
-            res.push_back(info);
+            res.push_back(std::move(info));
 
             if (m_osEnvVarPrefix == "PARQUET")
             {
@@ -271,5 +277,9 @@ class VSIArrowFileSystem final : public arrow::fs::FileSystem
         return arrow::Status::IOError("OpenAppendStream() unimplemented");
     }
 };
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 #endif  // VSIARROWFILESYSTEM_HPP_INCLUDED

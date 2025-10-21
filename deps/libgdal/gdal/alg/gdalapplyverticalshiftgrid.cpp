@@ -36,22 +36,22 @@ class GDALApplyVSGDataset final : public GDALDataset
     GDALDataset *m_poSrcDataset = nullptr;
     GDALDataset *m_poReprojectedGrid = nullptr;
     bool m_bInverse = false;
-    double m_dfSrcUnitToMeter = 0.0;
-    double m_dfDstUnitToMeter = 0.0;
+    float m_fSrcUnitToMeter = 0.0f;
+    float m_fDstUnitToMeter = 0.0f;
 
     CPL_DISALLOW_COPY_ASSIGN(GDALApplyVSGDataset)
 
   public:
     GDALApplyVSGDataset(GDALDataset *poSrcDataset,
                         GDALDataset *poReprojectedGrid, GDALDataType eDT,
-                        bool bInverse, double dfSrcUnitToMeter,
-                        double dfDstUnitToMeter, int nBlockSize);
-    virtual ~GDALApplyVSGDataset();
+                        bool bInverse, float fSrcUnitToMeter,
+                        float fDstUnitToMeter, int nBlockSize);
+    ~GDALApplyVSGDataset() override;
 
-    virtual int CloseDependentDatasets() override;
+    int CloseDependentDatasets() override;
 
-    virtual CPLErr GetGeoTransform(double *padfGeoTransform) override;
-    virtual const OGRSpatialReference *GetSpatialRef() const override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
+    const OGRSpatialReference *GetSpatialRef() const override;
 
     bool IsInitOK();
 };
@@ -71,11 +71,11 @@ class GDALApplyVSGRasterBand final : public GDALRasterBand
 
   public:
     GDALApplyVSGRasterBand(GDALDataType eDT, int nBlockSize);
-    virtual ~GDALApplyVSGRasterBand();
+    ~GDALApplyVSGRasterBand() override;
 
     virtual CPLErr IReadBlock(int nBlockXOff, int nBlockYOff,
                               void *pData) override;
-    virtual double GetNoDataValue(int *pbSuccess) override;
+    double GetNoDataValue(int *pbSuccess) override;
 };
 
 /************************************************************************/
@@ -85,12 +85,11 @@ class GDALApplyVSGRasterBand final : public GDALRasterBand
 GDALApplyVSGDataset::GDALApplyVSGDataset(GDALDataset *poSrcDataset,
                                          GDALDataset *poReprojectedGrid,
                                          GDALDataType eDT, bool bInverse,
-                                         double dfSrcUnitToMeter,
-                                         double dfDstUnitToMeter,
-                                         int nBlockSize)
+                                         float fSrcUnitToMeter,
+                                         float fDstUnitToMeter, int nBlockSize)
     : m_poSrcDataset(poSrcDataset), m_poReprojectedGrid(poReprojectedGrid),
-      m_bInverse(bInverse), m_dfSrcUnitToMeter(dfSrcUnitToMeter),
-      m_dfDstUnitToMeter(dfDstUnitToMeter)
+      m_bInverse(bInverse), m_fSrcUnitToMeter(fSrcUnitToMeter),
+      m_fDstUnitToMeter(fDstUnitToMeter)
 {
     m_poSrcDataset->Reference();
     m_poReprojectedGrid->Reference();
@@ -139,9 +138,9 @@ int GDALApplyVSGDataset::CloseDependentDatasets()
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr GDALApplyVSGDataset::GetGeoTransform(double *padfGeoTransform)
+CPLErr GDALApplyVSGDataset::GetGeoTransform(GDALGeoTransform &gt) const
 {
-    return m_poSrcDataset->GetGeoTransform(padfGeoTransform);
+    return m_poSrcDataset->GetGeoTransform(gt);
 }
 
 /************************************************************************/
@@ -160,7 +159,7 @@ const OGRSpatialReference *GDALApplyVSGDataset::GetSpatialRef() const
 bool GDALApplyVSGDataset::IsInitOK()
 {
     GDALApplyVSGRasterBand *poBand =
-        reinterpret_cast<GDALApplyVSGRasterBand *>(GetRasterBand(1));
+        cpl::down_cast<GDALApplyVSGRasterBand *>(GetRasterBand(1));
     return poBand->m_pafSrcData != nullptr && poBand->m_pafGridData != nullptr;
 }
 
@@ -195,7 +194,7 @@ GDALApplyVSGRasterBand::~GDALApplyVSGRasterBand()
 
 double GDALApplyVSGRasterBand::GetNoDataValue(int *pbSuccess)
 {
-    GDALApplyVSGDataset *poGDS = reinterpret_cast<GDALApplyVSGDataset *>(poDS);
+    GDALApplyVSGDataset *poGDS = cpl::down_cast<GDALApplyVSGDataset *>(poDS);
     return poGDS->m_poSrcDataset->GetRasterBand(1)->GetNoDataValue(pbSuccess);
 }
 
@@ -206,7 +205,7 @@ double GDALApplyVSGRasterBand::GetNoDataValue(int *pbSuccess)
 CPLErr GDALApplyVSGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
                                           void *pData)
 {
-    GDALApplyVSGDataset *poGDS = reinterpret_cast<GDALApplyVSGDataset *>(poDS);
+    GDALApplyVSGDataset *poGDS = cpl::down_cast<GDALApplyVSGDataset *>(poDS);
 
     const int nXOff = nBlockXOff * nBlockXSize;
     const int nReqXSize = (nXOff > nRasterXSize - nBlockXSize)
@@ -249,15 +248,15 @@ CPLErr GDALApplyVSGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
                 }
                 else if (poGDS->m_bInverse)
                 {
-                    m_pafSrcData[iY * nBlockXSize + iX] = static_cast<float>(
-                        (fSrcVal * poGDS->m_dfSrcUnitToMeter - fGridVal) /
-                        poGDS->m_dfDstUnitToMeter);
+                    m_pafSrcData[iY * nBlockXSize + iX] =
+                        (fSrcVal * poGDS->m_fSrcUnitToMeter - fGridVal) /
+                        poGDS->m_fDstUnitToMeter;
                 }
                 else
                 {
-                    m_pafSrcData[iY * nBlockXSize + iX] = static_cast<float>(
-                        (fSrcVal * poGDS->m_dfSrcUnitToMeter + fGridVal) /
-                        poGDS->m_dfDstUnitToMeter);
+                    m_pafSrcData[iY * nBlockXSize + iX] =
+                        (fSrcVal * poGDS->m_fSrcUnitToMeter + fGridVal) /
+                        poGDS->m_fDstUnitToMeter;
                 }
             }
             GDALCopyWords(
@@ -334,7 +333,6 @@ CPLErr GDALApplyVSGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
  * @return a new dataset corresponding to hSrcDataset adjusted with
  * hGridDataset, or NULL. If not NULL, it must be closed with GDALClose().
  *
- * @since GDAL 2.2
  * @deprecated GDAL 3.4. Will be removed in GDAL 4.0. This function was used
  *             by gdalwarp initially, but is no longer needed.
  */
@@ -347,8 +345,8 @@ GDALDatasetH GDALApplyVerticalShiftGrid(GDALDatasetH hSrcDataset,
     VALIDATE_POINTER1(hSrcDataset, "GDALApplyVerticalShiftGrid", nullptr);
     VALIDATE_POINTER1(hGridDataset, "GDALApplyVerticalShiftGrid", nullptr);
 
-    double adfSrcGT[6];
-    if (GDALGetGeoTransform(hSrcDataset, adfSrcGT) != CE_None)
+    GDALGeoTransform srcGT;
+    if (GDALDataset::FromHandle(hSrcDataset)->GetGeoTransform(srcGT) != CE_None)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "Source dataset has no geotransform.");
@@ -386,8 +384,9 @@ GDALDatasetH GDALApplyVerticalShiftGrid(GDALDatasetH hSrcDataset,
         return nullptr;
     }
 
-    double adfGridGT[6];
-    if (GDALGetGeoTransform(hGridDataset, adfGridGT) != CE_None)
+    GDALGeoTransform gridGT;
+    if (GDALDataset::FromHandle(hGridDataset)->GetGeoTransform(gridGT) !=
+        CE_None)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "Grid dataset has no geotransform.");
@@ -426,7 +425,7 @@ GDALDatasetH GDALApplyVerticalShiftGrid(GDALDatasetH hSrcDataset,
     double dfSouthLatitudeDeg = 0.0;
     double dfEastLongitudeDeg = 0.0;
     double dfNorthLatitudeDeg = 0.0;
-    GDALComputeAreaOfInterest(&oSrcSRS, adfSrcGT, nSrcXSize, nSrcYSize,
+    GDALComputeAreaOfInterest(&oSrcSRS, srcGT.data(), nSrcXSize, nSrcYSize,
                               dfWestLongitudeDeg, dfSouthLatitudeDeg,
                               dfEastLongitudeDeg, dfNorthLatitudeDeg);
 
@@ -441,8 +440,8 @@ GDALDatasetH GDALApplyVerticalShiftGrid(GDALDatasetH hSrcDataset,
                        dfNorthLatitudeDeg));
     }
     void *hTransform = GDALCreateGenImgProjTransformer4(
-        hGridSRS, adfGridGT, OGRSpatialReference::ToHandle(&oSrcSRS), adfSrcGT,
-        aosOptions.List());
+        hGridSRS, gridGT.data(), OGRSpatialReference::ToHandle(&oSrcSRS),
+        srcGT.data(), aosOptions.List());
     if (hTransform == nullptr)
         return nullptr;
     GDALWarpOptions *psWO = GDALCreateWarpOptions();
@@ -473,7 +472,9 @@ GDALDatasetH GDALApplyVerticalShiftGrid(GDALDatasetH hSrcDataset,
     const bool bErrorOnMissingShift =
         CPLFetchBool(papszOptions, "ERROR_ON_MISSING_VERT_SHIFT", false);
     psWO->padfDstNoDataReal[0] =
-        (bErrorOnMissingShift) ? -std::numeric_limits<float>::infinity() : 0.0;
+        (bErrorOnMissingShift)
+            ? static_cast<double>(-std::numeric_limits<float>::infinity())
+            : 0.0;
     psWO->papszWarpOptions =
         CSLSetNameValue(psWO->papszWarpOptions, "INIT_DEST", "NO_DATA");
 
@@ -501,12 +502,13 @@ GDALDatasetH GDALApplyVerticalShiftGrid(GDALDatasetH hSrcDataset,
     CPLAssert(eErr == CE_None);
     CPL_IGNORE_RET_VAL(eErr);
     GDALDestroyWarpOptions(psWO);
-    poReprojectedGrid->SetGeoTransform(adfSrcGT);
+    poReprojectedGrid->SetGeoTransform(srcGT);
     poReprojectedGrid->AddBand(GDT_Float32, nullptr);
 
     GDALApplyVSGDataset *poOutDS = new GDALApplyVSGDataset(
         GDALDataset::FromHandle(hSrcDataset), poReprojectedGrid, eDT,
-        CPL_TO_BOOL(bInverse), dfSrcUnitToMeter, dfDstUnitToMeter,
+        CPL_TO_BOOL(bInverse), static_cast<float>(dfSrcUnitToMeter),
+        static_cast<float>(dfDstUnitToMeter),
         // Undocumented option. For testing only
         atoi(CSLFetchNameValueDef(papszOptions, "BLOCKSIZE", "256")));
 
@@ -556,7 +558,6 @@ static CPLString GetProj4Filename(const char *pszFilename)
  *
  * @return a dataset. If not NULL, it must be closed with GDALClose().
  *
- * @since GDAL 2.2
  * @deprecated GDAL 3.4. Will be removed in GDAL 4.0. This function was used
  *             by gdalwarp initially, but is no longer needed.
  */

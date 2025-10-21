@@ -60,7 +60,7 @@ class GDALFeaturePoint
      * which provides all necessary parameters.
      */
     GDALFeaturePoint(int nX, int nY, int nScale, int nRadius, int nSign);
-    virtual ~GDALFeaturePoint();
+    ~GDALFeaturePoint();
 
     /** Assignment operator */
     GDALFeaturePoint &operator=(const GDALFeaturePoint &point);
@@ -175,7 +175,7 @@ class GDALFeaturePoint
 };
 
 /**
- * @author Andrew Migal migal.drew@gmail.com
+ * @author Andrew Migal migal.drew at gmail.com
  * @brief Integral image class (summed area table).
  * @details Integral image is a table for fast computing the sum of
  * values in rectangular subarea. In more detail, for 2-dimensional array
@@ -189,7 +189,7 @@ class GDALIntegralImage
 
   public:
     GDALIntegralImage();
-    virtual ~GDALIntegralImage();
+    ~GDALIntegralImage();
 
     /**
      * Compute integral image for specified array. Result is stored internally.
@@ -267,7 +267,7 @@ class GDALIntegralImage
 };
 
 /**
- * @author Andrew Migal migal.drew@gmail.com
+ * @author Andrew Migal migal.drew at gmail.com
  * @brief Class for computation and storage of Hessian values in SURF-based
  * algorithm.
  *
@@ -291,7 +291,7 @@ class GDALOctaveLayer
      * @note Normally constructor is invoked only by SURF-based algorithm.
      */
     GDALOctaveLayer(int nOctave, int nInterval);
-    virtual ~GDALOctaveLayer();
+    ~GDALOctaveLayer();
 
     /**
      * Perform calculation of Hessian determinants and their signs
@@ -339,7 +339,7 @@ class GDALOctaveLayer
 };
 
 /**
- * @author Andrew Migal migal.drew@gmail.com
+ * @author Andrew Migal migal.drew at gmail.com
  * @brief Class for handling octave layers in SURF-based algorithm.
  * @details Class contains OctaveLayers and provides capability to construct
  * octave space and distinguish feature points. Normally this class is used only
@@ -359,7 +359,7 @@ class GDALOctaveMap
      * OctaveStart
      */
     GDALOctaveMap(int nOctaveStart, int nOctaveEnd);
-    virtual ~GDALOctaveMap();
+    ~GDALOctaveMap();
 
     /**
      * Calculate Hessian values for octave space
@@ -414,7 +414,7 @@ class GDALOctaveMap
 };
 
 /**
- * @author Andrew Migal migal.drew@gmail.com
+ * @author Andrew Migal migal.drew at gmail.com
  * @brief Class for searching corresponding points on images.
  * @details Provides capability for detection feature points
  * and finding equal points on different images.
@@ -425,7 +425,7 @@ class GDALOctaveMap
  * unstable results.
  */
 
-class GDALSimpleSURF
+class GDALSimpleSURF final
 {
   private:
     /**
@@ -473,7 +473,7 @@ class GDALSimpleSURF
      * or only one octave if execution time is significant.
      */
     GDALSimpleSURF(int nOctaveStart, int nOctaveEnd);
-    virtual ~GDALSimpleSURF();
+    ~GDALSimpleSURF();
 
     /**
      * Convert image with RGB channels to grayscale using "luminosity" method.

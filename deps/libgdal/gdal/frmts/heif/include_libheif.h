@@ -12,6 +12,10 @@
 #ifndef INCLUDE_LIBHEIF_DEFINED
 #define INCLUDE_LIBHEIF_DEFINED
 
+#ifdef __GNUC__
+#pragma GCC system_header
+#endif
+
 #include "libheif/heif.h"
 
 #define BUILD_LIBHEIF_VERSION(x, y, z)                                         \
@@ -21,7 +25,7 @@
 #define HAS_CUSTOM_FILE_READER
 #endif
 
-#if LIBHEIF_HAVE_VERSION(1, 1, 0)
+#if LIBHEIF_NUMERIC_VERSION >= BUILD_LIBHEIF_VERSION(1, 1, 0)
 #define HAS_CUSTOM_FILE_WRITER
 #endif
 

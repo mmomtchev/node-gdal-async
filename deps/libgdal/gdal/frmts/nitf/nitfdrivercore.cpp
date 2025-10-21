@@ -14,6 +14,10 @@
  * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
+#include "gdal_priv.h"
+#include "gdal_frmts.h"
+#include "gdalplugindriverproxy.h"
+
 #include "nitfdrivercore.h"
 
 /************************************************************************/
@@ -47,9 +51,11 @@ int NITFDriverIdentify(GDALOpenInfo *poOpenInfo)
     if (poOpenInfo->nHeaderBytes < 4)
         return FALSE;
 
-    if (!STARTS_WITH_CI((char *)poOpenInfo->pabyHeader, "NITF") &&
-        !STARTS_WITH_CI((char *)poOpenInfo->pabyHeader, "NSIF") &&
-        !STARTS_WITH_CI((char *)poOpenInfo->pabyHeader, "NITF"))
+    const char *pszHeader =
+        reinterpret_cast<const char *>(poOpenInfo->pabyHeader);
+    if (!STARTS_WITH_CI(pszHeader, "NITF") &&
+        !STARTS_WITH_CI(pszHeader, "NSIF") &&
+        !STARTS_WITH_CI(pszHeader, "NITF"))
         return FALSE;
 
     /* Check that it is not in fact a NITF A.TOC file, which is handled by the
@@ -58,7 +64,7 @@ int NITFDriverIdentify(GDALOpenInfo *poOpenInfo)
                             static_cast<int>(strlen("A.TOC"));
          i++)
     {
-        if (STARTS_WITH_CI((const char *)poOpenInfo->pabyHeader + i, "A.TOC"))
+        if (STARTS_WITH_CI(pszHeader + i, "A.TOC"))
             return FALSE;
     }
 
@@ -130,9 +136,11 @@ int RPFTOCDriverIdentify(GDALOpenInfo *poOpenInfo)
     if (RPFTOCIsNonNITFFileTOC(poOpenInfo, pszFilename))
         return TRUE;
 
-    if (!STARTS_WITH_CI((char *)poOpenInfo->pabyHeader, "NITF") &&
-        !STARTS_WITH_CI((char *)poOpenInfo->pabyHeader, "NSIF") &&
-        !STARTS_WITH_CI((char *)poOpenInfo->pabyHeader, "NITF"))
+    const char *pszHeader =
+        reinterpret_cast<const char *>(poOpenInfo->pabyHeader);
+    if (!STARTS_WITH_CI(pszHeader, "NITF") &&
+        !STARTS_WITH_CI(pszHeader, "NSIF") &&
+        !STARTS_WITH_CI(pszHeader, "NITF"))
         return FALSE;
 
     /* If it is a NITF A.TOC file, it must contain A.TOC in its header */
@@ -140,7 +148,7 @@ int RPFTOCDriverIdentify(GDALOpenInfo *poOpenInfo)
                             static_cast<int>(strlen("A.TOC"));
          i++)
     {
-        if (STARTS_WITH_CI((const char *)poOpenInfo->pabyHeader + i, "A.TOC"))
+        if (STARTS_WITH_CI(pszHeader + i, "A.TOC"))
             return TRUE;
     }
 

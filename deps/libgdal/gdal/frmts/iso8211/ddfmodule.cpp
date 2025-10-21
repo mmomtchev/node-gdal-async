@@ -16,9 +16,6 @@
 
 #include <cstdio>
 #include <cstring>
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
 
 #include "cpl_conv.h"
 #include "cpl_error.h"
@@ -526,7 +523,7 @@ void DDFModule::Dump(FILE *fp)
  * the DDFModule, and should not be deleted by application code.
  */
 
-DDFFieldDefn *DDFModule::FindFieldDefn(const char *pszFieldName)
+const DDFFieldDefn *DDFModule::FindFieldDefn(const char *pszFieldName) const
 
 {
     int i;

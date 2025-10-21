@@ -37,19 +37,11 @@
 #include "gdal_priv.h"
 #include "gdal_proxy.h"
 #include "gdal_priv_templates.hpp"
+#include "gdalsubdatasetinfo.h"
 
 /*! @cond Doxygen_Suppress */
 
 // #define DEBUG_VERBOSE 1
-
-// See #5459
-#ifdef isnan
-#define HAS_ISNAN_MACRO
-#endif
-#include <algorithm>
-#if defined(HAS_ISNAN_MACRO) && !defined(isnan)
-#define isnan std::isnan
-#endif
 
 /************************************************************************/
 /* ==================================================================== */
@@ -209,7 +201,8 @@ CPLErr VRTSimpleSource::FlushCache(bool bAtClosing)
 
 void VRTSimpleSource::UnsetPreservedRelativeFilenames()
 {
-    if (!STARTS_WITH(m_osSourceFileNameOri.c_str(), "http://") &&
+    if (m_bRelativeToVRTOri &&
+        !STARTS_WITH(m_osSourceFileNameOri.c_str(), "http://") &&
         !STARTS_WITH(m_osSourceFileNameOri.c_str(), "https://"))
     {
         m_bRelativeToVRTOri = -1;
@@ -244,6 +237,19 @@ void VRTSimpleSource::SetSrcBand(GDALRasterBand *poNewSrcBand)
         m_aosOpenOptions = CSLDuplicate(poDS->GetOpenOptions());
         m_aosOpenOptionsOri = m_aosOpenOptions;
     }
+}
+
+/************************************************************************/
+/*                      SetSourceDatasetName()                          */
+/************************************************************************/
+
+void VRTSimpleSource::SetSourceDatasetName(const char *pszFilename,
+                                           bool bRelativeToVRT)
+{
+    CPLAssert(m_nBand >= 0);
+    m_osSrcDSName = pszFilename;
+    m_osSourceFileNameOri = pszFilename;
+    m_bRelativeToVRTOri = bRelativeToVRT;
 }
 
 /************************************************************************/
@@ -504,7 +510,7 @@ CPLXMLNode *VRTSimpleSource::SerializeToXML(const char *pszVRTPath)
 
     if (!m_osName.empty())
     {
-        CPLAddXMLAttributeAndValue(psSrc, "name", m_osName);
+        CPLAddXMLAttributeAndValue(psSrc, "name", m_osName.c_str());
     }
 
     if (m_bSrcDSNameFromVRT)
@@ -513,7 +519,36 @@ CPLXMLNode *VRTSimpleSource::SerializeToXML(const char *pszVRTPath)
     }
     else
     {
-        AddSourceFilenameNode(pszVRTPath, psSrc);
+        bool bDone = false;
+        if (m_osSrcDSName.empty() && m_poRasterBand)
+        {
+            auto poSrcDS = m_poRasterBand->GetDataset();
+            if (poSrcDS)
+            {
+                VRTDataset *poSrcVRTDS = nullptr;
+                // For GDALComputedDataset
+                void *pHandle = poSrcDS->GetInternalHandle("VRT_DATASET");
+                if (pHandle && poSrcDS->GetInternalHandle(nullptr) == nullptr)
+                {
+                    poSrcVRTDS = static_cast<VRTDataset *>(pHandle);
+                }
+                else
+                {
+                    poSrcVRTDS = dynamic_cast<VRTDataset *>(poSrcDS);
+                }
+                if (poSrcVRTDS)
+                {
+                    poSrcVRTDS->UnsetPreservedRelativeFilenames();
+                    CPLAddXMLChild(psSrc,
+                                   poSrcVRTDS->SerializeToXML(pszVRTPath));
+                    bDone = true;
+                }
+            }
+        }
+        if (!bDone)
+        {
+            AddSourceFilenameNode(pszVRTPath, psSrc);
+        }
     }
 
     GDALSerializeOpenOptionsToXML(psSrc, m_aosOpenOptionsOri.List());
@@ -908,7 +943,6 @@ bool VRTSimpleSource::IsSameExceptBandNumber(
            m_dfDstYOff == poOtherSource->m_dfDstYOff &&
            m_dfDstXSize == poOtherSource->m_dfDstXSize &&
            m_dfDstYSize == poOtherSource->m_dfDstYSize &&
-           !m_osSrcDSName.empty() &&
            m_osSrcDSName == poOtherSource->m_osSrcDSName;
 }
 
@@ -1377,6 +1411,10 @@ CPLErr VRTSimpleSource::RasterIO(GDALDataType eVRTBandDataType, int nXOff,
     {
         psExtraArg->pfnProgress = psExtraArgIn->pfnProgress;
         psExtraArg->pProgressData = psExtraArgIn->pProgressData;
+        if (psExtraArgIn->nVersion >= 2)
+        {
+            psExtraArg->bUseOnlyThisScale = psExtraArgIn->bUseOnlyThisScale;
+        }
     }
 
     GByte *pabyOut = static_cast<unsigned char *>(pData) +
@@ -3811,7 +3849,7 @@ CPLErr VRTFuncSource::RasterIO(GDALDataType /*eVRTBandDataType*/, int nXOff,
                                GDALRasterIOExtraArg * /* psExtraArg */,
                                WorkingState & /* oWorkingState */)
 {
-    if (nPixelSpace * 8 == GDALGetDataTypeSize(eBufType) &&
+    if (nPixelSpace == GDALGetDataTypeSizeBytes(eBufType) &&
         nLineSpace == nPixelSpace * nXSize && nBufXSize == nXSize &&
         nBufYSize == nYSize && eBufType == eType)
     {
@@ -3822,8 +3860,9 @@ CPLErr VRTFuncSource::RasterIO(GDALDataType /*eVRTBandDataType*/, int nXOff,
         CPLError(CE_Failure, CPLE_AppDefined,
                  "VRTFuncSource::RasterIO() - Irregular request.");
         CPLDebug("VRT", "Irregular request: %d,%d  %d,%d, %d,%d %d,%d %d,%d",
-                 static_cast<int>(nPixelSpace) * 8,
-                 GDALGetDataTypeSize(eBufType), static_cast<int>(nLineSpace),
+                 static_cast<int>(nPixelSpace),
+                 GDALGetDataTypeSizeBytes(eBufType),
+                 static_cast<int>(nLineSpace),
                  static_cast<int>(nPixelSpace) * nXSize, nBufXSize, nXSize,
                  nBufYSize, nYSize, static_cast<int>(eBufType),
                  static_cast<int>(eType));

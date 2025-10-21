@@ -45,7 +45,7 @@ GDALVectorReprojectAlgorithm::GDALVectorReprojectAlgorithm(bool standaloneStep)
 /*            GDALVectorReprojectAlgorithm::RunStep()                   */
 /************************************************************************/
 
-bool GDALVectorReprojectAlgorithm::RunStep(GDALProgressFunc, void *)
+bool GDALVectorReprojectAlgorithm::RunStep(GDALPipelineStepRunContext &)
 {
     auto poSrcDS = m_inputDataset[0].GetDatasetRef();
     CPLAssert(poSrcDS);
@@ -79,7 +79,7 @@ bool GDALVectorReprojectAlgorithm::RunStep(GDALProgressFunc, void *)
             if (m_activeLayer.empty() ||
                 m_activeLayer == poSrcLayer->GetDescription())
             {
-                OGRSpatialReference *poSrcLayerCRS;
+                const OGRSpatialReference *poSrcLayerCRS;
                 if (poSrcCRS)
                     poSrcLayerCRS = poSrcCRS.get();
                 else
@@ -123,5 +123,8 @@ bool GDALVectorReprojectAlgorithm::RunStep(GDALProgressFunc, void *)
 
     return ret;
 }
+
+GDALVectorReprojectAlgorithmStandalone::
+    ~GDALVectorReprojectAlgorithmStandalone() = default;
 
 //! @endcond

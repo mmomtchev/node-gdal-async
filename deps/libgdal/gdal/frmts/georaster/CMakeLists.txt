@@ -19,11 +19,14 @@ endif()
 
 add_gdal_driver(
   TARGET gdal_GEOR
-  SOURCES georaster_dataset.cpp georaster_priv.h georaster_rasterband.cpp georaster_wrapper.cpp oci_wrapper.cpp
+  SOURCES georaster_dataset.cpp georaster_priv.h georaster_rasterband.cpp georaster_wrapper.cpp oci_wrapper.cpp georasterdriver.cpp
           cpl_vsil_ocilob.cpp
   CORE_SOURCES georasterdrivercore.cpp
   DEF FRMT_georaster PLUGIN_CAPABLE_IF "NOT GDAL_USE_ZLIB_INTERNAL\\\;NOT GDAL_USE_JPEG_INTERNAL"
-  NO_SHARED_SYMBOL_WITH_CORE)
+  NO_SHARED_SYMBOL_WITH_CORE
+  NO_CXX_WFLAGS_EFFCXX
+  NO_WFLAG_OLD_STYLE_CAST
+)
 
 if(NOT TARGET gdal_GEOR)
     return()

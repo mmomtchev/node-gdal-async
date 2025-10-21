@@ -63,7 +63,7 @@ CPLErr OGRFeatherWriterDataset::Close()
 /*                           GetLayerCount()                            */
 /************************************************************************/
 
-int OGRFeatherWriterDataset::GetLayerCount()
+int OGRFeatherWriterDataset::GetLayerCount() const
 {
     return m_poLayer ? 1 : 0;
 }
@@ -72,7 +72,7 @@ int OGRFeatherWriterDataset::GetLayerCount()
 /*                             GetLayer()                               */
 /************************************************************************/
 
-OGRLayer *OGRFeatherWriterDataset::GetLayer(int idx)
+const OGRLayer *OGRFeatherWriterDataset::GetLayer(int idx) const
 {
     return idx == 0 ? m_poLayer.get() : nullptr;
 }
@@ -81,7 +81,7 @@ OGRLayer *OGRFeatherWriterDataset::GetLayer(int idx)
 /*                         TestCapability()                             */
 /************************************************************************/
 
-int OGRFeatherWriterDataset::TestCapability(const char *pszCap)
+int OGRFeatherWriterDataset::TestCapability(const char *pszCap) const
 {
     if (EQUAL(pszCap, ODsCCreateLayer))
         return m_poLayer == nullptr;

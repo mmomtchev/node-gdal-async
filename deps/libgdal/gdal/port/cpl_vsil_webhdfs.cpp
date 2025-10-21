@@ -194,7 +194,7 @@ class VSIWebHDFSWriteHandle final : public VSIAppendWriteHandle
 
   public:
     VSIWebHDFSWriteHandle(VSIWebHDFSFSHandler *poFS, const char *pszFilename);
-    virtual ~VSIWebHDFSWriteHandle();
+    ~VSIWebHDFSWriteHandle() override;
 };
 
 /************************************************************************/
@@ -640,6 +640,14 @@ char **VSIWebHDFSFSHandler::GetFileList(const char *pszDirname,
                 // case the file entry is reported but with an empty pathSuffix
                 if (!osName.empty())
                 {
+                    if (CPLHasUnbalancedPathTraversal(osName.c_str()))
+                    {
+                        CPLError(CE_Warning, CPLE_AppDefined,
+                                 "Ignoring pathSuffix '%s' that has a path "
+                                 "traversal pattern",
+                                 osName.c_str());
+                        continue;
+                    }
                     aosList.AddString(osName.c_str());
 
                     FileProp prop;
@@ -1191,7 +1199,6 @@ retry:
  See :ref:`/vsiwebhdfs/ documentation <vsiwebhdfs>`
  \endverbatim
 
- @since GDAL 2.4
  */
 void VSIInstallWebHdfsHandler(void)
 {

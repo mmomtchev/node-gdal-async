@@ -40,7 +40,7 @@ enum ePolarization
 
 class COASPMetadataItem;
 
-class COASPMetadataReader
+class COASPMetadataReader final
 {
     char **papszMetadata;
     int nMetadataCount;
@@ -60,7 +60,7 @@ class COASPMetadataReader
 };
 
 /* Your average metadata item */
-class COASPMetadataItem
+class COASPMetadataItem /* non final */
 {
   protected:
     char *pszItemName;
@@ -86,7 +86,7 @@ class COASPMetadataItem
 /* Same as MetadataItem class except parses GCP properly and returns
  * a GDAL_GCP struct
  */
-class COASPMetadataGeorefGridItem : public COASPMetadataItem
+class COASPMetadataGeorefGridItem final : public COASPMetadataItem
 {
 #ifdef unused
     int nId;
@@ -264,7 +264,7 @@ class COASPDataset final : public GDALDataset
     {
     }
 
-    ~COASPDataset();
+    ~COASPDataset() override;
 
     static GDALDataset *Open(GDALOpenInfo *);
     static int Identify(GDALOpenInfo *poOpenInfo);
@@ -311,8 +311,8 @@ CPLErr COASPRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
         static_cast<vsi_l_offset>(poDS->GetRasterXSize()) * 8 * nBlockYOff;
 
     VSIFSeekL(this->fp, nByteNum, SEEK_SET);
-    int nReadSize =
-        (GDALGetDataTypeSize(eDataType) / 8) * poDS->GetRasterXSize();
+    const int nReadSize =
+        GDALGetDataTypeSizeBytes(eDataType) * poDS->GetRasterXSize();
     VSIFReadL((char *)pImage, 1, nReadSize, this->fp);
 
 #ifdef CPL_LSB

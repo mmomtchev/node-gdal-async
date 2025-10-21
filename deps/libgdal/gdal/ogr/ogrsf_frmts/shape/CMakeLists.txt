@@ -1,9 +1,8 @@
 add_gdal_driver(
   TARGET ogr_Shape
-  SOURCES shape2ogr.cpp shp_vsi.c ogrshapedatasource.cpp ogrshapedriver.cpp ogrshapelayer.cpp
+  SOURCES shape2ogr.cpp shp_vsi.cpp ogrshapedatasource.cpp ogrshapedriver.cpp ogrshapelayer.cpp
   PLUGIN_CAPABLE
   NO_DEPS
-  STRONG_CXX_WFLAGS
 )
 gdal_standard_includes(ogr_Shape)
 target_include_directories(ogr_Shape PRIVATE $<TARGET_PROPERTY:ogrsf_generic,SOURCE_DIR>)
@@ -13,6 +12,8 @@ if (GDAL_USE_SHAPELIB_INTERNAL)
   # ogrshape.h shapefil.h dbfopen.c sbnsearch.c shpopen.c shptree.c
   add_library(shapelib OBJECT sbnsearch_wrapper.cpp shpopen_wrapper.cpp shptree_wrapper.cpp dbfopen_wrapper.cpp)
   gdal_standard_includes(shapelib)
+  target_include_directories(ogr_Shape PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/shapelib)
+  target_include_directories(shapelib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/shapelib)
   target_compile_definitions(shapelib PUBLIC -DSAOffset=vsi_l_offset)
   target_compile_options(shapelib PRIVATE ${GDAL_CXX_WARNING_FLAGS} ${WFLAG_OLD_STYLE_CAST} ${WFLAG_EFFCXX})
   if (RENAME_INTERNAL_SHAPELIB_SYMBOLS)

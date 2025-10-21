@@ -134,7 +134,7 @@ OGRDXFWriterDS::~OGRDXFWriterDS()
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRDXFWriterDS::TestCapability(const char *pszCap)
+int OGRDXFWriterDS::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, ODsCCreateLayer))
@@ -149,7 +149,7 @@ int OGRDXFWriterDS::TestCapability(const char *pszCap)
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGRDXFWriterDS::GetLayer(int iLayer)
+const OGRLayer *OGRDXFWriterDS::GetLayer(int iLayer) const
 
 {
     if (iLayer == 0)
@@ -162,7 +162,7 @@ OGRLayer *OGRDXFWriterDS::GetLayer(int iLayer)
 /*                           GetLayerCount()                            */
 /************************************************************************/
 
-int OGRDXFWriterDS::GetLayerCount()
+int OGRDXFWriterDS::GetLayerCount() const
 
 {
     if (poLayer)
@@ -285,7 +285,7 @@ int OGRDXFWriterDS::Open(const char *pszFilename, char **papszOptions)
     /*      Attempt to read the template header file so we have a list      */
     /*      of layers, linestyles and blocks.                               */
     /* -------------------------------------------------------------------- */
-    if (!oHeaderDS.Open(osHeaderFile, true, nullptr))
+    if (!oHeaderDS.Open(osHeaderFile, nullptr, true, nullptr))
         return FALSE;
 
     /* -------------------------------------------------------------------- */
@@ -744,7 +744,7 @@ bool OGRDXFWriterDS::TransferUpdateTrailer(VSILFILE *fpOut)
     if (l_fp == nullptr)
         return false;
 
-    OGRDXFReader oReader;
+    OGRDXFReaderASCII oReader;
     oReader.Initialize(l_fp);
 
     /* -------------------------------------------------------------------- */
@@ -1028,7 +1028,7 @@ bool OGRDXFWriterDS::WriteNewBlockRecords(VSILFILE *fpIn)
         if (aosAlreadyHandled.find(osBlockName) != aosAlreadyHandled.end())
             continue;
 
-        aosAlreadyHandled.insert(osBlockName);
+        aosAlreadyHandled.insert(std::move(osBlockName));
 
         /* --------------------------------------------------------------------
          */
@@ -1169,7 +1169,7 @@ void OGRDXFWriterDS::ScanForEntities(const char *pszFilename,
     if (l_fp == nullptr)
         return;
 
-    OGRDXFReader oReader;
+    OGRDXFReaderASCII oReader;
     oReader.Initialize(l_fp);
 
     /* -------------------------------------------------------------------- */
@@ -1189,7 +1189,7 @@ void OGRDXFWriterDS::ScanForEntities(const char *pszFilename,
                 CPLDebug("DXF", "Encountered entity '%s' multiple times.",
                          osEntity.c_str());
             else
-                aosUsedEntities.insert(osEntity);
+                aosUsedEntities.insert(std::move(osEntity));
         }
 
         if (nCode == 0 && EQUAL(szLineBuf, "SECTION"))

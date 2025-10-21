@@ -16,9 +16,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
 
 #include <string>
 
@@ -2338,7 +2335,6 @@ constexpr unsigned char jp2_box_jp[] = {0x6a, 0x50, 0x20, 0x20}; /* 'jP  ' */
  *                     STOP_AT_SOD=YES, ALLOW_GET_FILE_SIZE=NO.
  * @return XML tree (to be freed with CPLDestroyXMLNode()) or NULL in case
  *         of error
- * @since GDAL 2.0
  */
 
 CPLXMLNode *GDALGetJPEG2000Structure(const char *pszFilename,

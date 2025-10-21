@@ -25,6 +25,7 @@ Authors:  Lucian Plesea
 #include "LERCV1/Lerc1Image.h"
 
 #include "gdal_priv_templates.hpp"
+#include "gdal_openinfo.h"
 
 // Requires lerc at least 2v4, where the c_api changed, but there is no good way
 // to check
@@ -202,18 +203,37 @@ static bool Lerc1ImgUFill(Lerc1Image &zImg, T *dst, const ILImage &img,
     if (1 == stride)
     {
         for (int row = 0; row < h; row++)
+        {
             for (int col = 0; col < w; col++)
-                *dst++ = zImg.IsValid(row, col) ? static_cast<T>(zImg(row, col))
-                                                : ndv;
+            {
+                if (zImg.IsValid(row, col))
+                {
+                    GDALCopyWord(zImg(row, col), *dst);
+                }
+                else
+                {
+                    *dst = ndv;
+                }
+                ++dst;
+            }
+        }
         return true;
     }
     for (int row = 0; row < h; row++)
+    {
         for (int col = 0; col < w; col++)
         {
-            *dst =
-                zImg.IsValid(row, col) ? static_cast<T>(zImg(row, col)) : ndv;
+            if (zImg.IsValid(row, col))
+            {
+                GDALCopyWord(zImg(row, col), *dst);
+            }
+            else
+            {
+                *dst = ndv;
+            }
             dst += stride;
         }
+    }
     return true;
 }
 

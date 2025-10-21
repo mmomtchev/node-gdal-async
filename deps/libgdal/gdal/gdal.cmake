@@ -6,8 +6,8 @@
 # a new member or virtual function in a public C++ class, etc.
 # This will typically happen for each GDAL feature release (change of X or Y in
 # a X.Y.Z numbering scheme), but should not happen for a bugfix release (change of Z)
-# Previous value: 37 for GDAL 3.11
-set(GDAL_SOVERSION 37)
+# Previous value: 38 for GDAL 3.12
+set(GDAL_SOVERSION 38)
 
 # Switches to control build targets(cached)
 option(ENABLE_GNM "Build GNM (Geography Network Model) component" ON)
@@ -31,11 +31,63 @@ endif ()
 option(GDAL_BUILD_OPTIONAL_DRIVERS "Whether to build GDAL optional drivers by default" ON)
 option(OGR_BUILD_OPTIONAL_DRIVERS "Whether to build OGR optional drivers by default" ON)
 
+# If the GDAL/OGR_BUILD_OPTIONAL_DRIVERS value has been turned OFF, unset
+# GDAL/OGR_ENABLE_DRIVER_xxxx variables
+if( GDAL_BUILD_OPTIONAL_DRIVERS_OLD_VAL AND NOT GDAL_BUILD_OPTIONAL_DRIVERS )
+    get_cmake_property(_variableNames VARIABLES)
+    foreach (_variableName ${_variableNames})
+        if ("${_variableName}" MATCHES "GDAL_ENABLE_DRIVER_" AND (NOT "${_variableName}" MATCHES "_PLUGIN"))
+            message(STATUS "Unsetting ${_variableName}")
+            unset(${_variableName})
+            unset(${_variableName} CACHE)
+            if ("${_variableName}" STREQUAL "GDAL_ENABLE_DRIVER_IDRISI")
+                set(_variableName "OGR_ENABLE_DRIVER_IDRISI")
+                message(STATUS "Unsetting ${_variableName}")
+                unset(${_variableName})
+                unset(${_variableName} CACHE)
+            elseif ("${_variableName}" STREQUAL "GDAL_ENABLE_DRIVER_PDS")
+                set(_variableName "OGR_ENABLE_DRIVER_PDS")
+                message(STATUS "Unsetting ${_variableName}")
+                unset(${_variableName})
+                unset(${_variableName} CACHE)
+            endif()
+        endif()
+    endforeach()
+endif()
+if( OGR_BUILD_OPTIONAL_DRIVERS_OLD_VAL AND NOT OGR_BUILD_OPTIONAL_DRIVERS )
+    get_cmake_property(_variableNames VARIABLES)
+    foreach (_variableName ${_variableNames})
+        if ("${_variableName}" MATCHES "OGR_ENABLE_DRIVER_" AND (NOT "${_variableName}" MATCHES "_PLUGIN"))
+            message(STATUS "Unsetting ${_variableName}")
+            unset(${_variableName})
+            unset(${_variableName} CACHE)
+            if ("${_variableName}" STREQUAL "OGR_ENABLE_DRIVER_AVC")
+                set(_variableName "GDAL_ENABLE_DRIVER_AIGRID")
+                message(STATUS "Unsetting ${_variableName}")
+                unset(${_variableName})
+                unset(${_variableName} CACHE)
+            elseif ("${_variableName}" STREQUAL "OGR_ENABLE_DRIVER_GPKG")
+                set(_variableName "GDAL_ENABLE_DRIVER_MBTILES")
+                message(STATUS "Unsetting ${_variableName}")
+                unset(${_variableName})
+                unset(${_variableName} CACHE)
+            endif()
+        endif()
+    endforeach()
+endif()
+# Save new value of GDAL/OGR_BUILD_OPTIONAL_DRIVERS
+set(GDAL_BUILD_OPTIONAL_DRIVERS_OLD_VAL ${GDAL_BUILD_OPTIONAL_DRIVERS} CACHE INTERNAL
+    "Old value of option GDAL_BUILD_OPTIONAL_DRIVERS_OLD_VAL")
+set(OGR_BUILD_OPTIONAL_DRIVERS_OLD_VAL ${OGR_BUILD_OPTIONAL_DRIVERS} CACHE INTERNAL
+    "Old value of option OGR_BUILD_OPTIONAL_DRIVERS_OLD_VAL")
+
 # libgdal shared/satic library generation
 option(BUILD_SHARED_LIBS "Set ON to build shared library" ON)
 
 # produce position independent code, default is on when building a shared library
 option(GDAL_OBJECT_LIBRARIES_POSITION_INDEPENDENT_CODE "Set ON to produce -fPIC code" ${BUILD_SHARED_LIBS})
+
+option(GDAL_ENABLE_ALGORITHMS "Whether to enable 'gdal' algorithms" ON)
 
 # Option to set preferred C# compiler
 option(CSHARP_MONO "Whether to force the C# compiler to be Mono" OFF)
@@ -387,7 +439,9 @@ if (USE_PRECOMPILED_HEADERS)
   target_compile_definitions(gdal_priv_header PUBLIC $<$<CONFIG:DEBUG>:GDAL_DEBUG>)
   set_property(TARGET gdal_priv_header PROPERTY POSITION_INDEPENDENT_CODE ${GDAL_OBJECT_LIBRARIES_POSITION_INDEPENDENT_CODE})
   target_precompile_headers(gdal_priv_header PUBLIC
+    $<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/port/cpl_float.h>
     $<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/gcore/gdal_priv.h>
+    $<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/gcore/gdal_pam.h>
     $<$<COMPILE_LANGUAGE:C>:${CMAKE_CURRENT_SOURCE_DIR}/port/cpl_port.h>
   )
 endif()
@@ -429,6 +483,14 @@ if ((GDAL_BUILD_OPTIONAL_DRIVERS AND NOT DEFINED GDAL_ENABLE_DRIVER_ADRG AND NOT
     OGR_ENABLE_DRIVER_S57 OR
     OGR_ENABLE_DRIVER_SDTS)
   add_subdirectory(frmts/iso8211)
+endif()
+
+# Build frmts/miramon_common conditionally to drivers requiring it
+if ((GDAL_BUILD_OPTIONAL_DRIVERS AND NOT DEFINED GDAL_ENABLE_DRIVER_MIRAMON) OR
+    GDAL_ENABLE_DRIVER_MIRAMON OR
+    (OGR_BUILD_OPTIONAL_DRIVERS AND NOT DEFINED OGR_ENABLE_DRIVER_MIRAMON) OR
+    OGR_ENABLE_DRIVER_MIRAMON)
+  add_subdirectory(frmts/miramon_common)
 endif()
 
 add_subdirectory(frmts)
@@ -496,11 +558,6 @@ if (PLUGIN_MODULES_LENGTH GREATER_EQUAL 1)
 endif ()
 
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/frmts/drivers.ini DESTINATION ${INSTALL_PLUGIN_DIR})
-
-# ######################################################################################################################
-
-# Note: this file is generated but not used.
-configure_file(${GDAL_CMAKE_TEMPLATE_PATH}/gdal_def.h.in ${CMAKE_CURRENT_BINARY_DIR}/gcore/gdal_def.h @ONLY)
 
 # ######################################################################################################################
 set_property(

@@ -21,16 +21,16 @@
  * GDALRegister_WMS()
  */
 
-class WMSMiniDriver_WMS : public WMSMiniDriver
+class WMSMiniDriver_WMS final : public WMSMiniDriver
 {
   public:
     WMSMiniDriver_WMS();
-    virtual ~WMSMiniDriver_WMS();
+    ~WMSMiniDriver_WMS() override;
 
   public:
     virtual CPLErr Initialize(CPLXMLNode *config,
                               char **papszOpenOptions) override;
-    virtual void GetCapabilities(WMSMiniDriverCapabilities *caps) override;
+    void GetCapabilities(WMSMiniDriverCapabilities *caps) override;
 
     // Return error message in request.Error
     virtual CPLErr
@@ -48,16 +48,16 @@ class WMSMiniDriver_WMS : public WMSMiniDriver
                   const char *pszRequest);
 
   protected:
-    CPLString m_version;
-    int m_iversion;
-    CPLString m_layers;
-    CPLString m_styles;
-    CPLString m_srs;
-    CPLString m_crs;
-    CPLString m_image_format;
-    CPLString m_info_format;
-    CPLString m_bbox_order;
-    CPLString m_transparent;
+    CPLString m_version{};
+    int m_iversion{};
+    CPLString m_layers{};
+    CPLString m_styles{};
+    CPLString m_srs{};
+    CPLString m_crs{};
+    CPLString m_image_format{};
+    CPLString m_info_format{};
+    CPLString m_bbox_order{};
+    CPLString m_transparent{};
 };
 
 #endif /* MINIDRIVER_WMS_H_INCLUDED */

@@ -12,6 +12,7 @@
 
 #include "cpl_string.h"
 #include "gdal_frmts.h"
+#include "gdal_priv.h"
 #include "ogr_srs_api.h"
 #include "rawdataset.h"
 
@@ -27,7 +28,7 @@ class SNODASDataset final : public RawDataset
 {
     CPLString osDataFilename{};
     bool bGotTransform;
-    double adfGeoTransform[6];
+    GDALGeoTransform m_gt{};
     bool bHasNoData;
     double dfNoData;
     bool bHasMin;
@@ -46,7 +47,7 @@ class SNODASDataset final : public RawDataset
     SNODASDataset();
     ~SNODASDataset() override;
 
-    CPLErr GetGeoTransform(double *padfTransform) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
 
     const OGRSpatialReference *GetSpatialRef() const override
     {
@@ -97,7 +98,7 @@ SNODASRasterBand::SNODASRasterBand(VSILFILE *fpRawIn, int nXSize, int nYSize)
 
 double SNODASRasterBand::GetNoDataValue(int *pbSuccess)
 {
-    SNODASDataset *poGDS = reinterpret_cast<SNODASDataset *>(poDS);
+    SNODASDataset *poGDS = cpl::down_cast<SNODASDataset *>(poDS);
     if (pbSuccess)
         *pbSuccess = poGDS->bHasNoData;
 
@@ -113,7 +114,7 @@ double SNODASRasterBand::GetNoDataValue(int *pbSuccess)
 
 double SNODASRasterBand::GetMinimum(int *pbSuccess)
 {
-    SNODASDataset *poGDS = reinterpret_cast<SNODASDataset *>(poDS);
+    SNODASDataset *poGDS = cpl::down_cast<SNODASDataset *>(poDS);
     if (pbSuccess)
         *pbSuccess = poGDS->bHasMin;
 
@@ -129,7 +130,7 @@ double SNODASRasterBand::GetMinimum(int *pbSuccess)
 
 double SNODASRasterBand::GetMaximum(int *pbSuccess)
 {
-    SNODASDataset *poGDS = reinterpret_cast<SNODASDataset *>(poDS);
+    SNODASDataset *poGDS = cpl::down_cast<SNODASDataset *>(poDS);
     if (pbSuccess)
         *pbSuccess = poGDS->bHasMax;
 
@@ -155,13 +156,6 @@ SNODASDataset::SNODASDataset()
 {
     m_oSRS.SetFromUserInput(SRS_WKT_WGS84_LAT_LONG);
     m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-
-    adfGeoTransform[0] = 0.0;
-    adfGeoTransform[1] = 1.0;
-    adfGeoTransform[2] = 0.0;
-    adfGeoTransform[3] = 0.0;
-    adfGeoTransform[4] = 0.0;
-    adfGeoTransform[5] = 1.0;
 }
 
 /************************************************************************/
@@ -196,16 +190,16 @@ CPLErr SNODASDataset::Close()
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr SNODASDataset::GetGeoTransform(double *padfTransform)
+CPLErr SNODASDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
     if (bGotTransform)
     {
-        memcpy(padfTransform, adfGeoTransform, sizeof(double) * 6);
+        gt = m_gt;
         return CE_None;
     }
 
-    return GDALPamDataset::GetGeoTransform(padfTransform);
+    return GDALPamDataset::GetGeoTransform(gt);
 }
 
 /************************************************************************/
@@ -422,7 +416,12 @@ GDALDataset *SNODASDataset::Open(GDALOpenInfo *poOpenInfo)
 
     if (osDataFilename.empty())
         return nullptr;
-
+    if (CPLHasPathTraversal(osDataFilename.c_str()))
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "Path traversal detected in %s",
+                 osDataFilename.c_str());
+        return nullptr;
+    }
     if (!GDALCheckDatasetDimensions(nCols, nRows))
         return nullptr;
 
@@ -455,12 +454,12 @@ GDALDataset *SNODASDataset::Open(GDALOpenInfo *poOpenInfo)
     if (bHasMinX && bHasMinY && bHasMaxX && bHasMaxY)
     {
         poDS->bGotTransform = true;
-        poDS->adfGeoTransform[0] = dfMinX;
-        poDS->adfGeoTransform[1] = (dfMaxX - dfMinX) / nCols;
-        poDS->adfGeoTransform[2] = 0.0;
-        poDS->adfGeoTransform[3] = dfMaxY;
-        poDS->adfGeoTransform[4] = 0.0;
-        poDS->adfGeoTransform[5] = -(dfMaxY - dfMinY) / nRows;
+        poDS->m_gt[0] = dfMinX;
+        poDS->m_gt[1] = (dfMaxX - dfMinX) / nCols;
+        poDS->m_gt[2] = 0.0;
+        poDS->m_gt[3] = dfMaxY;
+        poDS->m_gt[4] = 0.0;
+        poDS->m_gt[5] = -(dfMaxY - dfMinY) / nRows;
     }
 
     if (!osDescription.empty())

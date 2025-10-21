@@ -22,67 +22,104 @@
 /*                GDALRasterPipelineStepAlgorithm                       */
 /************************************************************************/
 
-class GDALRasterPipelineStepAlgorithm /* non final */ : public GDALAlgorithm
+class GDALRasterAlgorithmStepRegistry;
+
+class GDALRasterPipelineStepAlgorithm /* non final */
+    : public GDALPipelineStepAlgorithm
 {
+  public:
+    ~GDALRasterPipelineStepAlgorithm() override;
+
   protected:
     GDALRasterPipelineStepAlgorithm(const std::string &name,
                                     const std::string &description,
                                     const std::string &helpURL,
                                     bool standaloneStep);
 
+    GDALRasterPipelineStepAlgorithm(const std::string &name,
+                                    const std::string &description,
+                                    const std::string &helpURL,
+                                    const ConstructorOptions &options);
+
     friend class GDALRasterPipelineAlgorithm;
-    friend class GDALAbstractPipelineAlgorithm<GDALRasterPipelineStepAlgorithm>;
+    friend class GDALRasterMosaicStackCommonAlgorithm;
 
-    virtual bool RunStep(GDALProgressFunc pfnProgress, void *pProgressData) = 0;
+    int GetInputType() const override
+    {
+        return GDAL_OF_RASTER;
+    }
 
-    void AddInputArgs(bool openForMixedRasterVector, bool hiddenForCLI);
-    void AddOutputArgs(bool hiddenForCLI);
+    int GetOutputType() const override
+    {
+        return GDAL_OF_RASTER;
+    }
 
     void SetOutputVRTCompatible(bool b);
+};
 
-    bool m_outputVRTCompatible = true;
-    bool m_standaloneStep = false;
+/************************************************************************/
+/*           GDALRasterPipelineNonNativelyStreamingAlgorithm            */
+/************************************************************************/
 
-    // Input arguments
-    GDALArgDatasetValue m_inputDataset{};
-    std::vector<std::string> m_openOptions{};
-    std::vector<std::string> m_inputFormats{};
-    std::vector<std::string> m_inputLayerNames{};
+class GDALRasterPipelineNonNativelyStreamingAlgorithm /* non-final */
+    : public GDALRasterPipelineStepAlgorithm
+{
+  protected:
+    GDALRasterPipelineNonNativelyStreamingAlgorithm(
+        const std::string &name, const std::string &description,
+        const std::string &helpURL, bool standaloneStep);
 
-    // Output arguments
-    GDALArgDatasetValue m_outputDataset{};
-    std::string m_format{};
-    std::vector<std::string> m_creationOptions{};
-    bool m_overwrite = false;
-    std::string m_outputLayerName{};
-    GDALInConstructionAlgorithmArg *m_outputFormatArg = nullptr;
+    bool IsNativelyStreamingCompatible() const override;
 
-  private:
-    bool RunImpl(GDALProgressFunc pfnProgress, void *pProgressData) override;
-    GDALAlgorithm::ProcessGDALGOutputRet ProcessGDALGOutput() override;
-    bool CheckSafeForStreamOutput() override;
+    static std::unique_ptr<GDALDataset>
+    CreateTemporaryDataset(int nWidth, int nHeight, int nBands,
+                           GDALDataType eDT, bool bTiledIfPossible,
+                           GDALDataset *poSrcDSForMetadata,
+                           bool bCopyMetadata = true);
+    static std::unique_ptr<GDALDataset>
+    CreateTemporaryCopy(GDALAlgorithm *poAlg, GDALDataset *poSrcDS,
+                        int nSingleBand, bool bTiledIfPossible,
+                        GDALProgressFunc pfnProgress, void *pProgressData);
+};
 
-    CPL_DISALLOW_COPY_ASSIGN(GDALRasterPipelineStepAlgorithm)
+/************************************************************************/
+/*                      GDALRasterAlgorithmStepRegistry                 */
+/************************************************************************/
+
+class GDALRasterAlgorithmStepRegistry : public virtual GDALAlgorithmRegistry
+{
+  public:
+    GDALRasterAlgorithmStepRegistry() = default;
+    ~GDALRasterAlgorithmStepRegistry() override;
+
+    /** Register the algorithm of type MyAlgorithm.
+     */
+    template <class MyAlgorithm>
+    bool Register(const std::string &name = std::string())
+    {
+        static_assert(
+            std::is_base_of_v<GDALRasterPipelineStepAlgorithm, MyAlgorithm>,
+            "Algorithm is not a GDALRasterPipelineStepAlgorithm");
+
+        AlgInfo info;
+        info.m_name = name.empty() ? MyAlgorithm::NAME : name;
+        info.m_aliases = MyAlgorithm::GetAliasesStatic();
+        info.m_creationFunc = []() -> std::unique_ptr<GDALAlgorithm>
+        { return std::make_unique<MyAlgorithm>(); };
+        return GDALAlgorithmRegistry::Register(info);
+    }
 };
 
 /************************************************************************/
 /*                     GDALRasterPipelineAlgorithm                      */
 /************************************************************************/
 
-// This is an easter egg to pay tribute to PROJ pipeline syntax
-// We accept "gdal vector +gdal=pipeline +step +gdal=read +input=in.tif +step +gdal=reproject +dst-crs=EPSG:32632 +step +gdal=write +output=out.tif +overwrite"
-// as an alternative to (recommended):
-// "gdal vector pipeline ! read in.tif ! reproject--dst-crs=EPSG:32632 ! write out.tif --overwrite"
-#ifndef GDAL_PIPELINE_PROJ_NOSTALGIA
-#define GDAL_PIPELINE_PROJ_NOSTALGIA
-#endif
-
-class GDALRasterPipelineAlgorithm final
-    : public GDALAbstractPipelineAlgorithm<GDALRasterPipelineStepAlgorithm>
+class GDALRasterPipelineAlgorithm final : public GDALAbstractPipelineAlgorithm
 {
   public:
     static constexpr const char *NAME = "pipeline";
-    static constexpr const char *DESCRIPTION = "Process a raster dataset.";
+    static constexpr const char *DESCRIPTION =
+        "Process a raster dataset applying several steps.";
     static constexpr const char *HELP_URL =
         "/programs/gdal_raster_pipeline.html";
 
@@ -99,25 +136,43 @@ class GDALRasterPipelineAlgorithm final
 
     explicit GDALRasterPipelineAlgorithm(bool openForMixedRasterVector = false);
 
-    bool
-    ParseCommandLineArguments(const std::vector<std::string> &args) override;
-
     std::string GetUsageForCLI(bool shortUsage,
                                const UsageOptions &usageOptions) const override;
 
-    GDALDataset *GetDatasetRef()
+    static void RegisterAlgorithms(GDALRasterAlgorithmStepRegistry &registry,
+                                   bool forMixedPipeline);
+
+    int GetInputType() const override
     {
-        return m_inputDataset.GetDatasetRef();
+        return GDAL_OF_RASTER;
+    }
+
+    int GetOutputType() const override
+    {
+        return GDAL_OF_RASTER;
     }
 
   protected:
-    GDALArgDatasetValue &GetOutputDataset() override
+    GDALRasterAlgorithmStepRegistry m_stepRegistry{};
+
+    GDALAlgorithmRegistry &GetStepRegistry() override
     {
-        return m_outputDataset;
+        return m_stepRegistry;
+    }
+
+    const GDALAlgorithmRegistry &GetStepRegistry() const override
+    {
+        return m_stepRegistry;
     }
 
   private:
-    std::string m_helpDocCategory{};
+    std::unique_ptr<GDALAbstractPipelineAlgorithm>
+    CreateNestedPipeline() const override
+    {
+        auto pipeline = std::make_unique<GDALRasterPipelineAlgorithm>();
+        pipeline->m_bInnerPipeline = true;
+        return pipeline;
+    }
 };
 
 //! @endcond

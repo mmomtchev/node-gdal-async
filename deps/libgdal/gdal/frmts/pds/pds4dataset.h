@@ -19,6 +19,7 @@
 #include "rawdataset.h"
 #include "ogr_spatialref.h"
 
+#include <array>
 #include <vector>
 
 class PDS4Dataset;
@@ -58,12 +59,16 @@ class PDS4TableBaseLayer CPL_NON_FINAL : public OGRLayer
         const char *pszTableEltName, CPLString &osDescription);
     void ParseLineEndingOption(CSLConstList papszOptions);
 
+    CPL_DISALLOW_COPY_ASSIGN(PDS4TableBaseLayer)
+
   public:
     PDS4TableBaseLayer(PDS4Dataset *poDS, const char *pszName,
                        const char *pszFilename);
-    ~PDS4TableBaseLayer();
+    ~PDS4TableBaseLayer() override;
 
-    OGRFeatureDefn *GetLayerDefn() override
+    using OGRLayer::GetLayerDefn;
+
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return m_poFeatureDefn;
     }
@@ -137,7 +142,7 @@ class PDS4FixedWidthTable CPL_NON_FINAL : public PDS4TableBaseLayer
     void ResetReading() override;
     OGRFeature *GetFeature(GIntBig nFID) override;
     OGRFeature *GetNextFeature() override;
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
     OGRErr ISetFeature(OGRFeature *poFeature) override;
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
     OGRErr CreateField(const OGRFieldDefn *poFieldIn, int) override;
@@ -249,7 +254,7 @@ class PDS4DelimitedTable CPL_NON_FINAL : public PDS4TableBaseLayer
 
     void ResetReading() override;
     OGRFeature *GetNextFeature() override;
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
     OGRErr CreateField(const OGRFieldDefn *poFieldIn, int) override;
 
@@ -280,8 +285,10 @@ class PDS4EditableLayer final : public OGREditableLayer
     PDS4TableBaseLayer *GetBaseLayer() const;
 
   public:
-    explicit PDS4EditableLayer(PDS4FixedWidthTable *poBaseLayer);
-    explicit PDS4EditableLayer(PDS4DelimitedTable *poBaseLayer);
+    explicit PDS4EditableLayer(
+        std::unique_ptr<PDS4FixedWidthTable> poBaseLayer);
+    explicit PDS4EditableLayer(std::unique_ptr<PDS4DelimitedTable> poBaseLayer);
+    ~PDS4EditableLayer() override;
 
     void RefreshFileAreaObservational(CPLXMLNode *psFAO)
     {
@@ -325,7 +332,7 @@ class PDS4Dataset final : public RawDataset
     GDALDataset *m_poExternalDS = nullptr;  // external dataset (GeoTIFF)
     OGRSpatialReference m_oSRS{};
     bool m_bGotTransform = false;
-    double m_adfGeoTransform[6];
+    GDALGeoTransform m_gt{};
     CPLString m_osXMLFilename{};
     CPLString m_osImageFilename{};
     CPLString m_osUnits{};
@@ -364,48 +371,49 @@ class PDS4Dataset final : public RawDataset
 
     bool OpenTableDelimited(const char *pszFilename, const CPLXMLNode *psTable);
 
-    static PDS4Dataset *CreateInternal(const char *pszFilename,
-                                       GDALDataset *poSrcDS, int nXSize,
-                                       int nYSize, int nBands,
-                                       GDALDataType eType,
-                                       const char *const *papszOptions);
+    static std::unique_ptr<PDS4Dataset>
+    CreateInternal(const char *pszFilename, GDALDataset *poSrcDS, int nXSize,
+                   int nYSize, int nBands, GDALDataType eType,
+                   const char *const *papszOptions);
 
     CPLErr Close() override;
 
+    CPL_DISALLOW_COPY_ASSIGN(PDS4Dataset)
+
   public:
     PDS4Dataset();
-    virtual ~PDS4Dataset();
+    ~PDS4Dataset() override;
 
-    virtual int CloseDependentDatasets() override;
+    int CloseDependentDatasets() override;
 
     const OGRSpatialReference *GetSpatialRef() const override;
     CPLErr SetSpatialRef(const OGRSpatialReference *poSRS) override;
-    virtual CPLErr GetGeoTransform(double *) override;
-    virtual CPLErr SetGeoTransform(double *) override;
-    virtual char **GetFileList() override;
-    virtual CPLErr SetMetadata(char **papszMD,
-                               const char *pszDomain = "") override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
+    CPLErr SetGeoTransform(const GDALGeoTransform &gt) override;
+    char **GetFileList() override;
+    CPLErr SetMetadata(char **papszMD, const char *pszDomain = "") override;
 
-    int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return static_cast<int>(m_apoLayers.size());
     }
 
-    OGRLayer *GetLayer(int) override;
+    using GDALDataset::GetLayer;
+    const OGRLayer *GetLayer(int) const override;
 
     OGRLayer *ICreateLayer(const char *pszName,
                            const OGRGeomFieldDefn *poGeomFieldDefn,
                            CSLConstList papszOptions) override;
 
-    int TestCapability(const char *pszCap) override;
+    int TestCapability(const char *pszCap) const override;
 
     bool GetRawBinaryLayout(GDALDataset::RawBinaryLayout &) override;
 
-    static PDS4Dataset *OpenInternal(GDALOpenInfo *);
+    static std::unique_ptr<PDS4Dataset> OpenInternal(GDALOpenInfo *);
 
     static GDALDataset *Open(GDALOpenInfo *poOpenInfo)
     {
-        return OpenInternal(poOpenInfo);
+        return OpenInternal(poOpenInfo).release();
     }
 
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
@@ -439,12 +447,16 @@ class PDS4RawRasterBand final : public RawRasterBand
 {
     friend class PDS4Dataset;
 
-    bool m_bHasOffset;
-    bool m_bHasScale;
-    bool m_bHasNoData;
-    double m_dfOffset;
-    double m_dfScale;
-    double m_dfNoData;
+    bool m_bHasOffset{};
+    bool m_bHasScale{};
+    bool m_bHasNoData{};
+    bool m_bHasNoDataInt64{};
+    bool m_bHasNoDataUInt64{};
+    double m_dfOffset{};
+    double m_dfScale{};
+    double m_dfNoData{};
+    int64_t m_nNoDataInt64{};
+    uint64_t m_nNoDataUInt64{};
 
   public:
     PDS4RawRasterBand(GDALDataset *l_poDS, int l_nBand, VSILFILE *l_fpRaw,
@@ -452,36 +464,35 @@ class PDS4RawRasterBand final : public RawRasterBand
                       int l_nLineOffset, GDALDataType l_eDataType,
                       RawRasterBand::ByteOrder eByteOrderIn);
 
-    virtual ~PDS4RawRasterBand()
-    {
-    }
+    CPLErr IWriteBlock(int, int, void *) override;
 
-    virtual CPLErr IWriteBlock(int, int, void *) override;
+    CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
+                     GDALDataType, GSpacing nPixelSpace, GSpacing nLineSpace,
+                     GDALRasterIOExtraArg *psExtraArg) override;
 
-    virtual CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
-                             GDALDataType, GSpacing nPixelSpace,
-                             GSpacing nLineSpace,
-                             GDALRasterIOExtraArg *psExtraArg) override;
+    double GetOffset(int *pbSuccess = nullptr) override;
+    double GetScale(int *pbSuccess = nullptr) override;
+    CPLErr SetOffset(double dfNewOffset) override;
+    CPLErr SetScale(double dfNewScale) override;
+    double GetNoDataValue(int *pbSuccess = nullptr) override;
+    CPLErr SetNoDataValue(double dfNewNoData) override;
+    int64_t GetNoDataValueAsInt64(int *pbSuccess = nullptr) override;
+    uint64_t GetNoDataValueAsUInt64(int *pbSuccess = nullptr) override;
+    CPLErr SetNoDataValueAsInt64(int64_t nNoData) override;
+    CPLErr SetNoDataValueAsUInt64(uint64_t nNoData) override;
 
-    virtual double GetOffset(int *pbSuccess = nullptr) override;
-    virtual double GetScale(int *pbSuccess = nullptr) override;
-    virtual CPLErr SetOffset(double dfNewOffset) override;
-    virtual CPLErr SetScale(double dfNewScale) override;
-    virtual double GetNoDataValue(int *pbSuccess = nullptr) override;
-    virtual CPLErr SetNoDataValue(double dfNewNoData) override;
-
-    virtual const char *GetUnitType() override
+    const char *GetUnitType() override
     {
         return static_cast<PDS4Dataset *>(poDS)->m_osUnits.c_str();
     }
 
-    virtual CPLErr SetUnitType(const char *pszUnits) override
+    CPLErr SetUnitType(const char *pszUnits) override
     {
         static_cast<PDS4Dataset *>(poDS)->m_osUnits = pszUnits;
         return CE_None;
     }
 
-    void SetMaskBand(GDALRasterBand *poMaskBand);
+    void SetMaskBand(std::unique_ptr<GDALRasterBand> poMaskBand);
 };
 
 /************************************************************************/
@@ -495,13 +506,19 @@ class PDS4WrapperRasterBand final : public GDALProxyRasterBand
 {
     friend class PDS4Dataset;
 
-    GDALRasterBand *m_poBaseBand;
-    bool m_bHasOffset;
-    bool m_bHasScale;
-    bool m_bHasNoData;
-    double m_dfOffset;
-    double m_dfScale;
-    double m_dfNoData;
+    GDALRasterBand *m_poBaseBand{};
+    bool m_bHasOffset{};
+    bool m_bHasScale{};
+    bool m_bHasNoData{};
+    bool m_bHasNoDataInt64{};
+    bool m_bHasNoDataUInt64{};
+    double m_dfOffset{};
+    double m_dfScale{};
+    double m_dfNoData{};
+    int64_t m_nNoDataInt64{};
+    uint64_t m_nNoDataUInt64{};
+
+    CPL_DISALLOW_COPY_ASSIGN(PDS4WrapperRasterBand)
 
   protected:
     virtual GDALRasterBand *
@@ -513,32 +530,31 @@ class PDS4WrapperRasterBand final : public GDALProxyRasterBand
   public:
     explicit PDS4WrapperRasterBand(GDALRasterBand *poBaseBandIn);
 
-    ~PDS4WrapperRasterBand()
-    {
-    }
-
     virtual CPLErr Fill(double dfRealValue,
                         double dfImaginaryValue = 0) override;
-    virtual CPLErr IWriteBlock(int, int, void *) override;
+    CPLErr IWriteBlock(int, int, void *) override;
 
-    virtual CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
-                             GDALDataType, GSpacing nPixelSpace,
-                             GSpacing nLineSpace,
-                             GDALRasterIOExtraArg *psExtraArg) override;
+    CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
+                     GDALDataType, GSpacing nPixelSpace, GSpacing nLineSpace,
+                     GDALRasterIOExtraArg *psExtraArg) override;
 
-    virtual double GetOffset(int *pbSuccess = nullptr) override;
-    virtual double GetScale(int *pbSuccess = nullptr) override;
-    virtual CPLErr SetOffset(double dfNewOffset) override;
-    virtual CPLErr SetScale(double dfNewScale) override;
-    virtual double GetNoDataValue(int *pbSuccess = nullptr) override;
-    virtual CPLErr SetNoDataValue(double dfNewNoData) override;
+    double GetOffset(int *pbSuccess = nullptr) override;
+    double GetScale(int *pbSuccess = nullptr) override;
+    CPLErr SetOffset(double dfNewOffset) override;
+    CPLErr SetScale(double dfNewScale) override;
+    double GetNoDataValue(int *pbSuccess = nullptr) override;
+    CPLErr SetNoDataValue(double dfNewNoData) override;
+    int64_t GetNoDataValueAsInt64(int *pbSuccess = nullptr) override;
+    uint64_t GetNoDataValueAsUInt64(int *pbSuccess = nullptr) override;
+    CPLErr SetNoDataValueAsInt64(int64_t nNoData) override;
+    CPLErr SetNoDataValueAsUInt64(uint64_t nNoData) override;
 
-    virtual const char *GetUnitType() override
+    const char *GetUnitType() override
     {
         return static_cast<PDS4Dataset *>(poDS)->m_osUnits.c_str();
     }
 
-    virtual CPLErr SetUnitType(const char *pszUnits) override
+    CPLErr SetUnitType(const char *pszUnits) override
     {
         static_cast<PDS4Dataset *>(poDS)->m_osUnits = pszUnits;
         return CE_None;
@@ -554,7 +570,7 @@ class PDS4WrapperRasterBand final : public GDALProxyRasterBand
         return poMask;
     }
 
-    void SetMaskBand(GDALRasterBand *poMaskBand);
+    void SetMaskBand(std::unique_ptr<GDALRasterBand> poMaskBand);
 };
 
 /************************************************************************/
@@ -564,14 +580,16 @@ class PDS4WrapperRasterBand final : public GDALProxyRasterBand
 
 class PDS4MaskBand final : public GDALRasterBand
 {
-    GDALRasterBand *m_poBaseBand;
-    void *m_pBuffer;
-    std::vector<double> m_adfConstants;
+    GDALRasterBand *m_poBaseBand{};
+    void *m_pBuffer{};
+    std::vector<double> m_adfConstants{};
+
+    CPL_DISALLOW_COPY_ASSIGN(PDS4MaskBand)
 
   public:
     PDS4MaskBand(GDALRasterBand *poBaseBand,
                  const std::vector<double> &adfConstants);
-    ~PDS4MaskBand();
+    ~PDS4MaskBand() override;
 
-    virtual CPLErr IReadBlock(int, int, void *) override;
+    CPLErr IReadBlock(int, int, void *) override;
 };

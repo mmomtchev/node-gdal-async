@@ -16,6 +16,7 @@
 #include "filegdbtable_priv.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <limits>
 #include <set>
@@ -39,8 +40,15 @@ constexpr int nPageHeaderSize = 2 * static_cast<int>(sizeof(uint32_t));
 /*                    FindFreelistRangeSlot()                           */
 /************************************************************************/
 
+struct FreelistSlot
+{
+    int nIdx;
+    uint32_t nThisSize;
+    uint32_t nNextSize;
+};
+
 // Fibonacci suite
-static const uint32_t anHoleSizes[] = {
+static const std::array<uint32_t, 43> anHoleSizes = {
     0,          8,         16,        24,        40,         64,
     104,        168,       272,       440,       712,        1152,
     1864,       3016,      4880,      7896,      12776,      20672,
@@ -50,18 +58,27 @@ static const uint32_t anHoleSizes[] = {
     193262536,  312705352, 505967888, 818673240, 1324641128, 2143314368,
     3467955496U};
 
-static int FindFreelistRangeSlot(uint32_t nSize)
+static FreelistSlot FindFreelistRangeSlot(uint32_t nSize)
 {
-    for (size_t i = 0; i < CPL_ARRAYSIZE(anHoleSizes) - 1; i++)
+    for (size_t i = 0; i < anHoleSizes.size() - 1; i++)
     {
         if (/* nSize >= anHoleSizes[i] && */ nSize < anHoleSizes[i + 1])
         {
-            return static_cast<int>(i);
+            FreelistSlot slot;
+            slot.nIdx = static_cast<int>(i);
+            slot.nThisSize = anHoleSizes[i];
+            slot.nNextSize = anHoleSizes[i + 1];
+            return slot;
         }
     }
 
-    CPLDebug("OpenFileGDB", "Hole larger than can be handled");
-    return -1;
+    CPLDebug("OpenFileGDB", "Hole larger than %u can be handled",
+             anHoleSizes.back());
+    FreelistSlot slot;
+    slot.nIdx = -1;
+    slot.nThisSize = 0;
+    slot.nNextSize = 0;
+    return slot;
 }
 
 /************************************************************************/
@@ -119,17 +136,17 @@ void FileGDBTable::AddEntryToFreelist(uint64_t nOffset, uint32_t nSize)
     }
 
     // Determine in which "slot" of hole size the new entry belongs to
-    const int iSlot = FindFreelistRangeSlot(nSize);
-    if (iSlot < 0)
+    auto sSlot = FindFreelistRangeSlot(nSize);
+    if (sSlot.nIdx < 0)
     {
         VSIFCloseL(fp);
         return;
     }
-    assert(iSlot < 100);
+    assert(sSlot.nIdx < 100);
 
     // Read the last page index of the identified slot
     uint32_t nPageIdx =
-        GetUInt32(abyTrailer.data() + nTrailerEntrySize * iSlot, 0);
+        GetUInt32(abyTrailer.data() + nTrailerEntrySize * sSlot.nIdx, 0);
     uint32_t nPageCount;
 
     std::vector<GByte> abyPage;
@@ -159,9 +176,10 @@ void FileGDBTable::AddEntryToFreelist(uint64_t nOffset, uint32_t nSize)
     }
     else
     {
-        nPageCount = GetUInt32(abyTrailer.data() + nTrailerEntrySize * iSlot +
-                                   sizeof(uint32_t),
-                               0);
+        nPageCount =
+            GetUInt32(abyTrailer.data() + nTrailerEntrySize * sSlot.nIdx +
+                          sizeof(uint32_t),
+                      0);
 
         VSIFSeekL(fp, static_cast<uint64_t>(nPageIdx) * nPageSize, 0);
         abyPage.resize(nPageSize);
@@ -211,9 +229,9 @@ void FileGDBTable::AddEntryToFreelist(uint64_t nOffset, uint32_t nSize)
 
     if (bRewriteTrailer)
     {
-        WriteUInt32(abyTrailer, nPageIdx, nTrailerEntrySize * iSlot);
+        WriteUInt32(abyTrailer, nPageIdx, nTrailerEntrySize * sSlot.nIdx);
         WriteUInt32(abyTrailer, nPageCount,
-                    nTrailerEntrySize * iSlot + sizeof(uint32_t));
+                    nTrailerEntrySize * sSlot.nIdx + sizeof(uint32_t));
 
         VSIFSeekL(fp, nFileSize - nTrailerSize, 0);
         if (VSIFWriteL(abyTrailer.data(), abyTrailer.size(), 1, fp) != 1)
@@ -264,17 +282,17 @@ uint64_t FileGDBTable::GetOffsetOfFreeAreaFromFreeList(uint32_t nSize)
     }
 
     // Determine in which "slot" of hole size the new entry belongs to
-    const int iSlot = FindFreelistRangeSlot(nSize);
-    if (iSlot < 0)
+    const auto sSlot = FindFreelistRangeSlot(nSize);
+    if (sSlot.nIdx < 0)
     {
         VSIFCloseL(fp);
         return OFFSET_MINUS_ONE;
     }
-    assert(iSlot < 100);
+    assert(sSlot.nIdx < 100);
 
     // Read the last page index of the identified slot
     uint32_t nPageIdx =
-        GetUInt32(abyTrailer.data() + nTrailerEntrySize * iSlot, 0);
+        GetUInt32(abyTrailer.data() + nTrailerEntrySize * sSlot.nIdx, 0);
     if (nPageIdx == MINUS_ONE)
     {
         VSIFCloseL(fp);
@@ -317,8 +335,8 @@ uint64_t FileGDBTable::GetOffsetOfFreeAreaFromFreeList(uint32_t nSize)
         {
             const uint32_t nFreeAreaSize =
                 GetUInt32(abyPage.data() + nPageHeaderSize + i * nEntrySize, 0);
-            if (nFreeAreaSize < anHoleSizes[iSlot] ||
-                nFreeAreaSize >= anHoleSizes[iSlot + 1])
+            if (nFreeAreaSize < sSlot.nThisSize ||
+                nFreeAreaSize >= sSlot.nNextSize)
             {
                 CPLError(CE_Warning, CPLE_AppDefined,
                          "Page %u of %s contains free area of unexpected size "
@@ -453,22 +471,23 @@ uint64_t FileGDBTable::GetOffsetOfFreeAreaFromFreeList(uint32_t nSize)
         else
         {
             // and make the slot points to the previous page
-            WriteUInt32(abyTrailer, nPrevPage, nTrailerEntrySize * iSlot);
+            WriteUInt32(abyTrailer, nPrevPage, nTrailerEntrySize * sSlot.nIdx);
         }
 
-        uint32_t nPageCount = GetUInt32(
-            abyTrailer.data() + nTrailerEntrySize * iSlot + sizeof(uint32_t),
-            0);
+        uint32_t nPageCount =
+            GetUInt32(abyTrailer.data() + nTrailerEntrySize * sSlot.nIdx +
+                          sizeof(uint32_t),
+                      0);
         if (nPageCount == 0)
         {
             CPLDebug("OpenFileGDB", "Wrong page count for %s at slot %d",
-                     osFilename.c_str(), iSlot);
+                     osFilename.c_str(), sSlot.nIdx);
         }
         else
         {
             nPageCount--;
             WriteUInt32(abyTrailer, nPageCount,
-                        nTrailerEntrySize * iSlot + sizeof(uint32_t));
+                        nTrailerEntrySize * sSlot.nIdx + sizeof(uint32_t));
             if (nPageCount == 0)
             {
                 // Check if the freelist no longer contains pages with free
@@ -650,9 +669,8 @@ bool FileGDBTable::CheckFreeListConsistency()
             {
                 const uint32_t nFreeAreaSize = GetUInt32(
                     abyPage.data() + nPageHeaderSize + i * nEntrySize, 0);
-                assert(iSlot + 1 <
-                       static_cast<int>(CPL_ARRAYSIZE(anHoleSizes)));
-                // coverity[overrun-local]
+                assert(iSlot >= 0);
+                assert(iSlot + 1 < static_cast<int>(anHoleSizes.size()));
                 if (nFreeAreaSize < anHoleSizes[iSlot] ||
                     nFreeAreaSize >= anHoleSizes[iSlot + 1])
                 {

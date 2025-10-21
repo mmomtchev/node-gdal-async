@@ -169,7 +169,7 @@ class MrSIDProgress : public LTIProgressDelegate
     {
     }
 
-    virtual LT_STATUS setProgressStatus(float fraction) override
+    LT_STATUS setProgressStatus(float fraction) override
     {
         if (!m_f)
             return LT_STS_BadContext;
@@ -240,26 +240,25 @@ class MrSIDDataset final : public GDALJP2AbstractDataset
 
     int m_nInRasterIO = 0;  // Prevent infinite recursion in IRasterIO()
 
-    virtual CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
-                             GDALDataType, int, BANDMAP_TYPE,
-                             GSpacing nPixelSpace, GSpacing nLineSpace,
-                             GSpacing nBandSpace,
-                             GDALRasterIOExtraArg *psExtraArg) override;
+    CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
+                     GDALDataType, int, BANDMAP_TYPE, GSpacing nPixelSpace,
+                     GSpacing nLineSpace, GSpacing nBandSpace,
+                     GDALRasterIOExtraArg *psExtraArg) override;
 
   protected:
-    virtual int CloseDependentDatasets() override;
+    int CloseDependentDatasets() override;
 
-    virtual CPLErr IBuildOverviews(const char *, int, const int *, int,
-                                   const int *, GDALProgressFunc, void *,
-                                   CSLConstList papszOptions) override;
+    CPLErr IBuildOverviews(const char *, int, const int *, int, const int *,
+                           GDALProgressFunc, void *,
+                           CSLConstList papszOptions) override;
 
   public:
     explicit MrSIDDataset(int bIsJPEG2000);
-    ~MrSIDDataset();
+    ~MrSIDDataset() override;
 
     static GDALDataset *Open(GDALOpenInfo *poOpenInfo, int bIsJP2);
 
-    virtual char **GetFileList() override;
+    char **GetFileList() override;
 
 #ifdef MRSID_ESDK
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
@@ -291,26 +290,25 @@ class MrSIDRasterBand final : public GDALPamRasterBand
 
   public:
     MrSIDRasterBand(MrSIDDataset *, int);
-    ~MrSIDRasterBand();
+    ~MrSIDRasterBand() override;
 
-    virtual CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
-                             GDALDataType, GSpacing nPixelSpace,
-                             GSpacing nLineSpace,
-                             GDALRasterIOExtraArg *psExtraArg) override;
+    CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
+                     GDALDataType, GSpacing nPixelSpace, GSpacing nLineSpace,
+                     GDALRasterIOExtraArg *psExtraArg) override;
 
-    virtual CPLErr IReadBlock(int, int, void *) override;
-    virtual GDALColorInterp GetColorInterpretation() override;
+    CPLErr IReadBlock(int, int, void *) override;
+    GDALColorInterp GetColorInterpretation() override;
     CPLErr SetColorInterpretation(GDALColorInterp eNewInterp) override;
-    virtual double GetNoDataValue(int *) override;
-    virtual int GetOverviewCount() override;
-    virtual GDALRasterBand *GetOverview(int) override;
+    double GetNoDataValue(int *) override;
+    int GetOverviewCount() override;
+    GDALRasterBand *GetOverview(int) override;
 
     virtual CPLErr GetStatistics(int bApproxOK, int bForce, double *pdfMin,
                                  double *pdfMax, double *pdfMean,
                                  double *pdfStdDev) override;
 
 #ifdef MRSID_ESDK
-    virtual CPLErr IWriteBlock(int, int, void *) override;
+    CPLErr IWriteBlock(int, int, void *) override;
 #endif
 };
 
@@ -495,7 +493,9 @@ CPLErr MrSIDRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
     {
         CPLDebug("MrSID",
                  "IReadBlock() - DSDK - read on updatable file fails.");
-        memset(pImage, 0, nBlockSize * GDALGetDataTypeSize(eDataType) / 8);
+        memset(pImage, 0,
+               static_cast<size_t>(nBlockSize) *
+                   GDALGetDataTypeSizeBytes(eDataType));
         return CE_None;
     }
 #endif /* MRSID_ESDK */
@@ -555,7 +555,7 @@ CPLErr MrSIDRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
     memcpy(
         pImage,
         poGDS->poBuffer->myGetTotalBandData(static_cast<lt_uint16>(nBand - 1)),
-        nBlockSize * (GDALGetDataTypeSize(poGDS->eDataType) / 8));
+        nBlockSize * GDALGetDataTypeSizeBytes(poGDS->eDataType));
 
     return CE_None;
 }
@@ -931,7 +931,7 @@ CPLErr MrSIDDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
 
     LTISceneBuffer oLTIBuffer(oPixel, sceneWidth, sceneHeight, nullptr);
 
-    nTmpPixelSize = GDALGetDataTypeSize(eDataType) / 8;
+    nTmpPixelSize = GDALGetDataTypeSizeBytes(eDataType);
 
     /* -------------------------------------------------------------------- */
     /*      Create navigator, and move to the requested scene area.         */
@@ -1267,18 +1267,17 @@ CPLErr MrSIDDataset::OpenZoomLevel(lt_int32 iZoom)
     if (!poImageReader->isGeoCoordImplicit())
     {
         const LTIGeoCoord &oGeo = poImageReader->getGeoCoord();
-        oGeo.get(adfGeoTransform[0], adfGeoTransform[3], adfGeoTransform[1],
-                 adfGeoTransform[5], adfGeoTransform[2], adfGeoTransform[4]);
+        oGeo.get(m_gt[0], m_gt[3], m_gt[1], m_gt[5], m_gt[2], m_gt[4]);
 
-        adfGeoTransform[0] = adfGeoTransform[0] - adfGeoTransform[1] / 2;
-        adfGeoTransform[3] = adfGeoTransform[3] - adfGeoTransform[5] / 2;
+        m_gt[0] = m_gt[0] - m_gt[1] / 2;
+        m_gt[3] = m_gt[3] - m_gt[5] / 2;
         bGeoTransformValid = TRUE;
     }
     else if (iZoom == 0)
     {
         bGeoTransformValid =
-            GDALReadWorldFile(GetDescription(), nullptr, adfGeoTransform) ||
-            GDALReadWorldFile(GetDescription(), ".wld", adfGeoTransform);
+            GDALReadWorldFile(GetDescription(), nullptr, m_gt.data()) ||
+            GDALReadWorldFile(GetDescription(), ".wld", m_gt.data());
     }
 
 /* -------------------------------------------------------------------- */
@@ -1561,7 +1560,7 @@ GDALDataset *MrSIDDataset::Open(GDALOpenInfo *poOpenInfo, int bIsJP2)
         lt_uint8 minor;
         char letter;
         MrSIDImageReader *poMrSIDImageReader =
-            (MrSIDImageReader *)poDS->poImageReader;
+            static_cast<MrSIDImageReader *>(poDS->poImageReader);
         poMrSIDImageReader->getVersion(major, minor, minor, letter);
         if (major < 2)
             major = 2;
@@ -1577,11 +1576,12 @@ GDALDataset *MrSIDDataset::Open(GDALOpenInfo *poOpenInfo, int bIsJP2)
 #ifdef MRSID_J2K
     if (bIsJP2)
         poDS->nOverviewCount =
-            ((J2KImageReader *)(poDS->poImageReader))->getNumLevels();
+            static_cast<J2KImageReader *>(poDS->poImageReader)->getNumLevels();
     else
 #endif
         poDS->nOverviewCount =
-            ((MrSIDImageReader *)(poDS->poImageReader))->getNumLevels();
+            static_cast<MrSIDImageReader *>(poDS->poImageReader)
+                ->getNumLevels();
 
     if (poDS->nOverviewCount > 0)
     {
@@ -2991,7 +2991,7 @@ class MrSIDDummyImageReader : public LTIImageReader
     LTIDataType eSampleType;
     const LTIPixel *poPixel;
 
-    double adfGeoTransform[6];
+    GDALGeoTransform m_gt{};
 
     virtual LT_STATUS decodeStrip(LTISceneBuffer &stripBuffer,
                                   const LTIScene &stripScene);
@@ -3092,20 +3092,15 @@ LT_STATUS MrSIDDummyImageReader::initialize()
             setDimensions(poDS->GetRasterXSize(), poDS->GetRasterYSize())))
         return LT_STS_Failure;
 
-    if (poDS->GetGeoTransform(adfGeoTransform) == CE_None)
+    if (poDS->GetGeoTransform(m_gt) == CE_None)
     {
 #ifdef MRSID_SDK_40
-        LTIGeoCoord oGeo(adfGeoTransform[0] + adfGeoTransform[1] / 2,
-                         adfGeoTransform[3] + adfGeoTransform[5] / 2,
-                         adfGeoTransform[1], adfGeoTransform[5],
-                         adfGeoTransform[2], adfGeoTransform[4], nullptr,
+        LTIGeoCoord oGeo(m_gt[0] + m_gt[1] / 2, m_gt[3] + m_gt[5] / 2, m_gt[1],
+                         m_gt[5], m_gt[2], m_gt[4], nullptr,
                          poDS->GetProjectionRef());
 #else
-        LTIGeoCoord oGeo(adfGeoTransform[0] + adfGeoTransform[1] / 2,
-                         adfGeoTransform[3] + adfGeoTransform[5] / 2,
-                         adfGeoTransform[1], adfGeoTransform[5],
-                         adfGeoTransform[2], adfGeoTransform[4],
-                         poDS->GetProjectionRef());
+        LTIGeoCoord oGeo(m_gt[0] + m_gt[1] / 2, m_gt[3] + m_gt[5] / 2, m_gt[1],
+                         m_gt[5], m_gt[2], m_gt[4], poDS->GetProjectionRef());
 #endif
         if (!LT_SUCCESS(setGeoCoord(oGeo)))
             return LT_STS_Failure;

@@ -1042,10 +1042,10 @@ OGRErr OGRElasticLayer::SyncToDisk()
 /*                            GetLayerDefn()                            */
 /************************************************************************/
 
-OGRFeatureDefn *OGRElasticLayer::GetLayerDefn()
+const OGRFeatureDefn *OGRElasticLayer::GetLayerDefn() const
 {
 
-    FinalizeFeatureDefn();
+    const_cast<OGRElasticLayer *>(this)->FinalizeFeatureDefn();
 
     return m_poFeatureDefn;
 }
@@ -1054,7 +1054,7 @@ OGRFeatureDefn *OGRElasticLayer::GetLayerDefn()
 /*                            GetFIDColumn()                            */
 /************************************************************************/
 
-const char *OGRElasticLayer::GetFIDColumn()
+const char *OGRElasticLayer::GetFIDColumn() const
 {
     GetLayerDefn();
     return m_osFID.c_str();
@@ -1719,7 +1719,10 @@ void OGRElasticLayer::BuildFeature(OGRFeature *poFeature, json_object *poSource,
                 }
                 else
                 {
-                    poGeom = OGRGeoJSONReadGeometry(it.val);
+                    poGeom = OGRGeoJSONReadGeometry(
+                                 it.val, /* bHasM = */ false,
+                                 /* OGRSpatialReference* = */ nullptr)
+                                 .release();
                 }
             }
             else if (json_object_get_type(it.val) == json_type_string)
@@ -3046,7 +3049,7 @@ OGRErr OGRElasticLayer::CreateGeomField(const OGRGeomFieldDefn *poFieldIn,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRElasticLayer::TestCapability(const char *pszCap)
+int OGRElasticLayer::TestCapability(const char *pszCap) const
 {
     if (EQUAL(pszCap, OLCFastFeatureCount))
         return m_poAttrQuery == nullptr && m_poFilterGeom == nullptr;

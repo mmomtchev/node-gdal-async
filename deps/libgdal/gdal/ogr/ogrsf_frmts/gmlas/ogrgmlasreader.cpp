@@ -20,11 +20,13 @@
 
 #include <algorithm>
 
+IGMLASInputSourceClosing::~IGMLASInputSourceClosing() = default;
+
 /************************************************************************/
 /*                        GMLASBinInputStream                           */
 /************************************************************************/
 
-class GMLASBinInputStream : public BinInputStream
+class GMLASBinInputStream final : public BinInputStream
 {
     VSILFILE *m_fp = nullptr;
 
@@ -32,12 +34,12 @@ class GMLASBinInputStream : public BinInputStream
 
   public:
     explicit GMLASBinInputStream(VSILFILE *fp);
-    virtual ~GMLASBinInputStream();
+    ~GMLASBinInputStream() override;
 
-    virtual XMLFilePos curPos() const override;
+    XMLFilePos curPos() const override;
     virtual XMLSize_t readBytes(XMLByte *const toFill,
                                 const XMLSize_t maxToRead) override;
-    virtual const XMLCh *getContentType() const override;
+    const XMLCh *getContentType() const override;
 };
 
 /************************************************************************/
@@ -637,10 +639,12 @@ bool GMLASReader::Init(const char *pszFilename,
         m_poSAXReader->setFeature(XMLUni::fgSAX2CoreValidation, true);
         m_poSAXReader->setFeature(XMLUni::fgXercesSchema, true);
 
+#ifndef __COVERITY__
         // We want all errors to be reported
         // coverity[unsafe_xml_parse_config]
         m_poSAXReader->setFeature(XMLUni::fgXercesValidationErrorAsFatal,
                                   false);
+#endif
 
         CPLString osBaseDirname(CPLGetDirnameSafe(pszFilename));
 
@@ -1726,7 +1730,7 @@ void GMLASReader::startElement(const XMLCh *const uri,
                 m_aoStackContext.pop_back();
                 CreateNewFeature(osLocalname);
                 oContext.m_poFeature = m_oCurCtxt.m_poFeature;
-                m_aoStackContext.push_back(oContext);
+                m_aoStackContext.push_back(std::move(oContext));
                 m_oCurCtxt.m_oMapCounter.clear();
             }
 
@@ -2284,12 +2288,13 @@ void GMLASReader::ProcessXLinkHref(int nAttrIdx, const CPLString &osAttrXPath,
                 m_oCurCtxt.m_poLayer->GetLayerDefn()
                     ->GetFieldDefn(nAttrIdx)
                     ->GetNameRef());
-            const CPLString osId(osAttrValue.substr(1));
+            CPLString osId(osAttrValue.substr(1));
             if (m_bInitialPass)
             {
                 std::pair<OGRGMLASLayer *, CPLString> oReferringPair(
                     m_oCurCtxt.m_poLayer, osReferringField);
-                m_oMapFieldXPathToLinkValue[oReferringPair].push_back(osId);
+                m_oMapFieldXPathToLinkValue[oReferringPair].push_back(
+                    std::move(osId));
             }
             else
             {
@@ -2812,7 +2817,7 @@ static void SetSWEValue(OGRFeature *poFeature, int iField, CPLString &osValue)
 {
     if (!osValue.empty())
     {
-        OGRFieldDefn *poFieldDefn = poFeature->GetFieldDefnRef(iField);
+        const OGRFieldDefn *poFieldDefn = poFeature->GetFieldDefnRef(iField);
         OGRFieldType eType(poFieldDefn->GetType());
         OGRFieldSubType eSubType(poFieldDefn->GetSubType());
         if (eType == OFTReal || eType == OFTInteger)
@@ -3095,8 +3100,8 @@ static void AddMissingSRSDimension(CPLXMLNode *psRoot, int nDefaultSrsDimension)
 
 void GMLASReader::ProcessGeometry(CPLXMLNode *psRoot)
 {
-    OGRGeomFieldDefn *poGeomFieldDefn =
-        m_oCurCtxt.m_poFeature->GetGeomFieldDefnRef(m_nCurGeomFieldIdx);
+    OGRGeomFieldDefn *poGeomFieldDefn = const_cast<OGRGeomFieldDefn *>(
+        m_oCurCtxt.m_poFeature->GetGeomFieldDefnRef(m_nCurGeomFieldIdx));
 
     if (m_bInitialPass)
     {
@@ -3293,10 +3298,10 @@ void GMLASReader::characters(const XMLCh *const chars, const XMLSize_t length)
         else
         {
             CPLXMLNode *psNode =
-                reinterpret_cast<CPLXMLNode *>(CPLMalloc(sizeof(CPLXMLNode)));
+                static_cast<CPLXMLNode *>(CPLMalloc(sizeof(CPLXMLNode)));
             psNode->eType = CXT_Text;
             psNode->pszValue =
-                reinterpret_cast<char *>(CPLMalloc(osText.size() + 1));
+                static_cast<char *>(CPLMalloc(osText.size() + 1));
             memcpy(psNode->pszValue, osText.c_str(), osText.size() + 1);
             psNode->psNext = nullptr;
             psNode->psChild = nullptr;
@@ -3527,7 +3532,7 @@ bool GMLASReader::RunFirstPass(
         {
             std::set<CPLString> &oSetUnusedFields =
                 oMapUnusedFields[poLayerFeature];
-            OGRFeatureDefn *poFDefn = poLayerFeature->GetLayerDefn();
+            const OGRFeatureDefn *poFDefn = poLayerFeature->GetLayerDefn();
             int nFieldCount = poFDefn->GetFieldCount();
             for (int j = 0; j < nFieldCount; j++)
             {
@@ -3680,9 +3685,8 @@ void GMLASReader::CreateFieldsForURLSpecificRule(
                 osFieldXPath));
         if (poLayer->GetOGRFieldIndexFromXPath(osRawContentXPath) < 0)
         {
-            const CPLString osOGRFieldName(
+            CPLString osRawContentFieldname(
                 poLayer->GetLayerDefn()->GetFieldDefn(nFieldIdx)->GetNameRef());
-            CPLString osRawContentFieldname(osOGRFieldName);
             size_t nPos = osRawContentFieldname.find("_href");
             if (nPos != std::string::npos)
                 osRawContentFieldname.resize(nPos);
@@ -3703,10 +3707,9 @@ void GMLASReader::CreateFieldsForURLSpecificRule(
                     osFieldXPath, oRule.m_aoFields[i].m_osName));
             if (poLayer->GetOGRFieldIndexFromXPath(osDerivedFieldXPath) < 0)
             {
-                const CPLString osOGRFieldName(poLayer->GetLayerDefn()
-                                                   ->GetFieldDefn(nFieldIdx)
-                                                   ->GetNameRef());
-                CPLString osNewFieldname(osOGRFieldName);
+                CPLString osNewFieldname(poLayer->GetLayerDefn()
+                                             ->GetFieldDefn(nFieldIdx)
+                                             ->GetNameRef());
                 size_t nPos = osNewFieldname.find("_href");
                 if (nPos != std::string::npos)
                     osNewFieldname.resize(nPos);

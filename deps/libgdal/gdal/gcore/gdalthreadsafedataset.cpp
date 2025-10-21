@@ -13,6 +13,7 @@
 #ifndef DOXYGEN_SKIP
 
 #include "cpl_mem_cache.h"
+#include "cpl_multiproc.h"
 #include "gdal_proxy.h"
 #include "gdal_rat.h"
 #include "gdal_priv.h"
@@ -471,12 +472,13 @@ GDALThreadLocalDatasetCache::~GDALThreadLocalDatasetCache()
     const bool bDriverManagerDestroyed = *GDALGetphDMMutex() == nullptr;
     if (bDriverManagerDestroyed || !bGlobalCacheValid)
     {
+#ifndef __COVERITY__
         // Leak datasets when GDAL has been de-initialized
         if (!m_poCache->empty())
         {
-            // coverity[leaked_storage]
             CPL_IGNORE_RET_VAL(m_poCache.release());
         }
+#endif
         return;
     }
 
@@ -756,7 +758,6 @@ GDALDataset *GDALThreadSafeDataset::RefUnderlyingDataset() const
     // "Clone" the prototype dataset, which in 99% of the cases, involves
     // doing a GDALDataset::Open() call to re-open it. Do that by temporarily
     // dropping the lock that protects poCache->m_oCache.
-    // coverity[uninit_use_in_call]
     oLock.unlock();
     poTLSDS = m_poPrototypeDS->Clone(GDAL_OF_RASTER, /* bCanShareState=*/true);
     if (poTLSDS)
@@ -1167,7 +1168,7 @@ bool GDALDatasetIsThreadSafe(GDALDatasetH hDS, int nScopeFlags,
 /** Return a thread-safe dataset.
  *
  * In the general case, this thread-safe dataset will open a
- * behind-the-scenes per-thread dataset (re-using the name and open options of poDS),
+ * behind-the-scenes per-thread dataset (reusing the name and open options of poDS),
  * the first time a thread calls a method on the thread-safe dataset, and will
  * transparently redirect calls from the calling thread to this behind-the-scenes
  * per-thread dataset. Hence there is an initial setup cost per thread.
@@ -1199,7 +1200,7 @@ GDALGetThreadSafeDataset(std::unique_ptr<GDALDataset> poDS, int nScopeFlags)
 /** Return a thread-safe dataset.
  *
  * In the general case, this thread-safe dataset will open a
- * behind-the-scenes per-thread dataset (re-using the name and open options of poDS),
+ * behind-the-scenes per-thread dataset (reusing the name and open options of poDS),
  * the first time a thread calls a method on the thread-safe dataset, and will
  * transparently redirect calls from the calling thread to this behind-the-scenes
  * per-thread dataset. Hence there is an initial setup cost per thread.
@@ -1247,7 +1248,7 @@ GDALDataset *GDALGetThreadSafeDataset(GDALDataset *poDS, int nScopeFlags)
 /** Return a thread-safe dataset.
  *
  * In the general case, this thread-safe dataset will open a
- * behind-the-scenes per-thread dataset (re-using the name and open options of hDS),
+ * behind-the-scenes per-thread dataset (reusing the name and open options of hDS),
  * the first time a thread calls a method on the thread-safe dataset, and will
  * transparently redirect calls from the calling thread to this behind-the-scenes
  * per-thread dataset. Hence there is an initial setup cost per thread.

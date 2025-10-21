@@ -27,6 +27,7 @@
 
 #include "cpl_azure.h"
 #include "cpl_json.h"
+#include "cpl_minixml.h"
 #include "cpl_vsi_error.h"
 #include "cpl_sha256.h"
 #include "cpl_time.h"
@@ -90,7 +91,7 @@ static std::string CPLAzureGetSignature(const std::string &osStringToSign,
 /************************************************************************/
 
 static struct curl_slist *GetAzureBlobHeaders(
-    const std::string &osVerb, const struct curl_slist *psExistingHeaders,
+    const std::string &osVerb, struct curl_slist *psHeaders,
     const std::string &osResource,
     const std::map<std::string, std::string> &oMapQueryParameters,
     const std::string &osStorageAccount, const std::string &osStorageKeyB64,
@@ -100,38 +101,38 @@ static struct curl_slist *GetAzureBlobHeaders(
      * https://docs.microsoft.com/en-us/rest/api/storageservices/authentication-for-the-azure-storage-services
      */
 
+    const auto AddHeaders = [bIncludeMSVersion](struct curl_slist *l_psHeaders,
+                                                const std::string &osDate)
+    {
+        l_psHeaders = curl_slist_append(
+            l_psHeaders, CPLSPrintf("x-ms-date: %s", osDate.c_str()));
+        if (bIncludeMSVersion)
+        {
+            l_psHeaders = curl_slist_append(
+                l_psHeaders, CPLSPrintf("x-ms-version: %s", X_MS_VERSION));
+        }
+        return l_psHeaders;
+    };
+
     std::string osDate = CPLGetConfigOption("CPL_AZURE_TIMESTAMP", "");
     if (osDate.empty())
     {
         osDate = IVSIS3LikeHandleHelper::GetRFC822DateTime();
     }
-    const std::string osMsVersion(X_MS_VERSION);
-
-    const auto AddHeaders = [&osDate, &osMsVersion, bIncludeMSVersion]()
-    {
-        struct curl_slist *l_psHeaders = curl_slist_append(
-            nullptr, CPLSPrintf("x-ms-date: %s", osDate.c_str()));
-        if (bIncludeMSVersion)
-        {
-            l_psHeaders =
-                curl_slist_append(l_psHeaders, CPLSPrintf("x-ms-version: %s",
-                                                          osMsVersion.c_str()));
-        }
-        return l_psHeaders;
-    };
 
     if (osStorageKeyB64.empty())
     {
-        return AddHeaders();
+        psHeaders = AddHeaders(psHeaders, osDate);
+        return psHeaders;
     }
 
     std::map<std::string, std::string> oSortedMapMSHeaders;
     if (bIncludeMSVersion)
-        oSortedMapMSHeaders["x-ms-version"] = osMsVersion;
+        oSortedMapMSHeaders["x-ms-version"] = X_MS_VERSION;
     oSortedMapMSHeaders["x-ms-date"] = osDate;
     std::string osCanonicalizedHeaders(
-        IVSIS3LikeHandleHelper::BuildCanonicalizedHeaders(
-            oSortedMapMSHeaders, psExistingHeaders, "x-ms-"));
+        IVSIS3LikeHandleHelper::BuildCanonicalizedHeaders(oSortedMapMSHeaders,
+                                                          psHeaders, "x-ms-"));
 
     std::string osCanonicalizedResource;
     osCanonicalizedResource += "/" + osStorageAccount;
@@ -150,28 +151,22 @@ static struct curl_slist *GetAzureBlobHeaders(
 
     std::string osStringToSign;
     osStringToSign += osVerb + "\n";
-    osStringToSign +=
-        CPLAWSGetHeaderVal(psExistingHeaders, "Content-Encoding") + "\n";
-    osStringToSign +=
-        CPLAWSGetHeaderVal(psExistingHeaders, "Content-Language") + "\n";
+    osStringToSign += CPLAWSGetHeaderVal(psHeaders, "Content-Encoding") + "\n";
+    osStringToSign += CPLAWSGetHeaderVal(psHeaders, "Content-Language") + "\n";
     std::string osContentLength(
-        CPLAWSGetHeaderVal(psExistingHeaders, "Content-Length"));
+        CPLAWSGetHeaderVal(psHeaders, "Content-Length"));
     if (osContentLength == "0")
         osContentLength.clear();  // since x-ms-version 2015-02-21
     osStringToSign += osContentLength + "\n";
+    osStringToSign += CPLAWSGetHeaderVal(psHeaders, "Content-MD5") + "\n";
+    osStringToSign += CPLAWSGetHeaderVal(psHeaders, "Content-Type") + "\n";
+    osStringToSign += CPLAWSGetHeaderVal(psHeaders, "Date") + "\n";
+    osStringToSign += CPLAWSGetHeaderVal(psHeaders, "If-Modified-Since") + "\n";
+    osStringToSign += CPLAWSGetHeaderVal(psHeaders, "If-Match") + "\n";
+    osStringToSign += CPLAWSGetHeaderVal(psHeaders, "If-None-Match") + "\n";
     osStringToSign +=
-        CPLAWSGetHeaderVal(psExistingHeaders, "Content-MD5") + "\n";
-    osStringToSign +=
-        CPLAWSGetHeaderVal(psExistingHeaders, "Content-Type") + "\n";
-    osStringToSign += CPLAWSGetHeaderVal(psExistingHeaders, "Date") + "\n";
-    osStringToSign +=
-        CPLAWSGetHeaderVal(psExistingHeaders, "If-Modified-Since") + "\n";
-    osStringToSign += CPLAWSGetHeaderVal(psExistingHeaders, "If-Match") + "\n";
-    osStringToSign +=
-        CPLAWSGetHeaderVal(psExistingHeaders, "If-None-Match") + "\n";
-    osStringToSign +=
-        CPLAWSGetHeaderVal(psExistingHeaders, "If-Unmodified-Since") + "\n";
-    osStringToSign += CPLAWSGetHeaderVal(psExistingHeaders, "Range") + "\n";
+        CPLAWSGetHeaderVal(psHeaders, "If-Unmodified-Since") + "\n";
+    osStringToSign += CPLAWSGetHeaderVal(psHeaders, "Range") + "\n";
     osStringToSign += osCanonicalizedHeaders;
     osStringToSign += osCanonicalizedResource;
 
@@ -187,9 +182,10 @@ static struct curl_slist *GetAzureBlobHeaders(
         "SharedKey " + osStorageAccount + ":" +
         CPLAzureGetSignature(osStringToSign, osStorageKeyB64));
 
-    struct curl_slist *psHeaders = AddHeaders();
+    psHeaders = AddHeaders(psHeaders, osDate);
     psHeaders = curl_slist_append(
         psHeaders, CPLSPrintf("Authorization: %s", osAuthorization.c_str()));
+
     return psHeaders;
 }
 
@@ -236,7 +232,7 @@ static std::string AzureCSGetParameter(const std::string &osStr,
         if (bErrorIfMissing)
         {
             CPLDebug("AZURE", "%s", pszMsg);
-            VSIError(VSIE_AWSInvalidCredentials, "%s", pszMsg);
+            VSIError(VSIE_InvalidCredentials, "%s", pszMsg);
         }
         return std::string();
     }
@@ -531,14 +527,13 @@ ParseStorageConnectionString(const std::string &osStorageConnectionString,
         osStorageAccount.clear();
         osStorageKey.clear();
 
-        const std::string osBlobEndpoint =
-            RemoveTrailingSlash(AzureCSGetParameter(osStorageConnectionString,
-                                                    "BlobEndpoint", false));
+        std::string osBlobEndpoint = RemoveTrailingSlash(AzureCSGetParameter(
+            osStorageConnectionString, "BlobEndpoint", false));
         osSAS = AzureCSGetParameter(osStorageConnectionString,
                                     "SharedAccessSignature", false);
         if (!osBlobEndpoint.empty() && !osSAS.empty())
         {
-            osEndpoint = osBlobEndpoint;
+            osEndpoint = std::move(osBlobEndpoint);
             return true;
         }
 
@@ -796,7 +791,7 @@ bool VSIAzureBlobHandleHelper::GetConfiguration(
                         "or AZURE_NO_SIGN_REQUEST configuration option "
                         "not defined";
                     CPLDebug("AZURE", "%s", pszMsg);
-                    VSIError(VSIE_AWSInvalidCredentials, "%s", pszMsg);
+                    VSIError(VSIE_InvalidCredentials, "%s", pszMsg);
                     return false;
                 }
             }
@@ -825,7 +820,7 @@ bool VSIAzureBlobHandleHelper::GetConfiguration(
         "For unauthenticated requests on public resources, set the "
         "AZURE_NO_SIGN_REQUEST configuration option to YES.";
     CPLDebug("AZURE", "%s", pszMsg);
-    VSIError(VSIE_AWSInvalidCredentials, "%s", pszMsg);
+    VSIError(VSIE_InvalidCredentials, "%s", pszMsg);
     return false;
 }
 
@@ -939,35 +934,35 @@ std::string VSIAzureBlobHandleHelper::GetSASQueryString() const
 /*                           GetCurlHeaders()                           */
 /************************************************************************/
 
-struct curl_slist *VSIAzureBlobHandleHelper::GetCurlHeaders(
-    const std::string &osVerb, const struct curl_slist *psExistingHeaders,
-    const void *, size_t) const
+struct curl_slist *
+VSIAzureBlobHandleHelper::GetCurlHeaders(const std::string &osVerb,
+                                         struct curl_slist *psHeaders,
+                                         const void *, size_t) const
 {
     if (m_bFromManagedIdentities || !m_osAccessToken.empty())
     {
+        psHeaders = curl_slist_append(
+            psHeaders,
+            std::string("x-ms-version: ").append(X_MS_VERSION).c_str());
+
         std::string osAccessToken;
         if (m_bFromManagedIdentities)
         {
             if (!GetConfigurationFromManagedIdentities(m_osPathForOption,
                                                        osAccessToken))
-                return nullptr;
+                return psHeaders;
         }
         else
         {
             osAccessToken = m_osAccessToken;
         }
 
-        struct curl_slist *headers = nullptr;
-
         // Do not use CPLSPrintf() as we could get over the 8K character limit
         // with very large SAS tokens
         std::string osAuthorization = "Authorization: Bearer ";
         osAuthorization += osAccessToken;
-        headers = curl_slist_append(headers, osAuthorization.c_str());
-        headers = curl_slist_append(
-            headers,
-            std::string("x-ms-version: ").append(X_MS_VERSION).c_str());
-        return headers;
+        psHeaders = curl_slist_append(psHeaders, osAuthorization.c_str());
+        return psHeaders;
     }
 
     std::string osResource;
@@ -982,9 +977,136 @@ struct curl_slist *VSIAzureBlobHandleHelper::GetCurlHeaders(
     if (!m_osObjectKey.empty())
         osResource += "/" + CPLAWSURLEncode(m_osObjectKey, false);
 
-    return GetAzureBlobHeaders(osVerb, psExistingHeaders, osResource,
+    return GetAzureBlobHeaders(osVerb, psHeaders, osResource,
                                m_oMapQueryParameters, m_osStorageAccount,
                                m_osStorageKey, m_bIncludeMSVersion);
+}
+
+/************************************************************************/
+/*                          CanRestartOnError()                         */
+/************************************************************************/
+
+bool VSIAzureBlobHandleHelper::CanRestartOnError(const char *pszErrorMsg,
+                                                 const char *pszHeaders,
+                                                 bool bSetError)
+{
+    if (pszErrorMsg[0] == '\xEF' && pszErrorMsg[1] == '\xBB' &&
+        pszErrorMsg[2] == '\xBF')
+        pszErrorMsg += 3;
+
+#ifdef DEBUG_VERBOSE
+    CPLDebug("AZURE", "%s", pszErrorMsg);
+    CPLDebug("AZURE", "%s", pszHeaders ? pszHeaders : "");
+#endif
+
+    if (STARTS_WITH(pszErrorMsg, "HTTP/") && pszHeaders &&
+        STARTS_WITH(pszHeaders, "HTTP/"))
+    {
+        if (bSetError)
+        {
+            std::string osMessage;
+            std::string osTmpMessage(pszHeaders);
+            auto nPos = osTmpMessage.find(' ');
+            if (nPos != std::string::npos)
+            {
+                nPos = osTmpMessage.find(' ', nPos + 1);
+                if (nPos != std::string::npos)
+                {
+                    auto nPos2 = osTmpMessage.find('\r', nPos + 1);
+                    if (nPos2 != std::string::npos)
+                        osMessage =
+                            osTmpMessage.substr(nPos + 1, nPos2 - nPos - 1);
+                }
+            }
+            if (strstr(pszHeaders, "x-ms-error-code: BlobNotFound") ||  // vsiaz
+                strstr(pszHeaders, "x-ms-error-code: PathNotFound")  // vsiadls
+            )
+            {
+                VSIError(VSIE_ObjectNotFound, "%s", osMessage.c_str());
+            }
+            else if (strstr(pszHeaders,
+                            "x-ms-error-code: InvalidAuthenticationInfo") ||
+                     strstr(pszHeaders,
+                            "x-ms-error-code: AuthenticationFailed"))
+            {
+                VSIError(VSIE_InvalidCredentials, "%s", osMessage.c_str());
+            }
+            // /vsiadls
+            else if (strstr(pszHeaders, "x-ms-error-code: FilesystemNotFound"))
+            {
+                VSIError(VSIE_BucketNotFound, "%s", osMessage.c_str());
+            }
+            else
+            {
+                CPLDebug("AZURE", "%s", pszHeaders);
+            }
+        }
+        return false;
+    }
+
+    if (!STARTS_WITH(pszErrorMsg, "<?xml") &&
+        !STARTS_WITH(pszErrorMsg, "<Error>"))
+    {
+        if (bSetError)
+        {
+            VSIError(VSIE_ObjectStorageGenericError,
+                     "Invalid Azure response: %s", pszErrorMsg);
+        }
+        return false;
+    }
+
+    auto psTree = CPLXMLTreeCloser(CPLParseXMLString(pszErrorMsg));
+    if (psTree == nullptr)
+    {
+        if (bSetError)
+        {
+            VSIError(VSIE_ObjectStorageGenericError,
+                     "Malformed Azure XML response: %s", pszErrorMsg);
+        }
+        return false;
+    }
+
+    const char *pszCode = CPLGetXMLValue(psTree.get(), "=Error.Code", nullptr);
+    if (pszCode == nullptr)
+    {
+        if (bSetError)
+        {
+            VSIError(VSIE_ObjectStorageGenericError,
+                     "Malformed Azure XML response: %s", pszErrorMsg);
+        }
+        return false;
+    }
+
+    if (bSetError)
+    {
+        // Translate AWS errors into VSI errors.
+        const char *pszMessage =
+            CPLGetXMLValue(psTree.get(), "=Error.Message", nullptr);
+        std::string osMessage;
+        if (pszMessage)
+        {
+            osMessage = pszMessage;
+            const auto nPos = osMessage.find("\nRequestId:");
+            if (nPos != std::string::npos)
+                osMessage.resize(nPos);
+        }
+
+        if (pszMessage == nullptr)
+        {
+            VSIError(VSIE_ObjectStorageGenericError, "%s", pszErrorMsg);
+        }
+        else if (EQUAL(pszCode, "ContainerNotFound"))
+        {
+            VSIError(VSIE_BucketNotFound, "%s", osMessage.c_str());
+        }
+        else
+        {
+            VSIError(VSIE_ObjectStorageGenericError, "%s: %s", pszCode,
+                     pszMessage);
+        }
+    }
+
+    return false;
 }
 
 /************************************************************************/

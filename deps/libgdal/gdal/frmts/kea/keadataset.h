@@ -29,7 +29,7 @@ class KEADataset final : public GDALDataset
   public:
     // constructor/destructor
     KEADataset(H5::H5File *keaImgH5File, GDALAccess eAccess);
-    ~KEADataset();
+    ~KEADataset() override;
 
     // static methods that handle open and creation
     // the driver class has pointers to these
@@ -44,10 +44,10 @@ class KEADataset final : public GDALDataset
                                    void *pProgressData);
 
     // virtual methods for dealing with transform and projection
-    CPLErr GetGeoTransform(double *padfTransform) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
     const OGRSpatialReference *GetSpatialRef() const override;
 
-    CPLErr SetGeoTransform(double *padfTransform) override;
+    CPLErr SetGeoTransform(const GDALGeoTransform &gt) override;
     CPLErr SetSpatialRef(const OGRSpatialReference *poSRS) override;
 
     // method to get a pointer to the imageio class
@@ -75,12 +75,11 @@ class KEADataset final : public GDALDataset
 
   protected:
     // this method builds overviews for the specified bands.
-    virtual CPLErr IBuildOverviews(const char *pszResampling, int nOverviews,
-                                   const int *panOverviewList, int nListBands,
-                                   const int *panBandList,
-                                   GDALProgressFunc pfnProgress,
-                                   void *pProgressData,
-                                   CSLConstList papszOptions) override;
+    CPLErr IBuildOverviews(const char *pszResampling, int nOverviews,
+                           const int *panOverviewList, int nListBands,
+                           const int *panBandList, GDALProgressFunc pfnProgress,
+                           void *pProgressData,
+                           CSLConstList papszOptions) override;
 
     // internal method to update m_papszMetadataList
     void UpdateMetadataList();

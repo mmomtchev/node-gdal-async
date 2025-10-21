@@ -157,18 +157,21 @@ class TileDBRasterBand;
 /* ==================================================================== */
 /************************************************************************/
 
-class TileDBDataset : public GDALPamDataset
+class TileDBDataset /* non final */ : public GDALPamDataset
 {
   protected:
-    std::unique_ptr<tiledb::Context> m_ctx;
+    std::unique_ptr<tiledb::Context> m_ctx{};
 
   public:
+    ~TileDBDataset() override;
+
     static CPLErr AddFilter(tiledb::Context &ctx,
                             tiledb::FilterList &filterList,
                             const char *pszFilterName, const int level);
     static int Identify(GDALOpenInfo *);
     static CPLErr Delete(const char *pszFilename);
     static CPLString VSI_to_tiledb_uri(const char *pszUri);
+    static bool TileDBObjectExists(const std::string &osArrayUri);
 
     static GDALDataset *Open(GDALOpenInfo *);
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
@@ -199,14 +202,14 @@ class TileDBRasterDataset final : public TileDBDataset
 
   protected:
     std::string m_osConfigFilename{};
-    std::unique_ptr<tiledb::Context> m_roCtx;
-    std::unique_ptr<tiledb::Array> m_array;
-    std::unique_ptr<tiledb::Array> m_roArray;
-    std::unique_ptr<tiledb::ArraySchema> m_schema;
-    std::unique_ptr<tiledb::FilterList> m_filterList;
+    std::unique_ptr<tiledb::Context> m_roCtx{};
+    std::unique_ptr<tiledb::Array> m_array{};
+    std::unique_ptr<tiledb::Array> m_roArray{};
+    std::unique_ptr<tiledb::ArraySchema> m_schema{};
+    std::unique_ptr<tiledb::FilterList> m_filterList{};
     bool m_bDatasetInGroup = false;
     std::string m_osArrayURI{};
-    CPLString osMetaDoc;
+    CPLString osMetaDoc{};
     TILEDB_INTERLEAVE_MODE eIndexMode = BAND;
     int nBitsPerSample = 8;
     GDALDataType eDataType = GDT_Unknown;
@@ -260,7 +263,7 @@ class TileDBRasterDataset final : public TileDBDataset
     void LoadOverviews();
 
   public:
-    ~TileDBRasterDataset();
+    ~TileDBRasterDataset() override;
     CPLErr TryLoadCachedXML(CSLConstList papszSiblingFiles = nullptr,
                             bool bReload = true);
     CPLErr TryLoadXML(CSLConstList papszSiblingFiles = nullptr) override;
@@ -268,7 +271,7 @@ class TileDBRasterDataset final : public TileDBDataset
     char **GetMetadata(const char *pszDomain) override;
     CPLErr Close() override;
     int CloseDependentDatasets() override;
-    virtual CPLErr FlushCache(bool bAtClosing) override;
+    CPLErr FlushCache(bool bAtClosing) override;
 
     CPLErr IBuildOverviews(const char *pszResampling, int nOverviews,
                            const int *panOverviewList, int nListBands,
@@ -334,16 +337,16 @@ class OGRTileDBLayer final : public OGRLayer,
         WriteInProgress
     };
     CurrentMode m_eCurrentMode = CurrentMode::None;
-    std::unique_ptr<tiledb::Context> m_ctx;
-    std::unique_ptr<tiledb::Array> m_array;
-    std::unique_ptr<tiledb::ArraySchema> m_schema;
-    std::unique_ptr<tiledb::Query> m_query;
-    std::unique_ptr<tiledb::FilterList> m_filterList;
+    std::unique_ptr<tiledb::Context> m_ctx{};
+    std::unique_ptr<tiledb::Array> m_array{};
+    std::unique_ptr<tiledb::ArraySchema> m_schema{};
+    std::unique_ptr<tiledb::Query> m_query{};
+    std::unique_ptr<tiledb::FilterList> m_filterList{};
     bool m_bAttributeFilterPartiallyTranslated =
         false;  // for debugging purposes
     bool m_bAttributeFilterAlwaysFalse = false;
     bool m_bAttributeFilterAlwaysTrue = false;
-    std::unique_ptr<tiledb::QueryCondition> m_poQueryCondition;
+    std::unique_ptr<tiledb::QueryCondition> m_poQueryCondition{};
     bool m_bInitializationAttempted = false;
     bool m_bInitialized = false;
     OGRFeatureDefn *m_poFeatureDefn = nullptr;
@@ -361,7 +364,7 @@ class OGRTileDBLayer final : public OGRLayer,
 
     std::string m_osXDim = "_X";
     std::string m_osYDim = "_Y";
-    std::string m_osZDim;  // may be empty
+    std::string m_osZDim{};  // may be empty
 
     // Domain extent
     double m_dfXStart = 0;
@@ -372,13 +375,13 @@ class OGRTileDBLayer final : public OGRLayer,
     double m_dfZEnd = 10000;
 
     // Extent of all features
-    OGREnvelope m_oLayerExtent;
+    OGREnvelope m_oLayerExtent{};
 
     // Boolean shared between the OGRTileDBLayer instance and the
     // OGRTileDBArrowArrayPrivateData instances, that are stored in
     // ArrowArray::private_data, so ReleaseArrowArray() function knows
     // if the OGRLayer is still alive.
-    std::shared_ptr<bool> m_pbLayerStillAlive;
+    std::shared_ptr<bool> m_pbLayerStillAlive{};
 
     // Flag set to false by GetNextArrowArray() to indicate that the m_anFIDs,
     // m_adfXs, m_adfYs, m_adfZs, m_aFieldValues, m_aFieldValueOffsets,
@@ -388,28 +391,28 @@ class OGRTileDBLayer final : public OGRLayer,
     // the ArrowArray's can be used independently of the new state of the layer.
     bool m_bArrowBatchReleased = true;
 
-    std::shared_ptr<std::vector<int64_t>> m_anFIDs;
-    std::shared_ptr<std::vector<double>> m_adfXs;
-    std::shared_ptr<std::vector<double>> m_adfYs;
-    std::shared_ptr<std::vector<double>> m_adfZs;
+    std::shared_ptr<std::vector<int64_t>> m_anFIDs{};
+    std::shared_ptr<std::vector<double>> m_adfXs{};
+    std::shared_ptr<std::vector<double>> m_adfYs{};
+    std::shared_ptr<std::vector<double>> m_adfZs{};
     std::vector<tiledb_datatype_t> m_aeFieldTypes{};
     std::vector<int> m_aeFieldTypesInCreateField{};
     std::vector<size_t> m_anFieldValuesCapacity{};
-    std::vector<ArrayType> m_aFieldValues;
-    std::vector<std::shared_ptr<std::vector<uint64_t>>> m_aFieldValueOffsets;
-    std::vector<std::vector<uint8_t>> m_aFieldValidity;
+    std::vector<ArrayType> m_aFieldValues{};
+    std::vector<std::shared_ptr<std::vector<uint64_t>>> m_aFieldValueOffsets{};
+    std::vector<std::vector<uint8_t>> m_aFieldValidity{};
     size_t m_nGeometriesCapacity = 0;
-    std::shared_ptr<std::vector<unsigned char>> m_abyGeometries;
-    std::shared_ptr<std::vector<uint64_t>> m_anGeometryOffsets;
+    std::shared_ptr<std::vector<unsigned char>> m_abyGeometries{};
+    std::shared_ptr<std::vector<uint64_t>> m_anGeometryOffsets{};
 
     struct OGRTileDBArrowArrayPrivateData
     {
         OGRTileDBLayer *m_poLayer = nullptr;
-        std::shared_ptr<bool> m_pbLayerStillAlive;
+        std::shared_ptr<bool> m_pbLayerStillAlive{};
 
-        ArrayType valueHolder;
-        std::shared_ptr<std::vector<uint8_t>> nullHolder;
-        std::shared_ptr<std::vector<uint64_t>> offsetHolder;
+        ArrayType valueHolder{};
+        std::shared_ptr<std::vector<uint8_t>> nullHolder{};
+        std::shared_ptr<std::vector<uint64_t>> offsetHolder{};
     };
 
     size_t m_nBatchSize = DEFAULT_BATCH_SIZE;
@@ -417,7 +420,7 @@ class OGRTileDBLayer final : public OGRLayer,
     double m_dfTileExtent = 0;
     double m_dfZTileExtent = 0;
     size_t m_nEstimatedWkbSizePerRow = 0;
-    std::map<std::string, size_t> m_oMapEstimatedSizePerRow;
+    std::map<std::string, size_t> m_oMapEstimatedSizePerRow{};
     double m_dfPadX = 0;
     double m_dfPadY = 0;
     double m_dfPadZ = 0;
@@ -468,27 +471,29 @@ class OGRTileDBLayer final : public OGRLayer,
     int GetNextArrowArray(struct ArrowArrayStream *,
                           struct ArrowArray *out_array) override;
 
+    CPL_DISALLOW_COPY_ASSIGN(OGRTileDBLayer)
+
   public:
     OGRTileDBLayer(GDALDataset *poDS, const char *pszFilename,
                    const char *pszLayerName, const OGRwkbGeometryType eGType,
                    const OGRSpatialReference *poSRS);
-    ~OGRTileDBLayer();
+    ~OGRTileDBLayer() override;
     void ResetReading() override;
     DEFINE_GET_NEXT_FEATURE_THROUGH_RAW(OGRTileDBLayer)
     OGRFeature *GetFeature(GIntBig nFID) override;
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
     OGRErr CreateField(const OGRFieldDefn *poField, int bApproxOK) override;
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
     GIntBig GetFeatureCount(int bForce) override;
     OGRErr IGetExtent(int iGeomField, OGREnvelope *psExtent,
                       bool bForce) override;
 
-    const char *GetFIDColumn() override
+    const char *GetFIDColumn() const override
     {
         return m_osFIDColumn.c_str();
     }
 
-    OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return m_poFeatureDefn;
     }
@@ -516,23 +521,23 @@ class OGRTileDBDataset final : public TileDBDataset
 
   public:
     OGRTileDBDataset();
-    ~OGRTileDBDataset();
+    ~OGRTileDBDataset() override;
     OGRLayer *ExecuteSQL(const char *pszSQLCommand,
                          OGRGeometry *poSpatialFilter,
                          const char *pszDialect) override;
 
-    int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return static_cast<int>(m_apoLayers.size());
     }
 
-    OGRLayer *GetLayer(int nIdx) override
+    const OGRLayer *GetLayer(int nIdx) const override
     {
         return nIdx >= 0 && nIdx < GetLayerCount() ? m_apoLayers[nIdx].get()
                                                    : nullptr;
     }
 
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 
     OGRLayer *ICreateLayer(const char *pszName,
                            const OGRGeomFieldDefn *poGeomFieldDefn,
