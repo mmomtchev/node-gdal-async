@@ -145,7 +145,9 @@ NAN_METHOD(SpatialReference::New) {
 Local<Value> SpatialReference::New(const OGRSpatialReference *srs) {
   Nan::EscapableHandleScope scope;
   if (!srs) { return scope.Escape(Nan::Null()); }
-  if (object_store.has(srs)) { return scope.Escape(object_store.get(srs)); }
+  if (object_store.has(const_cast<OGRSpatialReference *>(srs))) {
+    return scope.Escape(object_store.get(const_cast<OGRSpatialReference *>(srs)));
+  }
   OGRSpatialReference *copy = srs->Clone();
   return scope.Escape(SpatialReference::New(copy, true));
 }
