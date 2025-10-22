@@ -13,7 +13,7 @@
 				"../gdal/ogr/ogrsf_frmts/shape/shpopen_wrapper.cpp",
 				"../gdal/ogr/ogrsf_frmts/shape/dbfopen_wrapper.cpp",
 				"../gdal/ogr/ogrsf_frmts/shape/ogrshapedriver.cpp",
-				"../gdal/ogr/ogrsf_frmts/shape/shp_vsi.c",
+				"../gdal/ogr/ogrsf_frmts/shape/shp_vsi.cpp",
 				"../gdal/ogr/ogrsf_frmts/shape/ogrshapedatasource.cpp",
 				"../gdal/ogr/ogrsf_frmts/shape/sbnsearch_wrapper.cpp"
 			],
