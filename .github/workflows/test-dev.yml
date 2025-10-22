@@ -111,7 +111,7 @@ jobs:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
 
 
-  test_node_old:
+  test_node:
 
     runs-on: ubuntu-latest
 

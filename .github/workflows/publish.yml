@@ -4,7 +4,7 @@ on: workflow_dispatch
 
 jobs:
 
-  publish-linux-old:
+  publish-linux:
 
     runs-on: ubuntu-latest
 
