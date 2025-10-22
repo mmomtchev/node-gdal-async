@@ -111,14 +111,14 @@ jobs:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
 
 
-  test_node:
+  test_node_old:
 
     runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
-        node-version: [ 20, 22, 24, 25 ]
+        node-version: [ 20, 22, 24 ]
         gdal-version: [ 'shared', 'bundled' ]
 
     steps:
@@ -133,6 +133,32 @@ jobs:
         max-size: 1000M
         key: node-${{ matrix.node-version }}
     - run: npm run container dev debian:bullseye ${{ matrix.node-version }} ${{ matrix.gdal-version }}
+      env:
+        MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
+
+
+  test_node_new:
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [ 25 ]
+        gdal-version: [ 'shared', 'bundled' ]
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Use Node.js 20.x
+      uses: actions/setup-node@v6
+      with:
+        node-version: 20.x
+    - name: ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        max-size: 1000M
+        key: node-${{ matrix.node-version }}
+    - run: npm run container dev debian:trixie ${{ matrix.node-version }} ${{ matrix.gdal-version }}
       env:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
 

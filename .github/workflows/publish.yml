@@ -4,13 +4,13 @@ on: workflow_dispatch
 
 jobs:
 
-  publish-linux:
+  publish-linux-old:
 
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        node-version: [ 20, 22, 24, 25 ]
+        node-version: [ 20, 22, 24 ]
 
     steps:
     - uses: actions/checkout@v5
@@ -19,6 +19,25 @@ jobs:
       with:
         node-version: 20.x
     - run: npm run container publish debian:bullseye ${{ matrix.node-version }}
+      env:
+        NODE_PRE_GYP_GITHUB_TOKEN: ${{ secrets.NODE_PRE_GYP_GITHUB_TOKEN }}
+
+
+  publish-linux-new:
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [ 25 ]
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Use Node.js 24.x
+      uses: actions/setup-node@v6
+      with:
+        node-version: 24.x
+    - run: npm run container publish debian:trixie ${{ matrix.node-version }}
       env:
         NODE_PRE_GYP_GITHUB_TOKEN: ${{ secrets.NODE_PRE_GYP_GITHUB_TOKEN }}
 
