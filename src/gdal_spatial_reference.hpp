@@ -30,7 +30,7 @@ class SpatialReference : public Nan::ObjectWrap {
   static void Initialize(Local<Object> target);
 
   static NAN_METHOD(New);
-  static Local<Value> New(OGRSpatialReference *srs);
+  static Local<Value> New(const OGRSpatialReference *srs);
   static Local<Value> New(OGRSpatialReference *srs, bool owned);
   static NAN_METHOD(toString);
   static NAN_METHOD(clone);

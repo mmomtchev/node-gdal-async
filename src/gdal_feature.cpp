@@ -409,7 +409,7 @@ NAN_GETTER(Feature::defnGetter) {
     Nan::ThrowError("Feature object already destroyed");
     return;
   }
-  info.GetReturnValue().Set(FeatureDefn::New(feature->this_->GetDefnRef(), false));
+  info.GetReturnValue().Set(FeatureDefn::New(feature->this_->GetDefnRef()));
 }
 
 /**
