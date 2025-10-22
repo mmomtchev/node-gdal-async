@@ -145,12 +145,13 @@ NAN_METHOD(SpatialReference::New) {
 Local<Value> SpatialReference::New(const OGRSpatialReference *srs) {
   Nan::EscapableHandleScope scope;
   if (!srs) { return scope.Escape(Nan::Null()); }
-  // FIXME: const correctness breaks the object store atm
-  if (object_store.has(const_cast<OGRSpatialReference *>(srs))) {
-    return scope.Escape(object_store.get(const_cast<OGRSpatialReference *>(srs)));
-  }
+  // const SpatialReferences use a separate ObjectStore
+  if (object_store.has(srs)) { return scope.Escape(object_store.get(srs)); }
   OGRSpatialReference *copy = srs->Clone();
-  return scope.Escape(SpatialReference::New(copy, true));
+  Local<Value> r = SpatialReference::New(copy, true);
+  SpatialReference *wrapped = Nan::ObjectWrap::Unwrap<SpatialReference>(r.As<Object>());
+  object_store.add(srs, wrapped->persistent(), 0);
+  return scope.Escape(r);
 }
 
 Local<Value> SpatialReference::New(OGRSpatialReference *raw, bool owned) {
