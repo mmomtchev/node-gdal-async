@@ -21,7 +21,8 @@
 				"../gdal/frmts/nitf/nitfimage.c",
 				"../gdal/frmts/nitf/nitfwritejpeg_12.cpp",
 				"../gdal/frmts/nitf/nitf_gcprpc.cpp",
-				"../gdal/frmts/nitf/nitfbilevel.cpp"
+				"../gdal/frmts/nitf/nitfbilevel.cpp",
+        "../gdal/frmts/nitf/nitffile.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/nitf",
