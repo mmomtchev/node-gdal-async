@@ -130,8 +130,7 @@ describe('gdal.LayerAsync', () => {
             assert.include(expectedWKT, srs.toWKT())
           })
         })
-        // FIXME: const correctness break the object store
-        it.skip('should return the same SpatialReference object', () => {
+        it('should return the same SpatialReference object', () => {
           prepare_dataset_layer_test('r', (dataset, layer) => {
             const srs1 = layer.srs
             const srs2 = layer.srs
