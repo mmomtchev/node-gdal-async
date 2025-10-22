@@ -504,7 +504,11 @@ describe('gdal.Dataset', () => {
           assert.isNull(ds.srs)
 
           ds = gdal.open(`${__dirname}/data/shp/sample.shp`)
-          assert.isNull(ds.srs)
+          if (semver.gte(gdal.version, '3.12.0-beta1')) {
+            assert.isNotNull(ds.srs)
+          } else {
+            assert.isNull(ds.srs)
+          }
         })
         it('should throw if dataset is already closed', () => {
           const ds = gdal.open(`${__dirname}/data/dem_azimuth50_pa.img`)
