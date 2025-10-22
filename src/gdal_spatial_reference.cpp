@@ -145,6 +145,7 @@ NAN_METHOD(SpatialReference::New) {
 Local<Value> SpatialReference::New(const OGRSpatialReference *srs) {
   Nan::EscapableHandleScope scope;
   if (!srs) { return scope.Escape(Nan::Null()); }
+  // FIXME: const correctness breaks the object store atm
   if (object_store.has(const_cast<OGRSpatialReference *>(srs))) {
     return scope.Escape(object_store.get(const_cast<OGRSpatialReference *>(srs)));
   }
