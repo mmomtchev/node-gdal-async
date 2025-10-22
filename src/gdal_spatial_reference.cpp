@@ -140,7 +140,7 @@ NAN_METHOD(SpatialReference::New) {
 // read-only modifies a shadow copy without any real effect.
 // TODO: Implement proper read-only objects that
 // Fixing this for srs obtained from a Layer is trivial
-// But fixing it for srs obtained from a Feature required moving the Features to the ObjectStore
+// But fixing it for srs obtained from a Feature requires moving the Features to the ObjectStore
 
 Local<Value> SpatialReference::New(const OGRSpatialReference *srs) {
   Nan::EscapableHandleScope scope;
@@ -150,6 +150,8 @@ Local<Value> SpatialReference::New(const OGRSpatialReference *srs) {
   OGRSpatialReference *copy = srs->Clone();
   Local<Value> r = SpatialReference::New(copy, true);
   SpatialReference *wrapped = Nan::ObjectWrap::Unwrap<SpatialReference>(r.As<Object>());
+  // the ObjectStore has now two elements pointing to the same wrapped object:
+  // the const object returned from GDAL and the cloned object.
   object_store.add(srs, wrapped->persistent(), 0);
   return scope.Escape(r);
 }
