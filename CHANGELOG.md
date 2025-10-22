@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
  - GDAL 3.12.0
+ - Node 25 support
+
+### Removed
+ - Drop Node 18 and Node 23 support *(No longer supported by Node)*
+ - Drop macOS 13 and macOS 14 support *(this change is imposed by Github)*
+ - Drop Linux glibc support before Debian Bullseye / Ubuntu 22.04 *(GDAL does not build with g++8)*
 
 ## [3.11.5] 2025-11-04
 
