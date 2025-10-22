@@ -19,7 +19,6 @@
 				"../gdal/frmts/nitf/rpftocfile.cpp",
 				"../gdal/frmts/nitf/nitfaridpcm.cpp",
 				"../gdal/frmts/nitf/nitfimage.c",
-				"../gdal/frmts/nitf/nitffile.c",
 				"../gdal/frmts/nitf/nitfwritejpeg_12.cpp",
 				"../gdal/frmts/nitf/nitf_gcprpc.cpp",
 				"../gdal/frmts/nitf/nitfbilevel.cpp"
