@@ -155,6 +155,9 @@ Local<Value> SpatialReference::New(const OGRSpatialReference *srs) {
 Local<Value> SpatialReference::New(OGRSpatialReference *raw, bool owned) {
   Nan::EscapableHandleScope scope;
 
+  if (!raw) { return scope.Escape(Nan::Null()); }
+  if (object_store.has(raw)) { return scope.Escape(object_store.get(raw)); }
+
   OGRSpatialReference *cloned_srs = raw;
   if (!owned) cloned_srs = raw->Clone();
 
