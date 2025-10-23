@@ -114,7 +114,7 @@ describe('gdal.LayerAsync', () => {
       })
     })
 
-    describe.only('"srs" property', () => {
+    describe('"srs" property', () => {
       describe('getter', () => {
         it('should return SpatialReference', () => {
           prepare_dataset_layer_test('r', (dataset, layer) => {
