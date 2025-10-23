@@ -118,7 +118,9 @@
 				"_FILE_OFFSET_BITS=64"
 			],
 			"xcode_settings": {
-				"GCC_ENABLE_CPP_EXCEPTIONS": "YES"
+				"GCC_ENABLE_CPP_EXCEPTIONS": "YES",
+				# This is a problem in the NAN templates
+				"OTHER_CPLUSPLUSFLAGS": [ "-Wno-cast-function-type-mismatch" ]
 			},
 			"conditions": [
 				["enable_logging != 'false'", {
