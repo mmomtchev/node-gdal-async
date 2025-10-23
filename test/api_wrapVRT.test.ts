@@ -92,7 +92,7 @@ describe('gdal.wrapVRT()', () => {
         {
           sources: [ gdal.open(sample).bands.get(1) ],
           pixelFunc: 'expression',
-          pixelFuncArgs: { dialect: 'muparser', expression: 'B1 ? 1.5*B3 : B1' },
+          pixelFuncArgs: { dialect: 'exprtk', expression: 'B1 ? 1.5*B3 : B1' },
           dataType: gdal.GDT_Int16,
           sourceTransferType: gdal.GDT_Float32
         }
