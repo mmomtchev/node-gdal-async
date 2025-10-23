@@ -306,21 +306,18 @@ template <typename GDALPTR> Local<Object> ObjectStore::get(long uid) {
 template long ObjectStore::add(GDALDriver *, Nan::Persistent<Object> &, long);
 template long ObjectStore::add(GDALRasterBand *, Nan::Persistent<Object> &, long);
 template long ObjectStore::add(OGRSpatialReference *, Nan::Persistent<Object> &, long);
-template long ObjectStore::add(const OGRSpatialReference *, Nan::Persistent<Object> &, long);
 template long ObjectStore::add(GDALColorTable *, Nan::Persistent<Object> &, long);
 template bool ObjectStore::has(GDALDriver *);
 template bool ObjectStore::has(GDALDataset *);
 template bool ObjectStore::has(OGRLayer *);
 template bool ObjectStore::has(GDALRasterBand *);
 template bool ObjectStore::has(OGRSpatialReference *);
-template bool ObjectStore::has(const OGRSpatialReference *);
 template bool ObjectStore::has(GDALColorTable *);
 template Local<Object> ObjectStore::get(GDALDriver *);
 template Local<Object> ObjectStore::get(GDALDataset *);
 template Local<Object> ObjectStore::get(OGRLayer *);
 template Local<Object> ObjectStore::get(GDALRasterBand *);
 template Local<Object> ObjectStore::get(OGRSpatialReference *);
-template Local<Object> ObjectStore::get(const OGRSpatialReference *);
 template Local<Object> ObjectStore::get(GDALColorTable *);
 template Local<Object> ObjectStore::get<GDALDataset *>(long uid);
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
@@ -425,10 +422,9 @@ void ObjectStore::do_dispose(long uid, bool manual) {
     dispose(uidMap<GDALRasterBand *>[uid], manual);
   else if (uidMap<GDALDriver *>.count(uid))
     dispose(uidMap<GDALDriver *>[uid], manual);
-  else if (uidMap<OGRSpatialReference *>.count(uid)) {
+  else if (uidMap<OGRSpatialReference *>.count(uid))
     dispose(uidMap<OGRSpatialReference *>[uid], manual);
-    dispose(uidMap<const OGRSpatialReference *>[uid], manual);
-  } else if (uidMap<GDALColorTable *>.count(uid))
+  else if (uidMap<GDALColorTable *>.count(uid))
     dispose(uidMap<GDALColorTable *>[uid], manual);
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
   else if (uidMap<shared_ptr<GDALGroup>>.count(uid))
