@@ -363,7 +363,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
     }
   }
 
-  bytes_per_pixel = GDALGetDataTypeSize(type) / 8;
+  bytes_per_pixel = GDALGetDataTypeSizeBytes(type);
   if (bytes_per_pixel == 0) {
     Nan::ThrowError("Invalid GDAL data type");
     return;
@@ -535,7 +535,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::write) {
     return;
   }
 
-  bytes_per_pixel = GDALGetDataTypeSize(type) / 8;
+  bytes_per_pixel = GDALGetDataTypeSizeBytes(type);
   if (bytes_per_pixel == 0) {
     Nan::ThrowError("Invalid GDAL data type");
     return;
