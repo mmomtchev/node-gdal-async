@@ -22,15 +22,20 @@
 				"../gdal/frmts/vrt/vrtdriver.cpp",
 				"../gdal/frmts/vrt/vrtderivedrasterband.cpp",
 				"../gdal/frmts/vrt/vrtrawrasterband.cpp",
-				"../gdal/frmts/vrt/vrtexpression_exprtk.cpp"
+				"../gdal/frmts/vrt/vrtexpression_exprtk.cpp",
+				"../gdal/frmts/vrt/vrtexpression_muparser.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/vrt",
 				"../gdal/frmts/raw",
 				"../../exprtk"
 			],
+			"dependencies": [
+			  "<(deps_dir)/muparser/muparser.gyp:muparser",
+      ],
 			"defines": [
-				"GDAL_VRT_ENABLE_EXPRTK=1"
+				"GDAL_VRT_ENABLE_EXPRTK=1",
+				"GDAL_VRT_ENABLE_MUPARSER=1"
 			]
 		}
 	]

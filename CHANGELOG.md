@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
  - GDAL 3.12.0
+ - Add muparser and enable muparser expression support
  - Node 25 support
  - Miramon read-only driver
 
