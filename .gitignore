@@ -35,7 +35,6 @@ lib/binding
 lib/index.d.ts
 doc
 /coverage
-package-lock.json
 yarn.lock
 Attic
 

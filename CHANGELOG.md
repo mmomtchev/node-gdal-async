@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - GDAL 3.12.0
  - Node 25 support
 
+### Changed
+ - `package-lock.json` is now fixed for each version in source control as per the `npm` official guidelines
+
 ### Removed
  - Drop Node 18 and Node 23 support *(No longer supported by Node)*
  - Drop macOS 13 and macOS 14 support *(this change is imposed by Github)*
