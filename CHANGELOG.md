@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
  - GDAL 3.12.0
  - Node 25 support
+ - Miramon read-only driver
 
 ### Changed
  - `package-lock.json` is now fixed for each version in source control as per the `npm` official guidelines
