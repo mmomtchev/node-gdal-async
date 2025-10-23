@@ -143,9 +143,10 @@ describe('gdal.Layer', () => {
           it('should not be destroyed when dataset is destroyed', () => {
             prepare_dataset_layer_test('r', (dataset, layer) => {
               const srs = layer.srs
-              assert.ok(srs)
+              assert.instanceOf(srs, gdal.SpatialReference)
               dataset.close()
               assert.isNotNull(srs)
+              assert.instanceOf(srs, gdal.SpatialReference)
               assert.ok(srs.toWKT())
             })
           })

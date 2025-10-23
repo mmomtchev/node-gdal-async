@@ -114,7 +114,7 @@ describe('gdal.LayerAsync', () => {
       })
     })
 
-    describe('"srs" property', () => {
+    describe.only('"srs" property', () => {
       describe('getter', () => {
         it('should return SpatialReference', () => {
           prepare_dataset_layer_test('r', (dataset, layer) => {
@@ -155,9 +155,12 @@ describe('gdal.LayerAsync', () => {
           it('should not be destroyed when dataset is destroyed', () => {
             prepare_dataset_layer_test('r', (dataset, layer) => {
               const srs = layer.srs
-              assert.ok(srs)
+              console.log(srs)
+              assert.strictEqual(srs, layer.srs)
+              assert.instanceOf(srs, gdal.SpatialReference)
               dataset.close()
               assert.isNotNull(srs)
+              assert.instanceOf(srs, gdal.SpatialReference)
               assert.ok(srs.toWKT())
             })
           })
