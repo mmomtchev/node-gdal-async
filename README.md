@@ -349,6 +349,6 @@ Since 3.12, the current minimum requirements for the prebuilt binaries are:
 
 - Windows - virtually all x86-64 versions
 - macOS - macOS 15 on both x86-64 and arm8-64
-- Linux - glibc at least 2.31 (Debian Bullseye and Ubuntu 22.04) on x84-64
+- Linux - glibc at least 2.31 (Debian Bullseye / Ubuntu 22.04) on x84-64 with the exception of the Node 25 prebuilt binaries which require at least 2.41 (Debian Trixie / Ubuntu 24.04)
 
-When rebuilding from source, the earliest unit tested GDAL is GDAL 3.10.2 (default one on Ubuntu 22.04).
+When rebuilding from source, the earliest unit tested GDAL is GDAL 3.10.2 (default one on Ubuntu 22.04) although all 3.x versions should work.
