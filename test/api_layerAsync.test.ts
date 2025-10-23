@@ -155,11 +155,10 @@ describe('gdal.LayerAsync', () => {
           it('should not be destroyed when dataset is destroyed', () => {
             prepare_dataset_layer_test('r', (dataset, layer) => {
               const srs = layer.srs
+              assert.ok(srs)
               dataset.close()
-              assert.doesNotThrow(() => {
-                assert.isNotNull(srs)
-                assert.ok(srs.toWKT())
-              })
+              assert.isNotNull(srs)
+              assert.ok(srs.toWKT())
             })
           })
         })
