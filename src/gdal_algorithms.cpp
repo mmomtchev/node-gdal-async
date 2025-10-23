@@ -825,7 +825,7 @@ NAN_METHOD(Algorithms::toPixelFunc) {
   NODE_ARG_CB(0, "pixelFn", pfn);
 
   size_t uid = pixelFuncs.size();
-  pixelFuncs.push_back({pfn, {}, {}, {}});
+  pixelFuncs.push_back({pfn, {}, {}, {}, nullptr});
   int s = uv_mutex_init(&pixelFuncs[uid].callJS);
   if (s != 0) {
     Nan::ThrowError("Failed creating a mutex");
