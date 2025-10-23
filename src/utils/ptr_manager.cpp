@@ -424,9 +424,10 @@ void ObjectStore::do_dispose(long uid, bool manual) {
     dispose(uidMap<GDALRasterBand *>[uid], manual);
   else if (uidMap<GDALDriver *>.count(uid))
     dispose(uidMap<GDALDriver *>[uid], manual);
-  else if (uidMap<OGRSpatialReference *>.count(uid))
+  else if (uidMap<OGRSpatialReference *>.count(uid)) {
     dispose(uidMap<OGRSpatialReference *>[uid], manual);
-  else if (uidMap<GDALColorTable *>.count(uid))
+    dispose(uidMap<const OGRSpatialReference *>[uid], manual);
+  } else if (uidMap<GDALColorTable *>.count(uid))
     dispose(uidMap<GDALColorTable *>[uid], manual);
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
   else if (uidMap<shared_ptr<GDALGroup>>.count(uid))
