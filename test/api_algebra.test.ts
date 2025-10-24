@@ -1,68 +1,112 @@
 import * as gdal from 'gdal-async'
 import { assert } from 'chai'
 
+const binary_ops = [
+  { name: 'add', op: gdal.algebra.add, test: (a, b) => a + b },
+  { name: 'sub', op: gdal.algebra.sub, test: (a, b) => a - b },
+  { name: 'mul', op: gdal.algebra.mul, test: (a, b) => a * b },
+  { name: 'div', op: gdal.algebra.div, test: (a, b) => a / b },
+  { name: 'pow', op: gdal.algebra.pow, test: (a, b) => Math.pow(a, b) },
+  { name: 'lt', op: gdal.algebra.lt, test: (a, b) => +(a < b) },
+  { name: 'lte', op: gdal.algebra.lte, test: (a, b) => +(a <= b) },
+  { name: 'gt', op: gdal.algebra.gt, test: (a, b) => +(a > b) },
+  { name: 'gte', op: gdal.algebra.gte, test: (a, b) => +(a >= b) },
+  { name: 'and', op: gdal.algebra.and, test: (a, b) => +(!!a && !!b) },
+  { name: 'or', op: gdal.algebra.or, test: (a, b) => +(!!a || !!b) },
+  { name: 'eq', op: gdal.algebra.eq, test: (a, b) => +(a == b) },
+  { name: 'notEq', op: gdal.algebra.notEq, test: (a, b) => +(a != b) }
+] as {
+  name: string;
+  op: typeof gdal.algebra.add,
+  test: (a: number, b: number) => number
+}[]
+
 describe('algebra', () => {
+  const w = 16
+  const h = 16
+  const buf1 = new Float32Array(w * h)
+  const buf2 = new Float32Array(w * h)
+  let ds: gdal.Dataset
+  let arg1Band: gdal.RasterBand
+  let arg2Band: gdal.RasterBand
+
   afterEach(() => void global.gc!())
 
-  describe('add()', () => {
-    let ds: gdal.Dataset
-    let arg1Band: gdal.RasterBand
-    let arg2Band: gdal.RasterBand
+  before(() => {
+    // create a in-memory band
+    ds = gdal.open('temp', 'w', 'MEM', w, h, 2, gdal.GDT_Float32)
 
-    before(() => {
-      // create a simple ramp in memory
-      const w = 64
-      const h = 64
-      ds = gdal.open('temp', 'w', 'MEM', w, h, 2)
-      arg1Band = ds.bands.get(1)
-      arg2Band = ds.bands.get(2)
-      for (let y = 0; y < h; y++) {
-        const buf = Buffer.alloc(w)
-        buf.fill(y * 4)
-        arg1Band.pixels.write(0, y, w, 1, new Uint8Array(buf))
-        arg2Band.pixels.write(0, y, w, 1, new Uint8Array(buf))
-      }
-    })
-    after(() => {
-      ds.close()
-    })
-
-    it('should add two bands', () => {
-      const r = gdal.algebra.add(arg1Band, arg2Band)
-      assert.instanceOf(r, gdal.RasterBand)
-      assert.instanceOf(r.ds, gdal.Dataset)
-      assert.strictEqual(r.pixels.get(5, 5), arg1Band.pixels.get(5, 5) + arg2Band.pixels.get(5, 5))
-    })
-
-    it('should add a band and a number', () => {
-      const r = gdal.algebra.add(arg1Band, 42)
-      assert.instanceOf(r, gdal.RasterBand)
-      assert.instanceOf(r.ds, gdal.Dataset)
-      assert.strictEqual(r.pixels.get(5, 5), arg1Band.pixels.get(5, 5) + 42)
-    })
-
-    it('should add a number and a band', () => {
-      const r = gdal.algebra.add(-42, arg2Band)
-      assert.instanceOf(r, gdal.RasterBand)
-      assert.instanceOf(r.ds, gdal.Dataset)
-      assert.strictEqual(r.pixels.get(5, 5), -42 + arg2Band.pixels.get(5, 5))
-    })
-
-    it('should throw on invalid arguments', () => {
-      assert.throws(() => {
-        gdal.algebra.add(-42, 42)
-      }, /At least one RasterBand must be given/)
-      assert.throws(() => {
-        // @ts-expect-error voluntary error
-        gdal.algebra.add(ds, arg1Band)
-      }, /Argument must be either a number or a RasterBand/)
-    })
-
-    it('should handle destroying the computed dataset', () => {
-      const r = gdal.algebra.add(-42, arg2Band)
-      assert.instanceOf(r, gdal.RasterBand)
-      assert.instanceOf(r.ds, gdal.Dataset)
-      r.ds.close()
-    })
+    arg1Band = ds.bands.get(1)
+    arg2Band = ds.bands.get(2)
+    for (let i = 0; i < h * w; i++) {
+      buf1[i] = Math.random() * 10
+      buf2[i] = Math.random() * 5
+    }
+    arg1Band.pixels.write(0, 0, w, h, buf1)
+    arg2Band.pixels.write(0, 0, w, h, buf2)
   })
+  after(() => {
+    ds.close()
+  })
+
+  for (const op of binary_ops) {
+    describe(`${op.name}()`, () => {
+
+      it('should add two bands', () => {
+        const r = op.op(arg1Band, arg2Band)
+        const data = r.pixels.read(0, 0, w, h)
+        assert.lengthOf(data, w * h)
+        for (let i = 0; i < w * h; i++) {
+          if (isNaN(data[i])) {
+            assert.isNaN(op.test(buf1[i], buf2[i]))
+          } else {
+            assert.closeTo(data[i], op.test(buf1[i], buf2[i]), 0.1)
+          }
+        }
+      })
+
+      it('should add a band and a number', () => {
+        const r = op.op(arg1Band, 4.2)
+        const data = r.pixels.read(0, 0, w, h)
+        assert.lengthOf(data, w * h)
+        for (let i = 0; i < w * h; i++) {
+          if (isNaN(data[i])) {
+            assert.isNaN(op.test(buf1[i], 4.2))
+          } else {
+            assert.closeTo(data[i], op.test(buf1[i], 4.2), 0.1)
+          }
+        }
+      })
+
+      it('should add a number and a band', () => {
+        const r = op.op(4.2, arg2Band)
+        const data = r.pixels.read(0, 0, w, h)
+        assert.lengthOf(data, w * h)
+        for (let i = 0; i < w * h; i++) {
+          if (isNaN(data[i])) {
+            assert.isNaN(op.test(4.2, buf2[i]))
+          } else {
+            assert.closeTo(data[i], op.test(4.2, buf2[i]), 0.1)
+          }
+        }
+      })
+
+      it('should throw on invalid arguments', () => {
+        assert.throws(() => {
+          op.op(-42, 42)
+        }, /At least one RasterBand must be given/)
+        assert.throws(() => {
+        // @ts-expect-error voluntary error
+          op.op(ds, arg1Band)
+        }, /Argument must be either a number or a RasterBand/)
+      })
+
+      it('should handle destroying the computed dataset', () => {
+        const r = op.op(-42, arg2Band)
+        assert.instanceOf(r, gdal.RasterBand)
+        assert.instanceOf(r.ds, gdal.Dataset)
+        r.ds.close()
+      })
+    })
+  }
 })
