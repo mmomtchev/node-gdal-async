@@ -1108,6 +1108,10 @@ describe('gdal.Dataset', () => {
           } })
           assert.isAbove(calls, 0)
           assert.equal(ds.bands.get(1).overviews.count(), 3)
+          // In GDAL overviews have a special Dataset, but
+          // in the JS bindings, they reference the main Dataset
+          assert.instanceOf(ds.bands.get(1).overviews.get(1).ds, gdal.Dataset)
+          assert.strictEqual(ds.bands.get(1).overviews.get(1).ds, ds)
           ds.close()
           gdal.vsimem.release(tempFile)
         })
