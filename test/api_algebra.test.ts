@@ -190,4 +190,34 @@ describe('algebra', () => {
       }, /Argument must be an instance of RasterBand/)
     })
   })
+
+  describe('ifThenElse()', () => {
+    it('should support the ternary operator', () => {
+      const r = gdal.algebra.ifThenElse(gdal.algebra.lt(arg1Band, 0), arg1Band, -1)
+      const data = r.pixels.read(0, 0, w, h)
+      for (let i = 0; i < w * h; i++) {
+        if (isNaN(buf1[i])) {
+          assert.strictEqual(data[i], -1)
+        } else {
+          if (buf1[i] < 0) {
+            assert.strictEqual(data[i], buf1[i])
+          } else {
+            assert.strictEqual(data[i], -1)
+          }
+        }
+      }
+    })
+
+    it('should throw on invalid arguments', () => {
+      assert.throws(() => {
+        // @ts-expect-error voluntary error
+        gdal.algebra.ifThenElse(arg1Band, 'something', 13)
+      }, /Argument must be either a number or a RasterBand/)
+    })
+  })
+
+  it('should support chaining', () => {
+    const r = gdal.algebra.mul(gdal.algebra.add(arg1Band, arg2Band), gdal.algebra.sqrt(arg2Band))
+    assert.instanceOf(r, gdal.RasterBand)
+  })
 })
