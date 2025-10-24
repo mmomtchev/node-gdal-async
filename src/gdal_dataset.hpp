@@ -30,7 +30,7 @@ class Dataset : public Nan::ObjectWrap {
   static Nan::Persistent<FunctionTemplate> constructor;
   static void Initialize(Local<Object> target);
   static NAN_METHOD(New);
-  static Local<Value> New(GDALDataset *ds, GDALDataset *parent = nullptr);
+  static Local<Value> New(GDALDataset *ds, GDALDataset *parent = nullptr, bool close = true);
   static NAN_METHOD(toString);
   GDAL_ASYNCABLE_DECLARE(flush);
   GDAL_ASYNCABLE_DECLARE(getMetadata);

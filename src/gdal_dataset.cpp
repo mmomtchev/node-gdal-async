@@ -126,7 +126,7 @@ NAN_METHOD(Dataset::New) {
   }
 }
 
-Local<Value> Dataset::New(GDALDataset *raw, GDALDataset *parent) {
+Local<Value> Dataset::New(GDALDataset *raw, GDALDataset *parent, bool close) {
   Nan::EscapableHandleScope scope;
 
   if (!raw) { return scope.Escape(Nan::Null()); }
@@ -146,7 +146,7 @@ Local<Value> Dataset::New(GDALDataset *raw, GDALDataset *parent) {
   Local<Object> obj =
     Nan::NewInstance(Nan::GetFunction(Nan::New(Dataset::constructor)).ToLocalChecked(), 1, &ext).ToLocalChecked();
 
-  wrapped->uid = object_store.add(raw, wrapped->persistent(), parent_uid);
+  wrapped->uid = object_store.add(raw, wrapped->persistent(), parent_uid, close);
 
   return scope.Escape(obj);
 }
