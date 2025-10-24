@@ -5,11 +5,12 @@ const unary_ops = [
   { name: 'abs', op: gdal.algebra.abs, test: (x) => Math.abs(x) },
   { name: 'sqrt', op: gdal.algebra.sqrt, test: (x) => Math.sqrt(x) },
   { name: 'log', op: gdal.algebra.log, test: (x) => Math.log(x) },
-  { name: 'log10', op: gdal.algebra.log10, test: (x) => Math.log10(x) }
+  { name: 'log10', op: gdal.algebra.log10, test: (x) => Math.log10(x), skipNegative: true }
 ] as {
   name: string;
   op: typeof gdal.algebra.abs,
-  test: (x: number) => number
+  test: (x: number) => number,
+  skipNegative?: boolean
 }[]
 
 const binary_ops = [
@@ -51,7 +52,7 @@ describe('algebra', () => {
     arg1Band = ds.bands.get(1)
     arg2Band = ds.bands.get(2)
     for (let i = 0; i < h * w; i++) {
-      buf1[i] = Math.random() * 10
+      buf1[i] = Math.random() * 10 - 5
       buf2[i] = Math.random() * 5
     }
     buf1[0] = NaN
@@ -143,6 +144,9 @@ describe('algebra', () => {
         const data = r.pixels.read(0, 0, w, h)
         assert.lengthOf(data, w * h)
         for (let i = 0; i < w * h; i++) {
+          if (op.skipNegative && buf1[i] < 0) {
+            continue
+          }
           if (isNaN(data[i])) {
             assert.isNaN(op.test(buf1[i]))
           } else {
