@@ -611,6 +611,32 @@ GDAL_ALGEBRA_BINARY_OP(gdal_and, OP)
 GDAL_ALGEBRA_BINARY_OP(gdal_or, OP)
 #undef OP
 
+/**
+ * Create a RasterBand that is the result of the ternary operator of the arguments.
+ *
+ * @throws {Error}
+ * @method ifThenElse
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @param {RasterBand | number} arg3 Third argument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the result of the ternary operator of the arguments.
+ * @async
+ *
+ * @throws {Error}
+ * @method ifThenElseAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @param {RasterBand | number} arg3 Third argument.
+ * @return {Promise<RasterBand>}
+ */
 GDAL_ASYNCABLE_DEFINE(ifThenElse) {
   RasterBand *arg1Band, *arg2Band, *arg3Band;
   double arg2Number, arg3Number;
