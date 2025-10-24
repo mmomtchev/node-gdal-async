@@ -217,7 +217,8 @@ describe('algebra', () => {
   })
 
   it('should support chaining', () => {
-    const r = gdal.algebra.mul(gdal.algebra.add(arg1Band, arg2Band), gdal.algebra.sqrt(arg2Band))
+    const { add, mul, sqrt } = gdal.algebra
+    const r = mul(add(arg1Band, arg2Band), sqrt(arg2Band))
     assert.instanceOf(r, gdal.RasterBand)
   })
 })
