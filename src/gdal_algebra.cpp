@@ -18,7 +18,26 @@ namespace Algebra {
 void Initialize(Local<Object> target) {
   Local<Object> algebra = Nan::New<Object>();
   Nan::Set(target, Nan::New("algebra").ToLocalChecked(), algebra);
+
+  Nan__SetAsyncableMethod(algebra, "abs", abs);
+  Nan__SetAsyncableMethod(algebra, "sqrt", sqrt);
+  Nan__SetAsyncableMethod(algebra, "log", log);
+  Nan__SetAsyncableMethod(algebra, "log10", log10);
+  Nan__SetAsyncableMethod(algebra, "not", gdal_not);
+
   Nan__SetAsyncableMethod(algebra, "add", add);
+  Nan__SetAsyncableMethod(algebra, "sub", sub);
+  Nan__SetAsyncableMethod(algebra, "mul", mul);
+  Nan__SetAsyncableMethod(algebra, "div", div);
+  Nan__SetAsyncableMethod(algebra, "pow", pow);
+  Nan__SetAsyncableMethod(algebra, "lt", lt);
+  Nan__SetAsyncableMethod(algebra, "lte", lte);
+  Nan__SetAsyncableMethod(algebra, "gt", gt);
+  Nan__SetAsyncableMethod(algebra, "gte", gte);
+  Nan__SetAsyncableMethod(algebra, "eq", eq);
+  Nan__SetAsyncableMethod(algebra, "notEq", notEq);
+  Nan__SetAsyncableMethod(algebra, "and", gdal_and);
+  Nan__SetAsyncableMethod(algebra, "or", gdal_or);
 }
 
 #define NODE_ALGEBRA_ARG(num, var)                                                                                     \
@@ -37,8 +56,199 @@ void Initialize(Local<Object> target) {
     return;                                                                                                            \
   }
 
+#define GDAL_ALGEBRA_UNARY_OP(NAME, OPERATOR)                                                                          \
+  GDAL_ASYNCABLE_DEFINE(NAME) {                                                                                        \
+    RasterBand *arg;                                                                                                   \
+                                                                                                                       \
+    NODE_ARG_WRAPPED(0, "Argument", RasterBand, arg);                                                                  \
+                                                                                                                       \
+    GDALAsyncableJob<GDALRasterBand *> job(arg->parent_uid);                                                           \
+    job.persist(arg->handle());                                                                                        \
+                                                                                                                       \
+    GDALRasterBand *raw = arg->get();                                                                                  \
+    job.main = [raw](const GDALExecutionProgress &) { return new GDALComputedRasterBand(OPERATOR(*raw)); };            \
+    job.rval = [](GDALRasterBand *r, const GetFromPersistentFunc &) {                                                  \
+      /* Create an anonymous object cache entry, it will be immediately */                                             \
+      /* referenced as RasterBand.ds. This is a GDALComputedDataset that */                                            \
+      /* should not be closed. */                                                                                      \
+      Dataset::New(r->GetDataset(), nullptr, false);                                                                   \
+      return RasterBand::New(r, r->GetDataset());                                                                      \
+    };                                                                                                                 \
+    job.run(info, async, 1);                                                                                           \
+  }
+
+#define GDAL_ALGEBRA_BINARY_OP(NAME, OPERATOR)                                                                         \
+  GDAL_ASYNCABLE_DEFINE(NAME) {                                                                                        \
+    RasterBand *arg1Band, *arg2Band;                                                                                   \
+    double arg1Number, arg2Number;                                                                                     \
+                                                                                                                       \
+    NODE_ALGEBRA_ARG(0, arg1);                                                                                         \
+    NODE_ALGEBRA_ARG(1, arg2);                                                                                         \
+                                                                                                                       \
+    std::vector<long> ds_uids = {};                                                                                    \
+    if (arg1Band) ds_uids.push_back(arg1Band->parent_uid);                                                             \
+    if (arg2Band) ds_uids.push_back(arg2Band->parent_uid);                                                             \
+    GDALAsyncableJob<GDALRasterBand *> job(ds_uids);                                                                   \
+    if (arg1Band) job.persist(arg1Band->handle());                                                                     \
+    if (arg2Band) job.persist(arg2Band->handle());                                                                     \
+                                                                                                                       \
+    if (arg1Band && arg2Band) {                                                                                        \
+      GDALRasterBand *arg1 = arg1Band->get();                                                                          \
+      GDALRasterBand *arg2 = arg2Band->get();                                                                          \
+      job.main = [arg1, arg2](const GDALExecutionProgress &) {                                                         \
+        return new GDALComputedRasterBand(OPERATOR(*arg1, *arg2));                                                     \
+      };                                                                                                               \
+    } else if (arg1Band) {                                                                                             \
+      GDALRasterBand *arg1 = arg1Band->get();                                                                          \
+      double arg2 = arg2Number;                                                                                        \
+      job.main = [arg1, arg2](const GDALExecutionProgress &) {                                                         \
+        return new GDALComputedRasterBand(OPERATOR(*arg1, arg2));                                                      \
+      };                                                                                                               \
+    } else if (arg2Band) {                                                                                             \
+      double arg1 = arg1Number;                                                                                        \
+      GDALRasterBand *arg2 = arg2Band->get();                                                                          \
+      job.main = [arg1, arg2](const GDALExecutionProgress &) {                                                         \
+        return new GDALComputedRasterBand(OPERATOR(arg1, *arg2));                                                      \
+      };                                                                                                               \
+    } else {                                                                                                           \
+      Nan::ThrowError("At least one RasterBand must be given");                                                        \
+      return;                                                                                                          \
+    }                                                                                                                  \
+                                                                                                                       \
+    job.rval = [](GDALRasterBand *r, const GetFromPersistentFunc &) {                                                  \
+      /* Create an anonymous object cache entry, it will be immediately */                                             \
+      /* referenced as RasterBand.ds. This is a GDALComputedDataset that */                                            \
+      /* should not be closed. */                                                                                      \
+      Dataset::New(r->GetDataset(), nullptr, false);                                                                   \
+      return RasterBand::New(r, r->GetDataset());                                                                      \
+    };                                                                                                                 \
+    job.run(info, async, 2);                                                                                           \
+  }
+
 /**
- * Fill raster regions by interpolation from edges.
+ * Create a RasterBand that is the absolute value of the argument.
+ *
+ * @throws {Error}
+ * @method abs
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg Aargument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the absolute value of the argument.
+ * @async
+ *
+ * @throws {Error}
+ * @method absAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg Argument.
+ * @return {Promise<RasterBand>}
+ */
+GDAL_ALGEBRA_UNARY_OP(abs, gdal::abs)
+
+/**
+ * Create a RasterBand that is the square root of the argument.
+ *
+ * @throws {Error}
+ * @method sqrt
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg Aargument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the square root of the argument.
+ * @async
+ *
+ * @throws {Error}
+ * @method sqrtAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg Argument.
+ * @return {Promise<RasterBand>}
+ */
+GDAL_ALGEBRA_UNARY_OP(sqrt, gdal::sqrt)
+
+/**
+ * Create a RasterBand that is the natural logarithm of the argument.
+ *
+ * @throws {Error}
+ * @method log
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg Aargument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the natural logarithm of the argument.
+ * @async
+ *
+ * @throws {Error}
+ * @method logAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg Argument.
+ * @return {Promise<RasterBand>}
+ */
+GDAL_ALGEBRA_UNARY_OP(log, gdal::log)
+
+/**
+ * Create a RasterBand that is the logarithm base 10 of the argument.
+ *
+ * @throws {Error}
+ * @method log10
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg Aargument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the logarithm base 10 of the argument.
+ * @async
+ *
+ * @throws {Error}
+ * @method log10Async
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg Argument.
+ * @return {Promise<RasterBand>}
+ */
+GDAL_ALGEBRA_UNARY_OP(log10, gdal::log10)
+
+/**
+ * Create a RasterBand that is the logical not of the argument.
+ *
+ * @throws {Error}
+ * @method not
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg Aargument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the logical not of the argument.
+ * @async
+ *
+ * @throws {Error}
+ * @method notAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg Argument.
+ * @return {Promise<RasterBand>}
+ */
+#define OP(x) (!(x))
+GDAL_ALGEBRA_UNARY_OP(gdal_not, OP)
+#undef OP
+
+/**
+ * Create a RasterBand that is the sum of the arguments.
  *
  * @throws {Error}
  * @method add
@@ -50,7 +260,7 @@ void Initialize(Local<Object> target) {
  */
 
 /**
- * Fill raster regions by interpolation from edges.
+ * Create a RasterBand that is the sum of the arguments.
  * @async
  *
  * @throws {Error}
@@ -61,47 +271,343 @@ void Initialize(Local<Object> target) {
  * @param {RasterBand | number} arg2 Second argument.
  * @return {Promise<RasterBand>}
  */
+#define OP(a, b) ((a) + (b))
+GDAL_ALGEBRA_BINARY_OP(add, OP)
+#undef OP
 
-GDAL_ASYNCABLE_DEFINE(add) {
-  RasterBand *arg1Band, *arg2Band;
-  double arg1Number, arg2Number;
+/**
+ * Create a RasterBand that is the difference of the arguments.
+ *
+ * @throws {Error}
+ * @method sub
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {RasterBand}
+ */
 
-  NODE_ALGEBRA_ARG(0, arg1);
-  NODE_ALGEBRA_ARG(1, arg2);
+/**
+ * Create a RasterBand that is the difference of the arguments.
+ * @async
+ *
+ * @throws {Error}
+ * @method subAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {Promise<RasterBand>}
+ */
+#define OP(a, b) ((a) - (b))
+GDAL_ALGEBRA_BINARY_OP(sub, OP)
+#undef OP
 
-  std::vector<long> ds_uids = {};
-  if (arg1Band) ds_uids.push_back(arg1Band->parent_uid);
-  if (arg2Band) ds_uids.push_back(arg2Band->parent_uid);
-  GDALAsyncableJob<GDALRasterBand *> job(ds_uids);
-  if (arg1Band) job.persist(arg1Band->handle());
-  if (arg2Band) job.persist(arg2Band->handle());
+/**
+ * Create a RasterBand that is the product of the arguments.
+ *
+ * @throws {Error}
+ * @method mul
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {RasterBand}
+ */
 
-  if (arg1Band && arg2Band) {
-    GDALRasterBand *arg1 = arg1Band->get();
-    GDALRasterBand *arg2 = arg2Band->get();
-    job.main = [arg1, arg2](const GDALExecutionProgress &) { return new GDALComputedRasterBand(*arg1 + *arg2); };
-  } else if (arg1Band) {
-    GDALRasterBand *arg1 = arg1Band->get();
-    double arg2 = arg2Number;
-    job.main = [arg1, arg2](const GDALExecutionProgress &) { return new GDALComputedRasterBand(*arg1 + arg2); };
-  } else if (arg2Band) {
-    double arg1 = arg1Number;
-    GDALRasterBand *arg2 = arg2Band->get();
-    job.main = [arg1, arg2](const GDALExecutionProgress &) { return new GDALComputedRasterBand(arg1 + *arg2); };
-  } else {
-    Nan::ThrowError("At least one RasterBand must be given");
-    return;
-  }
+/**
+ * Create a RasterBand that is the multiply of the arguments.
+ * @async
+ *
+ * @throws {Error}
+ * @method mul
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {Promise<RasterBand>}
+ */
+#define OP(a, b) ((a) * (b))
+GDAL_ALGEBRA_BINARY_OP(mul, OP)
+#undef OP
 
-  job.rval = [](GDALRasterBand *r, const GetFromPersistentFunc &) {
-    // Create an anonymous object cache entry, it will be immediately
-    // referenced as RasterBand.ds. This is a GDALComputedDataset that
-    // should not be closed.
-    Dataset::New(r->GetDataset(), nullptr, false);
-    return RasterBand::New(r, r->GetDataset());
-  };
-  job.run(info, async, 2);
-}
+/**
+ * Create a RasterBand that is the division of the arguments.
+ *
+ * @throws {Error}
+ * @method div
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the division of the arguments.
+ * @async
+ *
+ * @throws {Error}
+ * @method divAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {Promise<RasterBand>}
+ */
+#define OP(a, b) ((a) / (b))
+GDAL_ALGEBRA_BINARY_OP(div, OP)
+#undef OP
+
+/**
+ * Create a RasterBand that is the rising to the power of the arguments.
+ *
+ * @throws {Error}
+ * @method pow
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the rising to the power of the arguments.
+ * @async
+ *
+ * @throws {Error}
+ * @method powAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {Promise<RasterBand>}
+ */
+GDAL_ALGEBRA_BINARY_OP(pow, gdal::pow)
+
+/**
+ * Create a RasterBand that is the result of the comparison of the arguments.
+ *
+ * @throws {Error}
+ * @method lt
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the result of the comparison of the arguments.
+ * @async
+ *
+ * @throws {Error}
+ * @method ltAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {Promise<RasterBand>}
+ */
+#define OP(a, b) ((a) < (b))
+GDAL_ALGEBRA_BINARY_OP(lt, OP)
+#undef OP
+
+/**
+ * Create a RasterBand that is the result of the comparison of the arguments.
+ *
+ * @throws {Error}
+ * @method lte
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the result of the comparison of the arguments.
+ * @async
+ *
+ * @throws {Error}
+ * @method lteAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {Promise<RasterBand>}
+ */
+#define OP(a, b) ((a) <= (b))
+GDAL_ALGEBRA_BINARY_OP(lte, OP)
+#undef OP
+
+/**
+ * Create a RasterBand that is the result of the comparison of the arguments.
+ *
+ * @throws {Error}
+ * @method gt
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the result of the comparison of the arguments.
+ * @async
+ *
+ * @throws {Error}
+ * @method gtAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {Promise<RasterBand>}
+ */
+#define OP(a, b) ((a) > (b))
+GDAL_ALGEBRA_BINARY_OP(gt, OP)
+#undef OP
+
+/**
+ * Create a RasterBand that is the result of the comparison of the arguments.
+ *
+ * @throws {Error}
+ * @method gte
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the result of the comparison of the arguments.
+ * @async
+ *
+ * @throws {Error}
+ * @method gteAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {Promise<RasterBand>}
+ */
+#define OP(a, b) ((a) >= (b))
+GDAL_ALGEBRA_BINARY_OP(gte, OP)
+#undef OP
+
+/**
+ * Create a RasterBand that is the result of the comparison of the arguments.
+ *
+ * @throws {Error}
+ * @method eq
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the result of the comparison of the arguments.
+ * @async
+ *
+ * @throws {Error}
+ * @method eqAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {Promise<RasterBand>}
+ */
+#define OP(a, b) ((a) == (b))
+GDAL_ALGEBRA_BINARY_OP(eq, OP)
+#undef OP
+
+/**
+ * Create a RasterBand that is the result of the comparison of the arguments.
+ *
+ * @throws {Error}
+ * @method notEq
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the result of the comparison of the arguments.
+ * @async
+ *
+ * @throws {Error}
+ * @method notEqAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {Promise<RasterBand>}
+ */
+#define OP(a, b) ((a) != (b))
+GDAL_ALGEBRA_BINARY_OP(notEq, OP)
+#undef OP
+
+/**
+ * Create a RasterBand that is the result of the logical AND of the arguments.
+ *
+ * @throws {Error}
+ * @method and
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the result of the logical AND of the arguments.
+ * @async
+ *
+ * @throws {Error}
+ * @method andAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {Promise<RasterBand>}
+ */
+#define OP(a, b) ((a) && (b))
+GDAL_ALGEBRA_BINARY_OP(gdal_and, OP)
+#undef OP
+
+/**
+ * Create a RasterBand that is the result of the logical OR of the arguments.
+ *
+ * @throws {Error}
+ * @method or
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the result of the logical OR of the arguments.
+ * @async
+ *
+ * @throws {Error}
+ * @method orAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand | number} arg1 First argument.
+ * @param {RasterBand | number} arg2 Second argument.
+ * @return {Promise<RasterBand>}
+ */
+#define OP(a, b) ((a) || (b))
+GDAL_ALGEBRA_BINARY_OP(gdal_or, OP)
+#undef OP
 
 } // namespace Algebra
 } // namespace node_gdal
