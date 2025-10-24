@@ -8,7 +8,6 @@
 			"type": "static_library",
 			"sources": [
 				"../gdal/ogr/ogrsf_frmts/mvt/mvtutils.cpp",
-				"../gdal/ogr/ogrsf_frmts/mvt/mvt_tile_test.cpp",
 				"../gdal/ogr/ogrsf_frmts/mvt/ogrmvtdataset.cpp",
 				"../gdal/ogr/ogrsf_frmts/mvt/mvt_tile.cpp"
 			],
