@@ -363,7 +363,9 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
 
   Warper::Initialize(target);
   Algorithms::Initialize(target);
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 12)
   Algebra::Initialize(target);
+#endif
 
   Driver::Initialize(target);
   Dataset::Initialize(target);

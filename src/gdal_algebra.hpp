@@ -22,6 +22,8 @@ using namespace node;
 namespace node_gdal {
 namespace Algebra {
 
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 12)
+
 void Initialize(Local<Object> target);
 
 GDAL_ASYNCABLE_GLOBAL(abs);
@@ -47,6 +49,8 @@ GDAL_ASYNCABLE_GLOBAL(gdal_or);
 GDAL_ASYNCABLE_GLOBAL(ifThenElse);
 
 GDAL_ASYNCABLE_GLOBAL(asType);
+
+#endif
 
 } // namespace Algebra
 } // namespace node_gdal

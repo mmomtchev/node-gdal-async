@@ -5,6 +5,8 @@
 #include <string>
 #include <cmath>
 
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 12)
+
 namespace node_gdal {
 
 /**
@@ -741,3 +743,5 @@ GDAL_ASYNCABLE_DEFINE(asType) {
 
 } // namespace Algebra
 } // namespace node_gdal
+
+#endif
