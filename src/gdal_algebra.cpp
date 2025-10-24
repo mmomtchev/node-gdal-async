@@ -40,6 +40,8 @@ void Initialize(Local<Object> target) {
   Nan__SetAsyncableMethod(algebra, "or", gdal_or);
 
   Nan__SetAsyncableMethod(algebra, "ifThenElse", ifThenElse);
+
+  Nan__SetAsyncableMethod(algebra, "asType", asType);
 }
 
 #define NODE_ALGEBRA_ARG(num, var)                                                                                     \
@@ -684,6 +686,57 @@ GDAL_ASYNCABLE_DEFINE(ifThenElse) {
     return RasterBand::New(r, r->GetDataset());
   };
   job.run(info, async, 3);
+}
+
+/**
+ * Create a RasterBand with data converted to a new type.
+ *
+ * @throws {Error}
+ * @method asType
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg Argument.
+ * @param {string} type GDAL data type
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand with data converted to a new type.
+ * @async
+ *
+ * @throws {Error}
+ * @method asTypeAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand} arg Argument.
+ * @param {string} type GDAL data type
+ * @return {Promise<RasterBand>}
+ */
+GDAL_ASYNCABLE_DEFINE(asType) {
+  RasterBand *argBand;
+  std::string type_name;
+  GDALDataType type;
+
+  NODE_ARG_WRAPPED(0, "Argument", RasterBand, argBand);
+
+  NODE_ARG_STR(1, "Data Type", type_name);
+  type = GDALGetDataTypeByName(type_name.c_str());
+  if (type == GDT_Unknown) {
+    Nan::ThrowError("Invalid data type");
+    return;
+  }
+
+  GDALAsyncableJob<GDALRasterBand *> job(argBand->parent_uid);
+  job.persist(argBand->handle());
+  GDALRasterBand *arg = argBand->get();
+
+  job.main = [arg, type](const GDALExecutionProgress &) { return new GDALComputedRasterBand(arg->AsType(type)); };
+
+  job.rval = [](GDALRasterBand *r, const GetFromPersistentFunc &) {
+    Dataset::New(r->GetDataset(), nullptr, false);
+    return RasterBand::New(r, r->GetDataset());
+  };
+  job.run(info, async, 2);
 }
 
 } // namespace Algebra

@@ -163,4 +163,31 @@ describe('algebra', () => {
       })
     })
   }
+
+  describe('asType()', () => {
+    it('should convert the band to another type', () => {
+      const r = gdal.algebra.asType(arg1Band, gdal.GDT_Int32)
+      assert.instanceOf(r, gdal.RasterBand)
+      assert.strictEqual(r.dataType, gdal.GDT_Int32)
+      const data = r.pixels.read(0, 0, w, h)
+      assert.instanceOf(data, Int32Array)
+      for (let i = 0; i < w * h; i++) {
+        if (isNaN(buf1[i])) {
+          assert.strictEqual(data[i], 0)
+        } else {
+          assert.closeTo(data[i], buf1[i], 1)
+        }
+      }
+    })
+
+    it('should throw on invalid arguments', () => {
+      assert.throws(() => {
+        gdal.algebra.asType(arg1Band, 'something')
+      }, /Invalid data type/)
+      assert.throws(() => {
+        // @ts-expect-error voluntary error
+        gdal.algebra.asType('invalid', 'something')
+      }, /Argument must be an instance of RasterBand/)
+    })
+  })
 })

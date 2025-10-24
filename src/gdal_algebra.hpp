@@ -46,6 +46,8 @@ GDAL_ASYNCABLE_GLOBAL(gdal_or);
 
 GDAL_ASYNCABLE_GLOBAL(ifThenElse);
 
+GDAL_ASYNCABLE_GLOBAL(asType);
+
 } // namespace Algebra
 } // namespace node_gdal
 
