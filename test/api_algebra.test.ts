@@ -215,6 +215,9 @@ describe('algebra', () => {
         // @ts-expect-error voluntary error
           op.op(42)
         }, /Argument must be an instance of RasterBand/)
+        assert.throws(() => {
+          op.op(arg1Band)
+        }, /At least two arguments must be given/)
       })
     })
   }

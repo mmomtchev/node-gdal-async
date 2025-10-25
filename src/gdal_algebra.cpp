@@ -153,7 +153,10 @@ void Initialize(Local<Object> target) {
       args_band.push_back(arg_band);                                                                                   \
       uids.push_back(arg_band->parent_uid);                                                                            \
     }                                                                                                                  \
-                                                                                                                       \
+    if (args_band.size() < 2) {                                                                                        \
+      Nan::ThrowError("At least two arguments must be given");                                                         \
+      return;                                                                                                          \
+    }                                                                                                                  \
     GDALAsyncableJob<GDALRasterBand *> job(uids);                                                                      \
     GDALRasterBandH *handles = new GDALRasterBandH[args_band.size()];                                                  \
     size_t i = 0;                                                                                                      \
