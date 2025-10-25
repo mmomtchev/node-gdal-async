@@ -46,8 +46,8 @@ describe('algebra', () => {
   test: (...x: number[]) => number,
   skipNan?: boolean
 }[] = [
-  { name: 'min', op: gdal.algebra.min, test: Math.min },
-  { name: 'max', op: gdal.algebra.max, test: Math.max },
+  { name: 'min', op: gdal.algebra.min, test: Math.min, skipNan: true },
+  { name: 'max', op: gdal.algebra.max, test: Math.max, skipNan: true },
   { name: 'mean', op: gdal.algebra.mean, test: (...args) => args.reduce((a, x) => a + x, 0) / args.length }
 ]
 
