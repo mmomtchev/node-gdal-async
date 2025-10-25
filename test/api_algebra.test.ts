@@ -7,38 +7,38 @@ describe('algebra', () => {
     return
   }
 
-  const unary_ops = [
-    { name: 'abs', op: gdal.algebra.abs, test: (x) => Math.abs(x) },
-    { name: 'sqrt', op: gdal.algebra.sqrt, test: (x) => Math.sqrt(x) },
-    { name: 'log', op: gdal.algebra.log, test: (x) => Math.log(x) },
-    { name: 'log10', op: gdal.algebra.log10, test: (x) => Math.log10(x), skipNegative: true }
-  ] as {
+  const unary_ops: {
   name: string;
   op: (arg: gdal.RasterBand) => gdal.RasterBand,
   test: (x: number) => number,
   skipNegative?: boolean
-}[]
+}[] = [
+  { name: 'abs', op: gdal.algebra.abs, test: (x) => Math.abs(x) },
+  { name: 'sqrt', op: gdal.algebra.sqrt, test: (x) => Math.sqrt(x) },
+  { name: 'log', op: gdal.algebra.log, test: (x) => Math.log(x) },
+  { name: 'log10', op: gdal.algebra.log10, test: (x) => Math.log10(x), skipNegative: true }
+]
 
-  const binary_ops = [
-    { name: 'add', op: gdal.algebra.add, test: (a, b) => a + b },
-    { name: 'sub', op: gdal.algebra.sub, test: (a, b) => a - b },
-    { name: 'mul', op: gdal.algebra.mul, test: (a, b) => a * b },
-    { name: 'div', op: gdal.algebra.div, test: (a, b) => a / b },
-    { name: 'pow', op: gdal.algebra.pow, test: (a, b) => Math.pow(a, b) },
-    { name: 'lt', op: gdal.algebra.lt, test: (a, b) => +(a < b) },
-    { name: 'lte', op: gdal.algebra.lte, test: (a, b) => +(a <= b) },
-    { name: 'gt', op: gdal.algebra.gt, test: (a, b) => +(a > b) },
-    { name: 'gte', op: gdal.algebra.gte, test: (a, b) => +(a >= b) },
-    { name: 'and', op: gdal.algebra.and, test: (a, b) => +(!!a && !!b), skipNan: true },
-    { name: 'or', op: gdal.algebra.or, test: (a, b) => +(!!a || !!b), skipNan: true },
-    { name: 'eq', op: gdal.algebra.eq, test: (a, b) => +(a == b) },
-    { name: 'notEq', op: gdal.algebra.notEq, test: (a, b) => +(a != b) }
-  ] as {
+  const binary_ops: {
   name: string;
   op: (arg1: gdal.RasterBand | number, arg2: gdal.RasterBand | number) => gdal.RasterBand,
   test: (a: number, b: number) => number,
   skipNan?: boolean
-}[]
+}[] = [
+  { name: 'add', op: gdal.algebra.add, test: (a, b) => a + b },
+  { name: 'sub', op: gdal.algebra.sub, test: (a, b) => a - b },
+  { name: 'mul', op: gdal.algebra.mul, test: (a, b) => a * b },
+  { name: 'div', op: gdal.algebra.div, test: (a, b) => a / b },
+  { name: 'pow', op: gdal.algebra.pow, test: (a, b) => Math.pow(a, b) },
+  { name: 'lt', op: gdal.algebra.lt, test: (a, b) => +(a < b) },
+  { name: 'lte', op: gdal.algebra.lte, test: (a, b) => +(a <= b) },
+  { name: 'gt', op: gdal.algebra.gt, test: (a, b) => +(a > b) },
+  { name: 'gte', op: gdal.algebra.gte, test: (a, b) => +(a >= b) },
+  { name: 'and', op: gdal.algebra.and, test: (a, b) => +(!!a && !!b), skipNan: true },
+  { name: 'or', op: gdal.algebra.or, test: (a, b) => +(!!a || !!b), skipNan: true },
+  { name: 'eq', op: gdal.algebra.eq, test: (a, b) => +(a == b) },
+  { name: 'notEq', op: gdal.algebra.notEq, test: (a, b) => +(a != b) }
+]
 
   const w = 16
   const h = 16
@@ -225,5 +225,21 @@ describe('algebra', () => {
     const { add, mul, sqrt } = gdal.algebra
     const r = mul(add(arg1Band, arg2Band), sqrt(arg2Band))
     assert.instanceOf(r, gdal.RasterBand)
+  })
+
+  it('should support being called as RasterBand member functions', () => {
+    const r = arg1Band.mul(arg2Band).abs().sqrt().lt(0.5).ifThenElse(arg1Band, arg2Band).asType(gdal.GDT_Int32)
+    const data = r.pixels.read(0, 0, w, h)
+    assert.lengthOf(data, w * h)
+    assert.instanceOf(data, Int32Array)
+    for (let i = 0; i < w * h; i++) {
+      if (isNaN(buf1[i] + buf2[i])) {
+        continue
+      } else {
+        assert.closeTo(data[i],
+          Math.sqrt(Math.abs(buf1[i] * buf2[i])) < 0.5 ? buf1[i] : buf2[i],
+          1)
+      }
+    }
   })
 })
