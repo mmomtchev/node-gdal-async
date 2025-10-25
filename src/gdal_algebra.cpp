@@ -4,6 +4,7 @@
 #include "gdal_algebra.hpp"
 #include <string>
 #include <cmath>
+#include <memory>
 
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 12)
 
@@ -21,12 +22,14 @@ void Initialize(Local<Object> target) {
   Local<Object> algebra = Nan::New<Object>();
   Nan::Set(target, Nan::New("algebra").ToLocalChecked(), algebra);
 
+  // Unary ops
   Nan__SetAsyncableMethod(algebra, "abs", abs);
   Nan__SetAsyncableMethod(algebra, "sqrt", sqrt);
   Nan__SetAsyncableMethod(algebra, "log", log);
   Nan__SetAsyncableMethod(algebra, "log10", log10);
   Nan__SetAsyncableMethod(algebra, "not", gdal_not);
 
+  // Binary ops
   Nan__SetAsyncableMethod(algebra, "add", add);
   Nan__SetAsyncableMethod(algebra, "sub", sub);
   Nan__SetAsyncableMethod(algebra, "mul", mul);
@@ -41,8 +44,15 @@ void Initialize(Local<Object> target) {
   Nan__SetAsyncableMethod(algebra, "and", gdal_and);
   Nan__SetAsyncableMethod(algebra, "or", gdal_or);
 
+  // Variadic ops
+  Nan__SetAsyncableMethod(algebra, "min", gdal_min);
+  Nan__SetAsyncableMethod(algebra, "max", gdal_max);
+  Nan__SetAsyncableMethod(algebra, "mean", gdal_mean);
+
+  // Ternary op
   Nan__SetAsyncableMethod(algebra, "ifThenElse", ifThenElse);
 
+  // Special case
   Nan__SetAsyncableMethod(algebra, "asType", asType);
 }
 
@@ -129,6 +139,42 @@ void Initialize(Local<Object> target) {
       return RasterBand::New(r, r->GetDataset());                                                                      \
     };                                                                                                                 \
     job.run(info, async, 2);                                                                                           \
+  }
+
+#define GDAL_ALGEBRA_VARIADIC_BANDONLY_OP(NAME, OPERATOR)                                                              \
+  GDAL_ASYNCABLE_DEFINE(NAME) {                                                                                        \
+    std::vector<RasterBand *> args_band;                                                                               \
+    std::vector<long> uids;                                                                                            \
+                                                                                                                       \
+    for (int i = 0; i < info.Length(); i++) {                                                                          \
+      if (info[i]->IsFunction()) break;                                                                                \
+      RasterBand *arg_band;                                                                                            \
+      NODE_ARG_WRAPPED(i, "Argument", RasterBand, arg_band);                                                           \
+      args_band.push_back(arg_band);                                                                                   \
+      uids.push_back(arg_band->parent_uid);                                                                            \
+    }                                                                                                                  \
+                                                                                                                       \
+    GDALAsyncableJob<GDALRasterBand *> job(uids);                                                                      \
+    GDALRasterBandH *handles = new GDALRasterBandH[args_band.size()];                                                  \
+    size_t i = 0;                                                                                                      \
+    for (auto arg : args_band) {                                                                                       \
+      job.persist(arg->handle());                                                                                      \
+      handles[i++] = GDALRasterBand::ToHandle(arg->get());                                                             \
+    }                                                                                                                  \
+    auto args = std::shared_ptr<GDALRasterBandH>{handles, array_deleter<GDALRasterBandH>()};                           \
+                                                                                                                       \
+    job.main = [args, i](const GDALExecutionProgress &) {                                                              \
+      return GDALRasterBand::FromHandle(OPERATOR(i, args.get()));                                                      \
+    };                                                                                                                 \
+                                                                                                                       \
+    job.rval = [](GDALRasterBand *r, const GetFromPersistentFunc &) {                                                  \
+      /* Create an anonymous object cache entry, it will be immediately */                                             \
+      /* referenced as RasterBand.ds. This is a GDALComputedDataset that */                                            \
+      /* should not be closed. */                                                                                      \
+      Dataset::New(r->GetDataset(), nullptr, false);                                                                   \
+      return RasterBand::New(r, r->GetDataset());                                                                      \
+    };                                                                                                                 \
+    job.run(info, async, i);                                                                                           \
   }
 
 /**
@@ -586,6 +632,78 @@ GDAL_ALGEBRA_BINARY_OP(notEq, OP)
 #define OP(a, b) ((a) && (b))
 GDAL_ALGEBRA_BINARY_OP(gdal_and, OP)
 #undef OP
+
+/**
+ * Create a RasterBand that contains the lesser values of each band.
+ *
+ * @throws {Error}
+ * @method min
+ * @static
+ * @memberof algebra
+ * @param {...RasterBand} args Arguments.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that contains the lesser values of each band.
+ * @async
+ *
+ * @throws {Error}
+ * @method minAsync
+ * @static
+ * @memberof algebra
+ * @param {...RasterBand} args Arguments.
+ * @return {Promise<RasterBand>}
+ */
+GDAL_ALGEBRA_VARIADIC_BANDONLY_OP(gdal_min, GDALMinimumOfNBands)
+
+/**
+ * Create a RasterBand that contains the bigger values of each band.
+ *
+ * @throws {Error}
+ * @method max
+ * @static
+ * @memberof algebra
+ * @param {...RasterBand} args Arguments.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that contains the bigger values of each band.
+ * @async
+ *
+ * @throws {Error}
+ * @method maxAsync
+ * @static
+ * @memberof algebra
+ * @param {...RasterBand} args Arguments.
+ * @return {Promise<RasterBand>}
+ */
+GDAL_ALGEBRA_VARIADIC_BANDONLY_OP(gdal_max, GDALMaximumOfNBands)
+
+/**
+ * Create a RasterBand that is the average of each bands.
+ *
+ * @throws {Error}
+ * @method mean
+ * @static
+ * @memberof algebra
+ * @param {...RasterBand} args Arguments.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the average of each bands.
+ * @async
+ *
+ * @throws {Error}
+ * @method meanAsync
+ * @static
+ * @memberof algebra
+ * @param {...RasterBand} args Arguments.
+ * @return {Promise<RasterBand>}
+ */
+GDAL_ALGEBRA_VARIADIC_BANDONLY_OP(gdal_mean, GDALMeanOfNBands)
 
 /**
  * Create a RasterBand that is the result of the logical OR of the arguments.

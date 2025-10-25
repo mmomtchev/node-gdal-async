@@ -29,7 +29,7 @@ describe('algebra', () => {
   { name: 'sub', op: gdal.algebra.sub, test: (a, b) => a - b },
   { name: 'mul', op: gdal.algebra.mul, test: (a, b) => a * b },
   { name: 'div', op: gdal.algebra.div, test: (a, b) => a / b },
-  { name: 'pow', op: gdal.algebra.pow, test: (a, b) => Math.pow(a, b) },
+  { name: 'pow', op: gdal.algebra.pow, test: Math.pow },
   { name: 'lt', op: gdal.algebra.lt, test: (a, b) => +(a < b) },
   { name: 'lte', op: gdal.algebra.lte, test: (a, b) => +(a <= b) },
   { name: 'gt', op: gdal.algebra.gt, test: (a, b) => +(a > b) },
@@ -39,6 +39,18 @@ describe('algebra', () => {
   { name: 'eq', op: gdal.algebra.eq, test: (a, b) => +(a == b) },
   { name: 'notEq', op: gdal.algebra.notEq, test: (a, b) => +(a != b) }
 ]
+
+  const variadic_ops: {
+  name: string;
+  op: (...arg: gdal.RasterBand[]) => gdal.RasterBand,
+  test: (...x: number[]) => number,
+  skipNan?: boolean
+}[] = [
+  { name: 'min', op: gdal.algebra.min, test: Math.min },
+  { name: 'max', op: gdal.algebra.max, test: Math.max },
+  { name: 'mean', op: gdal.algebra.mean, test: (...args) => args.reduce((a, x) => a + x, 0) / args.length }
+]
+
 
   const w = 16
   const h = 16
@@ -74,8 +86,9 @@ describe('algebra', () => {
   for (const op of binary_ops) {
     describe(`${op.name}()`, () => {
 
-      it('should add two bands', () => {
+      it('should accept two bands', () => {
         const r = op.op(arg1Band, arg2Band)
+        assert.instanceOf(r, gdal.RasterBand)
         const data = r.pixels.read(0, 0, w, h)
         assert.lengthOf(data, w * h)
         for (let i = 0; i < w * h; i++) {
@@ -90,7 +103,7 @@ describe('algebra', () => {
         }
       })
 
-      it('should add a band and a number', () => {
+      it('should accept a band and a number', () => {
         const r = op.op(arg1Band, 4.2)
         const data = r.pixels.read(0, 0, w, h)
         assert.lengthOf(data, w * h)
@@ -106,7 +119,7 @@ describe('algebra', () => {
         }
       })
 
-      it('should add a number and a band', () => {
+      it('should accept a number and a band', () => {
         const r = op.op(4.2, arg2Band)
         const data = r.pixels.read(0, 0, w, h)
         assert.lengthOf(data, w * h)
@@ -164,6 +177,35 @@ describe('algebra', () => {
             assert.isNaN(op.test(buf1[i]))
           } else {
             assert.closeTo(data[i], op.test(buf1[i]), 0.1)
+          }
+        }
+      })
+
+      it('should throw on invalid arguments', () => {
+        assert.throws(() => {
+        // @ts-expect-error voluntary error
+          op.op(42)
+        }, /Argument must be an instance of RasterBand/)
+      })
+    })
+  }
+
+  for (const op of variadic_ops) {
+    describe(`${op.name}()`, () => {
+
+      it('should accept multiple bands', () => {
+        const r = op.op(arg1Band, arg2Band, arg1Band)
+        assert.instanceOf(r, gdal.RasterBand)
+        const data = r.pixels.read(0, 0, w, h)
+        assert.lengthOf(data, w * h)
+        for (let i = 0; i < w * h; i++) {
+          if (op.skipNan && (isNaN(buf1[i]) || isNaN(buf2[i]))) {
+            continue
+          }
+          if (isNaN(data[i])) {
+            assert.isNaN(op.test(buf1[i], buf2[i]))
+          } else {
+            assert.closeTo(data[i], op.test(buf1[i], buf2[i], buf1[i]), 0.1)
           }
         }
       })
@@ -264,6 +306,21 @@ describe('algebra', () => {
       }
     })
 
+
+    it('should support variadic async', async () => {
+      const { maxAsync } = gdal.algebra
+      const r = await maxAsync(arg1Band, arg1Band, arg2Band, arg2Band)
+      const data = await r.pixels.readAsync(0, 0, w, h)
+      assert.lengthOf(data, w * h)
+      assert.instanceOf(r, gdal.RasterBand)
+      for (let i = 0; i < w * h; i++) {
+        if (isNaN(buf1[i] + buf2[i])) {
+          continue
+        } else {
+          assert.closeTo(data[i], Math.max(buf1[i], buf2[i]), 1)
+        }
+      }
+    })
     it('should reject on invalid arguments', () => assert.isRejected(gdal.algebra.addAsync(1, 2), /At least one RasterBand must be given/))
 
     it('should reject if the dimensions do not match', () => {
