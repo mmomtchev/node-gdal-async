@@ -634,78 +634,6 @@ GDAL_ALGEBRA_BINARY_OP(gdal_and, OP)
 #undef OP
 
 /**
- * Create a RasterBand that contains the lesser values of each band.
- *
- * @throws {Error}
- * @method min
- * @static
- * @memberof algebra
- * @param {...RasterBand} args Arguments.
- * @return {RasterBand}
- */
-
-/**
- * Create a RasterBand that contains the lesser values of each band.
- * @async
- *
- * @throws {Error}
- * @method minAsync
- * @static
- * @memberof algebra
- * @param {...RasterBand} args Arguments.
- * @return {Promise<RasterBand>}
- */
-GDAL_ALGEBRA_VARIADIC_BANDONLY_OP(gdal_min, GDALMinimumOfNBands)
-
-/**
- * Create a RasterBand that contains the bigger values of each band.
- *
- * @throws {Error}
- * @method max
- * @static
- * @memberof algebra
- * @param {...RasterBand} args Arguments.
- * @return {RasterBand}
- */
-
-/**
- * Create a RasterBand that contains the bigger values of each band.
- * @async
- *
- * @throws {Error}
- * @method maxAsync
- * @static
- * @memberof algebra
- * @param {...RasterBand} args Arguments.
- * @return {Promise<RasterBand>}
- */
-GDAL_ALGEBRA_VARIADIC_BANDONLY_OP(gdal_max, GDALMaximumOfNBands)
-
-/**
- * Create a RasterBand that is the average of each bands.
- *
- * @throws {Error}
- * @method mean
- * @static
- * @memberof algebra
- * @param {...RasterBand} args Arguments.
- * @return {RasterBand}
- */
-
-/**
- * Create a RasterBand that is the average of each bands.
- * @async
- *
- * @throws {Error}
- * @method meanAsync
- * @static
- * @memberof algebra
- * @param {...RasterBand} args Arguments.
- * @return {Promise<RasterBand>}
- */
-GDAL_ALGEBRA_VARIADIC_BANDONLY_OP(gdal_mean, GDALMeanOfNBands)
-
-/**
  * Create a RasterBand that is the result of the logical OR of the arguments.
  *
  * @throws {Error}
@@ -732,6 +660,78 @@ GDAL_ALGEBRA_VARIADIC_BANDONLY_OP(gdal_mean, GDALMeanOfNBands)
 #define OP(a, b) ((a) || (b))
 GDAL_ALGEBRA_BINARY_OP(gdal_or, OP)
 #undef OP
+
+/**
+ * Create a RasterBand that contains the lesser values of each band.
+ *
+ * @throws {Error}
+ * @method min
+ * @static
+ * @memberof algebra
+ * @param {RasterBand[]} ...args Arguments.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that contains the lesser values of each band.
+ * @async
+ *
+ * @throws {Error}
+ * @method minAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand[]} ...args Arguments.
+ * @return {Promise<RasterBand>}
+ */
+GDAL_ALGEBRA_VARIADIC_BANDONLY_OP(gdal_min, GDALMinimumOfNBands)
+
+/**
+ * Create a RasterBand that contains the bigger values of each band.
+ *
+ * @throws {Error}
+ * @method max
+ * @static
+ * @memberof algebra
+ * @param {RasterBand[]} ...args Arguments.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that contains the bigger values of each band.
+ * @async
+ *
+ * @throws {Error}
+ * @method maxAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand[]} ...args Arguments.
+ * @return {Promise<RasterBand>}
+ */
+GDAL_ALGEBRA_VARIADIC_BANDONLY_OP(gdal_max, GDALMaximumOfNBands)
+
+/**
+ * Create a RasterBand that is the average of each bands.
+ *
+ * @throws {Error}
+ * @method mean
+ * @static
+ * @memberof algebra
+ * @param {RasterBand[]} ...args Arguments.
+ * @return {RasterBand}
+ */
+
+/**
+ * Create a RasterBand that is the average of each bands.
+ * @async
+ *
+ * @throws {Error}
+ * @method meanAsync
+ * @static
+ * @memberof algebra
+ * @param {RasterBand[]} ...args Arguments.
+ * @return {Promise<RasterBand>}
+ */
+GDAL_ALGEBRA_VARIADIC_BANDONLY_OP(gdal_mean, GDALMeanOfNBands)
 
 /**
  * Create a RasterBand that is the result of the ternary operator of the arguments.
