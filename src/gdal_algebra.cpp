@@ -52,11 +52,11 @@ void Initialize(Local<Object> target) {
     return;                                                                                                            \
   }                                                                                                                    \
   if (info[num]->IsNumber()) {                                                                                         \
-    var##Number = Nan::To<double>(info[num]).ToChecked();                                                              \
-    var##Band = nullptr;                                                                                               \
+    var##_number = Nan::To<double>(info[num]).ToChecked();                                                             \
+    var##_band = nullptr;                                                                                              \
   } else if (info[num]->IsObject() && Nan::New(RasterBand::constructor)->HasInstance(info[num])) {                     \
-    var##Number = NAN;                                                                                                 \
-    var##Band = Nan::ObjectWrap::Unwrap<RasterBand>(info[num].As<Object>());                                           \
+    var##_number = NAN;                                                                                                \
+    var##_band = Nan::ObjectWrap::Unwrap<RasterBand>(info[num].As<Object>());                                          \
   } else {                                                                                                             \
     Nan::ThrowError("Argument must be either a number or a RasterBand");                                               \
     return;                                                                                                            \
@@ -85,34 +85,34 @@ void Initialize(Local<Object> target) {
 
 #define GDAL_ALGEBRA_BINARY_OP(NAME, OPERATOR)                                                                         \
   GDAL_ASYNCABLE_DEFINE(NAME) {                                                                                        \
-    RasterBand *arg1Band, *arg2Band;                                                                                   \
-    double arg1Number, arg2Number;                                                                                     \
+    RasterBand *arg1_band, *arg2_band;                                                                                 \
+    double arg1_number, arg2_number;                                                                                   \
                                                                                                                        \
     NODE_ALGEBRA_ARG(0, arg1);                                                                                         \
     NODE_ALGEBRA_ARG(1, arg2);                                                                                         \
                                                                                                                        \
     std::vector<long> ds_uids = {};                                                                                    \
-    if (arg1Band) ds_uids.push_back(arg1Band->parent_uid);                                                             \
-    if (arg2Band) ds_uids.push_back(arg2Band->parent_uid);                                                             \
+    if (arg1_band) ds_uids.push_back(arg1_band->parent_uid);                                                           \
+    if (arg2_band) ds_uids.push_back(arg2_band->parent_uid);                                                           \
     GDALAsyncableJob<GDALRasterBand *> job(ds_uids);                                                                   \
-    if (arg1Band) job.persist(arg1Band->handle());                                                                     \
-    if (arg2Band) job.persist(arg2Band->handle());                                                                     \
+    if (arg1_band) job.persist(arg1_band->handle());                                                                   \
+    if (arg2_band) job.persist(arg2_band->handle());                                                                   \
                                                                                                                        \
-    if (arg1Band && arg2Band) {                                                                                        \
-      GDALRasterBand *arg1 = arg1Band->get();                                                                          \
-      GDALRasterBand *arg2 = arg2Band->get();                                                                          \
+    if (arg1_band && arg2_band) {                                                                                      \
+      GDALRasterBand *arg1 = arg1_band->get();                                                                         \
+      GDALRasterBand *arg2 = arg2_band->get();                                                                         \
       job.main = [arg1, arg2](const GDALExecutionProgress &) {                                                         \
         return new GDALComputedRasterBand(OPERATOR(*arg1, *arg2));                                                     \
       };                                                                                                               \
-    } else if (arg1Band) {                                                                                             \
-      GDALRasterBand *arg1 = arg1Band->get();                                                                          \
-      double arg2 = arg2Number;                                                                                        \
+    } else if (arg1_band) {                                                                                            \
+      GDALRasterBand *arg1 = arg1_band->get();                                                                         \
+      double arg2 = arg2_number;                                                                                       \
       job.main = [arg1, arg2](const GDALExecutionProgress &) {                                                         \
         return new GDALComputedRasterBand(OPERATOR(*arg1, arg2));                                                      \
       };                                                                                                               \
-    } else if (arg2Band) {                                                                                             \
-      double arg1 = arg1Number;                                                                                        \
-      GDALRasterBand *arg2 = arg2Band->get();                                                                          \
+    } else if (arg2_band) {                                                                                            \
+      double arg1 = arg1_number;                                                                                       \
+      GDALRasterBand *arg2 = arg2_band->get();                                                                         \
       job.main = [arg1, arg2](const GDALExecutionProgress &) {                                                         \
         return new GDALComputedRasterBand(OPERATOR(arg1, *arg2));                                                      \
       };                                                                                                               \
@@ -642,43 +642,43 @@ GDAL_ALGEBRA_BINARY_OP(gdal_or, OP)
  * @return {Promise<RasterBand>}
  */
 GDAL_ASYNCABLE_DEFINE(ifThenElse) {
-  RasterBand *arg1Band, *arg2Band, *arg3Band;
-  double arg2Number, arg3Number;
+  RasterBand *arg1_band, *arg2_band, *arg3_band;
+  double arg2_number, arg3_number;
 
-  NODE_ARG_WRAPPED(0, "First argument", RasterBand, arg1Band);
+  NODE_ARG_WRAPPED(0, "First argument", RasterBand, arg1_band);
   NODE_ALGEBRA_ARG(1, arg2);
   NODE_ALGEBRA_ARG(2, arg3);
 
-  std::vector<long> ds_uids = {arg1Band->parent_uid};
-  if (arg2Band) ds_uids.push_back(arg2Band->parent_uid);
-  if (arg3Band) ds_uids.push_back(arg3Band->parent_uid);
+  std::vector<long> ds_uids = {arg1_band->parent_uid};
+  if (arg2_band) ds_uids.push_back(arg2_band->parent_uid);
+  if (arg3_band) ds_uids.push_back(arg3_band->parent_uid);
   GDALAsyncableJob<GDALRasterBand *> job(ds_uids);
-  job.persist(arg1Band->handle());
-  if (arg2Band) job.persist(arg2Band->handle());
-  if (arg3Band) job.persist(arg3Band->handle());
+  job.persist(arg1_band->handle());
+  if (arg2_band) job.persist(arg2_band->handle());
+  if (arg3_band) job.persist(arg3_band->handle());
 
-  GDALRasterBand *arg1 = arg1Band->get();
-  if (arg2Band && arg3Band) {
-    GDALRasterBand *arg2 = arg2Band->get();
-    GDALRasterBand *arg3 = arg3Band->get();
+  GDALRasterBand *arg1 = arg1_band->get();
+  if (arg2_band && arg3_band) {
+    GDALRasterBand *arg2 = arg2_band->get();
+    GDALRasterBand *arg3 = arg3_band->get();
     job.main = [arg1, arg2, arg3](const GDALExecutionProgress &) {
       return new GDALComputedRasterBand(gdal::IfThenElse(*arg1, *arg2, *arg3));
     };
-  } else if (arg2Band) {
-    GDALRasterBand *arg2 = arg2Band->get();
-    double arg3 = arg3Number;
+  } else if (arg2_band) {
+    GDALRasterBand *arg2 = arg2_band->get();
+    double arg3 = arg3_number;
     job.main = [arg1, arg2, arg3](const GDALExecutionProgress &) {
       return new GDALComputedRasterBand(gdal::IfThenElse(*arg1, *arg2, arg3));
     };
-  } else if (arg3Band) {
-    double arg2 = arg2Number;
-    GDALRasterBand *arg3 = arg3Band->get();
+  } else if (arg3_band) {
+    double arg2 = arg2_number;
+    GDALRasterBand *arg3 = arg3_band->get();
     job.main = [arg1, arg2, arg3](const GDALExecutionProgress &) {
       return new GDALComputedRasterBand(gdal::IfThenElse(*arg1, arg2, *arg3));
     };
   } else {
-    double arg2 = arg2Number;
-    double arg3 = arg3Number;
+    double arg2 = arg2_number;
+    double arg3 = arg3_number;
     job.main = [arg1, arg2, arg3](const GDALExecutionProgress &) {
       return new GDALComputedRasterBand(gdal::IfThenElse(*arg1, arg2, arg3));
     };
@@ -715,11 +715,11 @@ GDAL_ASYNCABLE_DEFINE(ifThenElse) {
  * @return {Promise<RasterBand>}
  */
 GDAL_ASYNCABLE_DEFINE(asType) {
-  RasterBand *argBand;
+  RasterBand *arg_band;
   std::string type_name;
   GDALDataType type;
 
-  NODE_ARG_WRAPPED(0, "Argument", RasterBand, argBand);
+  NODE_ARG_WRAPPED(0, "Argument", RasterBand, arg_band);
 
   NODE_ARG_STR(1, "Data Type", type_name);
   type = GDALGetDataTypeByName(type_name.c_str());
@@ -728,9 +728,9 @@ GDAL_ASYNCABLE_DEFINE(asType) {
     return;
   }
 
-  GDALAsyncableJob<GDALRasterBand *> job(argBand->parent_uid);
-  job.persist(argBand->handle());
-  GDALRasterBand *arg = argBand->get();
+  GDALAsyncableJob<GDALRasterBand *> job(arg_band->parent_uid);
+  job.persist(arg_band->handle());
+  GDALRasterBand *arg = arg_band->get();
 
   job.main = [arg, type](const GDALExecutionProgress &) { return new GDALComputedRasterBand(arg->AsType(type)); };
 
