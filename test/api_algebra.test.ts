@@ -304,11 +304,10 @@ describe('algebra', () => {
         } else {
           assert.closeTo(data[i],
             (buf1[i] + buf2[i]) * Math.sqrt(Math.abs(buf2[i])),
-            1)
+            0.1)
         }
       }
     })
-
 
     it('should support variadic async', async () => {
       const { maxAsync } = gdal.algebra
@@ -320,10 +319,11 @@ describe('algebra', () => {
         if (isNaN(buf1[i] + buf2[i])) {
           continue
         } else {
-          assert.closeTo(data[i], Math.max(buf1[i], buf2[i]), 1)
+          assert.closeTo(data[i], Math.max(buf1[i], buf2[i]), 0.1)
         }
       }
     })
+
     it('should reject on invalid arguments', () => assert.isRejected(gdal.algebra.addAsync(1, 2), /At least one RasterBand must be given/))
 
     it('should reject if the dimensions do not match', () => {
