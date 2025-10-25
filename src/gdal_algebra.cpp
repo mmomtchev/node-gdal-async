@@ -186,7 +186,7 @@ GDAL_ALGEBRA_UNARY_OP(sqrt, gdal::sqrt)
  * @method log
  * @static
  * @memberof algebra
- * @param {RasterBand} arg Aargument.
+ * @param {RasterBand} arg Argument.
  * @return {RasterBand}
  */
 
@@ -622,9 +622,9 @@ GDAL_ALGEBRA_BINARY_OP(gdal_or, OP)
  * @method ifThenElse
  * @static
  * @memberof algebra
- * @param {RasterBand} arg1 First argument.
- * @param {RasterBand | number} arg2 Second argument.
- * @param {RasterBand | number} arg3 Third argument.
+ * @param {RasterBand} arg1 Condition.
+ * @param {RasterBand | number} arg2 If value.
+ * @param {RasterBand | number} arg3 Else value.
  * @return {RasterBand}
  */
 
@@ -636,9 +636,9 @@ GDAL_ALGEBRA_BINARY_OP(gdal_or, OP)
  * @method ifThenElseAsync
  * @static
  * @memberof algebra
- * @param {RasterBand} arg1 First argument.
- * @param {RasterBand | number} arg2 Second argument.
- * @param {RasterBand | number} arg3 Third argument.
+ * @param {RasterBand} arg1 Condition.
+ * @param {RasterBand | number} arg2 If value.
+ * @param {RasterBand | number} arg3 Else value.
  * @return {Promise<RasterBand>}
  */
 GDAL_ASYNCABLE_DEFINE(ifThenElse) {
