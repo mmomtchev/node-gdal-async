@@ -132,6 +132,14 @@ describe('algebra', () => {
         }, /Argument must be either a number or a RasterBand/)
       })
 
+      it('should throw if the dimensions do not match', () => {
+        const ds = gdal.open('temp', 'w', 'MEM', w / 2, h, 1, gdal.GDT_Float32)
+        const band = ds.bands.get(1)
+        assert.throws(() => {
+          op.op(arg1Band, band)
+        }, /Bands do not have the same dimensions/)
+      })
+
       it('should handle destroying the computed dataset', () => {
         const r = op.op(-42, arg2Band)
         assert.instanceOf(r, gdal.RasterBand)
