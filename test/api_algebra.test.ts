@@ -230,9 +230,47 @@ describe('algebra', () => {
   })
 
   it('should support chaining', () => {
-    const { add, mul, sqrt } = gdal.algebra
-    const r = mul(add(arg1Band, arg2Band), sqrt(arg2Band))
+    const { add, mul, sqrt, abs } = gdal.algebra
+    const r = mul(add(arg1Band, arg2Band), sqrt(abs(arg2Band)))
+    const data = r.pixels.read(0, 0, w, h)
+    assert.lengthOf(data, w * h)
     assert.instanceOf(r, gdal.RasterBand)
+    for (let i = 0; i < w * h; i++) {
+      if (isNaN(buf1[i] + buf2[i])) {
+        continue
+      } else {
+        assert.closeTo(data[i],
+          (buf1[i] + buf2[i]) * Math.sqrt(Math.abs(buf2[i])),
+          1)
+      }
+    }
+  })
+
+  describe('async', () => {
+    it('should support async', async () => {
+      const { addAsync, mulAsync, sqrtAsync, absAsync } = gdal.algebra
+      const r = await mulAsync(await addAsync(arg1Band, arg2Band), await sqrtAsync(await absAsync(arg2Band)))
+      const data = await r.pixels.readAsync(0, 0, w, h)
+      assert.lengthOf(data, w * h)
+      assert.instanceOf(r, gdal.RasterBand)
+      for (let i = 0; i < w * h; i++) {
+        if (isNaN(buf1[i] + buf2[i])) {
+          continue
+        } else {
+          assert.closeTo(data[i],
+            (buf1[i] + buf2[i]) * Math.sqrt(Math.abs(buf2[i])),
+            1)
+        }
+      }
+    })
+
+    it('should reject on invalid arguments', () => assert.isRejected(gdal.algebra.addAsync(1, 2), /At least one RasterBand must be given/))
+
+    it('should reject if the dimensions do not match', () => {
+      const ds = gdal.open('temp', 'w', 'MEM', w / 2, h, 1, gdal.GDT_Float32)
+      const band = ds.bands.get(1)
+      return assert.isRejected(gdal.algebra.mulAsync(arg1Band, band), /Bands do not have the same dimensions/)
+    })
   })
 
   it('should support being called as RasterBand member functions', () => {

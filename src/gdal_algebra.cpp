@@ -326,7 +326,7 @@ GDAL_ALGEBRA_BINARY_OP(sub, OP)
  * @async
  *
  * @throws {Error}
- * @method mul
+ * @method mulAsync
  * @static
  * @memberof algebra
  * @param {RasterBand | number} arg1 First argument.
