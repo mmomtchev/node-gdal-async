@@ -164,7 +164,7 @@ void Initialize(Local<Object> target) {
       job.persist(arg->handle());                                                                                      \
       handles[i++] = GDALRasterBand::ToHandle(arg->get());                                                             \
     }                                                                                                                  \
-    auto args = std::shared_ptr<GDALRasterBandH>{handles, array_deleter<GDALRasterBandH>()};                           \
+    auto args = std::shared_ptr<GDALRasterBandH[]>{handles};                                                           \
                                                                                                                        \
     job.main = [args, i](const GDALExecutionProgress &) {                                                              \
       return GDALRasterBand::FromHandle(OPERATOR(i, args.get()));                                                      \

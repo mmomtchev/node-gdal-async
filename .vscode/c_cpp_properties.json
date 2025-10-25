@@ -1,53 +1,53 @@
 {
-    "env": {
-        "projectIncludePaths": [
-            "${workspaceFolder}/include",
-            "${workspaceFolder}/deps/libgdal/gdal/port",
-            "${workspaceFolder}/deps/libgdal/gdal/gcore",
-            "${workspaceFolder}/deps/libgdal/gdal/ogr",
-            "${workspaceFolder}/deps/libgdal/gdal/ogr/ogrsf_frmts",
-            "${workspaceFolder}/deps/libgdal/gdal/alg",
-            "${workspaceFolder}/deps/libgdal/gdal/apps",
-            "${workspaceFolder}/deps/libgdal/arch/unix",
-            "${workspaceFolder}/deps/libproj/proj/src",
-            "${workspaceFolder}/deps/libgeos/include",
-            "${workspaceFolder}/deps/libgeos/geos/include",
-            "${workspaceFolder}/node_modules/nan"
-        ]
+  "env": {
+    "projectIncludePaths": [
+      "${workspaceFolder}/include",
+      "${workspaceFolder}/deps/libgdal/gdal/port",
+      "${workspaceFolder}/deps/libgdal/gdal/gcore",
+      "${workspaceFolder}/deps/libgdal/gdal/ogr",
+      "${workspaceFolder}/deps/libgdal/gdal/ogr/ogrsf_frmts",
+      "${workspaceFolder}/deps/libgdal/gdal/alg",
+      "${workspaceFolder}/deps/libgdal/gdal/apps",
+      "${workspaceFolder}/deps/libgdal/arch/unix",
+      "${workspaceFolder}/deps/libproj/proj/src",
+      "${workspaceFolder}/deps/libgeos/include",
+      "${workspaceFolder}/deps/libgeos/geos/include",
+      "${workspaceFolder}/node_modules/nan"
+    ]
+  },
+  "configurations": [
+    {
+      "name": "Linux",
+      "includePath": [
+        "${projectIncludePaths}",
+        "/usr/include/node",
+        "${default}"
+      ],
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "c99",
+      "cppStandard": "gnu++17"
     },
-    "configurations": [
-        {
-            "name": "Linux",
-            "includePath": [
-                "${projectIncludePaths}",
-                "/usr/include/node",
-                "${default}"
-            ],
-            "compilerPath": "/usr/bin/gcc",
-            "cStandard": "c99",
-            "cppStandard": "gnu++14"
-        },
-        {
-            "name": "OSX",
-            "includePath": [
-                "${projectIncludePaths}",
-                "/usr/local/include/node",
-                "${default}"
-            ],
-            "compilerPath": "/usr/bin/clang",
-            "cStandard": "c99",
-            "cppStandard": "gnu++14"
-        },
-        {
-            "name": "Win32",
-            "includePath": [
-                "${projectIncludePaths}",
-                "${default}"
-            ],
-            "compilerPath": "cl.exe",
-            "cStandard": "c99",
-            "cppStandard": "c++14"
-        }
-    ],
-    "version": 4
+    {
+      "name": "OSX",
+      "includePath": [
+        "${projectIncludePaths}",
+        "/usr/local/include/node",
+        "${default}"
+      ],
+      "compilerPath": "/usr/bin/clang",
+      "cStandard": "c99",
+      "cppStandard": "gnu++17"
+    },
+    {
+      "name": "Win32",
+      "includePath": [
+        "${projectIncludePaths}",
+        "${default}"
+      ],
+      "compilerPath": "cl.exe",
+      "cStandard": "c99",
+      "cppStandard": "c++17"
+    }
+  ],
+  "version": 4
 }
