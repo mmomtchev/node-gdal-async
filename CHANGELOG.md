@@ -10,9 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
  - GDAL 3.11.5
 
-### Changed
-
 ## [3.11.4] 2025-09-12
+
  - Fix [mmomtchev/node-gdal-async#250](https://github.com/mmomtchev/node-gdal-async/issues/250), fix a leak of `Buffer` objects after using `vsimem.set` and `vsimem.release`
 
 ### Added
