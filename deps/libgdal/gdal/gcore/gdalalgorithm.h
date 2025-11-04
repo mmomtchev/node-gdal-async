@@ -1838,6 +1838,8 @@ class CPL_DLL GDALAlgorithmArg /* non-final */
     /** Autocompletion function */
     std::function<std::vector<std::string>(const std::string &)>
         m_autoCompleteFunction{};
+    /** Algorithm that may own this argument. */
+    GDALAlgorithm *m_owner = nullptr;
 
   private:
     bool m_skipIfAlreadySet = false;
@@ -1858,6 +1860,11 @@ class CPL_DLL GDALAlgorithmArg /* non-final */
     std::string ValidateChoice(const std::string &value) const;
     bool ValidateIntRange(int val) const;
     bool ValidateRealRange(double val) const;
+
+    void ReportError(CPLErr eErrClass, CPLErrorNum err_no, const char *fmt,
+                     ...) const CPL_PRINT_FUNC_FORMAT(4, 5);
+
+    CPL_DISALLOW_COPY_ASSIGN(GDALAlgorithmArg)
 };
 
 /************************************************************************/
@@ -1884,8 +1891,9 @@ class CPL_DLL GDALInConstructionAlgorithmArg final : public GDALAlgorithmArg
     template <class T>
     GDALInConstructionAlgorithmArg(GDALAlgorithm *owner,
                                    const GDALAlgorithmArgDecl &decl, T *pValue)
-        : GDALAlgorithmArg(decl, pValue), m_owner(owner)
+        : GDALAlgorithmArg(decl, pValue)
     {
+        m_owner = owner;
     }
 
     /** Add a documented alias for the argument */
@@ -2219,8 +2227,6 @@ class CPL_DLL GDALInConstructionAlgorithmArg final : public GDALAlgorithmArg
                     std::vector<std::string>());
 
   private:
-    GDALAlgorithm *const m_owner;
-
     GDALInConstructionAlgorithmArg(const GDALInConstructionAlgorithmArg &) =
         delete;
     GDALInConstructionAlgorithmArg &
@@ -2626,6 +2632,11 @@ class CPL_DLL GDALAlgorithmRegistry
     static bool SaveGDALG(const std::string &filename,
                           const std::string &commandLine);
 
+    //! @cond Doxygen_Suppress
+    void ReportError(CPLErr eErrClass, CPLErrorNum err_no, const char *fmt,
+                     ...) const CPL_PRINT_FUNC_FORMAT(4, 5);
+    //! @endcond
+
   protected:
     friend class GDALInConstructionAlgorithmArg;
 
@@ -2908,11 +2919,6 @@ class CPL_DLL GDALAlgorithmRegistry
     {
         m_displayInJSONUsage = b;
     }
-
-    //! @cond Doxygen_Suppress
-    void ReportError(CPLErr eErrClass, CPLErrorNum err_no, const char *fmt,
-                     ...) const CPL_PRINT_FUNC_FORMAT(4, 5);
-    //! @endcond
 
     /** Return the list of arguments for CLI usage */
     std::pair<std::vector<std::pair<GDALAlgorithmArg *, std::string>>, size_t>
