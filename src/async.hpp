@@ -78,6 +78,9 @@ extern std::thread::id mainV8ThreadId;
   } catch (const char *err) {                                                                                          \
     Nan::ThrowError(err);                                                                                              \
     return;                                                                                                            \
+  } catch (const std::exception &err) {                                                                                \
+    Nan::ThrowError(err.what());                                                                                       \
+    return;                                                                                                            \
   }
 
 static const char eventLoopWarning[] =
@@ -247,7 +250,9 @@ template <class GDALType> void GDALAsyncWorker<GDALType>::Execute(const Executio
     GDALExecutionProgress executionProgress(&progress);
     AsyncGuard lock(ds_uids);
     raw = doit(executionProgress);
-  } catch (const char *err) { this->SetErrorMessage(err); }
+  } catch (const char *err) { this->SetErrorMessage(err); } catch (const std::exception &err) {
+    this->SetErrorMessage(err.what());
+  }
 }
 
 template <class GDALType> GDALAsyncWorker<GDALType>::~GDALAsyncWorker() {
@@ -430,7 +435,9 @@ template <class GDALType> class GDALAsyncableJob {
       // rval is the user function that will create the returned value
       // we give it a lambda that can access the persistent storage created for this operation
       info.GetReturnValue().Set(rval(obj, [this](const char *key) { return this->persistent[key]; }));
-    } catch (const char *err) { Nan::ThrowError(err); }
+    } catch (const char *err) { Nan::ThrowError(err); } catch (const std::exception &err) {
+      Nan::ThrowError(err.what());
+    }
   }
 
   void run(Nan::NAN_GETTER_ARGS_TYPE info, bool async) {

@@ -46,6 +46,7 @@
 				"src/gdal_spatial_reference.cpp",
 				"src/gdal_warper.cpp",
 				"src/gdal_algorithms.cpp",
+				"src/gdal_algebra.cpp",
 				"src/gdal_memfile.cpp",
 				"src/gdal_utils.cpp",
 				"src/gdal_fs.cpp",

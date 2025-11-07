@@ -143,7 +143,7 @@ NAN_METHOD(MDArray::toString) {
 
 /* Find the lowest possible element index for the given spans and strides */
 static inline int
-findLowest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDiff_t> stride, GPtrDiff_t offset) {
+findLowest(int dimensions, std::shared_ptr<size_t[]> span, std::shared_ptr<GPtrDiff_t[]> stride, GPtrDiff_t offset) {
   GPtrDiff_t dimStride = 1;
   GPtrDiff_t lowest = 0;
   for (int dim = 0; dim < dimensions; dim++) {
@@ -170,7 +170,7 @@ findLowest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDif
 
 /* Find the highest possible element index for the given spans and strides */
 static inline int
-findHighest(int dimensions, std::shared_ptr<size_t> span, std::shared_ptr<GPtrDiff_t> stride, GPtrDiff_t offset) {
+findHighest(int dimensions, std::shared_ptr<size_t[]> span, std::shared_ptr<GPtrDiff_t[]> stride, GPtrDiff_t offset) {
   GPtrDiff_t dimStride = 1;
   GPtrDiff_t highest = 0;
   for (int dim = 0; dim < dimensions; dim++) {
@@ -269,9 +269,9 @@ GDAL_ASYNCABLE_DEFINE(MDArray::read) {
   NODE_INT64_FROM_OBJ_OPT(options, "_offset", offset);
   if (!type_name.empty()) { type = GDALGetDataTypeByName(type_name.c_str()); }
 
-  std::shared_ptr<GUInt64> gdal_origin;
-  std::shared_ptr<size_t> gdal_span;
-  std::shared_ptr<GPtrDiff_t> gdal_stride;
+  std::shared_ptr<GUInt64[]> gdal_origin;
+  std::shared_ptr<size_t[]> gdal_span;
+  std::shared_ptr<GPtrDiff_t[]> gdal_stride;
   try {
     gdal_origin = NumberArrayToSharedPtr<int64_t, GUInt64>(origin, self->dimensions);
     gdal_span = NumberArrayToSharedPtr<int64_t, size_t>(span, self->dimensions);

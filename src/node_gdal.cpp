@@ -21,6 +21,7 @@
 #include "gdal_attribute.hpp"
 #include "gdal_warper.hpp"
 #include "gdal_utils.hpp"
+#include "gdal_algebra.hpp"
 
 #include "gdal_coordinate_transformation.hpp"
 #include "gdal_feature.hpp"
@@ -362,6 +363,9 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
 
   Warper::Initialize(target);
   Algorithms::Initialize(target);
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 12)
+  Algebra::Initialize(target);
+#endif
 
   Driver::Initialize(target);
   Dataset::Initialize(target);

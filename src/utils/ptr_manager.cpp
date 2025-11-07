@@ -274,7 +274,7 @@ long ObjectStore::add(OGRLayer *ptr, Nan::Persistent<Object> &obj, long parent_u
 
 // Creating a Dataset object is a special case
 // It contains a lock (unless it is a dependant Dataset)
-long ObjectStore::add(GDALDataset *ptr, Nan::Persistent<Object> &obj, long parent_uid) {
+long ObjectStore::add(GDALDataset *ptr, Nan::Persistent<Object> &obj, long parent_uid, bool close) {
   long uid = ObjectStore::add<GDALDataset *>(ptr, obj, parent_uid);
   if (parent_uid == 0) {
     uidMap<GDALDataset *>[uid] -> async_lock = shared_ptr<uv_sem_t>(new uv_sem_t(), uv_sem_deleter());
@@ -282,6 +282,8 @@ long ObjectStore::add(GDALDataset *ptr, Nan::Persistent<Object> &obj, long paren
   } else {
     uidMap<GDALDataset *>[uid] -> async_lock = uidMap<GDALDataset *>[parent_uid] -> async_lock;
   }
+  // Is this an automatic Dataset that should not be closed?
+  uidMap<GDALDataset *>[uid] -> close = close;
   return uid;
 }
 
@@ -368,8 +370,12 @@ template <> void ObjectStore::dispose(shared_ptr<ObjectStoreItem<GDALDataset *>>
   while (!item->children.empty()) { do_dispose(item->children.back()); }
 
   if (item->ptr) {
-    LOG("Closing GDALDataset %ld [%p]", item->uid, item->ptr);
-    GDALClose(item->ptr);
+    if (item->close) {
+      LOG("Closing GDALDataset %ld [%p]", item->uid, item->ptr);
+      GDALClose(item->ptr);
+    } else {
+      LOG("Destroying GDALDataset without closing %ld [%p]", item->uid, item->ptr);
+    }
     item->ptr = nullptr;
   }
 }

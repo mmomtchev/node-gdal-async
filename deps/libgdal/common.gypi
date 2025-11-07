@@ -46,6 +46,7 @@
 			"HAVE_MITAB=1",
 			"HAVE_CURL=1",
 			"HAVE_HDF5=1",
+			"HAVE_MUPARSER=1",
 			"USE_PNG=1",
 			"USE_AEC=1",
 			"NETCDF_HAS_NC4=1",

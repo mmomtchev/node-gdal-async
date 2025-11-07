@@ -48,6 +48,8 @@ template <> struct ObjectStoreItem<GDALDataset *> {
   shared_ptr<ObjectStoreItem<GDALDataset *>> parent;
   list<long> children;
   AsyncLock async_lock;
+  // Does the dataset need to be closed
+  bool close;
   ObjectStoreItem(Nan::Persistent<Object> &obj);
 };
 
@@ -59,7 +61,7 @@ class ObjectStore {
     public:
   template <typename GDALPTR> long add(GDALPTR ptr, Nan::Persistent<Object> &obj, long parent_uid);
   long add(OGRLayer *ptr, Nan::Persistent<Object> &obj, long parent_uid, bool is_result_set);
-  long add(GDALDataset *ptr, Nan::Persistent<Object> &obj, long parent_uid);
+  long add(GDALDataset *ptr, Nan::Persistent<Object> &obj, long parent_uid, bool close);
 
   void dispose(long uid, bool manual = false);
   bool isAlive(long uid);

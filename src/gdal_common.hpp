@@ -63,18 +63,11 @@ inline const char *getOGRErrMsg(int err) {
   }
 };
 
-// deleter for C++14 shared_ptr which does not have built-in array support
-template <typename T> struct array_deleter {
-  void operator()(T const *p) {
-    delete[] p;
-  }
-};
-
 template <typename INPUT, typename RETURN>
-std::shared_ptr<RETURN> NumberArrayToSharedPtr(Local<Array> array, size_t count = 0) {
+std::shared_ptr<RETURN[]> NumberArrayToSharedPtr(Local<Array> array, size_t count = 0) {
   if (array.IsEmpty()) return nullptr;
   if (count != 0 && array->Length() != count) throw "Array size must match the number of dimensions";
-  std::shared_ptr<RETURN> ptr(new RETURN[array->Length()], array_deleter<RETURN>());
+  std::shared_ptr<RETURN[]> ptr(new RETURN[array->Length()]);
   for (unsigned i = 0; i < array->Length(); i++) {
     Local<Value> val = Nan::Get(array, i).ToLocalChecked();
     if (!val->IsNumber()) throw "Array must contain only numbers";
