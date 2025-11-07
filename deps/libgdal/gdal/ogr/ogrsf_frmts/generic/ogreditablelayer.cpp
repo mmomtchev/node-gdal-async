@@ -44,7 +44,8 @@ OGREditableLayer::OGREditableLayer(
     m_poEditableFeatureDefn->Reference();
 
     for (int i = 0; i < m_poEditableFeatureDefn->GetFieldCount(); i++)
-        m_poMemLayer->CreateField(m_poEditableFeatureDefn->GetFieldDefn(i));
+        CPL_IGNORE_RET_VAL(m_poMemLayer->CreateField(
+            m_poEditableFeatureDefn->GetFieldDefn(i)));
 
     for (int i = 0; i < m_poEditableFeatureDefn->GetGeomFieldCount(); i++)
         m_poMemLayer->CreateGeomField(
@@ -499,7 +500,7 @@ OGRErr OGREditableLayer::DeleteFeature(GIntBig nFID)
 /*                             GetGeomType()                            */
 /************************************************************************/
 
-OGRwkbGeometryType OGREditableLayer::GetGeomType()
+OGRwkbGeometryType OGREditableLayer::GetGeomType() const
 {
     return OGRLayer::GetGeomType();
 }
@@ -508,7 +509,7 @@ OGRwkbGeometryType OGREditableLayer::GetGeomType()
 /*                             GetLayerDefn()                           */
 /************************************************************************/
 
-OGRFeatureDefn *OGREditableLayer::GetLayerDefn()
+const OGRFeatureDefn *OGREditableLayer::GetLayerDefn() const
 {
     return m_poEditableFeatureDefn;
 }
@@ -517,7 +518,7 @@ OGRFeatureDefn *OGREditableLayer::GetLayerDefn()
 /*                             GetSpatialRef()                          */
 /************************************************************************/
 
-OGRSpatialReference *OGREditableLayer::GetSpatialRef()
+const OGRSpatialReference *OGREditableLayer::GetSpatialRef() const
 {
     return OGRLayer::GetSpatialRef();
 }
@@ -625,7 +626,7 @@ OGRErr OGREditableLayer::IGetExtent(int iGeomField, OGREnvelope *psExtent,
 /*                            TestCapability()                          */
 /************************************************************************/
 
-int OGREditableLayer::TestCapability(const char *pszCap)
+int OGREditableLayer::TestCapability(const char *pszCap) const
 {
     if (!m_poDecoratedLayer)
         return FALSE;
@@ -634,8 +635,7 @@ int OGREditableLayer::TestCapability(const char *pszCap)
         EQUAL(pszCap, OLCReorderFields) || EQUAL(pszCap, OLCAlterFieldDefn) ||
         EQUAL(pszCap, OLCAlterGeomFieldDefn) || EQUAL(pszCap, OLCDeleteFeature))
     {
-        return m_poDecoratedLayer->TestCapability(OLCCreateField) == TRUE ||
-               m_poDecoratedLayer->TestCapability(OLCSequentialWrite) == TRUE;
+        return TRUE;
     }
     if (EQUAL(pszCap, OLCCreateGeomField))
         return m_bSupportsCreateGeomField;
@@ -705,7 +705,7 @@ OGRErr OGREditableLayer::DeleteField(int iField)
     {
         m_poEditableFeatureDefn->DeleteFieldDefn(iField);
         m_bStructureModified = true;
-        m_oSetDeletedFields.insert(osDeletedField);
+        m_oSetDeletedFields.insert(std::move(osDeletedField));
     }
     return eErr;
 }
@@ -887,7 +887,7 @@ OGRErr OGREditableLayer::RollbackTransaction()
 /*                         GetGeometryColumn()                          */
 /************************************************************************/
 
-const char *OGREditableLayer::GetGeometryColumn()
+const char *OGREditableLayer::GetGeometryColumn() const
 
 {
     return OGRLayer::GetGeometryColumn();

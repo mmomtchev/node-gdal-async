@@ -13,6 +13,10 @@
 
 #include "gdal_frmts.h"
 #include "gdal_pam.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 #include "gxfopen.h"
 
 /************************************************************************/
@@ -35,11 +39,11 @@ class GXFDataset final : public GDALPamDataset
 
   public:
     GXFDataset();
-    ~GXFDataset();
+    ~GXFDataset() override;
 
     static GDALDataset *Open(GDALOpenInfo *);
 
-    CPLErr GetGeoTransform(double *padfTransform) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
     const OGRSpatialReference *GetSpatialRef() const override;
 };
 
@@ -57,7 +61,7 @@ class GXFRasterBand final : public GDALPamRasterBand
     GXFRasterBand(GXFDataset *, int);
     double GetNoDataValue(int *bGotNoDataValue) override;
 
-    virtual CPLErr IReadBlock(int, int, void *) override;
+    CPLErr IReadBlock(int, int, void *) override;
 };
 
 /************************************************************************/
@@ -83,7 +87,7 @@ GXFRasterBand::GXFRasterBand(GXFDataset *poDSIn, int nBandIn)
 double GXFRasterBand::GetNoDataValue(int *bGotNoDataValue)
 
 {
-    GXFDataset *poGXF_DS = (GXFDataset *)poDS;
+    GXFDataset *poGXF_DS = cpl::down_cast<GXFDataset *>(poDS);
     if (bGotNoDataValue)
         *bGotNoDataValue = (fabs(poGXF_DS->dfNoDataValue - -1e12) > .1);
     if (eDataType == GDT_Float32)
@@ -99,7 +103,7 @@ double GXFRasterBand::GetNoDataValue(int *bGotNoDataValue)
 CPLErr GXFRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
                                  void *pImage)
 {
-    GXFDataset *const poGXF_DS = (GXFDataset *)poDS;
+    GXFDataset *const poGXF_DS = cpl::down_cast<GXFDataset *>(poDS);
 
     if (eDataType == GDT_Float32)
     {
@@ -158,7 +162,7 @@ GXFDataset::~GXFDataset()
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr GXFDataset::GetGeoTransform(double *padfTransform)
+CPLErr GXFDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
     double dfXOrigin = 0.0;
@@ -176,16 +180,14 @@ CPLErr GXFDataset::GetGeoTransform(double *padfTransform)
     // Transform to radians.
     dfRotation = (dfRotation / 360.0) * 2.0 * M_PI;
 
-    padfTransform[1] = dfXSize * cos(dfRotation);
-    padfTransform[2] = dfYSize * sin(dfRotation);
-    padfTransform[4] = dfXSize * sin(dfRotation);
-    padfTransform[5] = -1 * dfYSize * cos(dfRotation);
+    gt[1] = dfXSize * cos(dfRotation);
+    gt[2] = dfYSize * sin(dfRotation);
+    gt[4] = dfXSize * sin(dfRotation);
+    gt[5] = -1 * dfYSize * cos(dfRotation);
 
     // take into account that GXF is point or center of pixel oriented.
-    padfTransform[0] =
-        dfXOrigin - 0.5 * padfTransform[1] - 0.5 * padfTransform[2];
-    padfTransform[3] =
-        dfYOrigin - 0.5 * padfTransform[4] - 0.5 * padfTransform[5];
+    gt[0] = dfXOrigin - 0.5 * gt[1] - 0.5 * gt[2];
+    gt[3] = dfYOrigin - 0.5 * gt[4] - 0.5 * gt[5];
 
     return CE_None;
 }

@@ -335,7 +335,7 @@ GDAL_ASYNCABLE_DEFINE(MDArray::read) {
 
   job.main =
     [buffer, gdal_mdarray, gdal_origin, gdal_span, gdal_stride, type, length, offset](const GDALExecutionProgress &) {
-      int bytes_per_pixel = GDALGetDataTypeSize(type) / 8;
+      int bytes_per_pixel = GDALGetDataTypeSizeBytes(type);
       if (bytes_per_pixel == 0) { throw "Invalid GDAL data type"; }
       CPLErrorReset();
       GDALExtendedDataType gdal_type = GDALExtendedDataType::Create(type);

@@ -26,6 +26,11 @@
 
 #include "cpl_google_cloud.h"
 
+// To avoid aliasing to GetDiskFreeSpace to GetDiskFreeSpaceA on Windows
+#ifdef GetDiskFreeSpace
+#undef GetDiskFreeSpace
+#endif
+
 #ifndef HAVE_CURL
 
 void VSIInstallGSFileHandler(void)
@@ -85,6 +90,12 @@ class VSIGSFSHandler final : public IVSIS3LikeFSHandlerWithMultipartUpload
     CreateWriteHandle(const char *pszFilename,
                       CSLConstList papszOptions) override;
 
+    GIntBig GetDiskFreeSpace(const char * /* pszDirname */) override
+    {
+        // There is no limit per bucket, but a 5 TiB limit per object.
+        return static_cast<GIntBig>(5) * 1024 * 1024 * 1024 * 1024;
+    }
+
   public:
     explicit VSIGSFSHandler(const char *pszPrefix) : m_osPrefix(pszPrefix)
     {
@@ -132,9 +143,8 @@ class VSIGSHandle final : public IVSIS3LikeHandle
     VSIGSHandleHelper *m_poHandleHelper = nullptr;
 
   protected:
-    struct curl_slist *
-    GetCurlHeaders(const std::string &osVerb,
-                   const struct curl_slist *psExistingHeaders) override;
+    struct curl_slist *GetCurlHeaders(const std::string &osVerb,
+                                      struct curl_slist *psHeaders) override;
 
   public:
     VSIGSHandle(VSIGSFSHandler *poFS, const char *pszFilename,
@@ -388,8 +398,7 @@ char **VSIGSFSHandler::GetFileMetadata(const char *pszFilename,
                     static_cast<struct curl_slist *>(CPLHTTPSetOptions(
                         hCurlHandle, poHandleHelper->GetURL().c_str(),
                         aosHTTPOptions.List()));
-                headers = VSICurlMergeHeaders(
-                    headers, poHandleHelper->GetCurlHeaders("GET", headers));
+                headers = poHandleHelper->GetCurlHeaders("GET", headers);
 
                 CurlRequestHelper requestHelper;
                 const long response_code = requestHelper.perform(
@@ -487,8 +496,7 @@ char **VSIGSFSHandler::GetFileMetadata(const char *pszFilename,
         struct curl_slist *headers = static_cast<struct curl_slist *>(
             CPLHTTPSetOptions(hCurlHandle, poHandleHelper->GetURL().c_str(),
                               aosHTTPOptions.List()));
-        headers = VSICurlMergeHeaders(
-            headers, poHandleHelper->GetCurlHeaders("GET", headers));
+        headers = poHandleHelper->GetCurlHeaders("GET", headers);
 
         CurlRequestHelper requestHelper;
         const long response_code = requestHelper.perform(
@@ -593,9 +601,8 @@ bool VSIGSFSHandler::SetFileMetadata(const char *pszFilename,
             CPLHTTPSetOptions(hCurlHandle, poHandleHelper->GetURL().c_str(),
                               aosHTTPOptions.List()));
         headers = curl_slist_append(headers, "Content-Type: application/xml");
-        headers = VSICurlMergeHeaders(
-            headers, poHandleHelper->GetCurlHeaders("PUT", headers, pszXML,
-                                                    strlen(pszXML)));
+        headers = poHandleHelper->GetCurlHeaders("PUT", headers, pszXML,
+                                                 strlen(pszXML));
         NetworkStatisticsLogger::LogPUT(strlen(pszXML));
 
         CurlRequestHelper requestHelper;
@@ -794,10 +801,9 @@ int *VSIGSFSHandler::UnlinkBatch(CSLConstList papszFiles)
                     headers,
                     "Content-Type: multipart/mixed; "
                     "boundary=\"===============7330845974216740156==\"");
-                headers = VSICurlMergeHeaders(
-                    headers, poHandleHelper->GetCurlHeaders(
-                                 "POST", headers, osPOSTContent.c_str(),
-                                 osPOSTContent.size()));
+                headers = poHandleHelper->GetCurlHeaders("POST", headers,
+                                                         osPOSTContent.c_str(),
+                                                         osPOSTContent.size());
 
                 CurlRequestHelper requestHelper;
                 const long response_code = requestHelper.perform(
@@ -918,11 +924,10 @@ VSIGSHandle::~VSIGSHandle()
 /*                          GetCurlHeaders()                            */
 /************************************************************************/
 
-struct curl_slist *
-VSIGSHandle::GetCurlHeaders(const std::string &osVerb,
-                            const struct curl_slist *psExistingHeaders)
+struct curl_slist *VSIGSHandle::GetCurlHeaders(const std::string &osVerb,
+                                               struct curl_slist *psHeaders)
 {
-    return m_poHandleHelper->GetCurlHeaders(osVerb, psExistingHeaders);
+    return m_poHandleHelper->GetCurlHeaders(osVerb, psHeaders);
 }
 
 } /* end of namespace cpl */
@@ -942,7 +947,6 @@ VSIGSHandle::GetCurlHeaders(const std::string &osVerb,
  See :ref:`/vsigs/ documentation <vsigs>`
  \endverbatim
 
- @since GDAL 2.2
  */
 
 void VSIInstallGSFileHandler(void)

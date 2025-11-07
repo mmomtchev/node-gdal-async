@@ -19,6 +19,7 @@
 
 #include "viewshed_executor.h"
 #include "progress.h"
+#include "util.h"
 
 namespace gdal
 {
@@ -27,6 +28,22 @@ namespace viewshed
 
 namespace
 {
+
+/// Determines whether a value is a valid intersection coordinate.
+/// @param  i  Value to test.
+/// @return  True if the value doesn't represent an invalid intersection.
+bool valid(int i)
+{
+    return i != INVALID_ISECT;
+}
+
+/// Determines whether a value is an invalid intersection coordinate.
+/// @param  i  Value to test.
+/// @return  True if the value represents an invalid intersection.
+bool invalid(int i)
+{
+    return !valid(i);
+}
 
 /// Calculate the height at nDistance units along a line through the origin given the height
 /// at nDistance - 1 units along the line.
@@ -114,11 +131,16 @@ ViewshedExecutor::ViewshedExecutor(GDALRasterBand &srcBand,
       m_emitWarningIfNoData(emitWarningIfNoData), oOutExtent(outExtent),
       oCurExtent(curExtent), m_nX(nX - oOutExtent.xStart), m_nY(nY),
       oOpts(opts), oProgress(progress),
+      m_dfMinDistance2(opts.minDistance * opts.minDistance),
       m_dfMaxDistance2(opts.maxDistance * opts.maxDistance)
 {
     if (m_dfMaxDistance2 == 0)
         m_dfMaxDistance2 = std::numeric_limits<double>::max();
-    m_srcBand.GetDataset()->GetGeoTransform(m_adfTransform.data());
+    if (opts.lowPitch != -90.0)
+        m_lowTanPitch = std::tan(oOpts.lowPitch * (2 * M_PI / 360.0));
+    if (opts.highPitch != 90.0)
+        m_highTanPitch = std::tan(oOpts.highPitch * (2 * M_PI / 360.0));
+    m_srcBand.GetDataset()->GetGeoTransform(m_gt);
     int hasNoData = false;
     m_noDataValue = m_srcBand.GetNoDataValue(&hasNoData);
     m_hasNoData = hasNoData;
@@ -172,14 +194,14 @@ void ViewshedExecutor::setOutput(double &dfResult, double &dfCellVal,
 /// Read a line of raster data.
 ///
 /// @param  nLine  Line number to read.
-/// @param  data  Pointer to location in which to store data.
+/// @param  line   Raster line to fill.
 /// @return  Success or failure.
-bool ViewshedExecutor::readLine(int nLine, double *data)
+bool ViewshedExecutor::readLine(int nLine, std::vector<double> &line)
 {
     std::lock_guard g(iMutex);
 
     if (GDALRasterIO(&m_srcBand, GF_Read, oOutExtent.xStart, nLine,
-                     oOutExtent.xSize(), 1, data, oOutExtent.xSize(), 1,
+                     oOutExtent.xSize(), 1, line.data(), oOutExtent.xSize(), 1,
                      GDT_Float64, 0, 0))
     {
         CPLError(CE_Failure, CPLE_AppDefined,
@@ -218,15 +240,11 @@ bool ViewshedExecutor::writeLine(int nLine, std::vector<double> &vResult)
 /// earth.
 ///
 /// @param  nYOffset  Y offset of the line being adjusted.
-/// @param  vThisLineVal  Line height data.
-/// @return [left, right)  Leftmost and one past the rightmost cell in the line within
-///    the max distance. Indices are limited to the raster extent (right may be just
-///    outside the raster).
-std::pair<int, int>
-ViewshedExecutor::adjustHeight(int nYOffset, std::vector<double> &vThisLineVal)
+/// @param  lines  Raster lines to adjust.
+/// @return  Processing limits of the line based on min/max distance.
+LineLimits ViewshedExecutor::adjustHeight(int nYOffset, Lines &lines)
 {
-    int nLeft = 0;
-    int nRight = oCurExtent.xSize();
+    LineLimits ll(0, m_nX + 1, m_nX + 1, oCurExtent.xSize());
 
     // Find the starting point in the raster (m_nX may be outside)
     int nXStart = oCurExtent.clampX(m_nX);
@@ -249,50 +267,67 @@ ViewshedExecutor::adjustHeight(int nYOffset, std::vector<double> &vThisLineVal)
     // If there is a height adjustment factor other than zero or a max distance,
     // calculate the adjusted height of the cell, stopping if we've exceeded the max
     // distance.
-    if (static_cast<bool>(m_dfHeightAdjFactor) || m_dfMaxDistance2 > 0)
+    if (static_cast<bool>(m_dfHeightAdjFactor) || oOpts.pitchMasking() ||
+        m_dfMaxDistance2 > 0 || m_dfMinDistance2 > 0)
     {
         // Hoist invariants from the loops.
-        const double dfLineX = m_adfTransform[2] * nYOffset;
-        const double dfLineY = m_adfTransform[5] * nYOffset;
+        const double dfLineX = m_gt[2] * nYOffset;
+        const double dfLineY = m_gt[5] * nYOffset;
 
         // Go left
-        double *pdfHeight = vThisLineVal.data() + nXStart;
+        double *pdfHeight = lines.cur.data() + nXStart;
         for (int nXOffset = nXStart - m_nX; nXOffset >= -m_nX;
              nXOffset--, pdfHeight--)
         {
-            double dfX = m_adfTransform[1] * nXOffset + dfLineX;
-            double dfY = m_adfTransform[4] * nXOffset + dfLineY;
+            double dfX = m_gt[1] * nXOffset + dfLineX;
+            double dfY = m_gt[4] * nXOffset + dfLineY;
             double dfR2 = dfX * dfX + dfY * dfY;
-            if (dfR2 > m_dfMaxDistance2)
+
+            if (dfR2 < m_dfMinDistance2)
+                ll.leftMin--;
+            else if (dfR2 > m_dfMaxDistance2)
             {
-                nLeft = nXOffset + m_nX + 1;
+                ll.left = nXOffset + m_nX + 1;
                 break;
             }
+
             CheckNoData(*pdfHeight);
             *pdfHeight -= m_dfHeightAdjFactor * dfR2 + m_dfZObserver;
+            if (oOpts.pitchMasking())
+                calcPitchMask(*pdfHeight, std::sqrt(dfR2),
+                              lines.result[m_nX + nXOffset],
+                              lines.pitchMask[m_nX + nXOffset]);
         }
 
         // Go right.
-        pdfHeight = vThisLineVal.data() + nXStart + 1;
+        pdfHeight = lines.cur.data() + nXStart + 1;
         for (int nXOffset = nXStart - m_nX + 1;
              nXOffset < oCurExtent.xSize() - m_nX; nXOffset++, pdfHeight++)
         {
-            double dfX = m_adfTransform[1] * nXOffset + dfLineX;
-            double dfY = m_adfTransform[4] * nXOffset + dfLineY;
+            double dfX = m_gt[1] * nXOffset + dfLineX;
+            double dfY = m_gt[4] * nXOffset + dfLineY;
             double dfR2 = dfX * dfX + dfY * dfY;
-            if (dfR2 > m_dfMaxDistance2)
+
+            if (dfR2 < m_dfMinDistance2)
+                ll.rightMin++;
+            else if (dfR2 > m_dfMaxDistance2)
             {
-                nRight = nXOffset + m_nX;
+                ll.right = nXOffset + m_nX;
                 break;
             }
+
             CheckNoData(*pdfHeight);
             *pdfHeight -= m_dfHeightAdjFactor * dfR2 + m_dfZObserver;
+            if (oOpts.pitchMasking())
+                calcPitchMask(*pdfHeight, std::sqrt(dfR2),
+                              lines.result[m_nX + nXOffset],
+                              lines.pitchMask[m_nX + nXOffset]);
         }
     }
     else
     {
         // No curvature adjustment. Just normalize for the observer height.
-        double *pdfHeight = vThisLineVal.data();
+        double *pdfHeight = lines.cur.data();
         for (int i = 0; i < oCurExtent.xSize(); ++i)
         {
             CheckNoData(*pdfHeight);
@@ -300,23 +335,48 @@ ViewshedExecutor::adjustHeight(int nYOffset, std::vector<double> &vThisLineVal)
             pdfHeight++;
         }
     }
-    return {nLeft, nRight};
+    return ll;
+}
+
+/// Calculate the pitch masking value to apply after running the viewshed algorithm.
+///
+/// @param  dfZ  Adjusted input height.
+/// @param  dfDist  Distance from observer to cell.
+/// @param  dfResult  Result value to which adjustment may be added.
+/// @param  maskVal  Output mask value.
+void ViewshedExecutor::calcPitchMask(double dfZ, double dfDist, double dfResult,
+                                     double &maskVal)
+{
+    if (oOpts.lowPitchMasking())
+    {
+        double dfZMask = dfDist * m_lowTanPitch;
+        double adjustment = dfZMask - dfZ;
+        if (adjustment > 0)
+        {
+            maskVal = (oOpts.outputMode == OutputMode::Normal
+                           ? std::numeric_limits<double>::infinity()
+                           : adjustment + dfResult);
+            return;
+        }
+    }
+    if (oOpts.highPitchMasking())
+    {
+        double dfZMask = dfDist * m_highTanPitch;
+        if (dfZ > dfZMask)
+            maskVal = std::numeric_limits<double>::infinity();
+    }
 }
 
 /// Process the first line (the one with the Y coordinate the same as the observer).
 ///
-/// @param vLastLineVal  Vector in which to store the read line. Becomes the last line
-///    in further processing.
+/// @param lines  Raster lines to process.
 /// @return True on success, false otherwise.
-bool ViewshedExecutor::processFirstLine(std::vector<double> &vLastLineVal)
+bool ViewshedExecutor::processFirstLine(Lines &lines)
 {
     int nLine = oOutExtent.clampY(m_nY);
     int nYOffset = nLine - m_nY;
 
-    std::vector<double> vResult(oOutExtent.xSize());
-    std::vector<double> vThisLineVal(oOutExtent.xSize());
-
-    if (!readLine(nLine, vThisLineVal.data()))
+    if (!readLine(nLine, lines.cur))
         return false;
 
     // If the observer is outside of the raster, take the specified value as the Z height,
@@ -324,94 +384,110 @@ bool ViewshedExecutor::processFirstLine(std::vector<double> &vLastLineVal)
     m_dfZObserver = oOpts.observer.z;
     if (oCurExtent.containsX(m_nX))
     {
-        m_dfZObserver += vThisLineVal[m_nX];
+        m_dfZObserver += lines.cur[m_nX];
         if (oOpts.outputMode == OutputMode::Normal)
-            vResult[m_nX] = oOpts.visibleVal;
+            lines.result[m_nX] = oOpts.visibleVal;
     }
     m_dfHeightAdjFactor = calcHeightAdjFactor();
 
     // In DEM mode the base is the pre-adjustment value.  In ground mode the base is zero.
     if (oOpts.outputMode == OutputMode::DEM)
-        vResult = vThisLineVal;
+        lines.result = lines.cur;
+    else if (oOpts.outputMode == OutputMode::Ground)
+        std::fill(lines.result.begin(), lines.result.end(), 0);
 
-    // iLeft and iRight are the processing limits for the line.
-    const auto [iLeft, iRight] = adjustHeight(nYOffset, vThisLineVal);
+    LineLimits ll = adjustHeight(nYOffset, lines);
+    if (oCurExtent.containsX(m_nX) && ll.leftMin != ll.rightMin)
+        lines.result[m_nX] = oOpts.outOfRangeVal;
 
     if (!oCurExtent.containsY(m_nY))
-        processFirstLineTopOrBottom(iLeft, iRight, vResult, vThisLineVal);
+        processFirstLineTopOrBottom(ll, lines);
     else
     {
         CPLJobQueuePtr pQueue = m_pool.CreateJobQueue();
-        pQueue->SubmitJob(
-            [&, left = iLeft]() {
-                processFirstLineLeft(m_nX - 1, left - 1, vResult, vThisLineVal);
-            });
-
-        pQueue->SubmitJob(
-            [&, right = iRight]()
-            { processFirstLineRight(m_nX + 1, right, vResult, vThisLineVal); });
+        pQueue->SubmitJob([&]() { processFirstLineLeft(ll, lines); });
+        pQueue->SubmitJob([&]() { processFirstLineRight(ll, lines); });
         pQueue->WaitCompletion();
     }
 
-    // Make the current line the last line.
-    vLastLineVal = std::move(vThisLineVal);
-
-    // Create the output writer.
-    if (!writeLine(nLine, vResult))
+    if (oOpts.pitchMasking())
+        applyPitchMask(lines.result, lines.pitchMask);
+    if (!writeLine(nLine, lines.result))
         return false;
 
     return oProgress.lineComplete();
 }
 
-// If the observer is above or below the raster, set all cells in the first line near the
-// observer as observable provided they're in range. Mark cells out of range as such.
-/// @param  iLeft  Leftmost observable raster position in range of the target line.
-/// @param  iRight One past the rightmost observable raster position of the target line.
-/// @param  vResult  Result line.
-/// @param  vThisLineVal  Heights of the cells in the target line
-void ViewshedExecutor::processFirstLineTopOrBottom(
-    int iLeft, int iRight, std::vector<double> &vResult,
-    std::vector<double> &vThisLineVal)
+/// Set the pitch masked value into the result vector when applicable.
+///
+/// @param  vResult  Result vector.
+/// @param  vPitchMaskVal  Pitch mask values (nan is no masking, inf is out-of-range, else
+///                        actual value).
+void ViewshedExecutor::applyPitchMask(std::vector<double> &vResult,
+                                      const std::vector<double> &vPitchMaskVal)
 {
-    double *pResult = vResult.data() + iLeft;
-    double *pThis = vThisLineVal.data() + iLeft;
-    for (int iPixel = iLeft; iPixel < iRight; ++iPixel, ++pResult, pThis++)
+    for (size_t i = 0; i < vResult.size(); ++i)
+    {
+        if (std::isnan(vPitchMaskVal[i]))
+            continue;
+        if (std::isinf(vPitchMaskVal[i]))
+            vResult[i] = oOpts.outOfRangeVal;
+        else
+            vResult[i] = vPitchMaskVal[i];
+    }
+}
+
+/// If the observer is above or below the raster, set all cells in the first line near the
+/// observer as observable provided they're in range. Mark cells out of range as such.
+/// @param  ll  Line limits for processing.
+/// @param  lines  Raster lines to process.
+void ViewshedExecutor::processFirstLineTopOrBottom(const LineLimits &ll,
+                                                   Lines &lines)
+{
+    double *pResult = lines.result.data() + ll.left;
+    double *pThis = lines.cur.data() + ll.left;
+    for (int iPixel = ll.left; iPixel < ll.right; ++iPixel, ++pResult, pThis++)
     {
         if (oOpts.outputMode == OutputMode::Normal)
             *pResult = oOpts.visibleVal;
         else
             setOutput(*pResult, *pThis, *pThis);
     }
-    std::fill(vResult.begin(), vResult.begin() + iLeft, oOpts.outOfRangeVal);
-    std::fill(vResult.begin() + iRight, vResult.begin() + oCurExtent.xStop,
+
+    std::fill(lines.result.begin(), lines.result.begin() + ll.left,
               oOpts.outOfRangeVal);
+    std::fill(lines.result.begin() + ll.right,
+              lines.result.begin() + oCurExtent.xStop, oOpts.outOfRangeVal);
 }
 
 /// Process the part of the first line to the left of the observer.
 ///
-/// @param iStart  X coordinate of the first cell to the left of the observer to be procssed.
-/// @param iEnd  X coordinate one past the last cell to be processed.
-/// @param vResult  Vector in which to store the visibility/height results.
-/// @param vThisLineVal  Height of each cell in the line being processed.
-void ViewshedExecutor::processFirstLineLeft(int iStart, int iEnd,
-                                            std::vector<double> &vResult,
-                                            std::vector<double> &vThisLineVal)
+/// @param ll  Line limits for masking.
+/// @param lines  Raster lines to process.
+void ViewshedExecutor::processFirstLineLeft(const LineLimits &ll, Lines &lines)
 {
+    int iEnd = ll.left - 1;
+    int iStart = m_nX - 1;  // One left of the observer.
+
     // If end is to the right of start, everything is taken care of by right processing.
     if (iEnd >= iStart)
+    {
+        maskLineLeft(lines.result, ll, m_nY);
         return;
+    }
 
     iStart = oCurExtent.clampX(iStart);
 
-    double *pThis = vThisLineVal.data() + iStart;
+    double *pThis = lines.cur.data() + iStart;
 
     // If the start cell is next to the observer, just mark it visible.
     if (iStart + 1 == m_nX || iStart + 1 == oCurExtent.xStop)
     {
+        double dfZ = *pThis;
         if (oOpts.outputMode == OutputMode::Normal)
-            vResult[iStart] = oOpts.visibleVal;
+            lines.result[iStart] = oOpts.visibleVal;
         else
-            setOutput(vResult[iStart], *pThis, *pThis);
+            setOutput(lines.result[iStart], *pThis, dfZ);
         iStart--;
         pThis--;
     }
@@ -421,37 +497,212 @@ void ViewshedExecutor::processFirstLineLeft(int iStart, int iEnd,
     {
         int nXOffset = std::abs(iPixel - m_nX);
         double dfZ = CalcHeightLine(nXOffset, *(pThis + 1));
-        setOutput(vResult[iPixel], *pThis, dfZ);
+        setOutput(lines.result[iPixel], *pThis, dfZ);
     }
-    // For cells outside of the [start, end) range, set the outOfRange value.
-    std::fill(vResult.begin(), vResult.begin() + iEnd + 1, oOpts.outOfRangeVal);
+
+    maskLineLeft(lines.result, ll, m_nY);
+}
+
+/// Mask cells based on angle intersection to the left of the observer.
+///
+/// @param vResult  Result raaster line.
+/// @param nLine  Line number.
+/// @return  True when all cells have been masked.
+bool ViewshedExecutor::maskAngleLeft(std::vector<double> &vResult, int nLine)
+{
+    auto clamp = [this](int x)
+    { return (x < 0 || x >= m_nX) ? INVALID_ISECT : x; };
+
+    if (!oOpts.angleMasking())
+        return false;
+
+    if (nLine != m_nY)
+    {
+        int startAngleX =
+            clamp(hIntersect(oOpts.startAngle, m_nX, m_nY, nLine));
+        int endAngleX = clamp(hIntersect(oOpts.endAngle, m_nX, m_nY, nLine));
+        // If neither X intersect is in the quadrant and a ray in the quadrant isn't
+        // between start and stop, fill it all and return true.  If it is in between
+        // start and stop, we're done.
+        if (invalid(startAngleX) && invalid(endAngleX))
+        {
+            // Choose a test angle in quadrant II or III depending on the line.
+            double testAngle = nLine < m_nY ? m_testAngle[2] : m_testAngle[3];
+            if (!rayBetween(oOpts.startAngle, oOpts.endAngle, testAngle))
+            {
+                std::fill(vResult.begin(), vResult.begin() + m_nX,
+                          oOpts.outOfRangeVal);
+                return true;
+            }
+            return false;
+        }
+        if (nLine > m_nY)
+            std::swap(startAngleX, endAngleX);
+        if (invalid(startAngleX))
+            startAngleX = 0;
+        if (invalid(endAngleX))
+            endAngleX = m_nX - 1;
+        if (startAngleX <= endAngleX)
+        {
+            std::fill(vResult.begin(), vResult.begin() + startAngleX,
+                      oOpts.outOfRangeVal);
+            std::fill(vResult.begin() + endAngleX + 1, vResult.begin() + m_nX,
+                      oOpts.outOfRangeVal);
+        }
+        else
+        {
+            std::fill(vResult.begin() + endAngleX + 1,
+                      vResult.begin() + startAngleX, oOpts.outOfRangeVal);
+        }
+    }
+    // nLine == m_nY
+    else if (!rayBetween(oOpts.startAngle, oOpts.endAngle, M_PI))
+    {
+        std::fill(vResult.begin(), vResult.begin() + m_nX, oOpts.outOfRangeVal);
+        return true;
+    }
+    return false;
+}
+
+/// Mask cells based on angle intersection to the right of the observer.
+///
+/// @param vResult  Result raaster line.
+/// @param nLine  Line number.
+/// @return  True when all cells have been masked.
+bool ViewshedExecutor::maskAngleRight(std::vector<double> &vResult, int nLine)
+{
+    int lineLength = static_cast<int>(vResult.size());
+
+    auto clamp = [this, lineLength](int x)
+    { return (x <= m_nX || x >= lineLength) ? INVALID_ISECT : x; };
+
+    if (oOpts.startAngle == oOpts.endAngle)
+        return false;
+
+    if (nLine != m_nY)
+    {
+        int startAngleX =
+            clamp(hIntersect(oOpts.startAngle, m_nX, m_nY, nLine));
+        int endAngleX = clamp(hIntersect(oOpts.endAngle, m_nX, m_nY, nLine));
+
+        // If neither X intersect is in the quadrant and a ray in the quadrant isn't
+        // between start and stop, fill it all and return true.  If it is in between
+        // start and stop, we're done.
+        if (invalid(startAngleX) && invalid(endAngleX))
+        {
+            // Choose a test angle in quadrant I or IV depending on the line.
+            double testAngle = nLine < m_nY ? m_testAngle[1] : m_testAngle[4];
+            if (!rayBetween(oOpts.startAngle, oOpts.endAngle, testAngle))
+            {
+                std::fill(vResult.begin() + m_nX + 1, vResult.end(),
+                          oOpts.outOfRangeVal);
+                return true;
+            }
+            return false;
+        }
+
+        if (nLine > m_nY)
+            std::swap(startAngleX, endAngleX);
+        if (invalid(endAngleX))
+            endAngleX = lineLength - 1;
+        if (invalid(startAngleX))
+            startAngleX = m_nX + 1;
+        if (startAngleX <= endAngleX)
+        {
+            std::fill(vResult.begin() + m_nX + 1, vResult.begin() + startAngleX,
+                      oOpts.outOfRangeVal);
+            std::fill(vResult.begin() + endAngleX + 1, vResult.end(),
+                      oOpts.outOfRangeVal);
+        }
+        else
+        {
+            std::fill(vResult.begin() + endAngleX + 1,
+                      vResult.begin() + startAngleX, oOpts.outOfRangeVal);
+        }
+    }
+    // nLine == m_nY
+    else if (!rayBetween(oOpts.startAngle, oOpts.endAngle, 0))
+    {
+        std::fill(vResult.begin() + m_nX + 1, vResult.end(),
+                  oOpts.outOfRangeVal);
+        return true;
+    }
+    return false;
+}
+
+/// Perform angle and min/max masking to the left of the observer.
+///
+/// @param vResult  Raster line to mask.
+/// @param ll  Min/max line limits.
+/// @param nLine  Line number.
+void ViewshedExecutor::maskLineLeft(std::vector<double> &vResult,
+                                    const LineLimits &ll, int nLine)
+{
+    // If we've already masked with angles everything, just return.
+    if (maskAngleLeft(vResult, nLine))
+        return;
+
+    // Mask cells from the left edge to the left limit.
+    std::fill(vResult.begin(), vResult.begin() + ll.left, oOpts.outOfRangeVal);
+    // Mask cells from the left min to the observer.
+    if (ll.leftMin < m_nX)
+        std::fill(vResult.begin() + ll.leftMin, vResult.begin() + m_nX,
+                  oOpts.outOfRangeVal);
+}
+
+/// Perform angle and min/max masking to the right of the observer.
+///
+/// @param vResult  Raster line to mask.
+/// @param ll  Min/max line limits.
+/// @param nLine  Line number.
+void ViewshedExecutor::maskLineRight(std::vector<double> &vResult,
+                                     const LineLimits &ll, int nLine)
+{
+    // If we've already masked with angles everything, just return.
+    if (maskAngleRight(vResult, nLine))
+        return;
+
+    // Mask cells from the observer to right min.
+    std::fill(vResult.begin() + m_nX + 1, vResult.begin() + ll.rightMin,
+              oOpts.outOfRangeVal);
+    // Mask cells from the right limit to the right edge.
+
+    //
+    //ABELL - Changed from ll.right + 1
+    //
+    if (ll.right <= static_cast<int>(vResult.size()))
+        std::fill(vResult.begin() + ll.right, vResult.end(),
+                  oOpts.outOfRangeVal);
 }
 
 /// Process the part of the first line to the right of the observer.
 ///
-/// @param iStart  X coordinate of the first cell to the right of the observer to be processed.
-/// @param iEnd  X coordinate one past the last cell to be processed.
-/// @param vResult  Vector in which to store the visibility/height results.
-/// @param vThisLineVal  Height of each cell in the line being processed.
-void ViewshedExecutor::processFirstLineRight(int iStart, int iEnd,
-                                             std::vector<double> &vResult,
-                                             std::vector<double> &vThisLineVal)
+/// @param ll  Line limits
+/// @param lines  Raster lines to process.
+void ViewshedExecutor::processFirstLineRight(const LineLimits &ll, Lines &lines)
 {
+    int iStart = m_nX + 1;
+    int iEnd = ll.right;
+
     // If start is to the right of end, everything is taken care of by left processing.
     if (iStart >= iEnd)
+    {
+        maskLineRight(lines.result, ll, m_nY);
         return;
+    }
 
     iStart = oCurExtent.clampX(iStart);
 
-    double *pThis = vThisLineVal.data() + iStart;
+    double *pThis = lines.cur.data() + iStart;
 
     // If the start cell is next to the observer, just mark it visible.
     if (iStart - 1 == m_nX || iStart == oCurExtent.xStart)
     {
+        double dfZ = *pThis;
         if (oOpts.outputMode == OutputMode::Normal)
-            vResult[iStart] = oOpts.visibleVal;
+            lines.result[iStart] = oOpts.visibleVal;
         else
-            setOutput(vResult[iStart], *pThis, *pThis);
+            setOutput(lines.result[iStart], *pThis, dfZ);
         iStart++;
         pThis++;
     }
@@ -461,43 +712,46 @@ void ViewshedExecutor::processFirstLineRight(int iStart, int iEnd,
     {
         int nXOffset = std::abs(iPixel - m_nX);
         double dfZ = CalcHeightLine(nXOffset, *(pThis - 1));
-        setOutput(vResult[iPixel], *pThis, dfZ);
+        setOutput(lines.result[iPixel], *pThis, dfZ);
     }
-    // For cells outside of the [start, end) range, set the outOfRange value.
-    std::fill(vResult.begin() + iEnd, vResult.end(), oOpts.outOfRangeVal);
+
+    maskLineRight(lines.result, ll, m_nY);
 }
 
 /// Process a line to the left of the observer.
 ///
 /// @param nYOffset  Offset of the line being processed from the observer
-/// @param iStart  X coordinate of the first cell to the left of the observer to be processed.
-/// @param iEnd  X coordinate one past the last cell to be processed.
-/// @param vResult  Vector in which to store the visibility/height results.
-/// @param vThisLineVal  Height of each cell in the line being processed.
-/// @param vLastLineVal  Observable height of each cell in the previous line processed.
-void ViewshedExecutor::processLineLeft(int nYOffset, int iStart, int iEnd,
-                                       std::vector<double> &vResult,
-                                       std::vector<double> &vThisLineVal,
-                                       std::vector<double> &vLastLineVal)
+/// @param ll  Line limits
+/// @param lines  Raster lines to process.
+void ViewshedExecutor::processLineLeft(int nYOffset, LineLimits &ll,
+                                       Lines &lines)
 {
+    int iStart = m_nX - 1;
+    int iEnd = ll.left - 1;
+    int nLine = m_nY + nYOffset;
+
     // If start to the left of end, everything is taken care of by processing right.
     if (iStart <= iEnd)
+    {
+        maskLineLeft(lines.result, ll, nLine);
         return;
+    }
     iStart = oCurExtent.clampX(iStart);
 
     nYOffset = std::abs(nYOffset);
-    double *pThis = vThisLineVal.data() + iStart;
-    double *pLast = vLastLineVal.data() + iStart;
+    double *pThis = lines.cur.data() + iStart;
+    double *pLast = lines.prev.data() + iStart;
 
     // If the observer is to the right of the raster, mark the first cell to the left as
     // visible. This may mark an out-of-range cell with a value, but this will be fixed
     // with the out of range assignment at the end.
+
     if (iStart == oCurExtent.xStop - 1)
     {
         if (oOpts.outputMode == OutputMode::Normal)
-            vResult[iStart] = oOpts.visibleVal;
+            lines.result[iStart] = oOpts.visibleVal;
         else
-            setOutput(vResult[iStart], *pThis, *pThis);
+            setOutput(lines.result[iStart], *pThis, *pThis);
         iStart--;
         pThis--;
         pLast--;
@@ -518,34 +772,35 @@ void ViewshedExecutor::processLineLeft(int nYOffset, int iStart, int iEnd,
         else
             dfZ =
                 oZcalc(nXOffset, nYOffset, *(pThis + 1), *pLast, *(pLast + 1));
-        setOutput(vResult[iPixel], *pThis, dfZ);
+        setOutput(lines.result[iPixel], *pThis, dfZ);
     }
 
-    // For cells outside of the [start, end) range, set the outOfRange value.
-    std::fill(vResult.begin(), vResult.begin() + iEnd + 1, oOpts.outOfRangeVal);
+    maskLineLeft(lines.result, ll, nLine);
 }
 
 /// Process a line to the right of the observer.
 ///
 /// @param nYOffset  Offset of the line being processed from the observer
-/// @param iStart  X coordinate of the first cell to the right of the observer to be processed.
-/// @param iEnd  X coordinate one past the last cell to be processed.
-/// @param vResult  Vector in which to store the visibility/height results.
-/// @param vThisLineVal  Height of each cell in the line being processed.
-/// @param vLastLineVal  Observable height of each cell in the previous line processed.
-void ViewshedExecutor::processLineRight(int nYOffset, int iStart, int iEnd,
-                                        std::vector<double> &vResult,
-                                        std::vector<double> &vThisLineVal,
-                                        std::vector<double> &vLastLineVal)
+/// @param ll  Line limits
+/// @param lines  Raster lines to process.
+void ViewshedExecutor::processLineRight(int nYOffset, LineLimits &ll,
+                                        Lines &lines)
 {
+    int iStart = m_nX + 1;
+    int iEnd = ll.right;
+    int nLine = m_nY + nYOffset;
+
     // If start is to the right of end, everything is taken care of by processing left.
     if (iStart >= iEnd)
+    {
+        maskLineRight(lines.result, ll, nLine);
         return;
+    }
     iStart = oCurExtent.clampX(iStart);
 
     nYOffset = std::abs(nYOffset);
-    double *pThis = vThisLineVal.data() + iStart;
-    double *pLast = vLastLineVal.data() + iStart;
+    double *pThis = lines.cur.data() + iStart;
+    double *pLast = lines.prev.data() + iStart;
 
     // If the observer is to the left of the raster, mark the first cell to the right as
     // visible. This may mark an out-of-range cell with a value, but this will be fixed
@@ -553,9 +808,9 @@ void ViewshedExecutor::processLineRight(int nYOffset, int iStart, int iEnd,
     if (iStart == 0)
     {
         if (oOpts.outputMode == OutputMode::Normal)
-            vResult[iStart] = oOpts.visibleVal;
+            lines.result[iStart] = oOpts.visibleVal;
         else
-            setOutput(vResult[0], *pThis, *pThis);
+            setOutput(lines.result[0], *pThis, *pThis);
         iStart++;
         pThis++;
         pLast++;
@@ -576,83 +831,138 @@ void ViewshedExecutor::processLineRight(int nYOffset, int iStart, int iEnd,
         else
             dfZ =
                 oZcalc(nXOffset, nYOffset, *(pThis - 1), *pLast, *(pLast - 1));
-        setOutput(vResult[iPixel], *pThis, dfZ);
+        setOutput(lines.result[iPixel], *pThis, dfZ);
     }
 
-    // For cells outside of the [start, end) range, set the outOfRange value.
-    std::fill(vResult.begin() + iEnd, vResult.end(), oOpts.outOfRangeVal);
+    maskLineRight(lines.result, ll, nLine);
+}
+
+/// Apply angular mask to the initial X position.  Assumes m_nX is in the raster.
+/// @param vResult  Raster line on which to apply mask.
+/// @param nLine  Line number.
+void ViewshedExecutor::maskInitial(std::vector<double> &vResult, int nLine)
+{
+    if (!oOpts.angleMasking())
+        return;
+
+    if (nLine < m_nY)
+    {
+        if (!rayBetween(oOpts.startAngle, oOpts.endAngle, M_PI / 2))
+            vResult[m_nX] = oOpts.outOfRangeVal;
+    }
+    else if (nLine > m_nY)
+    {
+        if (!rayBetween(oOpts.startAngle, oOpts.endAngle, 3 * M_PI / 2))
+            vResult[m_nX] = oOpts.outOfRangeVal;
+    }
 }
 
 /// Process a line above or below the observer.
 ///
 /// @param nLine  Line number being processed.
-/// @param vLastLineVal  Vector in which to store the read line. Becomes the last line
-///    in further processing.
+/// @param lines  Raster lines to process.
 /// @return True on success, false otherwise.
-bool ViewshedExecutor::processLine(int nLine, std::vector<double> &vLastLineVal)
+bool ViewshedExecutor::processLine(int nLine, Lines &lines)
 {
     int nYOffset = nLine - m_nY;
-    std::vector<double> vResult(oOutExtent.xSize());
-    std::vector<double> vThisLineVal(oOutExtent.xSize());
 
-    if (!readLine(nLine, vThisLineVal.data()))
+    if (!readLine(nLine, lines.cur))
         return false;
 
     // In DEM mode the base is the input DEM value.
     // In ground mode the base is zero.
     if (oOpts.outputMode == OutputMode::DEM)
-        vResult = vThisLineVal;
+        lines.result = lines.cur;
+    else if (oOpts.outputMode == OutputMode::Ground)
+        std::fill(lines.result.begin(), lines.result.end(), 0);
 
     // Adjust height of the read line.
-    const auto [iLeft, iRight] = adjustHeight(nYOffset, vThisLineVal);
+    LineLimits ll = adjustHeight(nYOffset, lines);
 
     // Handle the initial position on the line.
     if (oCurExtent.containsX(m_nX))
     {
-        if (iLeft < iRight)
+        if (ll.left < ll.right && ll.leftMin == ll.rightMin)
         {
             double dfZ;
             if (std::abs(nYOffset) == 1)
-                dfZ = vThisLineVal[m_nX];
+                dfZ = lines.cur[m_nX];
             else
-                dfZ = CalcHeightLine(nYOffset, vLastLineVal[m_nX]);
-            setOutput(vResult[m_nX], vThisLineVal[m_nX], dfZ);
+                dfZ = CalcHeightLine(nYOffset, lines.prev[m_nX]);
+            setOutput(lines.result[m_nX], lines.cur[m_nX], dfZ);
         }
         else
-            vResult[m_nX] = oOpts.outOfRangeVal;
+            lines.result[m_nX] = oOpts.outOfRangeVal;
+
+        maskInitial(lines.result, nLine);
     }
 
     // process left half then right half of line
     CPLJobQueuePtr pQueue = m_pool.CreateJobQueue();
-    pQueue->SubmitJob(
-        [&, left = iLeft]()
-        {
-            processLineLeft(nYOffset, m_nX - 1, left - 1, vResult, vThisLineVal,
-                            vLastLineVal);
-        });
-    pQueue->SubmitJob(
-        [&, right = iRight]()
-        {
-            processLineRight(nYOffset, m_nX + 1, right, vResult, vThisLineVal,
-                             vLastLineVal);
-        });
+    pQueue->SubmitJob([&]() { processLineLeft(nYOffset, ll, lines); });
+    pQueue->SubmitJob([&]() { processLineRight(nYOffset, ll, lines); });
     pQueue->WaitCompletion();
 
-    // Make the current line the last line.
-    vLastLineVal = std::move(vThisLineVal);
-
-    if (!writeLine(nLine, vResult))
+    if (oOpts.pitchMasking())
+        applyPitchMask(lines.result, lines.pitchMask);
+    if (!writeLine(nLine, lines.result))
         return false;
 
     return oProgress.lineComplete();
+}
+
+// Calculate the ray angle from the origin to middle of the top or bottom
+// of each quadrant.
+void ViewshedExecutor::calcTestAngles()
+{
+    // Quadrant 1.
+    {
+        int ysize = m_nY + 1;
+        int xsize = oCurExtent.xStop - m_nX;
+        m_testAngle[1] = atan2(ysize, xsize / 2.0);
+    }
+
+    // Quadrant 2.
+    {
+        int ysize = m_nY + 1;
+        int xsize = m_nX + 1;
+        m_testAngle[2] = atan2(ysize, -xsize / 2.0);
+    }
+
+    // Quadrant 3.
+    {
+        int ysize = oCurExtent.yStop - m_nY;
+        int xsize = m_nX + 1;
+        m_testAngle[3] = atan2(-ysize, -xsize / 2.0);
+    }
+
+    // Quadrant 4.
+    {
+        int ysize = oCurExtent.yStop - m_nY;
+        int xsize = oCurExtent.xStop - m_nX;
+        m_testAngle[4] = atan2(-ysize, xsize / 2.0);
+    }
+
+    // Adjust range to [0, 2 * M_PI)
+    for (int i = 1; i <= 4; ++i)
+        if (m_testAngle[i] < 0)
+            m_testAngle[i] += (2 * M_PI);
 }
 
 /// Run the viewshed computation
 /// @return  Success as true or false.
 bool ViewshedExecutor::run()
 {
-    std::vector<double> vFirstLineVal(oCurExtent.xSize());
-    if (!processFirstLine(vFirstLineVal))
+    // If we're doing angular masking, calculate the test angles used later.
+    if (oOpts.angleMasking())
+        calcTestAngles();
+
+    Lines firstLine(oCurExtent.xSize());
+    if (oOpts.pitchMasking())
+        firstLine.pitchMask.resize(oOutExtent.xSize(),
+                                   std::numeric_limits<double>::quiet_NaN());
+
+    if (!processFirstLine(firstLine))
         return false;
 
     if (oOpts.cellMode == CellMode::Edge)
@@ -671,24 +981,46 @@ bool ViewshedExecutor::run()
     pQueue->SubmitJob(
         [&]()
         {
-            std::vector<double> vLastLineVal = vFirstLineVal;
+            Lines lines(oCurExtent.xSize());
+            lines.prev = firstLine.cur;
+            if (oOpts.pitchMasking())
+                lines.pitchMask.resize(
+                    oOutExtent.xSize(),
+                    std::numeric_limits<double>::quiet_NaN());
 
             for (int nLine = yStart - 1; nLine >= oCurExtent.yStart && !err;
                  nLine--)
-                if (!processLine(nLine, vLastLineVal))
+            {
+                if (!processLine(nLine, lines))
                     err = true;
+                lines.prev = lines.cur;
+                if (oOpts.pitchMasking())
+                    std::fill(lines.pitchMask.begin(), lines.pitchMask.end(),
+                              std::numeric_limits<double>::quiet_NaN());
+            }
         });
 
     // scan downwards
     pQueue->SubmitJob(
         [&]()
         {
-            std::vector<double> vLastLineVal = vFirstLineVal;
+            Lines lines(oCurExtent.xSize());
+            lines.prev = firstLine.cur;
+            if (oOpts.pitchMasking())
+                lines.pitchMask.resize(
+                    oOutExtent.xSize(),
+                    std::numeric_limits<double>::quiet_NaN());
 
             for (int nLine = yStart + 1; nLine < oCurExtent.yStop && !err;
                  nLine++)
-                if (!processLine(nLine, vLastLineVal))
+            {
+                if (!processLine(nLine, lines))
                     err = true;
+                lines.prev = lines.cur;
+                if (oOpts.pitchMasking())
+                    std::fill(lines.pitchMask.begin(), lines.pitchMask.end(),
+                              std::numeric_limits<double>::quiet_NaN());
+            }
         });
     return true;
 }

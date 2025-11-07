@@ -13,6 +13,7 @@
  ****************************************************************************/
 
 #include "gdal_frmts.h"
+#include "gdal_priv.h"
 #include "ogr_spatialref.h"
 #include "rawdataset.h"
 #include <cmath>
@@ -31,7 +32,7 @@ class BTDataset final : public GDALPamDataset
     VSILFILE *fpImage;  // image data file.
 
     int bGeoTransformValid;
-    double adfGeoTransform[6];
+    GDALGeoTransform m_gt{};
 
     OGRSpatialReference m_oSRS{};
 
@@ -54,8 +55,8 @@ class BTDataset final : public GDALPamDataset
     }
 
     CPLErr SetSpatialRef(const OGRSpatialReference *poSRS) override;
-    CPLErr GetGeoTransform(double *) override;
-    CPLErr SetGeoTransform(double *) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &) const override;
+    CPLErr SetGeoTransform(const GDALGeoTransform &) override;
 
     CPLErr FlushCache(bool bAtClosing) override;
 
@@ -350,12 +351,6 @@ BTDataset::BTDataset()
 {
     m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
-    adfGeoTransform[0] = 0.0;
-    adfGeoTransform[1] = 1.0;
-    adfGeoTransform[2] = 0.0;
-    adfGeoTransform[3] = 0.0;
-    adfGeoTransform[4] = 0.0;
-    adfGeoTransform[5] = 1.0;
     memset(abyHeader, 0, sizeof(abyHeader));
 }
 
@@ -404,10 +399,10 @@ CPLErr BTDataset::FlushCache(bool bAtClosing)
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr BTDataset::GetGeoTransform(double *padfTransform)
+CPLErr BTDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
-    memcpy(padfTransform, adfGeoTransform, sizeof(double) * 6);
+    gt = m_gt;
 
     if (bGeoTransformValid)
         return CE_None;
@@ -419,13 +414,13 @@ CPLErr BTDataset::GetGeoTransform(double *padfTransform)
 /*                          SetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr BTDataset::SetGeoTransform(double *padfTransform)
+CPLErr BTDataset::SetGeoTransform(const GDALGeoTransform &gt)
 
 {
     CPLErr eErr = CE_None;
 
-    memcpy(adfGeoTransform, padfTransform, sizeof(double) * 6);
-    if (adfGeoTransform[2] != 0.0 || adfGeoTransform[4] != 0.0)
+    m_gt = gt;
+    if (gt[2] != 0.0 || gt[4] != 0.0)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  ".bt format does not support rotational coefficients "
@@ -436,10 +431,10 @@ CPLErr BTDataset::SetGeoTransform(double *padfTransform)
     /* -------------------------------------------------------------------- */
     /*      Compute bounds, and update header info.                         */
     /* -------------------------------------------------------------------- */
-    const double dfLeft = adfGeoTransform[0];
-    const double dfRight = dfLeft + adfGeoTransform[1] * nRasterXSize;
-    const double dfTop = adfGeoTransform[3];
-    const double dfBottom = dfTop + adfGeoTransform[5] * nRasterYSize;
+    const double dfLeft = m_gt[0];
+    const double dfRight = dfLeft + m_gt[1] * nRasterXSize;
+    const double dfTop = m_gt[3];
+    const double dfBottom = dfTop + m_gt[5] * nRasterYSize;
 
     memcpy(abyHeader + 28, &dfLeft, 8);
     memcpy(abyHeader + 36, &dfRight, 8);
@@ -566,7 +561,8 @@ GDALDataset *BTDataset::Open(GDALOpenInfo *poOpenInfo)
     if (poOpenInfo->nHeaderBytes < 256 || poOpenInfo->fpL == nullptr)
         return nullptr;
 
-    if (!STARTS_WITH((const char *)poOpenInfo->pabyHeader, "binterr"))
+    if (!STARTS_WITH(reinterpret_cast<const char *>(poOpenInfo->pabyHeader),
+                     "binterr"))
         return nullptr;
 
     /* -------------------------------------------------------------------- */
@@ -763,12 +759,12 @@ GDALDataset *BTDataset::Open(GDALOpenInfo *poOpenInfo)
         memcpy(&dfTop, poDS->abyHeader + 52, 8);
         CPL_LSBPTR64(&dfTop);
 
-        poDS->adfGeoTransform[0] = dfLeft;
-        poDS->adfGeoTransform[1] = (dfRight - dfLeft) / poDS->nRasterXSize;
-        poDS->adfGeoTransform[2] = 0.0;
-        poDS->adfGeoTransform[3] = dfTop;
-        poDS->adfGeoTransform[4] = 0.0;
-        poDS->adfGeoTransform[5] = (dfBottom - dfTop) / poDS->nRasterYSize;
+        poDS->m_gt[0] = dfLeft;
+        poDS->m_gt[1] = (dfRight - dfLeft) / poDS->nRasterXSize;
+        poDS->m_gt[2] = 0.0;
+        poDS->m_gt[3] = dfTop;
+        poDS->m_gt[4] = 0.0;
+        poDS->m_gt[5] = (dfBottom - dfTop) / poDS->nRasterYSize;
 
         poDS->bGeoTransformValid = TRUE;
     }
@@ -783,8 +779,8 @@ GDALDataset *BTDataset::Open(GDALOpenInfo *poOpenInfo)
     poDS->SetBand(1, new BTRasterBand(poDS, poDS->fpImage, eType));
 
 #ifdef notdef
-    poDS->bGeoTransformValid = GDALReadWorldFile(poOpenInfo->pszFilename,
-                                                 ".wld", poDS->adfGeoTransform);
+    poDS->bGeoTransformValid =
+        GDALReadWorldFile(poOpenInfo->pszFilename, ".wld", m_gt.data());
 #endif
 
     /* -------------------------------------------------------------------- */
@@ -859,7 +855,7 @@ GDALDataset *BTDataset::Create(const char *pszFilename, int nXSize, int nYSize,
     memcpy(abyHeader + 14, &nTemp, 4);
 
     GInt16 nShortTemp = static_cast<GInt16>(
-        CPL_LSBWORD16((GInt16)(GDALGetDataTypeSize(eType) / 8)));
+        CPL_LSBWORD16(static_cast<GInt16>(GDALGetDataTypeSizeBytes(eType))));
     memcpy(abyHeader + 18, &nShortTemp, 2);
 
     if (eType == GDT_Float32)

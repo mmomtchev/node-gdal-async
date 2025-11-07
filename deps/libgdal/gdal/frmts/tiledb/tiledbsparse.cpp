@@ -285,7 +285,7 @@ GDALDataset *OGRTileDBDataset::Open(GDALOpenInfo *poOpenInfo,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRTileDBDataset::TestCapability(const char *pszCap)
+int OGRTileDBDataset::TestCapability(const char *pszCap) const
 {
     if (EQUAL(pszCap, ODsCCreateLayer))
     {
@@ -3283,7 +3283,7 @@ OGRFeature *OGRTileDBLayer::TranslateCurrentFeature()
                 psField->Set.nMarker2 = OGRUnsetMarker;
                 psField->Set.nMarker3 = OGRUnsetMarker;
                 constexpr int DAYS_IN_YEAR_APPROX = 365;
-                // Avoid overflow in the x SECONDS_PER_DAY muliplication
+                // Avoid overflow in the x SECONDS_PER_DAY multiplication
                 if (v[m_nOffsetInResultSet] > DAYS_IN_YEAR_APPROX * 100000 ||
                     v[m_nOffsetInResultSet] < -DAYS_IN_YEAR_APPROX * 100000)
                 {
@@ -4567,7 +4567,7 @@ void OGRTileDBLayer::ResetBuffers()
 /*                         TestCapability()                             */
 /************************************************************************/
 
-int OGRTileDBLayer::TestCapability(const char *pszCap)
+int OGRTileDBLayer::TestCapability(const char *pszCap) const
 {
     if (EQUAL(pszCap, OLCCreateField))
         return m_bUpdatable && m_schema == nullptr;
@@ -5205,8 +5205,8 @@ int OGRTileDBLayer::GetNextArrowArray(struct ArrowArrayStream *stream,
     }
     out_array->length = m_nRowCountInResultSet;
     out_array->n_children = nChildren;
-    out_array->children =
-        (struct ArrowArray **)CPLCalloc(sizeof(struct ArrowArray *), nChildren);
+    out_array->children = static_cast<struct ArrowArray **>(
+        CPLCalloc(sizeof(struct ArrowArray *), nChildren));
 
     // Allocate list of parent buffers: no nulls, null bitmap can be omitted
     out_array->n_buffers = 1;

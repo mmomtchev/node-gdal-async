@@ -32,20 +32,44 @@ GDALRasterClipAlgorithm::GDALRasterClipAlgorithm(bool standaloneStep)
     : GDALRasterPipelineStepAlgorithm(NAME, DESCRIPTION, HELP_URL,
                                       standaloneStep)
 {
+    constexpr const char *EXCLUSION_GROUP = "bbox-window-geometry-like";
     AddBBOXArg(&m_bbox, _("Clipping bounding box as xmin,ymin,xmax,ymax"))
-        .SetMutualExclusionGroup("bbox-geometry-like");
+        .SetMutualExclusionGroup(EXCLUSION_GROUP);
     AddArg("bbox-crs", 0, _("CRS of clipping bounding box"), &m_bboxCrs)
         .SetIsCRSArg()
         .AddHiddenAlias("bbox_srs");
+
+    AddArg("window", 0, _("Raster window as col,line,width,height in pixels"),
+           &m_window)
+        .SetRepeatedArgAllowed(false)
+        .SetMinCount(4)
+        .SetMaxCount(4)
+        .SetDisplayHintAboutRepetition(false)
+        .SetMutualExclusionGroup(EXCLUSION_GROUP)
+        .AddValidationAction(
+            [this]()
+            {
+                CPLAssert(m_window.size() == 4);
+                if (m_window[2] <= 0 || m_window[3] <= 0)
+                {
+                    CPLError(CE_Failure, CPLE_AppDefined,
+                             "Value of 'window' should be "
+                             "col,line,width,height with "
+                             "width > 0 and height > 0");
+                    return false;
+                }
+                return true;
+            });
+
     AddArg("geometry", 0, _("Clipping geometry (WKT or GeoJSON)"), &m_geometry)
-        .SetMutualExclusionGroup("bbox-geometry-like");
+        .SetMutualExclusionGroup(EXCLUSION_GROUP);
     AddArg("geometry-crs", 0, _("CRS of clipping geometry"), &m_geometryCrs)
         .SetIsCRSArg()
         .AddHiddenAlias("geometry_srs");
     AddArg("like", 0, _("Dataset to use as a template for bounds"),
            &m_likeDataset, GDAL_OF_RASTER | GDAL_OF_VECTOR)
         .SetMetaVar("DATASET")
-        .SetMutualExclusionGroup("bbox-geometry-like");
+        .SetMutualExclusionGroup(EXCLUSION_GROUP);
     AddArg("like-sql", 0, ("SELECT statement to run on the 'like' dataset"),
            &m_likeSQL)
         .SetMetaVar("SELECT-STATEMENT")
@@ -73,22 +97,65 @@ GDALRasterClipAlgorithm::GDALRasterClipAlgorithm(bool standaloneStep)
 /*                 GDALRasterClipAlgorithm::RunStep()                   */
 /************************************************************************/
 
-bool GDALRasterClipAlgorithm::RunStep(GDALProgressFunc, void *)
+bool GDALRasterClipAlgorithm::RunStep(GDALPipelineStepRunContext &)
 {
-    auto poSrcDS = m_inputDataset.GetDatasetRef();
+    auto poSrcDS = m_inputDataset[0].GetDatasetRef();
     CPLAssert(poSrcDS);
     CPLAssert(m_outputDataset.GetName().empty());
     CPLAssert(!m_outputDataset.GetDatasetRef());
 
-    double adfGT[6];
-    if (poSrcDS->GetGeoTransform(adfGT) != CE_None)
+    if (!m_window.empty())
+    {
+        if (m_addAlpha)
+        {
+            ReportError(CE_Failure, CPLE_NotSupported,
+                        "'alpha' argument is not supported with 'window'");
+            return false;
+        }
+
+        CPLStringList aosOptions;
+        aosOptions.AddString("-of");
+        aosOptions.AddString("VRT");
+
+        aosOptions.AddString("-srcwin");
+        aosOptions.AddString(CPLSPrintf("%d", m_window[0]));
+        aosOptions.AddString(CPLSPrintf("%d", m_window[1]));
+        aosOptions.AddString(CPLSPrintf("%d", m_window[2]));
+        aosOptions.AddString(CPLSPrintf("%d", m_window[3]));
+
+        if (!m_allowExtentOutsideSource)
+        {
+            // Unless we've specifically allowed the bounding box to extend beyond
+            // the source raster, raise an error.
+            aosOptions.AddString("-epo");
+        }
+
+        GDALTranslateOptions *psOptions =
+            GDALTranslateOptionsNew(aosOptions.List(), nullptr);
+
+        GDALDatasetH hSrcDS = GDALDataset::ToHandle(poSrcDS);
+        auto poRetDS = GDALDataset::FromHandle(
+            GDALTranslate("", hSrcDS, psOptions, nullptr));
+        GDALTranslateOptionsFree(psOptions);
+
+        const bool bOK = poRetDS != nullptr;
+        if (bOK)
+        {
+            m_outputDataset.Set(std::unique_ptr<GDALDataset>(poRetDS));
+        }
+
+        return bOK;
+    }
+
+    GDALGeoTransform gt;
+    if (poSrcDS->GetGeoTransform(gt) != CE_None)
     {
         ReportError(
             CE_Failure, CPLE_NotSupported,
             "Clipping is not supported on a raster without a geotransform");
         return false;
     }
-    if (adfGT[2] != 0 && adfGT[4] != 0)
+    if (gt[2] != 0 && gt[4] != 0)
     {
         ReportError(CE_Failure, CPLE_NotSupported,
                     "Clipping is not supported on a raster whose geotransform "
@@ -127,7 +194,7 @@ bool GDALRasterClipAlgorithm::RunStep(GDALProgressFunc, void *)
         poClipGeom = std::move(poPoly);
     }
 
-    const bool bBottomUpRaster = adfGT[5] > 0;
+    const bool bBottomUpRaster = gt[5] > 0;
 
     if (poClipGeom->IsRectangle() && !m_addAlpha && !bBottomUpRaster)
     {
@@ -146,7 +213,11 @@ bool GDALRasterClipAlgorithm::RunStep(GDALProgressFunc, void *)
             aosOptions.AddString(osWKT.c_str());
         }
 
-        if (!m_allowExtentOutsideSource)
+        if (m_allowExtentOutsideSource)
+        {
+            aosOptions.AddString("--no-warn-about-outside-window");
+        }
+        else
         {
             // Unless we've specifically allowed the bounding box to extend beyond
             // the source raster, raise an error.
@@ -173,8 +244,8 @@ bool GDALRasterClipAlgorithm::RunStep(GDALProgressFunc, void *)
     {
         if (bBottomUpRaster)
         {
-            adfGT[3] += adfGT[5] * poSrcDS->GetRasterYSize();
-            adfGT[5] = -adfGT[5];
+            gt[3] += gt[5] * poSrcDS->GetRasterYSize();
+            gt[5] = -gt[5];
         }
 
         {
@@ -185,11 +256,9 @@ bool GDALRasterClipAlgorithm::RunStep(GDALProgressFunc, void *)
             poClipGeomInSrcSRS->getEnvelope(&env);
         }
 
-        if (!m_allowExtentOutsideSource &&
-            !(env.MinX >= adfGT[0] &&
-              env.MaxX <= adfGT[0] + adfGT[1] * poSrcDS->GetRasterXSize() &&
-              env.MaxY >= adfGT[3] &&
-              env.MinY <= adfGT[3] + adfGT[5] * poSrcDS->GetRasterYSize()))
+        OGREnvelope rasterEnv;
+        poSrcDS->GetExtent(&rasterEnv, nullptr);
+        if (!m_allowExtentOutsideSource && !rasterEnv.Contains(env))
         {
             ReportError(CE_Failure, CPLE_AppDefined,
                         "Clipping geometry is partially or totally outside the "
@@ -220,17 +289,13 @@ bool GDALRasterClipAlgorithm::RunStep(GDALProgressFunc, void *)
 
         constexpr double REL_EPS_PIXEL = 1e-3;
         const double dfMinX =
-            adfGT[0] +
-            floor((env.MinX - adfGT[0]) / adfGT[1] + REL_EPS_PIXEL) * adfGT[1];
+            gt[0] + floor((env.MinX - gt[0]) / gt[1] + REL_EPS_PIXEL) * gt[1];
         const double dfMinY =
-            adfGT[3] +
-            ceil((env.MinY - adfGT[3]) / adfGT[5] - REL_EPS_PIXEL) * adfGT[5];
+            gt[3] + ceil((env.MinY - gt[3]) / gt[5] - REL_EPS_PIXEL) * gt[5];
         const double dfMaxX =
-            adfGT[0] +
-            ceil((env.MaxX - adfGT[0]) / adfGT[1] - REL_EPS_PIXEL) * adfGT[1];
+            gt[0] + ceil((env.MaxX - gt[0]) / gt[1] - REL_EPS_PIXEL) * gt[1];
         const double dfMaxY =
-            adfGT[3] +
-            floor((env.MaxY - adfGT[3]) / adfGT[5] + REL_EPS_PIXEL) * adfGT[5];
+            gt[3] + floor((env.MaxY - gt[3]) / gt[5] + REL_EPS_PIXEL) * gt[5];
 
         aosOptions.AddString("-te");
         aosOptions.AddString(CPLSPrintf("%.17g", dfMinX));
@@ -241,8 +306,8 @@ bool GDALRasterClipAlgorithm::RunStep(GDALProgressFunc, void *)
             CPLSPrintf("%.17g", bBottomUpRaster ? dfMinY : dfMaxY));
 
         aosOptions.AddString("-tr");
-        aosOptions.AddString(CPLSPrintf("%.17g", adfGT[1]));
-        aosOptions.AddString(CPLSPrintf("%.17g", std::fabs(adfGT[5])));
+        aosOptions.AddString(CPLSPrintf("%.17g", gt[1]));
+        aosOptions.AddString(CPLSPrintf("%.17g", std::fabs(gt[5])));
 
         GDALWarpAppOptions *psOptions =
             GDALWarpAppOptionsNew(aosOptions.List(), nullptr);
@@ -261,5 +326,8 @@ bool GDALRasterClipAlgorithm::RunStep(GDALProgressFunc, void *)
         return bOK;
     }
 }
+
+GDALRasterClipAlgorithmStandalone::~GDALRasterClipAlgorithmStandalone() =
+    default;
 
 //! @endcond

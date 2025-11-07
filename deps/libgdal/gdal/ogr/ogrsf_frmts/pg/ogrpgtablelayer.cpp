@@ -28,6 +28,14 @@
 #define UNSUPPORTED_OP_READ_ONLY                                               \
     "%s : unsupported operation on a read-only datasource."
 
+void OGRPGFeatureDefn::UnsetLayer()
+{
+    const int nGeomFieldCount = GetGeomFieldCount();
+    for (int i = 0; i < nGeomFieldCount; i++)
+        cpl::down_cast<OGRPGGeomFieldDefn *>(apoGeomFieldDefn[i].get())
+            ->UnsetLayer();
+}
+
 /************************************************************************/
 /*                        OGRPGTableFeatureDefn                         */
 /************************************************************************/
@@ -49,64 +57,66 @@ class OGRPGTableFeatureDefn final : public OGRPGFeatureDefn
     {
     }
 
-    virtual void UnsetLayer() override
-    {
-        poLayer = nullptr;
-        OGRPGFeatureDefn::UnsetLayer();
-    }
+    void UnsetLayer() override;
 
-    virtual int GetFieldCount() const override
+    int GetFieldCount() const override
     {
         SolveFields();
         return OGRPGFeatureDefn::GetFieldCount();
     }
 
-    virtual OGRFieldDefn *GetFieldDefn(int i) override
+    OGRFieldDefn *GetFieldDefn(int i) override
     {
         SolveFields();
         return OGRPGFeatureDefn::GetFieldDefn(i);
     }
 
-    virtual const OGRFieldDefn *GetFieldDefn(int i) const override
+    const OGRFieldDefn *GetFieldDefn(int i) const override
     {
         SolveFields();
         return OGRPGFeatureDefn::GetFieldDefn(i);
     }
 
-    virtual int GetFieldIndex(const char *pszName) const override
+    int GetFieldIndex(const char *pszName) const override
     {
         SolveFields();
         return OGRPGFeatureDefn::GetFieldIndex(pszName);
     }
 
-    virtual int GetGeomFieldCount() const override
+    int GetGeomFieldCount() const override
     {
         if (poLayer != nullptr && !poLayer->HasGeometryInformation())
             SolveFields();
         return OGRPGFeatureDefn::GetGeomFieldCount();
     }
 
-    virtual OGRPGGeomFieldDefn *GetGeomFieldDefn(int i) override
+    OGRPGGeomFieldDefn *GetGeomFieldDefn(int i) override
     {
         if (poLayer != nullptr && !poLayer->HasGeometryInformation())
             SolveFields();
         return OGRPGFeatureDefn::GetGeomFieldDefn(i);
     }
 
-    virtual const OGRPGGeomFieldDefn *GetGeomFieldDefn(int i) const override
+    const OGRPGGeomFieldDefn *GetGeomFieldDefn(int i) const override
     {
         if (poLayer != nullptr && !poLayer->HasGeometryInformation())
             SolveFields();
         return OGRPGFeatureDefn::GetGeomFieldDefn(i);
     }
 
-    virtual int GetGeomFieldIndex(const char *pszName) const override
+    int GetGeomFieldIndex(const char *pszName) const override
     {
         if (poLayer != nullptr && !poLayer->HasGeometryInformation())
             SolveFields();
         return OGRPGFeatureDefn::GetGeomFieldIndex(pszName);
     }
 };
+
+void OGRPGTableFeatureDefn::UnsetLayer()
+{
+    poLayer = nullptr;
+    OGRPGFeatureDefn::UnsetLayer();
+}
 
 /************************************************************************/
 /*                           SolveFields()                              */
@@ -124,10 +134,10 @@ void OGRPGTableFeatureDefn::SolveFields() const
 /*                            GetFIDColumn()                            */
 /************************************************************************/
 
-const char *OGRPGTableLayer::GetFIDColumn()
+const char *OGRPGTableLayer::GetFIDColumn() const
 
 {
-    ReadTableDefinition();
+    const_cast<OGRPGTableLayer *>(this)->ReadTableDefinition();
 
     if (pszFIDColumn != nullptr)
         return pszFIDColumn;
@@ -2113,7 +2123,7 @@ OGRErr OGRPGTableLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
                      "that's perhaps the reason for the failure. "
                      "If so, this can happen if you reuse the same feature "
                      "object for sequential insertions. "
-                     "Indeed, since GDAL 1.8.0, the FID of an inserted feature "
+                     "The FID of an inserted feature "
                      "is got from the server, so it is not a good idea"
                      "to reuse it afterwards... All in all, try unsetting the "
                      "FID with SetFID(-1) before calling CreateFeature()");
@@ -2259,7 +2269,7 @@ OGRErr OGRPGTableLayer::CreateFeatureViaCopy(OGRFeature *poFeature)
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRPGTableLayer::TestCapability(const char *pszCap)
+int OGRPGTableLayer::TestCapability(const char *pszCap) const
 
 {
     if (bUpdateAccess)
@@ -2443,7 +2453,7 @@ OGRErr OGRPGTableLayer::CreateField(const OGRFieldDefn *poFieldIn,
             osCreateTable += osConstraints;
 
             if (!osCommentON.empty())
-                m_aosDeferredCommentOnColumns.push_back(osCommentON);
+                m_aosDeferredCommentOnColumns.push_back(std::move(osCommentON));
         }
     }
     else

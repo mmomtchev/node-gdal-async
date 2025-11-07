@@ -48,6 +48,11 @@ class OCAD_EXTERN CADGeometry
 public:
     CADGeometry();
     virtual ~CADGeometry();
+    CADGeometry(const CADGeometry&) = default;
+    CADGeometry& operator=(const CADGeometry&) = default;
+    CADGeometry(CADGeometry&&) = default;
+    CADGeometry& operator=(CADGeometry&&) = default;
+
     /**
      * @brief The CAD geometry types enum
      */
@@ -106,9 +111,8 @@ class CADUnknown : public CADGeometry
 {
 public:
     CADUnknown();
-    virtual ~CADUnknown(){}
 
-    virtual void print() const override;
+    void print() const override;
     void         transform( const Matrix& matrix ) override;
 };
 
@@ -120,7 +124,7 @@ class OCAD_EXTERN CADPoint3D : public CADGeometry
 public:
     CADPoint3D();
     CADPoint3D( const CADVector& positionIn, double thicknessIn );
-    virtual ~CADPoint3D(){}
+
     CADVector getPosition() const;
     void      setPosition( const CADVector& value );
 
@@ -130,8 +134,8 @@ public:
     double getXAxisAng() const;
     void   setXAxisAng( double value );
 
-    virtual void print() const override;
-    virtual void transform( const Matrix& matrix ) override;
+    void print() const override;
+    void transform( const Matrix& matrix ) override;
 protected:
     CADVector position;
     CADVector extrusion;
@@ -146,15 +150,15 @@ class OCAD_EXTERN CADLine : public CADGeometry
 public:
     CADLine();
     CADLine( const CADPoint3D& startIn, const CADPoint3D& endIn );
-    virtual ~CADLine(){}
+
     CADPoint3D getStart() const;
     void       setStart( const CADPoint3D& value );
 
     CADPoint3D getEnd() const;
     void       setEnd( const CADPoint3D& value );
 
-    virtual void print() const override;
-    virtual void transform( const Matrix& matrix ) override;
+    void print() const override;
+    void transform( const Matrix& matrix ) override;
 protected:
     CADPoint3D start;
     CADPoint3D end;
@@ -167,13 +171,13 @@ class OCAD_EXTERN CADPolyline3D : public CADGeometry
 {
 public:
     CADPolyline3D();
-    virtual ~CADPolyline3D(){}
+
     void   addVertex( const CADVector& vertex );
     size_t getVertexCount() const;
     CADVector& getVertex( size_t index );
 
-    virtual void print() const override;
-    virtual void transform( const Matrix& matrix ) override;
+    void print() const override;
+    void transform( const Matrix& matrix ) override;
 protected:
     std::vector<CADVector> vertices;
 };
@@ -186,7 +190,6 @@ class OCAD_EXTERN CADLWPolyline : public CADPolyline3D
 {
 public:
     CADLWPolyline();
-    virtual ~CADLWPolyline(){}
 
     double getConstWidth() const;
     void   setConstWidth( double value );
@@ -206,7 +209,7 @@ public:
     bool isClosed() const;
     void setClosed( bool state );
 
-    virtual void print() const override;
+    void print() const override;
 protected:
     bool                          bClosed;
     double                        constWidth;
@@ -223,12 +226,11 @@ class OCAD_EXTERN CADCircle : public CADPoint3D
 {
 public:
     CADCircle();
-    virtual ~CADCircle(){}
 
     double getRadius() const;
     void   setRadius( double value );
 
-    virtual void print() const override;
+    void print() const override;
 protected:
     double radius;
 };
@@ -240,7 +242,6 @@ class OCAD_EXTERN CADText : public CADPoint3D
 {
 public:
     CADText();
-    virtual ~CADText(){}
 
     std::string getTextValue() const;
     void   setTextValue( const std::string& value );
@@ -254,7 +255,7 @@ public:
     double getObliqueAngle() const;
     void   setObliqueAngle( double value );
 
-    virtual void print() const override;
+    void print() const override;
 protected:
     double obliqueAngle;
     double rotationAngle;
@@ -269,7 +270,6 @@ class OCAD_EXTERN CADArc : public CADCircle
 {
 public:
     CADArc();
-    virtual ~CADArc(){}
 
     double getStartingAngle() const;
     void   setStartingAngle( double value );
@@ -277,7 +277,7 @@ public:
     double getEndingAngle() const;
     void   setEndingAngle( double value );
 
-    virtual void print() const override;
+    void print() const override;
 protected:
     double startingAngle;
     double endingAngle;
@@ -290,7 +290,6 @@ class OCAD_EXTERN CADEllipse : public CADArc
 {
 public:
     CADEllipse();
-    virtual ~CADEllipse(){}
 
     double getAxisRatio() const;
     void   setAxisRatio( double value );
@@ -298,7 +297,7 @@ public:
     CADVector getSMAxis();
     void      setSMAxis( const CADVector& vectSMA );
 
-    virtual void print() const override;
+    void print() const override;
 protected:
     CADVector vectSMAxis;
     double    axisRatio;
@@ -311,7 +310,6 @@ class OCAD_EXTERN CADSpline : public CADGeometry
 {
 public:
     CADSpline();
-    virtual ~CADSpline(){}
 
     long getScenario() const;
     void setScenario( long value );
@@ -339,8 +337,8 @@ public:
     long getDegree() const;
     void setDegree( long value );
 
-    virtual void print() const override;
-    virtual void transform( const Matrix& matrix ) override;
+    void print() const override;
+    void transform( const Matrix& matrix ) override;
 protected:
     long   scenario;
     bool   rational;
@@ -361,15 +359,14 @@ class OCAD_EXTERN CADSolid : public CADPoint3D
 {
 public:
     CADSolid();
-    virtual ~CADSolid(){}
 
     double getElevation() const;
     void   setElevation( double value );
     void   addCorner( const CADVector& corner );
     std::vector<CADVector> getCorners();
 
-    virtual void print() const override;
-    virtual void transform( const Matrix& matrix ) override;
+    void print() const override;
+    void transform( const Matrix& matrix ) override;
 protected:
     double            elevation;
     std::vector<CADVector> avertCorners;
@@ -382,12 +379,11 @@ class OCAD_EXTERN CADRay : public CADPoint3D
 {
 public:
     CADRay();
-    virtual ~CADRay(){}
 
     CADVector getVectVector() const;
     void      setVectVector( const CADVector& value );
 
-    virtual void print() const override;
+    void print() const override;
 };
 
 /**
@@ -397,13 +393,13 @@ class OCAD_EXTERN CADHatch : public CADGeometry
 {
 public:
     CADHatch();
-    virtual ~CADHatch(){}
+    ~CADHatch() override;
 };
 
 /**
  * @brief Geometry class which represents Image (Raster Image)
  */
-class OCAD_EXTERN CADImage : public CADGeometry
+class OCAD_EXTERN CADImage final: public CADGeometry
 {
 public:
     /**
@@ -422,7 +418,6 @@ public:
     }
 
     CADImage();
-    virtual ~CADImage(){}
 
     CADVector getVertInsertionPoint() const;
     void      setVertInsertionPoint( const CADVector& value );
@@ -450,8 +445,8 @@ public:
 
     void addClippingPoint( const CADVector& pt );
 
-    virtual void print() const override;
-    virtual void transform( const Matrix& matrix ) override;
+    void print() const override;
+    void transform( const Matrix& matrix ) override;
 protected:
     CADVector     vertInsertionPoint;
     //CADVector vectUDirection;
@@ -480,11 +475,10 @@ protected:
 /**
  * @brief Geometry class which represents MText
  */
-class OCAD_EXTERN CADMText : public CADText
+class OCAD_EXTERN CADMText final : public CADText
 {
 public:
     CADMText();
-    virtual ~CADMText(){}
 
     double getRectWidth() const;
     void   setRectWidth( double value );
@@ -495,7 +489,7 @@ public:
     double getExtentsWidth() const;
     void   setExtentsWidth( double value );
 
-    virtual void print() const override;
+    void print() const override;
 protected:
     double rectWidth;
     double extents;
@@ -513,11 +507,10 @@ protected:
 /**
  * @brief Geometry class which represents 3DFace
  */
-class OCAD_EXTERN CADFace3D : public CADGeometry
+class OCAD_EXTERN CADFace3D final: public CADGeometry
 {
 public:
     CADFace3D();
-    virtual ~CADFace3D(){}
 
     void      addCorner( const CADVector& corner );
     CADVector getCorner( size_t index );
@@ -525,8 +518,8 @@ public:
     short getInvisFlags() const;
     void  setInvisFlags( short value );
 
-    virtual void print() const override;
-    virtual void transform( const Matrix& matrix ) override;
+    void print() const override;
+    void transform( const Matrix& matrix ) override;
 protected:
     std::vector<CADVector> avertCorners;
     short             invisFlags;
@@ -535,16 +528,15 @@ protected:
 /**
  * @brief Geometry class which represents Polyline (PFace)
  */
-class OCAD_EXTERN CADPolylinePFace : public CADGeometry
+class OCAD_EXTERN CADPolylinePFace final: public CADGeometry
 {
 public:
     CADPolylinePFace();
-    virtual ~CADPolylinePFace(){}
 
     void addVertex( const CADVector& vertex );
 
-    virtual void print() const override;
-    virtual void transform( const Matrix& matrix ) override;
+    void print() const override;
+    void transform( const Matrix& matrix ) override;
 protected:
     std::vector<CADVector> vertices;
 };
@@ -552,23 +544,21 @@ protected:
 /**
  * @brief Geometry class which represents XLine
  */
-class OCAD_EXTERN CADXLine : public CADRay
+class OCAD_EXTERN CADXLine final: public CADRay
 {
 public:
     CADXLine();
-    virtual ~CADXLine(){}
 
-    virtual void print() const override;
+    void print() const override;
 };
 
 /**
  * @brief Geometry class which represents MLine
  */
-class OCAD_EXTERN CADMLine : public CADPoint3D
+class OCAD_EXTERN CADMLine final: public CADPoint3D
 {
 public:
     CADMLine();
-    virtual ~CADMLine(){}
 
     double getScale() const;
     void   setScale( double value );
@@ -578,8 +568,8 @@ public:
 
     void addVertex( const CADVector& vertex );
 
-    virtual void print() const override;
-    virtual void transform( const Matrix& matrix ) override;
+    void print() const override;
+    void transform( const Matrix& matrix ) override;
 protected:
     double            scale;
     //char dJust;
@@ -595,7 +585,6 @@ class OCAD_EXTERN CADAttrib : public CADText
 {
 public:
     CADAttrib();
-    virtual ~CADAttrib(){}
 
     double getElevation() const;
     void   setElevation( double );
@@ -609,8 +598,8 @@ public:
     bool isPositionLocked() const;
     void setPositionLocked( bool );
 
-    virtual void print() const override;
-    virtual void transform( const Matrix& matrix ) override;
+    void print() const override;
+    void transform( const Matrix& matrix ) override;
 protected:
     CADVector vertAlignmentPoint;
     double    dfElevation;
@@ -625,12 +614,11 @@ class OCAD_EXTERN CADAttdef : public CADAttrib
 {
 public:
     CADAttdef();
-    virtual ~CADAttdef(){}
 
     std::string getPrompt() const;
     void   setPrompt( const std::string& );
 
-    virtual void print() const override;
+    void print() const override;
 protected:
     std::string sPrompt;
 };

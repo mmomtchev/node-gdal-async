@@ -18,14 +18,21 @@
 #include "ogrsf_frmts.h"
 #include "ogr_autocad_services.h"
 #include "cpl_conv.h"
+#include <array>
 #include <vector>
 #include <map>
+#include <optional>
 #include <set>
 #include <queue>
 #include <memory>
+#include <utility>
 
 class OGRDXFDataSource;
 class OGRDXFFeature;
+
+constexpr std::array<char, 22> AUTOCAD_BINARY_DXF_SIGNATURE = {
+    'A', 'u', 't', 'o', 'C', 'A', 'D', ' ',  'B',  'i',    'n',
+    'a', 'r', 'y', ' ', 'D', 'X', 'F', '\r', '\n', '\x1A', '\x00'};
 
 /************************************************************************/
 /*                          DXFBlockDefinition                          */
@@ -97,17 +104,17 @@ class OGRDXFBlocksLayer final : public OGRLayer
 
   public:
     explicit OGRDXFBlocksLayer(OGRDXFDataSource *poDS);
-    ~OGRDXFBlocksLayer();
+    ~OGRDXFBlocksLayer() override;
 
     void ResetReading() override;
     OGRFeature *GetNextFeature() override;
 
-    OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return poFeatureDefn;
     }
 
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 
     OGRDXFFeature *GetNextUnfilteredFeature();
 };
@@ -150,10 +157,7 @@ class OGRDXFInsertTransformer final : public OGRCoordinateTransformation
         return oResult;
     }
 
-    OGRCoordinateTransformation *Clone() const override
-    {
-        return new OGRDXFInsertTransformer(*this);
-    }
+    OGRCoordinateTransformation *Clone() const override;
 
     const OGRSpatialReference *GetSourceCS() const override
     {
@@ -389,7 +393,8 @@ class OGRDXFFeature final : public OGRFeature
     std::vector<std::unique_ptr<OGRDXFFeature>> apoAttribFeatures;
 
   public:
-    explicit OGRDXFFeature(OGRFeatureDefn *poFeatureDefn);
+    explicit OGRDXFFeature(const OGRFeatureDefn *poFeatureDefn);
+    ~OGRDXFFeature() override;
 
     OGRDXFFeature *CloneDXFFeature();
 
@@ -547,17 +552,17 @@ class OGRDXFLayer final : public OGRLayer
 
   public:
     explicit OGRDXFLayer(OGRDXFDataSource *poDS);
-    ~OGRDXFLayer();
+    ~OGRDXFLayer() override;
 
     void ResetReading() override;
     OGRFeature *GetNextFeature() override;
 
-    OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return poFeatureDefn;
     }
 
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 
     GDALDataset *GetDataset() override;
 
@@ -585,30 +590,67 @@ class OGRDXFLayer final : public OGRLayer
                  poDS->GetLineNumber(), poDS->GetDescription());               \
     } while (0)
 
-class OGRDXFReader
+class OGRDXFReaderBase /* non final */
 {
-    int ReadValueRaw(char *pszValueBuffer, int nValueBufferSize);
+  protected:
+    OGRDXFReaderBase() = default;
 
   public:
-    OGRDXFReader();
-    ~OGRDXFReader();
+    virtual ~OGRDXFReaderBase();
 
     void Initialize(VSILFILE *fp);
 
-    VSILFILE *fp;
+    VSILFILE *fp = nullptr;
 
-    unsigned int iSrcBufferOffset;
-    unsigned int nSrcBufferBytes;
-    unsigned int iSrcBufferFileOffset;
-    char achSrcBuffer[1025];
+    unsigned int nLastValueSize = 0;
+    int nLineNumber = 0;
 
-    unsigned int nLastValueSize;
-    int nLineNumber;
+    virtual uint64_t GetCurrentFilePos() const = 0;
+    virtual int ReadValue(char *pszValueBuffer, int nValueBufferSize = 81) = 0;
+    virtual void UnreadValue() = 0;
+    virtual void ResetReadPointer(uint64_t iNewOffset,
+                                  int nNewLineNumber = 0) = 0;
+};
 
-    int ReadValue(char *pszValueBuffer, int nValueBufferSize = 81);
-    void UnreadValue();
+class OGRDXFReaderASCII final : public OGRDXFReaderBase
+{
+    int ReadValueRaw(char *pszValueBuffer, int nValueBufferSize);
     void LoadDiskChunk();
-    void ResetReadPointer(unsigned int iNewOffset, int nNewLineNumber = 0);
+
+    unsigned int iSrcBufferOffset = 0;
+    unsigned int nSrcBufferBytes = 0;
+    uint64_t iSrcBufferFileOffset = 0;
+    std::array<char, 1025> achSrcBuffer{};
+
+  public:
+    OGRDXFReaderASCII() = default;
+
+    uint64_t GetCurrentFilePos() const override
+    {
+        return iSrcBufferFileOffset + iSrcBufferOffset;
+    }
+
+    int ReadValue(char *pszValueBuffer, int nValueBufferSize) override;
+    void UnreadValue() override;
+    void ResetReadPointer(uint64_t, int nNewLineNumber) override;
+};
+
+class OGRDXFReaderBinary final : public OGRDXFReaderBase
+{
+    bool m_bIsR12 = false;
+    uint64_t m_nPrevPos = static_cast<uint64_t>(-1);
+
+  public:
+    OGRDXFReaderBinary() = default;
+
+    uint64_t GetCurrentFilePos() const override
+    {
+        return VSIFTellL(fp);
+    }
+
+    int ReadValue(char *pszValueBuffer, int nValueBufferSize) override;
+    void UnreadValue() override;
+    void ResetReadPointer(uint64_t, int nNewLineNumber) override;
 };
 
 /************************************************************************/
@@ -635,7 +677,7 @@ class OGRDXFDataSource final : public GDALDataset
 
     std::vector<OGRLayer *> apoLayers;
 
-    unsigned int iEntitiesOffset;
+    uint64_t iEntitiesOffset;
     int iEntitiesLineNumber;
 
     std::map<CPLString, DXFBlockDefinition> oBlockMap;
@@ -667,25 +709,25 @@ class OGRDXFDataSource final : public GDALDataset
     bool bHaveReadSolidData;
     std::map<CPLString, std::vector<GByte>> oSolidBinaryData;
 
-    OGRDXFReader oReader;
+    std::unique_ptr<OGRDXFReaderBase> poReader{};
 
     std::vector<CPLString> aosBlockInsertionStack;
 
   public:
     OGRDXFDataSource();
-    ~OGRDXFDataSource();
+    ~OGRDXFDataSource() override;
 
-    int Open(const char *pszFilename, bool bHeaderOnly,
-             CSLConstList papszOptionsIn);
+    bool Open(const char *pszFilename, VSILFILE *fpIn, bool bHeaderOnly,
+              CSLConstList papszOptionsIn);
 
-    int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return static_cast<int>(apoLayers.size());
     }
 
-    OGRLayer *GetLayer(int) override;
+    const OGRLayer *GetLayer(int) const override;
 
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 
     // The following is only used by OGRDXFLayer
 
@@ -749,8 +791,8 @@ class OGRDXFDataSource final : public GDALDataset
     bool ReadLineTypeDefinition();
     bool ReadTextStyleDefinition();
     bool ReadDimStyleDefinition();
-    const char *LookupLayerProperty(const char *pszLayer,
-                                    const char *pszProperty);
+    std::optional<CPLString> LookupLayerProperty(const char *pszLayer,
+                                                 const char *pszProperty) const;
     const char *LookupTextStyleProperty(const char *pszTextStyle,
                                         const char *pszProperty,
                                         const char *pszDefault);
@@ -781,29 +823,29 @@ class OGRDXFDataSource final : public GDALDataset
     }
 
     // reader related.
-    int GetLineNumber()
+    int GetLineNumber() const
     {
-        return oReader.nLineNumber;
+        return poReader->nLineNumber;
     }
 
     int ReadValue(char *pszValueBuffer, int nValueBufferSize = 81)
     {
-        return oReader.ReadValue(pszValueBuffer, nValueBufferSize);
+        return poReader->ReadValue(pszValueBuffer, nValueBufferSize);
     }
 
     void RestartEntities()
     {
-        oReader.ResetReadPointer(iEntitiesOffset, iEntitiesLineNumber);
+        poReader->ResetReadPointer(iEntitiesOffset, iEntitiesLineNumber);
     }
 
     void UnreadValue()
     {
-        oReader.UnreadValue();
+        poReader->UnreadValue();
     }
 
-    void ResetReadPointer(int iNewOffset)
+    void ResetReadPointer(uint64_t iNewOffset)
     {
-        oReader.ResetReadPointer(iNewOffset);
+        poReader->ResetReadPointer(iNewOffset);
     }
 };
 
@@ -824,7 +866,11 @@ class OGRDXFWriterLayer final : public OGRLayer
     int WriteValue(int nCode, int nValue);
     int WriteValue(int nCode, double dfValue);
 
-    OGRErr WriteCore(OGRFeature *);
+    static constexpr int PROP_RGBA_COLOR = -1;
+
+    using CorePropertiesType = std::vector<std::pair<int, std::string>>;
+
+    OGRErr WriteCore(OGRFeature *, const CorePropertiesType &oCoreProperties);
     OGRErr WritePOINT(OGRFeature *);
     OGRErr WriteTEXT(OGRFeature *);
     OGRErr WritePOLYLINE(OGRFeature *, const OGRGeometry * = nullptr);
@@ -832,7 +878,7 @@ class OGRDXFWriterLayer final : public OGRLayer
     OGRErr WriteINSERT(OGRFeature *);
 
     static CPLString TextEscape(const char *);
-    static int ColorStringToDXFColor(const char *);
+    static int ColorStringToDXFColor(const char *, bool &bPerfectMatch);
     static std::vector<double> PrepareLineTypeDefinition(OGRStylePen *);
     static std::map<CPLString, CPLString>
     PrepareTextStyleDefinition(OGRStyleLabel *);
@@ -844,7 +890,7 @@ class OGRDXFWriterLayer final : public OGRLayer
 
   public:
     OGRDXFWriterLayer(OGRDXFWriterDS *poDS, VSILFILE *fp);
-    ~OGRDXFWriterLayer();
+    ~OGRDXFWriterLayer() override;
 
     void ResetReading() override
     {
@@ -855,12 +901,12 @@ class OGRDXFWriterLayer final : public OGRLayer
         return nullptr;
     }
 
-    OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return poFeatureDefn;
     }
 
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
     OGRErr CreateField(const OGRFieldDefn *poField,
                        int bApproxOK = TRUE) override;
@@ -890,7 +936,7 @@ class OGRDXFBlocksWriterLayer final : public OGRLayer
 
   public:
     explicit OGRDXFBlocksWriterLayer(OGRDXFWriterDS *poDS);
-    ~OGRDXFBlocksWriterLayer();
+    ~OGRDXFBlocksWriterLayer() override;
 
     void ResetReading() override
     {
@@ -901,12 +947,12 @@ class OGRDXFBlocksWriterLayer final : public OGRLayer
         return nullptr;
     }
 
-    OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return poFeatureDefn;
     }
 
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
     OGRErr CreateField(const OGRFieldDefn *poField,
                        int bApproxOK = TRUE) override;
@@ -964,14 +1010,14 @@ class OGRDXFWriterDS final : public GDALDataset
 
   public:
     OGRDXFWriterDS();
-    ~OGRDXFWriterDS();
+    ~OGRDXFWriterDS() override;
 
     int Open(const char *pszFilename, char **papszOptions);
 
-    int GetLayerCount() override;
-    OGRLayer *GetLayer(int) override;
+    int GetLayerCount() const override;
+    const OGRLayer *GetLayer(int) const override;
 
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 
     OGRLayer *ICreateLayer(const char *pszName,
                            const OGRGeomFieldDefn *poGeomFieldDefn,

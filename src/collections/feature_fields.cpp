@@ -163,7 +163,7 @@ NAN_METHOD(FeatureFields::set) {
         // iterate through field names from field defn,
         // grabbing values from passed object, if not undefined
 
-        OGRFieldDefn *field_def = f->get()->GetFieldDefnRef(i);
+        const OGRFieldDefn *field_def = f->get()->GetFieldDefnRef(i);
 
         const char *field_name = field_def->GetNameRef();
 
@@ -254,7 +254,7 @@ NAN_METHOD(FeatureFields::reset) {
     // iterate through field names from field defn,
     // grabbing values from passed object
 
-    OGRFieldDefn *field_def = f->get()->GetFieldDefnRef(i);
+    const OGRFieldDefn *field_def = f->get()->GetFieldDefnRef(i);
 
     const char *field_name = field_def->GetNameRef();
 
@@ -350,7 +350,7 @@ NAN_METHOD(FeatureFields::toObject) {
   for (int i = 0; i < n; i++) {
 
     // get field name
-    OGRFieldDefn *field_def = f->get()->GetFieldDefnRef(i);
+    const OGRFieldDefn *field_def = f->get()->GetFieldDefnRef(i);
     const char *key = field_def->GetNameRef();
     if (!key) {
       Nan::ThrowError("Error getting field name");
@@ -412,7 +412,7 @@ Local<Value> FeatureFields::get(OGRFeature *f, int field_index) {
   if (!f->IsFieldSet(field_index)) return scope.Escape(Nan::Null());
   if (f->IsFieldNull(field_index)) return scope.Escape(Nan::Null());
 
-  OGRFieldDefn *field_def = f->GetFieldDefnRef(field_index);
+  const OGRFieldDefn *field_def = f->GetFieldDefnRef(field_index);
   switch (field_def->GetType()) {
     case OFTInteger: return scope.Escape(Nan::New<Integer>(f->GetFieldAsInteger(field_index)));
     case OFTInteger64: return scope.Escape(Nan::New<Number>(f->GetFieldAsInteger64(field_index)));
@@ -494,7 +494,7 @@ NAN_METHOD(FeatureFields::getNames) {
   for (int i = 0; i < n; i++) {
 
     // get field name
-    OGRFieldDefn *field_def = f->get()->GetFieldDefnRef(i);
+    const OGRFieldDefn *field_def = f->get()->GetFieldDefnRef(i);
     const char *field_name = field_def->GetNameRef();
     if (!field_name) {
       Nan::ThrowError("Error getting field name");

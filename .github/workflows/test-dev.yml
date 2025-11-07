@@ -64,12 +64,11 @@ jobs:
       fail-fast: false
       matrix:
         linux-version:
-          - ubuntu:20.04
           - ubuntu:22.04
           - ubuntu:24.04
           - debian:bullseye
-          - fedora:37
-          - centos:stream9
+          - fedora:42
+          - centos:stream10
 
     steps:
     - uses: actions/checkout@v5
@@ -119,33 +118,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [ 18, 20 ]
-        gdal-version: [ 'shared', 'bundled' ]
-
-    steps:
-    - uses: actions/checkout@v5
-    - name: Use Node.js 20.x
-      uses: actions/setup-node@v6
-      with:
-        node-version: 20.x
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        max-size: 1000M
-        key: node-${{ matrix.node-version }}
-    - run: npm run container dev debian-archive:buster ${{ matrix.node-version }} ${{ matrix.gdal-version }}
-      env:
-        MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
-
-
-  test_node_new:
-
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [ 22, 23, 24 ]
+        node-version: [ 20, 22, 24 ]
         gdal-version: [ 'shared', 'bundled' ]
 
     steps:
@@ -160,6 +133,32 @@ jobs:
         max-size: 1000M
         key: node-${{ matrix.node-version }}
     - run: npm run container dev debian:bullseye ${{ matrix.node-version }} ${{ matrix.gdal-version }}
+      env:
+        MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
+
+
+  test_node_new:
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [ 25 ]
+        gdal-version: [ 'shared', 'bundled' ]
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Use Node.js 20.x
+      uses: actions/setup-node@v6
+      with:
+        node-version: 20.x
+    - name: ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        max-size: 1000M
+        key: node-${{ matrix.node-version }}
+    - run: npm run container dev debian:trixie ${{ matrix.node-version }} ${{ matrix.gdal-version }}
       env:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
 
@@ -191,8 +190,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mac-version: [ macos-13, macos-15 ]
-        node-version: [ 18.x, 20.x, 22.x, 23.x, 24.x ]
+        mac-version: [ macos-15-intel, macos-15 ]
+        node-version: [ 20.x, 22.x, 24.x, 25.x ]
 
     steps:
     - uses: actions/checkout@v5
@@ -227,7 +226,7 @@ jobs:
 
   test_mac_debug:
 
-    runs-on: macos-13
+    runs-on: macos-15
 
     steps:
     - uses: actions/checkout@v5
@@ -267,7 +266,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [ 18.x, 20.x, 22.x, 23.x, 24.x ]
+        node-version: [ 20.x, 22.x, 24.x, 25.x ]
 
     steps:
     - uses: actions/checkout@v5

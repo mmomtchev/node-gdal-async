@@ -47,7 +47,7 @@ Local<Value> TypedArray::New(GDALDataType type, int64_t length) {
   }
 
   constructor = val.As<Function>();
-  int64_t size = length * GDALGetDataTypeSize(type) / 8;
+  int64_t size = length * GDALGetDataTypeSizeBytes(type);
   if (size == 0) {
     Nan::ThrowError("Invalid GDAL data type");
     return Local<Value>();

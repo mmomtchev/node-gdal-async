@@ -35,8 +35,13 @@ class GDALVectorConcatAlgorithm /* non final */
     explicit GDALVectorConcatAlgorithm(bool bStandalone = false);
     ~GDALVectorConcatAlgorithm() override;
 
+    bool CanBeFirstStep() const override
+    {
+        return true;
+    }
+
   private:
-    bool RunStep(GDALProgressFunc pfnProgress, void *pProgressData) override;
+    bool RunStep(GDALPipelineStepRunContext &ctxt) override;
     bool RunImpl(GDALProgressFunc pfnProgress, void *pProgressData) override;
 
     std::string m_layerNameTemplate{};
@@ -63,6 +68,8 @@ class GDALVectorConcatAlgorithmStandalone final
         : GDALVectorConcatAlgorithm(/* standaloneStep = */ true)
     {
     }
+
+    ~GDALVectorConcatAlgorithmStandalone() override;
 };
 
 //! @endcond

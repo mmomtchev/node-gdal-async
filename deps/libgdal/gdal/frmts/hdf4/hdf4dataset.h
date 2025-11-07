@@ -59,6 +59,8 @@ class HDF4Dataset CPL_NON_FINAL : public GDALPamDataset
 
     void OpenMultiDim(const char *pszFilename, CSLConstList papszOpenOptionsIn);
 
+    CPL_DISALLOW_COPY_ASSIGN(HDF4Dataset)
+
   protected:
     int32 hGR;
     int32 hSD;
@@ -82,15 +84,15 @@ class HDF4Dataset CPL_NON_FINAL : public GDALPamDataset
 
   public:
     HDF4Dataset();
-    virtual ~HDF4Dataset();
+    ~HDF4Dataset() override;
 
     std::shared_ptr<GDALGroup> GetRootGroup() const override
     {
         return m_poRootGroup;
     }
 
-    virtual char **GetMetadataDomainList() override;
-    virtual char **GetMetadata(const char *pszDomain = "") override;
+    char **GetMetadataDomainList() override;
+    char **GetMetadata(const char *pszDomain = "") override;
     static GDALDataset *Open(GDALOpenInfo *);
 };
 

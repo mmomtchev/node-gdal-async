@@ -54,7 +54,7 @@ class GFFDataset final : public GDALPamDataset
     // long nOffsetMantissa;
   public:
     GFFDataset();
-    ~GFFDataset();
+    ~GFFDataset() override;
 
     static GDALDataset *Open(GDALOpenInfo *);
     static int Identify(GDALOpenInfo *poOpenInfo);
@@ -131,7 +131,7 @@ GFFRasterBand::GFFRasterBand(GFFDataset *poDSIn, int nBandIn,
 CPLErr GFFRasterBand::IReadBlock(int /* nBlockXOff */, int nBlockYOff,
                                  void *pImage)
 {
-    GFFDataset *poGDS = (GFFDataset *)poDS;
+    GFFDataset *poGDS = cpl::down_cast<GFFDataset *>(poDS);
     long nOffset = poGDS->nLength;
 
     VSIFSeekL(poGDS->fp,

@@ -23,9 +23,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
 #include <algorithm>
 #include <limits>
 #include <memory>
@@ -70,7 +67,7 @@ HFARasterAttributeTable::HFARasterAttributeTable(HFARasterBand *poBand,
 {
     if (poDT != nullptr)
     {
-        nRows = poDT->GetIntField("numRows");
+        nRows = std::max(0, poDT->GetIntField("numRows"));
 
         // Scan under table for columns.
         for (HFAEntry *poDTChild = poDT->GetChild(); poDTChild != nullptr;
@@ -199,7 +196,7 @@ HFARasterAttributeTable::~HFARasterAttributeTable()
 
 GDALRasterAttributeTable *HFARasterAttributeTable::Clone() const
 {
-    if ((GetRowCount() * GetColumnCount()) > RAT_MAX_ELEM_FOR_CLONE)
+    if (nRows > 0 && GetColumnCount() > RAT_MAX_ELEM_FOR_CLONE / nRows)
         return nullptr;
 
     GDALDefaultRasterAttributeTable *poRAT =
@@ -221,8 +218,8 @@ GDALRasterAttributeTable *HFARasterAttributeTable::Clone() const
                 return nullptr;
             }
 
-            if (((GDALDefaultRasterAttributeTable *)this)
-                    ->ValuesIO(GF_Read, iCol, 0, nRows, panColData) != CE_None)
+            if (const_cast<HFARasterAttributeTable *>(this)->ValuesIO(
+                    GF_Read, iCol, 0, nRows, panColData) != CE_None)
             {
                 CPLFree(panColData);
                 delete poRAT;
@@ -245,8 +242,8 @@ GDALRasterAttributeTable *HFARasterAttributeTable::Clone() const
                 return nullptr;
             }
 
-            if (((GDALDefaultRasterAttributeTable *)this)
-                    ->ValuesIO(GF_Read, iCol, 0, nRows, padfColData) != CE_None)
+            if (const_cast<HFARasterAttributeTable *>(this)->ValuesIO(
+                    GF_Read, iCol, 0, nRows, padfColData) != CE_None)
             {
                 CPLFree(padfColData);
                 delete poRAT;
@@ -269,9 +266,8 @@ GDALRasterAttributeTable *HFARasterAttributeTable::Clone() const
                 return nullptr;
             }
 
-            if (((GDALDefaultRasterAttributeTable *)this)
-                    ->ValuesIO(GF_Read, iCol, 0, nRows, papszColData) !=
-                CE_None)
+            if (const_cast<HFARasterAttributeTable *>(this)->ValuesIO(
+                    GF_Read, iCol, 0, nRows, papszColData) != CE_None)
             {
                 CPLFree(papszColData);
                 delete poRAT;
@@ -371,15 +367,16 @@ int HFARasterAttributeTable::GetRowCount() const
 const char *HFARasterAttributeTable::GetValueAsString(int iRow,
                                                       int iField) const
 {
-    // Get ValuesIO do do the work.
+    // Let ValuesIO do the work.
     char *apszStrList[1] = {nullptr};
-    if (((HFARasterAttributeTable *)this)
-            ->ValuesIO(GF_Read, iField, iRow, 1, apszStrList) != CE_None)
+    if (const_cast<HFARasterAttributeTable *>(this)->ValuesIO(
+            GF_Read, iField, iRow, 1, apszStrList) != CE_None)
     {
         return "";
     }
 
-    ((HFARasterAttributeTable *)this)->osWorkingResult = apszStrList[0];
+    const_cast<HFARasterAttributeTable *>(this)->osWorkingResult =
+        apszStrList[0];
     CPLFree(apszStrList[0]);
 
     return osWorkingResult;
@@ -391,10 +388,10 @@ const char *HFARasterAttributeTable::GetValueAsString(int iRow,
 
 int HFARasterAttributeTable::GetValueAsInt(int iRow, int iField) const
 {
-    // Get ValuesIO do do the work.
+    // Let ValuesIO do the work.
     int nValue = 0;
-    if (((HFARasterAttributeTable *)this)
-            ->ValuesIO(GF_Read, iField, iRow, 1, &nValue) != CE_None)
+    if (const_cast<HFARasterAttributeTable *>(this)->ValuesIO(
+            GF_Read, iField, iRow, 1, &nValue) != CE_None)
     {
         return 0;
     }
@@ -408,10 +405,10 @@ int HFARasterAttributeTable::GetValueAsInt(int iRow, int iField) const
 
 double HFARasterAttributeTable::GetValueAsDouble(int iRow, int iField) const
 {
-    // Get ValuesIO do do the work.
+    // Let ValuesIO do the work.
     double dfValue = 0.0;
-    if (((HFARasterAttributeTable *)this)
-            ->ValuesIO(GF_Read, iField, iRow, 1, &dfValue) != CE_None)
+    if (const_cast<HFARasterAttributeTable *>(this)->ValuesIO(
+            GF_Read, iField, iRow, 1, &dfValue) != CE_None)
     {
         return 0.0;
     }
@@ -420,34 +417,120 @@ double HFARasterAttributeTable::GetValueAsDouble(int iRow, int iField) const
 }
 
 /************************************************************************/
-/*                          SetValue()                                  */
+/*                        GetValueAsBoolean()                           */
 /************************************************************************/
 
-void HFARasterAttributeTable::SetValue(int iRow, int iField,
-                                       const char *pszValue)
+bool HFARasterAttributeTable::GetValueAsBoolean(int iRow, int iField) const
 {
-    // Get ValuesIO do do the work.
-    ValuesIO(GF_Write, iField, iRow, 1, (char **)&pszValue);
+    // Let ValuesIO do the work.
+    bool bValue = false;
+    if (const_cast<HFARasterAttributeTable *>(this)->ValuesIO(
+            GF_Read, iField, iRow, 1, &bValue) != CE_None)
+    {
+        return false;
+    }
+
+    return bValue;
+}
+
+/************************************************************************/
+/*                        GetValueAsDateTime()                          */
+/************************************************************************/
+
+GDALRATDateTime HFARasterAttributeTable::GetValueAsDateTime(int iRow,
+                                                            int iField) const
+{
+    // Let ValuesIO do the work.
+    GDALRATDateTime dt;
+    const_cast<HFARasterAttributeTable *>(this)->ValuesIO(GF_Read, iField, iRow,
+                                                          1, &dt);
+    return dt;
+}
+
+/************************************************************************/
+/*                        GetValueAsWKBGeometry()                       */
+/************************************************************************/
+
+const GByte *
+HFARasterAttributeTable::GetValueAsWKBGeometry(int iRow, int iField,
+                                               size_t &nWKBSize) const
+{
+    // Let ValuesIO do the work.
+    GByte *pabyWKB = nullptr;
+    nWKBSize = 0;
+    const_cast<HFARasterAttributeTable *>(this)->ValuesIO(
+        GF_Read, iField, iRow, 1, &pabyWKB, &nWKBSize);
+    if (pabyWKB)
+        m_abyWKB.assign(pabyWKB, pabyWKB + nWKBSize);
+    CPLFree(pabyWKB);
+    return pabyWKB ? m_abyWKB.data() : nullptr;
 }
 
 /************************************************************************/
 /*                          SetValue()                                  */
 /************************************************************************/
 
-void HFARasterAttributeTable::SetValue(int iRow, int iField, double dfValue)
+CPLErr HFARasterAttributeTable::SetValue(int iRow, int iField,
+                                         const char *pszValue)
 {
-    // Get ValuesIO do do the work.
-    ValuesIO(GF_Write, iField, iRow, 1, &dfValue);
+    // Let ValuesIO do the work.
+    char *apszValues[1] = {const_cast<char *>(pszValue)};
+    return ValuesIO(GF_Write, iField, iRow, 1, apszValues);
 }
 
 /************************************************************************/
 /*                          SetValue()                                  */
 /************************************************************************/
 
-void HFARasterAttributeTable::SetValue(int iRow, int iField, int nValue)
+CPLErr HFARasterAttributeTable::SetValue(int iRow, int iField, double dfValue)
 {
-    // Get ValuesIO do do the work.
-    ValuesIO(GF_Write, iField, iRow, 1, &nValue);
+    // Let ValuesIO do the work.
+    return ValuesIO(GF_Write, iField, iRow, 1, &dfValue);
+}
+
+/************************************************************************/
+/*                          SetValue()                                  */
+/************************************************************************/
+
+CPLErr HFARasterAttributeTable::SetValue(int iRow, int iField, int nValue)
+{
+    // Let ValuesIO do the work.
+    return ValuesIO(GF_Write, iField, iRow, 1, &nValue);
+}
+
+/************************************************************************/
+/*                          SetValue()                                  */
+/************************************************************************/
+
+CPLErr HFARasterAttributeTable::SetValue(int iRow, int iField, bool bValue)
+{
+    // Let ValuesIO do the work.
+    return ValuesIO(GF_Write, iField, iRow, 1, &bValue);
+}
+
+/************************************************************************/
+/*                          SetValue()                                  */
+/************************************************************************/
+
+CPLErr HFARasterAttributeTable::SetValue(int iRow, int iField,
+                                         const GDALRATDateTime &sDateTime)
+{
+    // Let ValuesIO do the work.
+    return ValuesIO(GF_Write, iField, iRow, 1,
+                    const_cast<GDALRATDateTime *>(&sDateTime));
+}
+
+/************************************************************************/
+/*                          SetValue()                                  */
+/************************************************************************/
+
+CPLErr HFARasterAttributeTable::SetValue(int iRow, int iField,
+                                         const void *pabyWKB, size_t nWKBSize)
+{
+    // Let ValuesIO do the work.
+    const GByte **ppabyWKB = reinterpret_cast<const GByte **>(&pabyWKB);
+    return ValuesIO(GF_Write, iField, iRow, 1, const_cast<GByte **>(ppabyWKB),
+                    &nWKBSize);
 }
 
 /************************************************************************/
@@ -666,6 +749,11 @@ CPLErr HFARasterAttributeTable::ValuesIO(GDALRWFlag eRWFlag, int iField,
             CPLFree(papszColData);
         }
         break;
+        case GFT_Boolean:
+        case GFT_DateTime:
+        case GFT_WKBGeometry:
+            CPLAssert(false);
+            break;
     }
 
     return CE_None;
@@ -857,6 +945,11 @@ CPLErr HFARasterAttributeTable::ValuesIO(GDALRWFlag eRWFlag, int iField,
             CPLFree(papszColData);
         }
         break;
+        case GFT_Boolean:
+        case GFT_DateTime:
+        case GFT_WKBGeometry:
+            CPLAssert(false);
+            break;
     }
 
     return CE_None;
@@ -1053,22 +1146,37 @@ CPLErr HFARasterAttributeTable::ValuesIO(GDALRWFlag eRWFlag, int iField,
                 int nNewMaxChars = aoFields[iField].nElementSize;
                 for (int i = 0; i < iLength; i++)
                 {
-                    const int nStringSize =
-                        static_cast<int>(strlen(papszStrList[i])) + 1;
+                    const int nStringSize = static_cast<int>(
+                        std::min<size_t>(std::numeric_limits<int>::max(),
+                                         strlen(papszStrList[i]) + 1));
                     if (nStringSize > nNewMaxChars)
                         nNewMaxChars = nStringSize;
                 }
 
                 if (nNewMaxChars > aoFields[iField].nElementSize)
                 {
+                    if (static_cast<unsigned>(nRows) >
+                        std::numeric_limits<unsigned>::max() / nNewMaxChars)
+                    {
+                        CPLError(CE_Failure, CPLE_AppDefined,
+                                 "ValuesIO(): too much content");
+                        CPLFree(pachColData);
+                        return CE_Failure;
+                    }
+
                     // OK we have a problem: The allocated space is not big
                     // enough we need to re-allocate the space and update the
                     // pointers and copy across the old data.
-                    const int nNewOffset =
-                        HFAAllocateSpace(hHFA->papoBand[nBand - 1]->psInfo,
-                                         nRows * nNewMaxChars);
-                    char *pszBuffer = static_cast<char *>(VSIMalloc2(
-                        aoFields[iField].nElementSize, sizeof(char)));
+                    const int nNewOffset = HFAAllocateSpace(
+                        hHFA->papoBand[nBand - 1]->psInfo,
+                        static_cast<unsigned>(nRows) * nNewMaxChars);
+                    char *pszBuffer = static_cast<char *>(
+                        VSI_CALLOC_VERBOSE(1, nNewMaxChars));
+                    if (!pszBuffer)
+                    {
+                        CPLFree(pachColData);
+                        return CE_Failure;
+                    }
                     for (int i = 0; i < nRows; i++)
                     {
                         // Seek to the old place.
@@ -1088,14 +1196,9 @@ CPLErr HFARasterAttributeTable::ValuesIO(GDALRWFlag eRWFlag, int iField,
                                                  (static_cast<vsi_l_offset>(i) *
                                                   nNewMaxChars),
                                              SEEK_SET) == 0;
+
                         // Write data to new place.
-                        bOK &=
-                            VSIFWriteL(pszBuffer, aoFields[iField].nElementSize,
-                                       1, hHFA->fp) == 1;
-                        // Make sure there is a terminating null byte just to be
-                        // safe.
-                        const char cNullByte = '\0';
-                        bOK &= VSIFWriteL(&cNullByte, sizeof(char), 1,
+                        bOK &= VSIFWriteL(pszBuffer, nNewMaxChars, 1,
                                           hHFA->fp) == 1;
                         if (!bOK)
                         {
@@ -1144,7 +1247,16 @@ CPLErr HFARasterAttributeTable::ValuesIO(GDALRWFlag eRWFlag, int iField,
 
                 // Copy from application buffer.
                 for (int i = 0; i < iLength; i++)
-                    strcpy(&pachColData[nNewMaxChars * i], papszStrList[i]);
+                {
+                    const int nStringSize = static_cast<int>(
+                        std::min<size_t>(std::numeric_limits<int>::max(),
+                                         strlen(papszStrList[i]) + 1));
+                    memcpy(&pachColData[nNewMaxChars * i], papszStrList[i],
+                           nStringSize);
+                    if (nStringSize < nNewMaxChars)
+                        memset(&pachColData[nNewMaxChars * i] + nStringSize, 0,
+                               nNewMaxChars - nStringSize);
+                }
 
                 // Note: HFAAllocateSpace now called by CreateColumn so space
                 // should exist.
@@ -1162,9 +1274,50 @@ CPLErr HFARasterAttributeTable::ValuesIO(GDALRWFlag eRWFlag, int iField,
             CPLFree(pachColData);
         }
         break;
+        case GFT_Boolean:
+        case GFT_DateTime:
+        case GFT_WKBGeometry:
+            CPLAssert(false);
+            break;
     }
 
     return CE_None;
+}
+
+/************************************************************************/
+/*                          ValuesIO()                                  */
+/************************************************************************/
+
+CPLErr HFARasterAttributeTable::ValuesIO(GDALRWFlag eRWFlag, int iField,
+                                         int iStartRow, int iLength,
+                                         bool *pbData)
+{
+    return ValuesIOBooleanFromIntoInt(eRWFlag, iField, iStartRow, iLength,
+                                      pbData);
+}
+
+/************************************************************************/
+/*                          ValuesIO()                                  */
+/************************************************************************/
+
+CPLErr HFARasterAttributeTable::ValuesIO(GDALRWFlag eRWFlag, int iField,
+                                         int iStartRow, int iLength,
+                                         GDALRATDateTime *psDateTime)
+{
+    return ValuesIODateTimeFromIntoString(eRWFlag, iField, iStartRow, iLength,
+                                          psDateTime);
+}
+
+/************************************************************************/
+/*                          ValuesIO()                                  */
+/************************************************************************/
+
+CPLErr HFARasterAttributeTable::ValuesIO(GDALRWFlag eRWFlag, int iField,
+                                         int iStartRow, int iLength,
+                                         GByte **ppabyWKB, size_t *pnWKBSize)
+{
+    return ValuesIOWKBGeometryFromIntoString(eRWFlag, iField, iStartRow,
+                                             iLength, ppabyWKB, pnWKBSize);
 }
 
 /************************************************************************/
@@ -1414,6 +1567,24 @@ CPLErr HFARasterAttributeTable::CreateColumn(const char *pszFieldName,
         return CE_Failure;
     }
 
+    switch (eFieldType)
+    {
+        case GFT_Integer:
+        case GFT_Real:
+        case GFT_String:
+        case GFT_Boolean:
+        case GFT_DateTime:
+            break;
+
+        case GFT_WKBGeometry:
+            // Cannot deal with any of the others yet.
+            CPLError(CE_Failure, CPLE_NotSupported,
+                     "Data type %s is not supported "
+                     "for this Raster Attribute Table.",
+                     GDALGetRATFieldTypeName(eFieldType));
+            return CE_Failure;
+    }
+
     // Do we have a descriptor table already?
     if (poDT == nullptr || !EQUAL(poDT->GetType(), "Edsc_Table"))
         CreateDT();
@@ -1470,30 +1641,48 @@ CPLErr HFARasterAttributeTable::CreateColumn(const char *pszFieldName,
     poColumn->SetIntField("numRows", nRows);
     int nElementSize = 0;
 
-    if (eFieldType == GFT_Integer)
+    switch (eFieldType)
     {
-        nElementSize = sizeof(GInt32);
-        poColumn->SetStringField("dataType", "integer");
-    }
-    else if (eFieldType == GFT_Real)
-    {
-        nElementSize = sizeof(double);
-        poColumn->SetStringField("dataType", "real");
-    }
-    else if (eFieldType == GFT_String)
-    {
-        // Just have to guess here since we don't have any strings to check.
-        nElementSize = 10;
-        poColumn->SetStringField("dataType", "string");
-        poColumn->SetIntField("maxNumChars", nElementSize);
-    }
-    else
-    {
-        // Cannot deal with any of the others yet.
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "Writing this data type in a column is not supported "
-                 "for this Raster Attribute Table.");
-        return CE_Failure;
+        case GFT_Integer:
+            nElementSize = sizeof(GInt32);
+            poColumn->SetStringField("dataType", "integer");
+            break;
+
+        case GFT_Real:
+            nElementSize = sizeof(double);
+            poColumn->SetStringField("dataType", "real");
+            break;
+
+        case GFT_String:
+            // Just have to guess here since we don't have any strings to check.
+            nElementSize = 10;
+            poColumn->SetStringField("dataType", "string");
+            poColumn->SetIntField("maxNumChars", nElementSize);
+            break;
+
+        case GFT_Boolean:
+            CPLError(CE_Warning, CPLE_AppDefined,
+                     "RAT field type Boolean is not natively supported by the "
+                     "HFA driver. Dealing with it as Integer");
+            nElementSize = sizeof(GInt32);
+            poColumn->SetStringField("dataType", "integer");
+            eFieldType = GFT_Integer;
+            break;
+
+        case GFT_DateTime:
+            CPLError(CE_Warning, CPLE_AppDefined,
+                     "RAT field type DateTime is not natively supported by the "
+                     "HFA driver. Dealing with it as String");
+            nElementSize =
+                static_cast<int>(strlen("YYYY-MM-DDTHH:MM:SS.sss+mm:ss"));
+            poColumn->SetStringField("dataType", "string");
+            poColumn->SetIntField("maxNumChars", nElementSize);
+            eFieldType = GFT_String;
+            break;
+
+        case GFT_WKBGeometry:
+            CPLAssert(false);
+            break;
     }
 
     const int nOffset = HFAAllocateSpace(hHFA->papoBand[nBand - 1]->psInfo,
@@ -2250,8 +2439,8 @@ void HFARasterBand::EstablishOverviews()
 
         for (int iOvIndex = 0; iOvIndex < nOverviews; iOvIndex++)
         {
-            papoOverviewBands[iOvIndex] =
-                new HFARasterBand((HFADataset *)poDS, nBand, iOvIndex);
+            papoOverviewBands[iOvIndex] = new HFARasterBand(
+                cpl::down_cast<HFADataset *>(poDS), nBand, iOvIndex);
             if (papoOverviewBands[iOvIndex]->GetXSize() == 0)
             {
                 delete papoOverviewBands[iOvIndex];
@@ -2667,7 +2856,7 @@ CPLErr HFARasterBand::BuildOverviews(const char *pszResampling,
         CPLCalloc(sizeof(void *), nReqOverviews));
 
     const bool bRegenerate =
-        CPLTestBool(CSLFetchNameValueDef(papszOptions, "REGENERATE", "YES"));
+        CPLTestBool(CSLFetchNameValueDef(papszOptions, "@REGENERATE", "YES"));
 
     // Loop over overview levels requested.
     for (int iOverview = 0; iOverview < nReqOverviews; iOverview++)
@@ -2716,8 +2905,8 @@ CPLErr HFARasterBand::BuildOverviews(const char *pszResampling,
             nOverviews = iResult + 1;
             papoOverviewBands = static_cast<HFARasterBand **>(
                 CPLRealloc(papoOverviewBands, sizeof(void *) * nOverviews));
-            papoOverviewBands[iResult] =
-                new HFARasterBand((HFADataset *)poDS, nBand, iResult);
+            papoOverviewBands[iResult] = new HFARasterBand(
+                cpl::down_cast<HFADataset *>(poDS), nBand, iResult);
 
             papoOvBands[iOverview] = papoOverviewBands[iResult];
         }
@@ -2872,31 +3061,34 @@ CPLErr HFARasterBand::WriteNamedRAT(const char * /*pszName*/,
     }
 
     // Loop through each column in the RAT.
-    for (int col = 0; col < poRAT->GetColumnCount(); col++)
+    const int nColCount = poRAT->GetColumnCount();
+
+    for (int col = 0; col < nColCount; col++)
     {
         const char *pszName = nullptr;
 
-        if (poRAT->GetUsageOfCol(col) == GFU_Red)
+        const auto eUsage = poRAT->GetUsageOfCol(col);
+        if (eUsage == GFU_Red)
         {
             pszName = "Red";
         }
-        else if (poRAT->GetUsageOfCol(col) == GFU_Green)
+        else if (eUsage == GFU_Green)
         {
             pszName = "Green";
         }
-        else if (poRAT->GetUsageOfCol(col) == GFU_Blue)
+        else if (eUsage == GFU_Blue)
         {
             pszName = "Blue";
         }
-        else if (poRAT->GetUsageOfCol(col) == GFU_Alpha)
+        else if (eUsage == GFU_Alpha)
         {
             pszName = "Opacity";
         }
-        else if (poRAT->GetUsageOfCol(col) == GFU_PixelCount)
+        else if (eUsage == GFU_PixelCount)
         {
             pszName = "Histogram";
         }
-        else if (poRAT->GetUsageOfCol(col) == GFU_Name)
+        else if (eUsage == GFU_Name)
         {
             pszName = "Class_Names";
         }
@@ -2916,120 +3108,164 @@ CPLErr HFARasterBand::WriteNamedRAT(const char * /*pszName*/,
         poColumn->SetIntField("numRows", nRowCount);
         // Color cols which are integer in GDAL are written as floats in HFA.
         bool bIsColorCol = false;
-        if (poRAT->GetUsageOfCol(col) == GFU_Red ||
-            poRAT->GetUsageOfCol(col) == GFU_Green ||
-            poRAT->GetUsageOfCol(col) == GFU_Blue ||
-            poRAT->GetUsageOfCol(col) == GFU_Alpha)
+        if (eUsage == GFU_Red || eUsage == GFU_Green || eUsage == GFU_Blue ||
+            eUsage == GFU_Alpha)
         {
             bIsColorCol = true;
         }
 
         // Write float also if a color column or histogram.
-        if (poRAT->GetTypeOfCol(col) == GFT_Real || bIsColorCol ||
-            poRAT->GetUsageOfCol(col) == GFU_PixelCount)
+        auto eType = poRAT->GetTypeOfCol(col);
+        if (bIsColorCol || eUsage == GFU_PixelCount)
+            eType = GFT_Real;
+        switch (eType)
         {
-            const int nOffset =
-                HFAAllocateSpace(hHFA->papoBand[nBand - 1]->psInfo,
-                                 static_cast<GUInt32>(nRowCount) *
-                                     static_cast<GUInt32>(sizeof(double)));
-            poColumn->SetIntField("columnDataPtr", nOffset);
-            poColumn->SetStringField("dataType", "real");
-
-            double *padfColData =
-                static_cast<double *>(CPLCalloc(nRowCount, sizeof(double)));
-            for (int i = 0; i < nRowCount; i++)
+            case GFT_Real:
             {
-                if (bIsColorCol)
-                    // Stored 0..1
-                    padfColData[i] = poRAT->GetValueAsInt(i, col) / 255.0;
-                else
-                    padfColData[i] = poRAT->GetValueAsDouble(i, col);
-            }
-#ifdef CPL_MSB
-            GDALSwapWords(padfColData, 8, nRowCount, 8);
-#endif
-            if (VSIFSeekL(hHFA->fp, nOffset, SEEK_SET) != 0 ||
-                VSIFWriteL(padfColData, nRowCount, sizeof(double), hHFA->fp) !=
-                    sizeof(double))
-            {
-                CPLError(CE_Failure, CPLE_FileIO, "WriteNamedRAT() failed");
-                CPLFree(padfColData);
-                return CE_Failure;
-            }
-            CPLFree(padfColData);
-        }
-        else if (poRAT->GetTypeOfCol(col) == GFT_String)
-        {
-            unsigned int nMaxNumChars = 0;
-            // Find the length of the longest string.
-            for (int i = 0; i < nRowCount; i++)
-            {
-                // Include terminating byte.
-                const unsigned int nNumChars = static_cast<unsigned int>(
-                    strlen(poRAT->GetValueAsString(i, col)) + 1);
-                if (nMaxNumChars < nNumChars)
+                if (static_cast<GUInt32>(nRowCount) >
+                    std::numeric_limits<unsigned>::max() / sizeof(double))
                 {
-                    nMaxNumChars = nNumChars;
+                    CPLError(CE_Failure, CPLE_OutOfMemory,
+                             "WriteNamedRAT(): too much content");
+                    return CE_Failure;
                 }
-            }
+                const int nOffset = HFAAllocateSpace(
+                    hHFA->papoBand[nBand - 1]->psInfo,
+                    static_cast<GUInt32>(nRowCount * sizeof(double)));
+                poColumn->SetIntField("columnDataPtr", nOffset);
+                poColumn->SetStringField("dataType", "real");
 
-            const int nOffset =
-                HFAAllocateSpace(hHFA->papoBand[nBand - 1]->psInfo,
-                                 (nRowCount + 1) * nMaxNumChars);
-            poColumn->SetIntField("columnDataPtr", nOffset);
-            poColumn->SetStringField("dataType", "string");
-            poColumn->SetIntField("maxNumChars", nMaxNumChars);
-
-            char *pachColData =
-                static_cast<char *>(CPLCalloc(nRowCount + 1, nMaxNumChars));
-            for (int i = 0; i < nRowCount; i++)
-            {
-                strcpy(&pachColData[nMaxNumChars * i],
-                       poRAT->GetValueAsString(i, col));
-            }
-            if (VSIFSeekL(hHFA->fp, nOffset, SEEK_SET) != 0 ||
-                VSIFWriteL(pachColData, nRowCount, nMaxNumChars, hHFA->fp) !=
-                    nMaxNumChars)
-            {
-                CPLError(CE_Failure, CPLE_FileIO, "WriteNamedRAT() failed");
-                CPLFree(pachColData);
-                return CE_Failure;
-            }
-            CPLFree(pachColData);
-        }
-        else if (poRAT->GetTypeOfCol(col) == GFT_Integer)
-        {
-            const int nOffset = HFAAllocateSpace(
-                hHFA->papoBand[nBand - 1]->psInfo,
-                static_cast<GUInt32>(nRowCount) * (GUInt32)sizeof(GInt32));
-            poColumn->SetIntField("columnDataPtr", nOffset);
-            poColumn->SetStringField("dataType", "integer");
-
-            GInt32 *panColData =
-                static_cast<GInt32 *>(CPLCalloc(nRowCount, sizeof(GInt32)));
-            for (int i = 0; i < nRowCount; i++)
-            {
-                panColData[i] = poRAT->GetValueAsInt(i, col);
-            }
+                double *padfColData = static_cast<double *>(
+                    VSI_MALLOC_VERBOSE(nRowCount * sizeof(double)));
+                if (!padfColData)
+                    return CE_Failure;
+                for (int i = 0; i < nRowCount; i++)
+                {
+                    if (bIsColorCol)
+                        // Stored 0..1
+                        padfColData[i] = poRAT->GetValueAsInt(i, col) / 255.0;
+                    else
+                        padfColData[i] = poRAT->GetValueAsDouble(i, col);
+                }
 #ifdef CPL_MSB
-            GDALSwapWords(panColData, 4, nRowCount, 4);
+                GDALSwapWords(padfColData, 8, nRowCount, 8);
 #endif
-            if (VSIFSeekL(hHFA->fp, nOffset, SEEK_SET) != 0 ||
-                VSIFWriteL(panColData, nRowCount, sizeof(GInt32), hHFA->fp) !=
-                    sizeof(GInt32))
-            {
-                CPLError(CE_Failure, CPLE_FileIO, "WriteNamedRAT() failed");
-                CPLFree(panColData);
-                return CE_Failure;
+                if (VSIFSeekL(hHFA->fp, nOffset, SEEK_SET) != 0 ||
+                    VSIFWriteL(padfColData, nRowCount, sizeof(double),
+                               hHFA->fp) != sizeof(double))
+                {
+                    CPLError(CE_Failure, CPLE_FileIO, "WriteNamedRAT() failed");
+                    CPLFree(padfColData);
+                    return CE_Failure;
+                }
+                CPLFree(padfColData);
+                break;
             }
-            CPLFree(panColData);
-        }
-        else
-        {
-            // Can't deal with any of the others yet.
-            CPLError(CE_Failure, CPLE_NotSupported,
-                     "Writing this data type in a column is not supported "
-                     "for this Raster Attribute Table.");
+
+            case GFT_String:
+            case GFT_DateTime:
+            case GFT_WKBGeometry:
+            {
+                unsigned int nMaxNumChars = 1;
+                if (eType == GFT_DateTime)
+                {
+                    nMaxNumChars = static_cast<unsigned>(strlen(
+                                       "YYYY-MM-DDTHH:MM:SS.sss+hh:mm")) +
+                                   1;
+                }
+                else
+                {
+                    // Find the length of the longest string.
+                    for (int i = 0; i < nRowCount; i++)
+                    {
+                        // Include terminating byte.
+                        nMaxNumChars = std::max(
+                            nMaxNumChars,
+                            static_cast<unsigned>(std::min<size_t>(
+                                std::numeric_limits<unsigned>::max(),
+                                strlen(poRAT->GetValueAsString(i, col)) + 1)));
+                    }
+                }
+                if (static_cast<unsigned>(nRowCount) >
+                    std::numeric_limits<unsigned>::max() / nMaxNumChars)
+                {
+                    CPLError(CE_Failure, CPLE_OutOfMemory,
+                             "WriteNamedRAT(): too much content");
+                    return CE_Failure;
+                }
+
+                const int nOffset =
+                    HFAAllocateSpace(hHFA->papoBand[nBand - 1]->psInfo,
+                                     nRowCount * nMaxNumChars);
+                poColumn->SetIntField("columnDataPtr", nOffset);
+                poColumn->SetStringField("dataType", "string");
+                poColumn->SetIntField("maxNumChars", nMaxNumChars);
+
+                char *pachColData = static_cast<char *>(
+                    VSI_MALLOC_VERBOSE(nRowCount * nMaxNumChars));
+                if (!pachColData)
+                    return CE_Failure;
+                for (int i = 0; i < nRowCount; i++)
+                {
+                    const char *pszVal = poRAT->GetValueAsString(i, col);
+                    const unsigned nSize = static_cast<unsigned>(
+                        std::min<size_t>(std::numeric_limits<unsigned>::max(),
+                                         strlen(pszVal)));
+                    memcpy(&pachColData[nMaxNumChars * i], pszVal, nSize);
+                    if (nSize < nMaxNumChars)
+                        memset(&pachColData[nMaxNumChars * i] + nSize, 0,
+                               nMaxNumChars - nSize);
+                }
+                if (VSIFSeekL(hHFA->fp, nOffset, SEEK_SET) != 0 ||
+                    VSIFWriteL(pachColData, nRowCount, nMaxNumChars,
+                               hHFA->fp) != nMaxNumChars)
+                {
+                    CPLError(CE_Failure, CPLE_FileIO, "WriteNamedRAT() failed");
+                    CPLFree(pachColData);
+                    return CE_Failure;
+                }
+                CPLFree(pachColData);
+                break;
+            }
+
+            case GFT_Integer:
+            case GFT_Boolean:
+            {
+                if (static_cast<GUInt32>(nRowCount) >
+                    std::numeric_limits<unsigned>::max() / sizeof(GInt32))
+                {
+                    CPLError(CE_Failure, CPLE_OutOfMemory,
+                             "WriteNamedRAT(): too much content");
+                    return CE_Failure;
+                }
+                const int nOffset = HFAAllocateSpace(
+                    hHFA->papoBand[nBand - 1]->psInfo,
+                    static_cast<GUInt32>(nRowCount * sizeof(GInt32)));
+                poColumn->SetIntField("columnDataPtr", nOffset);
+                poColumn->SetStringField("dataType", "integer");
+
+                GInt32 *panColData = static_cast<GInt32 *>(
+                    VSI_MALLOC_VERBOSE(nRowCount * sizeof(GInt32)));
+                if (!panColData)
+                    return CE_Failure;
+                for (int i = 0; i < nRowCount; i++)
+                {
+                    panColData[i] = poRAT->GetValueAsInt(i, col);
+                }
+#ifdef CPL_MSB
+                GDALSwapWords(panColData, 4, nRowCount, 4);
+#endif
+                if (VSIFSeekL(hHFA->fp, nOffset, SEEK_SET) != 0 ||
+                    VSIFWriteL(panColData, nRowCount, sizeof(GInt32),
+                               hHFA->fp) != sizeof(GInt32))
+                {
+                    CPLError(CE_Failure, CPLE_FileIO, "WriteNamedRAT() failed");
+                    CPLFree(panColData);
+                    return CE_Failure;
+                }
+                CPLFree(panColData);
+                break;
+            }
         }
     }
 
@@ -3049,8 +3285,6 @@ CPLErr HFARasterBand::WriteNamedRAT(const char * /*pszName*/,
 HFADataset::HFADataset()
 {
     m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-
-    memset(adfGeoTransform, 0, sizeof(adfGeoTransform));
 }
 
 /************************************************************************/
@@ -3893,16 +4127,14 @@ CPLErr HFADataset::WriteProjection()
     else
         sMapInfo.proName = const_cast<char *>("Unknown");
 
-    sMapInfo.upperLeftCenter.x = adfGeoTransform[0] + adfGeoTransform[1] * 0.5;
-    sMapInfo.upperLeftCenter.y = adfGeoTransform[3] + adfGeoTransform[5] * 0.5;
+    sMapInfo.upperLeftCenter.x = m_gt[0] + m_gt[1] * 0.5;
+    sMapInfo.upperLeftCenter.y = m_gt[3] + m_gt[5] * 0.5;
 
-    sMapInfo.lowerRightCenter.x =
-        adfGeoTransform[0] + adfGeoTransform[1] * (GetRasterXSize() - 0.5);
-    sMapInfo.lowerRightCenter.y =
-        adfGeoTransform[3] + adfGeoTransform[5] * (GetRasterYSize() - 0.5);
+    sMapInfo.lowerRightCenter.x = m_gt[0] + m_gt[1] * (GetRasterXSize() - 0.5);
+    sMapInfo.lowerRightCenter.y = m_gt[3] + m_gt[5] * (GetRasterYSize() - 0.5);
 
-    sMapInfo.pixelSize.width = std::abs(adfGeoTransform[1]);
-    sMapInfo.pixelSize.height = std::abs(adfGeoTransform[5]);
+    sMapInfo.pixelSize.width = std::abs(m_gt[1]);
+    sMapInfo.pixelSize.height = std::abs(m_gt[5]);
 
     // Handle units.  Try to match up with a known name.
     sMapInfo.units = const_cast<char *>("meters");
@@ -3946,14 +4178,13 @@ CPLErr HFADataset::WriteProjection()
     }
 
     // Write out definitions.
-    if (adfGeoTransform[2] == 0.0 && adfGeoTransform[4] == 0.0)
+    if (m_gt[2] == 0.0 && m_gt[4] == 0.0)
     {
         HFASetMapInfo(hHFA, &sMapInfo);
     }
     else
     {
-        HFASetGeoTransform(hHFA, sMapInfo.proName, sMapInfo.units,
-                           adfGeoTransform);
+        HFASetGeoTransform(hHFA, sMapInfo.proName, sMapInfo.units, m_gt.data());
     }
 
     if (bHaveSRS && sPro.proName != nullptr)
@@ -4376,7 +4607,7 @@ GDALDataset *HFADataset::Open(GDALOpenInfo *poOpenInfo)
 
     // Get geotransform, or if that fails, try to find XForms to
     // build gcps, and metadata.
-    if (!HFAGetGeoTransform(hHFA, poDS->adfGeoTransform))
+    if (!HFAGetGeoTransform(hHFA, poDS->m_gt.data()))
     {
         Efga_Polynomial *pasPolyListForward = nullptr;
         Efga_Polynomial *pasPolyListReverse = nullptr;
@@ -4534,28 +4765,27 @@ CPLErr HFADataset::SetMetadataItem(const char *pszTag, const char *pszValue,
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr HFADataset::GetGeoTransform(double *padfTransform)
+CPLErr HFADataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
-    if (adfGeoTransform[0] != 0.0 || adfGeoTransform[1] != 1.0 ||
-        adfGeoTransform[2] != 0.0 || adfGeoTransform[3] != 0.0 ||
-        adfGeoTransform[4] != 0.0 || adfGeoTransform[5] != 1.0)
+    if (m_gt[0] != 0.0 || m_gt[1] != 1.0 || m_gt[2] != 0.0 || m_gt[3] != 0.0 ||
+        m_gt[4] != 0.0 || m_gt[5] != 1.0)
     {
-        memcpy(padfTransform, adfGeoTransform, sizeof(double) * 6);
+        gt = m_gt;
         return CE_None;
     }
 
-    return GDALPamDataset::GetGeoTransform(padfTransform);
+    return GDALPamDataset::GetGeoTransform(gt);
 }
 
 /************************************************************************/
 /*                          SetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr HFADataset::SetGeoTransform(double *padfTransform)
+CPLErr HFADataset::SetGeoTransform(const GDALGeoTransform &gt)
 
 {
-    memcpy(adfGeoTransform, padfTransform, sizeof(double) * 6);
+    m_gt = gt;
     bGeoDirty = true;
 
     return CE_None;
@@ -5011,9 +5241,9 @@ GDALDataset *HFADataset::CreateCopy(const char *pszFilename,
         }
     }
 
-    HFADataset *poDS = (HFADataset *)Create(
-        pszFilename, poSrcDS->GetRasterXSize(), poSrcDS->GetRasterYSize(),
-        nBandCount, eType, papszModOptions);
+    HFADataset *poDS = cpl::down_cast<HFADataset *>(
+        Create(pszFilename, poSrcDS->GetRasterXSize(),
+               poSrcDS->GetRasterYSize(), nBandCount, eType, papszModOptions));
 
     CSLDestroy(papszModOptions);
 
@@ -5059,14 +5289,13 @@ GDALDataset *HFADataset::CreateCopy(const char *pszFilename,
     }
 
     // Copy projection information.
-    double adfGeoTransform[6] = {};
+    GDALGeoTransform gt;
+    if (poSrcDS->GetGeoTransform(gt) == CE_None)
+        poDS->SetGeoTransform(gt);
 
-    if (poSrcDS->GetGeoTransform(adfGeoTransform) == CE_None)
-        poDS->SetGeoTransform(adfGeoTransform);
-
-    const char *pszProj = poSrcDS->GetProjectionRef();
-    if (pszProj != nullptr && strlen(pszProj) > 0)
-        poDS->SetProjection(pszProj);
+    const OGRSpatialReference *poSrcSRS = poSrcDS->GetSpatialRef();
+    if (poSrcSRS)
+        poDS->SetSpatialRef(poSrcSRS);
 
     // Copy the imagery.
     if (!bCreateAux)
@@ -5230,6 +5459,13 @@ void GDALRegister_HFA()
         "   <Option name='DISABLEPESTRING' type='boolean' description='Disable "
         "use of ArcGIS PE String' default='NO'/>"
         "</CreationOptionList>");
+
+    poDriver->SetMetadataItem(
+        GDAL_DMD_OVERVIEW_CREATIONOPTIONLIST,
+        "<OverviewCreationOptionList>"
+        "   <Option name='COMPRESSED' alias='COMPRESS' type='boolean' "
+        "description='compress blocks'/>"
+        "</OverviewCreationOptionList>");
 
     poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");
 

@@ -45,7 +45,7 @@
 
 // #define DEBUG_MUTEX
 
-#if defined(DEBUG) &&                                                          \
+#if defined(DEBUG) && !defined(__COVERITY__) &&                                \
     (defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__)))
 #ifndef DEBUG_CONTENTION
 #define DEBUG_CONTENTION
@@ -1846,11 +1846,15 @@ static pthread_once_t oTLSKeySetup = PTHREAD_ONCE_INIT;
 /*                             CPLMake_key()                            */
 /************************************************************************/
 
+static void CPLCleanupTLSListWrapper(void *papszList)
+{
+    CPLCleanupTLSList(static_cast<void **>(papszList));
+}
+
 static void CPLMake_key()
 
 {
-    if (pthread_key_create(&oTLSKey, reinterpret_cast<void (*)(void *)>(
-                                         CPLCleanupTLSList)) != 0)
+    if (pthread_key_create(&oTLSKey, CPLCleanupTLSListWrapper) != 0)
     {
         CPLError(CE_Fatal, CPLE_AppDefined, "pthread_key_create() failed!");
     }
@@ -2529,7 +2533,6 @@ void CPLReleaseLock(CPLLock *psLock)
     if (psLock->bDebugPerf && CPLAtomicDec(&(psLock->nCurrentHolders)) == 0)
     {
         const GUIntBig nStopTime = CPLrdtscp();
-        // coverity[missing_lock:FALSE]
         const GIntBig nDiffTime =
             static_cast<GIntBig>(nStopTime - psLock->nStartTime);
         if (nDiffTime > psLock->nMaxDiff)

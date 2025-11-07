@@ -14,6 +14,10 @@
 #include "cpl_vsi_virtual.h"
 #include "gdal_frmts.h"
 #include "gdal_pam.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 
 #include <array>
 #include <cmath>
@@ -38,16 +42,16 @@ class ZMapDataset final : public GDALPamDataset
     int m_nColNum = -1;
     double m_dfNoDataValue = 0;
     vsi_l_offset m_nDataStartOff = 0;
-    std::array<double, 6> m_adfGeoTransform = {{0, 1, 0, 0, 0, 1}};
+    GDALGeoTransform m_gt{};
     int m_nFirstDataLine = 0;
     int m_nCurLine = 0;
     std::deque<double> m_odfQueue{};
 
   public:
     ZMapDataset();
-    virtual ~ZMapDataset();
+    ~ZMapDataset() override;
 
-    virtual CPLErr GetGeoTransform(double *) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
 
     static GDALDataset *Open(GDALOpenInfo *);
     static int Identify(GDALOpenInfo *);
@@ -71,8 +75,8 @@ class ZMapRasterBand final : public GDALPamRasterBand
   public:
     explicit ZMapRasterBand(ZMapDataset *);
 
-    virtual CPLErr IReadBlock(int, int, void *) override;
-    virtual double GetNoDataValue(int *pbSuccess = nullptr) override;
+    CPLErr IReadBlock(int, int, void *) override;
+    double GetNoDataValue(int *pbSuccess = nullptr) override;
 };
 
 /************************************************************************/
@@ -448,20 +452,20 @@ GDALDataset *ZMapDataset::Open(GDALOpenInfo *poOpenInfo)
         const double dfStepX = (dfMaxX - dfMinX) / (nCols - 1);
         const double dfStepY = (dfMaxY - dfMinY) / (nRows - 1);
 
-        poDS->m_adfGeoTransform[0] = dfMinX - dfStepX / 2;
-        poDS->m_adfGeoTransform[1] = dfStepX;
-        poDS->m_adfGeoTransform[3] = dfMaxY + dfStepY / 2;
-        poDS->m_adfGeoTransform[5] = -dfStepY;
+        poDS->m_gt[0] = dfMinX - dfStepX / 2;
+        poDS->m_gt[1] = dfStepX;
+        poDS->m_gt[3] = dfMaxY + dfStepY / 2;
+        poDS->m_gt[5] = -dfStepY;
     }
     else
     {
         const double dfStepX = (dfMaxX - dfMinX) / nCols;
         const double dfStepY = (dfMaxY - dfMinY) / nRows;
 
-        poDS->m_adfGeoTransform[0] = dfMinX;
-        poDS->m_adfGeoTransform[1] = dfStepX;
-        poDS->m_adfGeoTransform[3] = dfMaxY;
-        poDS->m_adfGeoTransform[5] = -dfStepY;
+        poDS->m_gt[0] = dfMinX;
+        poDS->m_gt[1] = dfStepX;
+        poDS->m_gt[3] = dfMaxY;
+        poDS->m_gt[5] = -dfStepY;
     }
 
     /* -------------------------------------------------------------------- */
@@ -490,7 +494,7 @@ GDALDataset *ZMapDataset::Open(GDALOpenInfo *poOpenInfo)
 static void WriteRightJustified(VSIVirtualHandleUniquePtr &fp,
                                 const char *pszValue, int nWidth)
 {
-    int nLen = (int)strlen(pszValue);
+    int nLen = static_cast<int>(strlen(pszValue));
     CPLAssert(nLen <= nWidth);
     for (int i = 0; i < nWidth - nLen; i++)
         fp->Write(" ", 1, 1);
@@ -575,9 +579,9 @@ GDALDataset *ZMapDataset::CreateCopy(const char *pszFilename,
         return nullptr;
     }
 
-    double adfGeoTransform[6];
-    poSrcDS->GetGeoTransform(adfGeoTransform);
-    if (adfGeoTransform[2] != 0 || adfGeoTransform[4] != 0)
+    GDALGeoTransform gt;
+    poSrcDS->GetGeoTransform(gt);
+    if (gt[2] != 0 || gt[4] != 0)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "ZMap driver does not support CreateCopy() from skewed or "
@@ -629,33 +633,23 @@ GDALDataset *ZMapDataset::CreateCopy(const char *pszFilename,
 
     if (CPLTestBool(CPLGetConfigOption("ZMAP_PIXEL_IS_POINT", "FALSE")))
     {
-        WriteRightJustified(fp, adfGeoTransform[0] + adfGeoTransform[1] / 2, 14,
-                            7);
+        WriteRightJustified(fp, gt[0] + gt[1] / 2, 14, 7);
         fp->Printf(",");
-        WriteRightJustified(fp,
-                            adfGeoTransform[0] + adfGeoTransform[1] * nXSize -
-                                adfGeoTransform[1] / 2,
-                            14, 7);
+        WriteRightJustified(fp, gt[0] + gt[1] * nXSize - gt[1] / 2, 14, 7);
         fp->Printf(",");
-        WriteRightJustified(fp,
-                            adfGeoTransform[3] + adfGeoTransform[5] * nYSize -
-                                adfGeoTransform[5] / 2,
-                            14, 7);
+        WriteRightJustified(fp, gt[3] + gt[5] * nYSize - gt[5] / 2, 14, 7);
         fp->Printf(",");
-        WriteRightJustified(fp, adfGeoTransform[3] + adfGeoTransform[5] / 2, 14,
-                            7);
+        WriteRightJustified(fp, gt[3] + gt[5] / 2, 14, 7);
     }
     else
     {
-        WriteRightJustified(fp, adfGeoTransform[0], 14, 7);
+        WriteRightJustified(fp, gt[0], 14, 7);
         fp->Printf(",");
-        WriteRightJustified(
-            fp, adfGeoTransform[0] + adfGeoTransform[1] * nXSize, 14, 7);
+        WriteRightJustified(fp, gt[0] + gt[1] * nXSize, 14, 7);
         fp->Printf(",");
-        WriteRightJustified(
-            fp, adfGeoTransform[3] + adfGeoTransform[5] * nYSize, 14, 7);
+        WriteRightJustified(fp, gt[3] + gt[5] * nYSize, 14, 7);
         fp->Printf(",");
-        WriteRightJustified(fp, adfGeoTransform[3], 14, 7);
+        WriteRightJustified(fp, gt[3], 14, 7);
     }
 
     fp->Printf("\n");
@@ -723,10 +717,10 @@ GDALDataset *ZMapDataset::CreateCopy(const char *pszFilename,
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr ZMapDataset::GetGeoTransform(double *padfTransform)
+CPLErr ZMapDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
-    memcpy(padfTransform, m_adfGeoTransform.data(), 6 * sizeof(double));
+    gt = m_gt;
 
     return CE_None;
 }

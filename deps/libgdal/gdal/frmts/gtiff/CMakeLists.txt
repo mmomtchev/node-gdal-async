@@ -36,8 +36,10 @@ add_gdal_driver(
           gt_overview.cpp
           gt_wkt_srs.cpp
           tifvsi.cpp
-  BUILTIN STRONG_CXX_WFLAGS)
+  BUILTIN)
 gdal_standard_includes(gdal_GTIFF)
+
+target_compile_options(gdal_GTIFF PRIVATE ${WFLAG_DOUBLE_PROMOTION})
 
 if (GDAL_ENABLE_DRIVER_JPEG)
   target_compile_definitions(gdal_GTIFF PRIVATE -DHAVE_LIBJPEG)

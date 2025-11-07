@@ -33,19 +33,19 @@ class OGRKMLLayer final : public OGRLayer
   public:
     OGRKMLLayer(const char *pszName_, const OGRSpatialReference *poSRS,
                 bool bWriter, OGRwkbGeometryType eType, OGRKMLDataSource *poDS);
-    ~OGRKMLLayer();
+    ~OGRKMLLayer() override;
 
     //
     // OGRLayer Interface
     //
-    OGRFeatureDefn *GetLayerDefn() override;
+    const OGRFeatureDefn *GetLayerDefn() const override;
     OGRErr ICreateFeature(OGRFeature *poFeature) override;
     OGRErr CreateField(const OGRFieldDefn *poField,
                        int bApproxOK = TRUE) override;
     void ResetReading() override;
     OGRFeature *GetNextFeature() override;
     GIntBig GetFeatureCount(int bForce = TRUE) override;
-    int TestCapability(const char *pszCap) override;
+    int TestCapability(const char *pszCap) const override;
 
     GDALDataset *GetDataset() override;
 
@@ -64,22 +64,24 @@ class OGRKMLLayer final : public OGRLayer
   private:
     friend class OGRKMLDataSource;
 
-    OGRKMLDataSource *poDS_;
-    OGRSpatialReference *poSRS_;
-    OGRCoordinateTransformation *poCT_;
+    OGRKMLDataSource *poDS_ = nullptr;
+    OGRSpatialReference *poSRS_ = nullptr;
+    OGRCoordinateTransformation *poCT_ = nullptr;
 
-    OGRFeatureDefn *poFeatureDefn_;
+    OGRFeatureDefn *poFeatureDefn_ = nullptr;
 
-    int iNextKMLId_;
-    bool bWriter_;
-    int nLayerNumber_;
-    GIntBig nWroteFeatureCount_;
-    bool bSchemaWritten_;
-    bool bClosedForWriting;
-    char *pszName_;
+    int iNextKMLId_ = 0;
+    bool bWriter_ = false;
+    int nLayerNumber_ = 0;
+    GIntBig nWroteFeatureCount_ = 0;
+    bool bSchemaWritten_ = false;
+    bool bClosedForWriting = false;
+    char *pszName_ = nullptr;
 
-    int nLastAsked;
-    int nLastCount;
+    int nLastAsked = -1;
+    int nLastCount = -1;
+
+    CPL_DISALLOW_COPY_ASSIGN(OGRKMLLayer)
 };
 
 /************************************************************************/
@@ -90,20 +92,20 @@ class OGRKMLDataSource final : public GDALDataset
 {
   public:
     OGRKMLDataSource();
-    ~OGRKMLDataSource();
+    ~OGRKMLDataSource() override;
 
     int Open(const char *pszName, int bTestOpen);
 
-    int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return nLayers_;
     }
 
-    OGRLayer *GetLayer(int nLayer) override;
+    const OGRLayer *GetLayer(int nLayer) const override;
     OGRLayer *ICreateLayer(const char *pszName,
                            const OGRGeomFieldDefn *poGeomFieldDefn,
                            CSLConstList papszOptions) override;
-    int TestCapability(const char *pszCap) override;
+    int TestCapability(const char *pszCap) const override;
 
     //
     // OGRKMLDataSource Interface
@@ -150,28 +152,30 @@ class OGRKMLDataSource final : public GDALDataset
 
   private:
 #ifdef HAVE_EXPAT
-    KML *poKMLFile_;
+    KML *poKMLFile_ = nullptr;
 #endif
 
-    OGRKMLLayer **papoLayers_;
-    int nLayers_;
+    OGRKMLLayer **papoLayers_ = nullptr;
+    int nLayers_ = 0;
 
     // The name of the field to use for the KML name element.
-    char *pszNameField_;
-    char *pszDescriptionField_;
+    char *pszNameField_ = nullptr;
+    char *pszDescriptionField_ = nullptr;
 
     // The KML altitude mode to use.
-    char *pszAltitudeMode_;
+    char *pszAltitudeMode_ = nullptr;
 
-    char **papszCreateOptions_;
+    char **papszCreateOptions_ = nullptr;
 
     // Output related parameters.
-    VSILFILE *fpOutput_;
+    VSILFILE *fpOutput_ = nullptr;
 
-    OGREnvelope oEnvelope_;
+    OGREnvelope oEnvelope_{};
 
     // Have we issued a coordinate transformation already for this datasource.
-    bool bIssuedCTError_;
+    bool bIssuedCTError_ = false;
+
+    CPL_DISALLOW_COPY_ASSIGN(OGRKMLDataSource)
 };
 
 #endif /* OGR_KML_H_INCLUDED */

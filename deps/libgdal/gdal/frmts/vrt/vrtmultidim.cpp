@@ -21,7 +21,10 @@
 #include "cpl_mem_cache.h"
 #include "cpl_minixml.h"
 #include "cpl_multiproc.h"
+#include "gdal_priv.h"
 #include "vrtdataset.h"
+
+VRTMDArraySource::~VRTMDArraySource() = default;
 
 static std::shared_ptr<GDALMDArray> ParseArray(const CPLXMLNode *psTree,
                                                const char *pszVRTPath,
@@ -141,11 +144,11 @@ VRTGroup *VRTGroup::GetRootGroup() const
 /*                       GetRootGroupSharedPtr()                        */
 /************************************************************************/
 
-std::shared_ptr<GDALGroup> VRTGroup::GetRootGroupSharedPtr() const
+std::shared_ptr<VRTGroup> VRTGroup::GetRootGroupSharedPtr() const
 {
     auto group = GetRootGroup();
     if (group)
-        return group->m_pSelf.lock();
+        return std::dynamic_pointer_cast<VRTGroup>(group->m_pSelf.lock());
     return nullptr;
 }
 
@@ -218,6 +221,7 @@ bool VRTGroup::XMLInit(const std::shared_ptr<VRTGroup> &poRoot,
                 m_bDirty = false;
                 return false;
             }
+            m_aosMDArrayNames.push_back(poArray->GetName());
             m_oMapMDArrays[poArray->GetName()] = poArray;
         }
     }
@@ -298,13 +302,17 @@ void VRTGroup::Serialize(CPLXMLNode *psParent, const char *pszVRTPath) const
     {
         iter.second->Serialize(psGroup);
     }
-    for (const auto &iter : m_oMapMDArrays)
+    for (const auto &name : m_aosMDArrayNames)
     {
-        iter.second->Serialize(psGroup, pszVRTPath);
+        auto iter = m_oMapMDArrays.find(name);
+        CPLAssert(iter != m_oMapMDArrays.end());
+        iter->second->Serialize(psGroup, pszVRTPath);
     }
-    for (const auto &iter : m_oMapGroups)
+    for (const auto &name : m_aosGroupNames)
     {
-        iter.second->Serialize(psGroup, pszVRTPath);
+        auto iter = m_oMapGroups.find(name);
+        CPLAssert(iter != m_oMapGroups.end());
+        iter->second->Serialize(psGroup, pszVRTPath);
     }
 }
 
@@ -314,10 +322,7 @@ void VRTGroup::Serialize(CPLXMLNode *psParent, const char *pszVRTPath) const
 
 std::vector<std::string> VRTGroup::GetGroupNames(CSLConstList) const
 {
-    std::vector<std::string> names;
-    for (const auto &iter : m_oMapGroups)
-        names.push_back(iter.first);
-    return names;
+    return m_aosGroupNames;
 }
 
 /************************************************************************/
@@ -425,10 +430,7 @@ VRTGroup::GetAttributes(CSLConstList) const
 
 std::vector<std::string> VRTGroup::GetMDArrayNames(CSLConstList) const
 {
-    std::vector<std::string> names;
-    for (const auto &iter : m_oMapMDArrays)
-        names.push_back(iter.first);
-    return names;
+    return m_aosMDArrayNames;
 }
 
 /************************************************************************/
@@ -456,11 +458,12 @@ void VRTGroup::SetDirty()
 }
 
 /************************************************************************/
-/*                             CreateGroup()                            */
+/*                            CreateVRTGroup()                          */
 /************************************************************************/
 
-std::shared_ptr<GDALGroup> VRTGroup::CreateGroup(const std::string &osName,
-                                                 CSLConstList /*papszOptions*/)
+std::shared_ptr<VRTGroup>
+VRTGroup::CreateVRTGroup(const std::string &osName,
+                         CSLConstList /*papszOptions*/)
 {
     if (osName.empty())
     {
@@ -477,8 +480,19 @@ std::shared_ptr<GDALGroup> VRTGroup::CreateGroup(const std::string &osName,
     SetDirty();
     auto newGroup(VRTGroup::Create(GetFullName(), osName.c_str()));
     newGroup->SetRootGroupRef(GetRootGroupRef());
+    m_aosGroupNames.push_back(osName);
     m_oMapGroups[osName] = newGroup;
     return newGroup;
+}
+
+/************************************************************************/
+/*                             CreateGroup()                            */
+/************************************************************************/
+
+std::shared_ptr<GDALGroup> VRTGroup::CreateGroup(const std::string &osName,
+                                                 CSLConstList papszOptions)
+{
+    return CreateVRTGroup(osName, papszOptions);
 }
 
 /************************************************************************/
@@ -534,13 +548,13 @@ VRTGroup::CreateAttribute(const std::string &osName,
 }
 
 /************************************************************************/
-/*                            CreateMDArray()                           */
+/*                           CreateVRTMDArray()                         */
 /************************************************************************/
 
-std::shared_ptr<GDALMDArray> VRTGroup::CreateMDArray(
+std::shared_ptr<VRTMDArray> VRTGroup::CreateVRTMDArray(
     const std::string &osName,
     const std::vector<std::shared_ptr<GDALDimension>> &aoDimensions,
-    const GDALExtendedDataType &oType, CSLConstList)
+    const GDALExtendedDataType &oType, CSLConstList papszOptions)
 {
     if (osName.empty())
     {
@@ -568,11 +582,43 @@ std::shared_ptr<GDALMDArray> VRTGroup::CreateMDArray(
             return nullptr;
         }
     }
-    auto newArray(std::make_shared<VRTMDArray>(GetRef(), GetFullName(), osName,
-                                               aoDimensions, oType));
+
+    std::vector<GUInt64> anBlockSize(aoDimensions.size(), 0);
+    const char *pszBlockSize = CSLFetchNameValue(papszOptions, "BLOCKSIZE");
+    if (pszBlockSize)
+    {
+        const auto aszTokens(
+            CPLStringList(CSLTokenizeString2(pszBlockSize, ",", 0)));
+        if (static_cast<size_t>(aszTokens.size()) != aoDimensions.size())
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Invalid number of values in BLOCKSIZE");
+            return nullptr;
+        }
+        for (size_t i = 0; i < anBlockSize.size(); ++i)
+        {
+            anBlockSize[i] = std::strtoull(aszTokens[i], nullptr, 10);
+        }
+    }
+
+    auto newArray(std::make_shared<VRTMDArray>(
+        GetRef(), GetFullName(), osName, aoDimensions, oType, anBlockSize));
     newArray->SetSelf(newArray);
+    m_aosMDArrayNames.push_back(osName);
     m_oMapMDArrays[osName] = newArray;
     return newArray;
+}
+
+/************************************************************************/
+/*                            CreateMDArray()                           */
+/************************************************************************/
+
+std::shared_ptr<GDALMDArray> VRTGroup::CreateMDArray(
+    const std::string &osName,
+    const std::vector<std::shared_ptr<GDALDimension>> &aoDimensions,
+    const GDALExtendedDataType &oType, CSLConstList papszOptions)
+{
+    return CreateVRTMDArray(osName, aoDimensions, oType, papszOptions);
 }
 
 /************************************************************************/
@@ -969,6 +1015,7 @@ VRTMDArray::Create(const std::shared_ptr<VRTGroup> &poThisGroup,
     }
     std::vector<std::shared_ptr<GDALDimension>> dims;
     std::map<std::string, std::shared_ptr<VRTAttribute>> oMapAttributes;
+    std::string osBlockSize;
     for (const auto *psIter = psNode->psChild; psIter; psIter = psIter->psNext)
     {
         if (psIter->eType == CXT_Element &&
@@ -1004,11 +1051,34 @@ VRTMDArray::Create(const std::shared_ptr<VRTGroup> &poThisGroup,
                 return nullptr;
             oMapAttributes[poAttr->GetName()] = poAttr;
         }
+        else if (psIter->eType == CXT_Element &&
+                 strcmp(psIter->pszValue, "BlockSize") == 0 &&
+                 psIter->psChild && psIter->psChild->eType == CXT_Text)
+        {
+            osBlockSize = psIter->psChild->pszValue;
+        }
     }
 
-    auto array(std::make_shared<VRTMDArray>(poThisGroup->GetRef(), osParentName,
-                                            pszName, dt, std::move(dims),
-                                            std::move(oMapAttributes)));
+    std::vector<GUInt64> anBlockSize(dims.size(), 0);
+    if (!osBlockSize.empty())
+    {
+        const auto aszTokens(
+            CPLStringList(CSLTokenizeString2(osBlockSize.c_str(), ",", 0)));
+        if (static_cast<size_t>(aszTokens.size()) != dims.size())
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Invalid number of values in BLOCKSIZE");
+            return nullptr;
+        }
+        for (size_t i = 0; i < anBlockSize.size(); ++i)
+        {
+            anBlockSize[i] = std::strtoull(aszTokens[i], nullptr, 10);
+        }
+    }
+
+    auto array(std::make_shared<VRTMDArray>(
+        poThisGroup->GetRef(), osParentName, pszName, dt, std::move(dims),
+        std::move(oMapAttributes), std::move(anBlockSize)));
     array->SetSelf(array);
     array->SetSpatialRef(poSRS.get());
 
@@ -1273,7 +1343,8 @@ VRTMDArraySourceInlinedValues::Create(const VRTMDArray *array,
     }
 
     const size_t nExpectedVals = nArrayByteSize / nDTSize;
-    CPLStringList aosValues;
+    CPLStringList aosValues;  // keep in this scope
+    std::vector<const char *> apszValues;
 
     if (strcmp(psNode->pszValue, "InlineValuesWithValueElement") == 0)
     {
@@ -1282,7 +1353,12 @@ VRTMDArraySourceInlinedValues::Create(const VRTMDArray *array,
             if (psIter->eType == CXT_Element &&
                 strcmp(psIter->pszValue, "Value") == 0)
             {
-                aosValues.AddString(CPLGetXMLValue(psIter, nullptr, ""));
+                apszValues.push_back(CPLGetXMLValue(psIter, nullptr, ""));
+            }
+            else if (psIter->eType == CXT_Element &&
+                     strcmp(psIter->pszValue, "NullValue") == 0)
+            {
+                apszValues.push_back(nullptr);
             }
         }
     }
@@ -1296,13 +1372,15 @@ VRTMDArraySourceInlinedValues::Create(const VRTMDArray *array,
             return nullptr;
         }
         aosValues.Assign(CSLTokenizeString2(pszValue, ", \r\n", 0), true);
+        for (const char *pszVal : aosValues)
+            apszValues.push_back(pszVal);
     }
 
-    if (static_cast<size_t>(aosValues.size()) != nExpectedVals)
+    if (apszValues.size() != nExpectedVals)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Invalid number of values. Got %u, expected %u",
-                 static_cast<unsigned>(aosValues.size()),
+                 static_cast<unsigned>(apszValues.size()),
                  static_cast<unsigned>(nExpectedVals));
         return nullptr;
     }
@@ -1319,9 +1397,9 @@ VRTMDArraySourceInlinedValues::Create(const VRTMDArray *array,
 
     const auto dtString(GDALExtendedDataType::CreateString());
     GByte *pabyPtr = &abyValues[0];
-    for (int i = 0; i < aosValues.size(); ++i)
+    for (size_t i = 0; i < apszValues.size(); ++i)
     {
-        const char *pszVal = &aosValues[i][0];
+        const char *pszVal = apszValues[i];
         GDALExtendedDataType::CopyValue(&pszVal, dtString, pabyPtr, dt);
         pabyPtr += nDTSize;
     }
@@ -1529,17 +1607,15 @@ void VRTMDArraySourceInlinedValues::Serialize(CPLXMLNode *psParent,
             char *pszStr = nullptr;
             GDALExtendedDataType::CopyValue(&m_abyValues[i * nDTSize], dt,
                                             &pszStr, dtString);
-            if (pszStr)
-            {
-                auto psNode =
-                    CPLCreateXMLElementAndValue(nullptr, "Value", pszStr);
-                if (psLast)
-                    psLast->psNext = psNode;
-                else
-                    psSource->psChild = psNode;
-                psLast = psNode;
-                CPLFree(pszStr);
-            }
+            auto psNode =
+                pszStr ? CPLCreateXMLElementAndValue(nullptr, "Value", pszStr)
+                       : CPLCreateXMLNode(nullptr, CXT_Element, "NullValue");
+            if (psLast)
+                psLast->psNext = psNode;
+            else
+                psSource->psChild = psNode;
+            psLast = psNode;
+            CPLFree(pszStr);
         }
     }
     else
@@ -1947,11 +2023,11 @@ bool VRTMDArraySourceFromArray::Read(const GUInt64 *arrayStartIdx,
         }
         else
         {
-            poSrcDS = GDALDataset::Open(
-                osFilename.c_str(),
-                (m_osBand.empty() ? GDAL_OF_MULTIDIM_RASTER : GDAL_OF_RASTER) |
-                    GDAL_OF_INTERNAL | GDAL_OF_VERBOSE_ERROR,
-                nullptr, nullptr, nullptr);
+            poSrcDS =
+                GDALDataset::Open(osFilename.c_str(),
+                                  GDAL_OF_MULTIDIM_RASTER | GDAL_OF_RASTER |
+                                      GDAL_OF_INTERNAL | GDAL_OF_VERBOSE_ERROR,
+                                  nullptr, nullptr, nullptr);
             if (!poSrcDS)
                 return false;
             poSrcDSWrapper = std::make_shared<VRTArrayDatasetWrapper>(poSrcDS);
@@ -1962,7 +2038,7 @@ bool VRTMDArraySourceFromArray::Read(const GUInt64 *arrayStartIdx,
     }
 
     std::shared_ptr<GDALMDArray> poArray;
-    if (m_osBand.empty())
+    if (m_osBand.empty() && poSrcDS->GetRasterCount() == 0)
     {
         auto rg(poSrcDS->GetRootGroup());
         if (rg == nullptr)
@@ -1978,6 +2054,11 @@ bool VRTMDArraySourceFromArray::Read(const GUInt64 *arrayStartIdx,
                      m_osArray.c_str());
             return false;
         }
+    }
+    else if (m_osBand.empty())
+    {
+        poArray = poSrcDS->AsMDArray();
+        CPLAssert(poArray);
     }
     else
     {
@@ -2505,6 +2586,23 @@ void VRTMDArray::Serialize(CPLXMLNode *psParent, const char *pszVRTPath) const
         }
     }
 
+    std::string osBlockSize;
+    for (auto v : m_anBlockSize)
+    {
+        if (v == 0)
+        {
+            osBlockSize.clear();
+            break;
+        }
+        if (!osBlockSize.empty())
+            osBlockSize += ",";
+        osBlockSize += std::to_string(v);
+    }
+    if (!osBlockSize.empty())
+    {
+        CPLCreateXMLElementAndValue(psArray, "BlockSize", osBlockSize.c_str());
+    }
+
     if (m_poSRS && !m_poSRS->IsEmpty())
     {
         char *pszWKT = nullptr;
@@ -2567,7 +2665,7 @@ void VRTMDArray::Serialize(CPLXMLNode *psParent, const char *pszVRTPath) const
 /*                           VRTArraySource()                           */
 /************************************************************************/
 
-class VRTArraySource : public VRTSource
+class VRTArraySource final : public VRTSource
 {
     std::unique_ptr<CPLXMLNode, CPLXMLTreeCloserDeleter> m_poXMLTree{};
     std::unique_ptr<GDALDataset> m_poDS{};

@@ -66,8 +66,11 @@ struct GDALVectorInfoOptions
     GIntBig nLimit = -1;
 
     // Only used during argument parsing
-    bool bSummaryParser = false;
-    bool bFeaturesParser = false;
+    bool bSummaryUserRequested = false;
+    bool bFeaturesUserRequested = false;
+
+    // Set by gdal vector info
+    bool bIsCli = false;
 };
 
 /************************************************************************/
@@ -399,7 +402,7 @@ static void ReportFieldDomain(CPLString &osRet, CPLJSONObject &oDomains,
                         "%04d-%02d-%02dT%02d:%02d:%02d", sMin.Date.Year,
                         sMin.Date.Month, sMin.Date.Day, sMin.Date.Hour,
                         sMin.Date.Minute,
-                        static_cast<int>(sMin.Date.Second + 0.5));
+                        static_cast<int>(sMin.Date.Second + 0.5f));
                     if (bJson)
                     {
                         oDomain.Set("minValue", pszVal);
@@ -418,7 +421,7 @@ static void ReportFieldDomain(CPLString &osRet, CPLJSONObject &oDomains,
                         "%04d-%02d-%02dT%02d:%02d:%02d", sMax.Date.Year,
                         sMax.Date.Month, sMax.Date.Day, sMax.Date.Hour,
                         sMax.Date.Minute,
-                        static_cast<int>(sMax.Date.Second + 0.5));
+                        static_cast<int>(sMax.Date.Second + 0.5f));
                     if (bJson)
                     {
                         oDomain.Set("maxValue", pszVal);
@@ -801,9 +804,13 @@ static void ReportOnLayer(CPLString &osRet, CPLJSONObject &oLayer,
                           bool bTakeIntoAccountGeomField)
 {
     const bool bJson = psOptions->eFormat == FORMAT_JSON;
+    const bool bIsSummaryCli =
+        psOptions->bIsCli && psOptions->bSummaryUserRequested;
     OGRFeatureDefn *poDefn = poLayer->GetLayerDefn();
 
     oLayer.Set("name", poLayer->GetName());
+    const int nGeomFieldCount =
+        psOptions->bGeomType ? poLayer->GetLayerDefn()->GetGeomFieldCount() : 0;
 
     /* -------------------------------------------------------------------- */
     /*      Set filters if provided.                                        */
@@ -851,14 +858,12 @@ static void ReportOnLayer(CPLString &osRet, CPLJSONObject &oLayer,
     }
 
     GDALVectorInfoReportMetadata(osRet, oLayer, psOptions, poLayer,
-                                 psOptions->bListMDD, psOptions->bShowMetadata,
+                                 !bIsSummaryCli && psOptions->bListMDD,
+                                 !bIsSummaryCli && psOptions->bShowMetadata,
                                  psOptions->aosExtraMDDomains.List());
 
     if (psOptions->bVerbose)
     {
-        const int nGeomFieldCount =
-            psOptions->bGeomType ? poLayer->GetLayerDefn()->GetGeomFieldCount()
-                                 : 0;
 
         CPLString osWKTFormat("FORMAT=");
         osWKTFormat += psOptions->osWKTFormat;
@@ -1441,7 +1446,8 @@ static void ReportOnLayer(CPLString &osRet, CPLJSONObject &oLayer,
     /* -------------------------------------------------------------------- */
 
     if (psOptions->nFetchFID == OGRNullFID && !bForceSummary &&
-        !psOptions->bSummaryOnly)
+        ((psOptions->bIsCli && psOptions->bFeaturesUserRequested) ||
+         (!psOptions->bIsCli && !psOptions->bSummaryOnly)))
     {
         if (!psOptions->bSuperQuiet)
         {
@@ -1683,6 +1689,7 @@ static void PrintLayerSummary(CPLString &osRet, CPLJSONObject &oLayer,
                               OGRLayer *poLayer, bool bIsPrivate)
 {
     const bool bJson = psOptions->eFormat == FORMAT_JSON;
+    const bool bIsSummaryCli = psOptions->bIsCli && psOptions->bSummaryOnly;
     if (bJson)
         oLayer.Set("name", poLayer->GetName());
     else
@@ -1699,6 +1706,20 @@ static void PrintLayerSummary(CPLString &osRet, CPLJSONObject &oLayer,
 
     const int nGeomFieldCount =
         psOptions->bGeomType ? poLayer->GetLayerDefn()->GetGeomFieldCount() : 0;
+
+    if (bIsSummaryCli && bJson)
+    {
+        CPLJSONArray oGeometryTypes;
+        for (int iGeom = 0; iGeom < nGeomFieldCount; iGeom++)
+        {
+            OGRGeomFieldDefn *poGFldDefn =
+                poLayer->GetLayerDefn()->GetGeomFieldDefn(iGeom);
+            oGeometryTypes.Add(OGRGeometryTypeToName(poGFldDefn->GetType()));
+        }
+        oLayer.Add("geometryType", oGeometryTypes);
+        return;
+    }
+
     if (bJson || nGeomFieldCount > 1)
     {
         if (!bJson)
@@ -1841,6 +1862,9 @@ char *GDALVectorInfo(GDALDatasetH hDataset,
     const std::string osFilename(poDS->GetDescription());
 
     const bool bJson = psOptions->eFormat == FORMAT_JSON;
+    const bool bIsSummaryCli =
+        psOptions->bIsCli && psOptions->bSummaryUserRequested;
+
     CPLJSONArray oLayerArray;
     if (bJson)
     {
@@ -1875,185 +1899,193 @@ char *GDALVectorInfo(GDALDatasetH hDataset,
                poDS->GetDescription(), osFilename.c_str());
     }
 
-    GDALVectorInfoReportMetadata(osRet, oRoot, psOptions, poDS,
-                                 psOptions->bListMDD, psOptions->bShowMetadata,
-                                 psOptions->aosExtraMDDomains.List());
+    int nRepeatCount = psOptions->nRepeatCount;
 
-    CPLJSONObject oDomains;
-    oRoot.Add("domains", oDomains);
-    if (!psOptions->osFieldDomain.empty())
+    if (!bIsSummaryCli)
     {
-        auto poDomain = poDS->GetFieldDomain(psOptions->osFieldDomain);
-        if (poDomain == nullptr)
+        GDALVectorInfoReportMetadata(
+            osRet, oRoot, psOptions, poDS, psOptions->bListMDD,
+            psOptions->bShowMetadata, psOptions->aosExtraMDDomains.List());
+
+        CPLJSONObject oDomains;
+        oRoot.Add("domains", oDomains);
+        if (!psOptions->osFieldDomain.empty())
         {
-            CPLError(CE_Failure, CPLE_AppDefined, "Domain %s cannot be found.",
-                     psOptions->osFieldDomain.c_str());
-            return nullptr;
-        }
-        if (!bJson)
-            Concat(osRet, psOptions->bStdoutOutput, "\n");
-        ReportFieldDomain(osRet, oDomains, psOptions, poDomain);
-        if (!bJson)
-            Concat(osRet, psOptions->bStdoutOutput, "\n");
-    }
-    else if (bJson)
-    {
-        for (const auto &osDomainName : poDS->GetFieldDomainNames())
-        {
-            auto poDomain = poDS->GetFieldDomain(osDomainName);
-            if (poDomain)
+            auto poDomain = poDS->GetFieldDomain(psOptions->osFieldDomain);
+            if (poDomain == nullptr)
             {
-                ReportFieldDomain(osRet, oDomains, psOptions, poDomain);
+                CPLError(CE_Failure, CPLE_AppDefined,
+                         "Domain %s cannot be found.",
+                         psOptions->osFieldDomain.c_str());
+                return nullptr;
+            }
+            if (!bJson)
+                Concat(osRet, psOptions->bStdoutOutput, "\n");
+            ReportFieldDomain(osRet, oDomains, psOptions, poDomain);
+            if (!bJson)
+                Concat(osRet, psOptions->bStdoutOutput, "\n");
+        }
+        else if (bJson)
+        {
+            for (const auto &osDomainName : poDS->GetFieldDomainNames())
+            {
+                auto poDomain = poDS->GetFieldDomain(osDomainName);
+                if (poDomain)
+                {
+                    ReportFieldDomain(osRet, oDomains, psOptions, poDomain);
+                }
             }
         }
-    }
 
-    int nRepeatCount = psOptions->nRepeatCount;
-    if (psOptions->bDatasetGetNextFeature)
-    {
-        nRepeatCount = 0;  // skip layer reporting.
-
-        /* --------------------------------------------------------------------
-         */
-        /*      Set filters if provided. */
-        /* --------------------------------------------------------------------
-         */
-        if (!psOptions->osWHERE.empty() ||
-            psOptions->poSpatialFilter != nullptr)
+        if (psOptions->bDatasetGetNextFeature)
         {
-            for (int iLayer = 0; iLayer < poDS->GetLayerCount(); iLayer++)
+            nRepeatCount = 0;  // skip layer reporting.
+
+            /* --------------------------------------------------------------------
+             */
+            /*      Set filters if provided. */
+            /* --------------------------------------------------------------------
+             */
+            if (!psOptions->osWHERE.empty() ||
+                psOptions->poSpatialFilter != nullptr)
             {
-                OGRLayer *poLayer = poDS->GetLayer(iLayer);
-
-                if (poLayer == nullptr)
+                for (int iLayer = 0; iLayer < poDS->GetLayerCount(); iLayer++)
                 {
-                    CPLError(CE_Failure, CPLE_AppDefined,
-                             "Couldn't fetch advertised layer %d.", iLayer);
-                    return nullptr;
-                }
+                    OGRLayer *poLayer = poDS->GetLayer(iLayer);
 
+                    if (poLayer == nullptr)
+                    {
+                        CPLError(CE_Failure, CPLE_AppDefined,
+                                 "Couldn't fetch advertised layer %d.", iLayer);
+                        return nullptr;
+                    }
+
+                    if (!psOptions->osWHERE.empty())
+                    {
+                        if (poLayer->SetAttributeFilter(
+                                psOptions->osWHERE.c_str()) != OGRERR_NONE)
+                        {
+                            CPLError(
+                                CE_Warning, CPLE_AppDefined,
+                                "SetAttributeFilter(%s) failed on layer %s.",
+                                psOptions->osWHERE.c_str(), poLayer->GetName());
+                        }
+                    }
+
+                    if (psOptions->poSpatialFilter != nullptr)
+                    {
+                        if (!psOptions->osGeomField.empty())
+                        {
+                            OGRFeatureDefn *poDefn = poLayer->GetLayerDefn();
+                            const int iGeomField = poDefn->GetGeomFieldIndex(
+                                psOptions->osGeomField.c_str());
+                            if (iGeomField >= 0)
+                                poLayer->SetSpatialFilter(
+                                    iGeomField,
+                                    psOptions->poSpatialFilter.get());
+                            else
+                                CPLError(CE_Warning, CPLE_AppDefined,
+                                         "Cannot find geometry field %s.",
+                                         psOptions->osGeomField.c_str());
+                        }
+                        else
+                        {
+                            poLayer->SetSpatialFilter(
+                                psOptions->poSpatialFilter.get());
+                        }
+                    }
+                }
+            }
+
+            std::set<OGRLayer *> oSetLayers;
+            while (true)
+            {
+                OGRLayer *poLayer = nullptr;
+                OGRFeature *poFeature =
+                    poDS->GetNextFeature(&poLayer, nullptr, nullptr, nullptr);
+                if (poFeature == nullptr)
+                    break;
+                if (psOptions->aosLayers.empty() || poLayer == nullptr ||
+                    CSLFindString(psOptions->aosLayers.List(),
+                                  poLayer->GetName()) >= 0)
+                {
+                    if (psOptions->bVerbose && poLayer != nullptr &&
+                        oSetLayers.find(poLayer) == oSetLayers.end())
+                    {
+                        oSetLayers.insert(poLayer);
+                        CPLJSONObject oLayer;
+                        oLayerArray.Add(oLayer);
+                        ReportOnLayer(
+                            osRet, oLayer, psOptions, poLayer,
+                            /*bForceSummary = */ true,
+                            /*bTakeIntoAccountWHERE = */ false,
+                            /*bTakeIntoAccountSpatialFilter = */ false,
+                            /*bTakeIntoAccountGeomField = */ false);
+                    }
+                    if (!psOptions->bSuperQuiet && !psOptions->bSummaryOnly)
+                        poFeature->DumpReadable(
+                            nullptr,
+                            const_cast<char **>(psOptions->aosOptions.List()));
+                }
+                OGRFeature::DestroyFeature(poFeature);
+            }
+        }
+
+        /* -------------------------------------------------------------------- */
+        /*      Special case for -sql clause.  No source layers required.       */
+        /* -------------------------------------------------------------------- */
+        else if (!psOptions->osSQLStatement.empty())
+        {
+            nRepeatCount = 0;  // skip layer reporting.
+
+            if (!bJson && !psOptions->aosLayers.empty())
+                Concat(osRet, psOptions->bStdoutOutput,
+                       "layer names ignored in combination with -sql.\n");
+
+            CPLErrorReset();
+            OGRLayer *poResultSet = poDS->ExecuteSQL(
+                psOptions->osSQLStatement.c_str(),
+                psOptions->osGeomField.empty()
+                    ? psOptions->poSpatialFilter.get()
+                    : nullptr,
+                psOptions->osDialect.empty() ? nullptr
+                                             : psOptions->osDialect.c_str());
+
+            if (poResultSet != nullptr)
+            {
                 if (!psOptions->osWHERE.empty())
                 {
-                    if (poLayer->SetAttributeFilter(
+                    if (poResultSet->SetAttributeFilter(
                             psOptions->osWHERE.c_str()) != OGRERR_NONE)
                     {
-                        CPLError(CE_Warning, CPLE_AppDefined,
-                                 "SetAttributeFilter(%s) failed on layer %s.",
-                                 psOptions->osWHERE.c_str(),
-                                 poLayer->GetName());
+                        CPLError(CE_Failure, CPLE_AppDefined,
+                                 "SetAttributeFilter(%s) failed.",
+                                 psOptions->osWHERE.c_str());
+                        return nullptr;
                     }
                 }
 
-                if (psOptions->poSpatialFilter != nullptr)
-                {
-                    if (!psOptions->osGeomField.empty())
-                    {
-                        OGRFeatureDefn *poDefn = poLayer->GetLayerDefn();
-                        const int iGeomField = poDefn->GetGeomFieldIndex(
-                            psOptions->osGeomField.c_str());
-                        if (iGeomField >= 0)
-                            poLayer->SetSpatialFilter(
-                                iGeomField, psOptions->poSpatialFilter.get());
-                        else
-                            CPLError(CE_Warning, CPLE_AppDefined,
-                                     "Cannot find geometry field %s.",
-                                     psOptions->osGeomField.c_str());
-                    }
-                    else
-                    {
-                        poLayer->SetSpatialFilter(
-                            psOptions->poSpatialFilter.get());
-                    }
-                }
-            }
-        }
-
-        std::set<OGRLayer *> oSetLayers;
-        while (true)
-        {
-            OGRLayer *poLayer = nullptr;
-            OGRFeature *poFeature =
-                poDS->GetNextFeature(&poLayer, nullptr, nullptr, nullptr);
-            if (poFeature == nullptr)
-                break;
-            if (psOptions->aosLayers.empty() || poLayer == nullptr ||
-                CSLFindString(psOptions->aosLayers.List(),
-                              poLayer->GetName()) >= 0)
-            {
-                if (psOptions->bVerbose && poLayer != nullptr &&
-                    oSetLayers.find(poLayer) == oSetLayers.end())
-                {
-                    oSetLayers.insert(poLayer);
-                    CPLJSONObject oLayer;
-                    oLayerArray.Add(oLayer);
-                    ReportOnLayer(osRet, oLayer, psOptions, poLayer,
-                                  /*bForceSummary = */ true,
+                CPLJSONObject oLayer;
+                oLayerArray.Add(oLayer);
+                if (!psOptions->osGeomField.empty())
+                    ReportOnLayer(osRet, oLayer, psOptions, poResultSet,
+                                  /*bForceSummary = */ false,
+                                  /*bTakeIntoAccountWHERE = */ false,
+                                  /*bTakeIntoAccountSpatialFilter = */ true,
+                                  /*bTakeIntoAccountGeomField = */ true);
+                else
+                    ReportOnLayer(osRet, oLayer, psOptions, poResultSet,
+                                  /*bForceSummary = */ false,
                                   /*bTakeIntoAccountWHERE = */ false,
                                   /*bTakeIntoAccountSpatialFilter = */ false,
                                   /*bTakeIntoAccountGeomField = */ false);
-                }
-                if (!psOptions->bSuperQuiet && !psOptions->bSummaryOnly)
-                    poFeature->DumpReadable(
-                        nullptr,
-                        const_cast<char **>(psOptions->aosOptions.List()));
+
+                poDS->ReleaseResultSet(poResultSet);
             }
-            OGRFeature::DestroyFeature(poFeature);
-        }
-    }
-
-    /* -------------------------------------------------------------------- */
-    /*      Special case for -sql clause.  No source layers required.       */
-    /* -------------------------------------------------------------------- */
-    else if (!psOptions->osSQLStatement.empty())
-    {
-        nRepeatCount = 0;  // skip layer reporting.
-
-        if (!bJson && !psOptions->aosLayers.empty())
-            Concat(osRet, psOptions->bStdoutOutput,
-                   "layer names ignored in combination with -sql.\n");
-
-        CPLErrorReset();
-        OGRLayer *poResultSet = poDS->ExecuteSQL(
-            psOptions->osSQLStatement.c_str(),
-            psOptions->osGeomField.empty() ? psOptions->poSpatialFilter.get()
-                                           : nullptr,
-            psOptions->osDialect.empty() ? nullptr
-                                         : psOptions->osDialect.c_str());
-
-        if (poResultSet != nullptr)
-        {
-            if (!psOptions->osWHERE.empty())
+            else if (CPLGetLastErrorType() != CE_None)
             {
-                if (poResultSet->SetAttributeFilter(
-                        psOptions->osWHERE.c_str()) != OGRERR_NONE)
-                {
-                    CPLError(CE_Failure, CPLE_AppDefined,
-                             "SetAttributeFilter(%s) failed.",
-                             psOptions->osWHERE.c_str());
-                    return nullptr;
-                }
+                return nullptr;
             }
-
-            CPLJSONObject oLayer;
-            oLayerArray.Add(oLayer);
-            if (!psOptions->osGeomField.empty())
-                ReportOnLayer(osRet, oLayer, psOptions, poResultSet,
-                              /*bForceSummary = */ false,
-                              /*bTakeIntoAccountWHERE = */ false,
-                              /*bTakeIntoAccountSpatialFilter = */ true,
-                              /*bTakeIntoAccountGeomField = */ true);
-            else
-                ReportOnLayer(osRet, oLayer, psOptions, poResultSet,
-                              /*bForceSummary = */ false,
-                              /*bTakeIntoAccountWHERE = */ false,
-                              /*bTakeIntoAccountSpatialFilter = */ false,
-                              /*bTakeIntoAccountGeomField = */ false);
-
-            poDS->ReleaseResultSet(poResultSet);
-        }
-        else if (CPLGetLastErrorType() != CE_None)
-        {
-            return nullptr;
         }
     }
 
@@ -2100,7 +2132,7 @@ char *GDALVectorInfo(GDALDatasetH hDataset,
 
                 CPLJSONObject oLayer;
                 oLayerArray.Add(oLayer);
-                if (!psOptions->bAllLayers)
+                if (!psOptions->bAllLayers || bIsSummaryCli)
                 {
                     if (!bJson)
                         Concat(osRet, psOptions->bStdoutOutput,
@@ -2154,7 +2186,7 @@ char *GDALVectorInfo(GDALDatasetH hDataset,
         }
     }
 
-    if (!papszLayers)
+    if (!papszLayers && !bIsSummaryCli)
     {
         ReportRelationships(osRet, oRoot, psOptions, poDS);
     }
@@ -2196,13 +2228,8 @@ static std::unique_ptr<GDALArgumentParser> GDALVectorInfoOptionsGetParser(
 
     argParser->add_argument("-json")
         .flag()
-        .action(
-            [psOptions](const std::string &)
-            {
-                psOptions->eFormat = FORMAT_JSON;
-                psOptions->bAllLayers = true;
-                psOptions->bSummaryOnly = true;
-            })
+        .action([psOptions](const std::string &)
+                { psOptions->eFormat = FORMAT_JSON; })
         .help(_("Display the output in json format."));
 
     argParser->add_argument("-ro")
@@ -2310,12 +2337,12 @@ static std::unique_ptr<GDALArgumentParser> GDALVectorInfoOptionsGetParser(
     {
         auto &group = argParser->add_mutually_exclusive_group();
         group.add_argument("-so", "-summary")
-            .store_into(psOptions->bSummaryParser)
+            .store_into(psOptions->bSummaryUserRequested)
             .help(_("Summary only: show only summary information like "
                     "projection, schema, feature count and extents."));
 
         group.add_argument("-features")
-            .store_into(psOptions->bFeaturesParser)
+            .store_into(psOptions->bFeaturesUserRequested)
             .help(_("Enable listing of features."));
     }
 
@@ -2428,6 +2455,12 @@ static std::unique_ptr<GDALArgumentParser> GDALVectorInfoOptionsGetParser(
         .store_into(psOptions->bStdoutOutput)
         .hidden()
         .help(_("Directly output on stdout (format=text mode only)"));
+
+    argParser->add_argument("--cli")
+        .hidden()
+        .store_into(psOptions->bIsCli)
+        .help(_("Indicates that this is called from the gdal vector info CLI "
+                "utility."));
 
     auto &argFilename = argParser->add_argument("filename")
                             .action(
@@ -2549,20 +2582,13 @@ GDALVectorInfoOptionsNew(char **papszArgv,
 
         if (auto oSpat = argParser->present<std::vector<double>>("-spat"))
         {
-            OGRLinearRing oRing;
             const double dfMinX = (*oSpat)[0];
             const double dfMinY = (*oSpat)[1];
             const double dfMaxX = (*oSpat)[2];
             const double dfMaxY = (*oSpat)[3];
 
-            oRing.addPoint(dfMinX, dfMinY);
-            oRing.addPoint(dfMinX, dfMaxY);
-            oRing.addPoint(dfMaxX, dfMaxY);
-            oRing.addPoint(dfMaxX, dfMinY);
-            oRing.addPoint(dfMinX, dfMinY);
-
-            auto poPolygon = std::make_unique<OGRPolygon>();
-            poPolygon->addRing(&oRing);
+            auto poPolygon =
+                std::make_unique<OGRPolygon>(dfMinX, dfMinY, dfMaxX, dfMaxY);
             psOptions->poSpatialFilter.reset(poPolygon.release());
         }
 
@@ -2612,9 +2638,18 @@ GDALVectorInfoOptionsNew(char **papszArgv,
             psOptionsForBinary->osSQLStatement = psOptions->osSQLStatement;
         }
 
-        if (psOptions->bSummaryParser)
+        if (psOptions->eFormat == FORMAT_JSON)
+        {
+            psOptions->bAllLayers = true;
             psOptions->bSummaryOnly = true;
-        else if (psOptions->bFeaturesParser)
+            if (psOptions->aosExtraMDDomains.empty())
+                psOptions->aosExtraMDDomains.AddString("all");
+            psOptions->bStdoutOutput = false;
+        }
+
+        if (psOptions->bSummaryUserRequested)
+            psOptions->bSummaryOnly = true;
+        else if (psOptions->bFeaturesUserRequested)
             psOptions->bSummaryOnly = false;
 
         if (!psOptions->osDialect.empty() && !psOptions->osWHERE.empty() &&
@@ -2622,13 +2657,6 @@ GDALVectorInfoOptionsNew(char **papszArgv,
         {
             CPLError(CE_Warning, CPLE_AppDefined,
                      "-dialect is ignored with -where. Use -sql instead");
-        }
-
-        if (psOptions->eFormat == FORMAT_JSON)
-        {
-            if (psOptions->aosExtraMDDomains.empty())
-                psOptions->aosExtraMDDomains.AddString("all");
-            psOptions->bStdoutOutput = false;
         }
 
         return psOptions.release();

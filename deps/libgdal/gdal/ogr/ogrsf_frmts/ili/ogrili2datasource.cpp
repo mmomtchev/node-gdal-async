@@ -143,12 +143,8 @@ int OGRILI2DataSource::Open(const char *pszNewName, char **papszOpenOptionsIn,
 
     poReader->SaveClasses(pszName);
 
-    listLayer = poReader->GetLayers();
-    list<OGRLayer *>::const_iterator layerIt;
-    for (layerIt = listLayer.begin(); layerIt != listLayer.end(); ++layerIt)
-    {
-        (*layerIt)->ResetReading();
-    }
+    for (auto &poLayer : poReader->GetLayers())
+        poLayer->ResetReading();
 
     return TRUE;
 }
@@ -157,7 +153,7 @@ int OGRILI2DataSource::Open(const char *pszNewName, char **papszOpenOptionsIn,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRILI2DataSource::TestCapability(const char *pszCap)
+int OGRILI2DataSource::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, ODsCCurveGeometries))
@@ -172,22 +168,17 @@ int OGRILI2DataSource::TestCapability(const char *pszCap)
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGRILI2DataSource::GetLayer(int iLayer)
+const OGRLayer *OGRILI2DataSource::GetLayer(int iLayer) const
 
 {
-    list<OGRLayer *>::const_iterator layerIt = listLayer.begin();
     int i = 0;
-    while (i < iLayer && layerIt != listLayer.end())
+    for (auto &poLayer : poReader->GetLayers())
     {
+        if (i == iLayer)
+        {
+            return poLayer.get();
+        }
         ++i;
-        ++layerIt;
     }
-
-    if (i == iLayer && layerIt != listLayer.end())
-    {
-        OGRILI2Layer *tmpLayer = reinterpret_cast<OGRILI2Layer *>(*layerIt);
-        return tmpLayer;
-    }
-
     return nullptr;
 }

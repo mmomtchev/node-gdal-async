@@ -118,8 +118,27 @@ else ()
   detect_and_set_cxx_warning_flag(non-virtual-dtor)
   detect_and_set_cxx_warning_flag(overloaded-virtual)
   detect_and_set_cxx_warning_flag(suggest-override)
-  # clang specific only. Avoids that foo("bar") goes to foo(bool) instead of foo(const std::string&)
-  detect_and_set_cxx_warning_flag(string-conversion)
+  detect_and_set_cxx_warning_flag(suggest-destructor-override)
+  detect_and_set_cxx_warning_flag(string-conversion) # Avoids that foo("bar") goes to foo(bool) instead of foo(const std::string&)
+  detect_and_set_cxx_warning_flag(deprecated-copy-dtor)
+  detect_and_set_cxx_warning_flag(implicit-fallthrough)
+  detect_and_set_cxx_warning_flag(weak-vtables)
+  if(DEFINED ENV{CI})
+      detect_and_set_cxx_warning_flag(thread-safety-analysis)
+  endif()
+  detect_and_set_cxx_warning_flag(inconsistent-missing-destructor-override)
+  detect_and_set_c_and_cxx_warning_flag(cast-function-type)
+  detect_and_set_c_and_cxx_warning_flag(unreachable-code-aggressive)
+
+  check_c_compiler_flag(-Wdouble-promotion HAVE_WFLAG_DOUBLE_PROMOTION)
+  if (HAVE_WFLAG_DOUBLE_PROMOTION)
+    set(WFLAG_DOUBLE_PROMOTION -Wdouble-promotion)
+  endif ()
+
+  # Not sure about the minimum version, but clang 12 complains about \file, @cond Doxygen_Suppress, etc.
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND "${CMAKE_CXX_COMPILER_VERSION}" VERSION_GREATER_EQUAL 18.0.0)
+      detect_and_set_cxx_warning_flag(documentation-unknown-command)
+  endif()
 
   check_cxx_compiler_flag(-fno-operator-names HAVE_FLAG_NO_OPERATOR_NAMES)
   if (HAVE_FLAG_NO_OPERATOR_NAMES)
@@ -164,6 +183,13 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM" OR CMAKE_CXX_COMPILER_ID STREQUAL
     add_compile_options("-fno-finite-math-only")
   endif ()
 
+  check_cxx_compiler_flag(-fno-fast-math HAVE_FLAG_NO_FAST_MATH)
+  if (HAVE_FLAG_NO_FAST_MATH)
+    # Intel CXX compiler, based on clang, defaults to -ffast-math, which breaks
+    # for example DBL_MAX - -DBL_MAX in VRT pixel function mean()
+    add_compile_options("-fno-fast-math")
+  endif ()
+
   set(TEST_LINK_STDCPP_SOURCE_CODE
       "#include <string>
     int main(){
@@ -204,6 +230,7 @@ add_definitions(-DGDAL_COMPILATION)
 if (MSVC)
   add_definitions(-D_CRT_SECURE_NO_DEPRECATE -D_CRT_NONSTDC_NO_DEPRECATE)
   add_definitions(-DNOMINMAX)
+  add_compile_options(/MP)
 endif ()
 
 if (MINGW)

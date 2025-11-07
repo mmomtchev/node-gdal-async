@@ -68,19 +68,6 @@ typedef enum
     /*! @endcond */
 } GDALResampleAlg;
 
-/*! GWKAverageOrMode Algorithm */
-typedef enum
-{
-    /*! Average */ GWKAOM_Average = 1,
-    /*! Mode */ GWKAOM_Fmode = 2,
-    /*! Mode of GDT_Byte, GDT_UInt16, or GDT_Int16 */ GWKAOM_Imode = 3,
-    /*! Maximum */ GWKAOM_Max = 4,
-    /*! Minimum */ GWKAOM_Min = 5,
-    /*! Quantile */ GWKAOM_Quant = 6,
-    /*! Sum */ GWKAOM_Sum = 7,
-    /*! RMS */ GWKAOM_RMS = 8
-} GWKAverageOrModeAlg;
-
 /*! @cond Doxygen_Suppress */
 typedef int (*GDALMaskFunc)(void *pMaskFuncArg, int nBandCount,
                             GDALDataType eType, int nXOff, int nYOff,
@@ -321,7 +308,7 @@ GDALDatasetH CPL_DLL CPL_STDCALL GDALAutoCreateWarpedVRTEx(
 
 GDALDatasetH CPL_DLL CPL_STDCALL
 GDALCreateWarpedVRT(GDALDatasetH hSrcDS, int nPixels, int nLines,
-                    double *padfGeoTransform, GDALWarpOptions *psOptions);
+                    const double *padfGeoTransform, GDALWarpOptions *psOptions);
 
 CPLErr CPL_DLL CPL_STDCALL GDALInitializeWarpedVRT(GDALDatasetH hDS,
                                                    GDALWarpOptions *psWO);
@@ -473,7 +460,7 @@ class CPL_DLL GDALWarpKernel
     /*! @endcond */
 
     GDALWarpKernel();
-    virtual ~GDALWarpKernel();
+    ~GDALWarpKernel();
 
     CPLErr Validate();
     CPLErr PerformWarp();
@@ -492,22 +479,35 @@ void GWKThreadsEnd(void *psThreadDataIn);
 /*      This object is application created, or created by a higher      */
 /*      level convenience function.  It is responsible for              */
 /*      subdividing the operation into chunks, loading and saving       */
-/*      imagery, and establishing the varios validity and density       */
+/*      imagery, and establishing the various validity and density      */
 /*      masks.  Actual resampling is done by the GDALWarpKernel.        */
 /************************************************************************/
 
 /*! @cond Doxygen_Suppress */
 typedef struct _GDALWarpChunk GDALWarpChunk;
 
+struct GDALTransformerUniquePtrReleaser
+{
+    void operator()(void *p)
+    {
+        GDALDestroyTransformer(p);
+    }
+};
+
 /*! @endcond */
 
-class CPL_DLL GDALWarpOperation
+/** Unique pointer for the argument of a GDALTransformerFunc */
+using GDALTransformerArgUniquePtr =
+    std::unique_ptr<void, GDALTransformerUniquePtrReleaser>;
+
+class CPL_DLL GDALWarpOperation final
 {
 
     CPL_DISALLOW_COPY_ASSIGN(GDALWarpOperation)
 
   private:
-    GDALWarpOptions *psOptions;
+    GDALWarpOptions *psOptions = nullptr;
+    GDALTransformerArgUniquePtr m_psOwnedTransformerArg{nullptr};
 
     void WipeOptions();
     int ValidateOptions();
@@ -528,17 +528,17 @@ class CPL_DLL GDALWarpOperation
     static CPLErr CreateKernelMask(GDALWarpKernel *, int iBand,
                                    const char *pszType);
 
-    CPLMutex *hIOMutex;
-    CPLMutex *hWarpMutex;
+    CPLMutex *hIOMutex = nullptr;
+    CPLMutex *hWarpMutex = nullptr;
 
-    int nChunkListCount;
-    int nChunkListMax;
-    GDALWarpChunk *pasChunkList;
+    int nChunkListCount = 0;
+    int nChunkListMax = 0;
+    GDALWarpChunk *pasChunkList = nullptr;
 
-    int bReportTimings;
-    unsigned long nLastTimeReported;
+    bool bReportTimings = false;
+    unsigned long nLastTimeReported = 0;
 
-    void *psThreadData;
+    void *psThreadData = nullptr;
 
     // Coordinates a few special points in target image space, to determine
     // if ComputeSourceWindow() must use a grid based sampling.
@@ -555,9 +555,12 @@ class CPL_DLL GDALWarpOperation
 
   public:
     GDALWarpOperation();
-    virtual ~GDALWarpOperation();
+    ~GDALWarpOperation();
 
-    CPLErr Initialize(const GDALWarpOptions *psNewOptions);
+    CPLErr Initialize(const GDALWarpOptions *psNewOptions,
+                      GDALTransformerFunc pfnTransformer = nullptr,
+                      GDALTransformerArgUniquePtr psOwnedTransformerArg =
+                          GDALTransformerArgUniquePtr{nullptr});
     void *CreateDestinationBuffer(int nDstXSize, int nDstYSize,
                                   int *pbWasInitialized = nullptr);
     CPLErr InitializeDestinationBuffer(void *pDstBuffer, int nDstXSize,

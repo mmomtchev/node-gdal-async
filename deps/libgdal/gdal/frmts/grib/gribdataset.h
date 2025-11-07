@@ -24,9 +24,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
 #include <time.h>
 
 #include <algorithm>
@@ -73,7 +70,7 @@ class GRIBDataset final : public GDALPamDataset
 
   public:
     GRIBDataset();
-    ~GRIBDataset();
+    ~GRIBDataset() override;
 
     static GDALDataset *Open(GDALOpenInfo *);
     static int Identify(GDALOpenInfo *);
@@ -83,7 +80,7 @@ class GRIBDataset final : public GDALPamDataset
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
 
-    CPLErr GetGeoTransform(double *padfTransform) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
 
     const OGRSpatialReference *GetSpatialRef() const override
     {
@@ -102,7 +99,7 @@ class GRIBDataset final : public GDALPamDataset
 
     VSILFILE *fp;
     // Calculate and store once as GetGeoTransform may be called multiple times.
-    double adfGeoTransform[6];
+    GDALGeoTransform m_gt{};
 
     GIntBig nCachedBytes;
     GIntBig nCachedBytesThreshold;
@@ -141,12 +138,12 @@ class GRIBRasterBand final : public GDALPamRasterBand
 
   public:
     GRIBRasterBand(GRIBDataset *, int, inventoryType *);
-    virtual ~GRIBRasterBand();
-    virtual CPLErr IReadBlock(int, int, void *) override;
-    virtual const char *GetDescription() const override;
+    ~GRIBRasterBand() override;
+    CPLErr IReadBlock(int, int, void *) override;
+    const char *GetDescription() const override;
 
-    virtual double GetNoDataValue(int *pbSuccess = nullptr) override;
-    virtual char **GetMetadata(const char *pszDomain = "") override;
+    double GetNoDataValue(int *pbSuccess = nullptr) override;
+    char **GetMetadata(const char *pszDomain = "") override;
     virtual const char *GetMetadataItem(const char *pszName,
                                         const char *pszDomain = "") override;
 
@@ -201,16 +198,10 @@ namespace grib
 {
 
 // Thin layer to manage allocation and deallocation.
-class InventoryWrapper
+class InventoryWrapper /* non final */
 {
   public:
-    InventoryWrapper()
-    {
-    }
-
-    virtual ~InventoryWrapper()
-    {
-    }
+    virtual ~InventoryWrapper();
 
     // Modifying the contents pointed to by the return is allowed.
     inventoryType *get(int i) const
@@ -236,6 +227,8 @@ class InventoryWrapper
     }
 
   protected:
+    InventoryWrapper() = default;
+
     inventoryType *inv_ = nullptr;
     uInt4 inv_len_ = 0;
     int num_messages_ = 0;

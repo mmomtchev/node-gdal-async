@@ -19,6 +19,7 @@
 
 #include "cpl_list.h"
 #include "gdal_pam.h"
+#include "gdal_pam_multidim.h"
 
 #include <map>
 
@@ -114,7 +115,7 @@ class HDF5SharedResources
         m_oMapEOSGridNameToDimensions{};
     std::map<std::string, std::vector<std::shared_ptr<GDALDimension>>>
         m_oMapEOSSwathNameToDimensions{};
-    std::map<std::string, std::shared_ptr<GDALMDArray>> m_oRefKeeper;
+    std::map<std::string, std::shared_ptr<GDALMDArray>> m_oRefKeeper{};
 
     explicit HDF5SharedResources(const std::string &osFilename);
 
@@ -242,9 +243,11 @@ class HDF5Dataset CPL_NON_FINAL : public GDALPamDataset
     CPLErr HDF5ReadDoubleAttr(const char *pszAttrName, double **pdfValues,
                               int *nLen = nullptr);
 
+    CPL_DISALLOW_COPY_ASSIGN(HDF5Dataset)
+
   public:
     HDF5Dataset();
-    ~HDF5Dataset();
+    ~HDF5Dataset() override;
 
     std::shared_ptr<GDALGroup> GetRootGroup() const override
     {

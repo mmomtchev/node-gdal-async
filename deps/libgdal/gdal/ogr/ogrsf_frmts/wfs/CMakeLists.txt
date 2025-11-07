@@ -6,6 +6,7 @@ add_gdal_driver(
           ogrwfsjoinlayer.cpp
           ogrwfslayer.cpp
   PLUGIN_CAPABLE
-  NO_DEPS)
+  NO_DEPS
+)
 gdal_standard_includes(ogr_WFS)
 target_include_directories(ogr_WFS PRIVATE $<TARGET_PROPERTY:gmlutils,SOURCE_DIR>)

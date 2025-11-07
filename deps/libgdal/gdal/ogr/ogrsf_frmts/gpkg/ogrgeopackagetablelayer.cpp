@@ -16,6 +16,7 @@
 #include "ogrlayerarrow.h"
 #include "ogrsqliteutility.h"
 #include "cpl_md5.h"
+#include "cpl_multiproc.h"  // CPLSleep()
 #include "cpl_time.h"
 #include "ogr_p.h"
 #include "sqlite_rtree_bulk_load/wrapper.h"
@@ -23,9 +24,12 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cerrno>
 #include <cinttypes>
+#include <climits>
 #include <cmath>
 #include <limits>
+#include <mutex>
 
 #undef SQLITE_STATIC
 #define SQLITE_STATIC static_cast<sqlite3_destructor_type>(nullptr)
@@ -212,7 +216,7 @@ OGRErr OGRGeoPackageTableLayer::FeatureBindParameters(
     const int *panUpdatedFieldsIdx, int nUpdatedGeomFieldsCount,
     const int * /*panUpdatedGeomFieldsIdx*/)
 {
-    OGRFeatureDefn *poFeatureDefn = poFeature->GetDefnRef();
+    const OGRFeatureDefn *poFeatureDefn = poFeature->GetDefnRef();
 
     int nColCount = 1;
     if (bAddFID)
@@ -611,7 +615,7 @@ CPLString OGRGeoPackageTableLayer::FeatureGenerateInsertSQL(
     const std::string &osUpsertUniqueColumnName)
 {
     bool bNeedComma = false;
-    OGRFeatureDefn *poFeatureDefn = poFeature->GetDefnRef();
+    const OGRFeatureDefn *poFeatureDefn = poFeature->GetDefnRef();
 
     if (poFeatureDefn->GetFieldCount() ==
             ((m_iFIDAsRegularColumnIndex >= 0) ? 1 : 0) &&
@@ -805,12 +809,12 @@ std::string OGRGeoPackageTableLayer::FeatureGenerateUpdateSQL(
 /*                            GetLayerDefn()                            */
 /************************************************************************/
 
-OGRFeatureDefn *OGRGeoPackageTableLayer::GetLayerDefn()
+const OGRFeatureDefn *OGRGeoPackageTableLayer::GetLayerDefn() const
 {
     if (!m_bFeatureDefnCompleted)
     {
         m_bFeatureDefnCompleted = true;
-        ReadTableDefinition();
+        const_cast<OGRGeoPackageTableLayer *>(this)->ReadTableDefinition();
         m_poFeatureDefn->Seal(/* bSealFields = */ true);
     }
     return m_poFeatureDefn;
@@ -820,7 +824,7 @@ OGRFeatureDefn *OGRGeoPackageTableLayer::GetLayerDefn()
 /*                      GetFIDColumn()                                  */
 /************************************************************************/
 
-const char *OGRGeoPackageTableLayer::GetFIDColumn()
+const char *OGRGeoPackageTableLayer::GetFIDColumn() const
 {
     if (!m_bFeatureDefnCompleted)
         GetLayerDefn();
@@ -831,7 +835,7 @@ const char *OGRGeoPackageTableLayer::GetFIDColumn()
 /*                            GetGeomType()                             */
 /************************************************************************/
 
-OGRwkbGeometryType OGRGeoPackageTableLayer::GetGeomType()
+OGRwkbGeometryType OGRGeoPackageTableLayer::GetGeomType() const
 {
     return m_poFeatureDefn->GetGeomType();
 }
@@ -840,7 +844,7 @@ OGRwkbGeometryType OGRGeoPackageTableLayer::GetGeomType()
 /*                         GetGeometryColumn()                          */
 /************************************************************************/
 
-const char *OGRGeoPackageTableLayer::GetGeometryColumn()
+const char *OGRGeoPackageTableLayer::GetGeometryColumn() const
 
 {
     if (m_poFeatureDefn->GetGeomFieldCount() > 0)
@@ -3349,7 +3353,7 @@ OGRErr OGRGeoPackageTableLayer::IUpdateFeature(
     /* Only work with fields that are set */
     /* Do not stick values into SQL, use placeholder and bind values later
      */
-    const std::string osUpdateStatementSQL = FeatureGenerateUpdateSQL(
+    std::string osUpdateStatementSQL = FeatureGenerateUpdateSQL(
         poFeature, nUpdatedFieldsCount, panUpdatedFieldsIdx,
         nUpdatedGeomFieldsCount, panUpdatedGeomFieldsIdx);
     if (osUpdateStatementSQL.empty())
@@ -3369,7 +3373,7 @@ OGRErr OGRGeoPackageTableLayer::IUpdateFeature(
         {
             return OGRERR_FAILURE;
         }
-        m_osUpdateStatementSQL = osUpdateStatementSQL;
+        m_osUpdateStatementSQL = std::move(osUpdateStatementSQL);
     }
 
     /* Bind values onto the statement now */
@@ -3481,6 +3485,7 @@ OGRErr OGRGeoPackageTableLayer::SetAttributeFilter(const char *pszQuery)
 
 void OGRGeoPackageTableLayer::ResetReading()
 {
+    m_bEOF = false;
     if (m_bDeferredCreation && RunDeferredCreationIfNecessary() != OGRERR_NONE)
         return;
 
@@ -3519,7 +3524,10 @@ void OGRGeoPackageTableLayer::ResetReading()
 OGRErr OGRGeoPackageTableLayer::SetNextByIndex(GIntBig nIndex)
 {
     if (nIndex < 0)
-        return OGRERR_FAILURE;
+    {
+        m_bEOF = true;
+        return OGRERR_NON_EXISTING_FEATURE;
+    }
     if (m_soColumns.empty())
         BuildColumns();
     return ResetStatementInternal(nIndex);
@@ -3620,6 +3628,8 @@ OGRErr OGRGeoPackageTableLayer::ResetStatementInternal(GIntBig nStartIndex)
 
 OGRFeature *OGRGeoPackageTableLayer::GetNextFeature()
 {
+    if (m_bEOF)
+        return nullptr;
     if (!m_bFeatureDefnCompleted)
         GetLayerDefn();
     if (m_bDeferredCreation && RunDeferredCreationIfNecessary() != OGRERR_NONE)
@@ -4372,7 +4382,7 @@ void OGRGeoPackageTableLayer::RecomputeExtent()
 /*                      TestCapability()                                */
 /************************************************************************/
 
-int OGRGeoPackageTableLayer::TestCapability(const char *pszCap)
+int OGRGeoPackageTableLayer::TestCapability(const char *pszCap) const
 {
     if (!m_bFeatureDefnCompleted)
         GetLayerDefn();
@@ -5114,7 +5124,7 @@ bool OGRGeoPackageTableLayer::CreateGeometryExtensionIfNecessary(
 /*                        HasSpatialIndex()                             */
 /************************************************************************/
 
-bool OGRGeoPackageTableLayer::HasSpatialIndex()
+bool OGRGeoPackageTableLayer::HasSpatialIndex() const
 {
     if (!m_bFeatureDefnCompleted)
         GetLayerDefn();
@@ -5129,14 +5139,14 @@ bool OGRGeoPackageTableLayer::HasSpatialIndex()
 
     const char *pszT = m_pszTableName;
     const char *pszC = m_poFeatureDefn->GetGeomFieldDefn(0)->GetNameRef();
-    const CPLString osRTreeName(
+    CPLString osRTreeName(
         CPLString("rtree_").append(pszT).append("_").append(pszC));
     const std::map<CPLString, CPLString> &oMap =
         m_poDS->GetNameTypeMapFromSQliteMaster();
     if (cpl::contains(oMap, CPLString(osRTreeName).toupper()))
     {
         m_bHasSpatialIndex = true;
-        m_osRTreeName = osRTreeName;
+        m_osRTreeName = std::move(osRTreeName);
         m_osFIDForRTree = m_pszFidColumn;
     }
 
@@ -5144,14 +5154,16 @@ bool OGRGeoPackageTableLayer::HasSpatialIndex()
     // Cf https://github.com/OSGeo/gdal/pull/6911
     if (m_bHasSpatialIndex)
     {
-        const auto nFC = GetTotalFeatureCount();
+        const auto nFC =
+            const_cast<OGRGeoPackageTableLayer *>(this)->GetTotalFeatureCount();
         if (nFC >= atoi(CPLGetConfigOption(
                        "OGR_GPKG_THRESHOLD_DETECT_BROKEN_RTREE", "100000")))
         {
             CPLString osSQL = "SELECT 1 FROM \"";
             osSQL += SQLEscapeName(pszT);
             osSQL += "\" WHERE \"";
-            osSQL += SQLEscapeName(GetFIDColumn());
+            osSQL += SQLEscapeName(
+                const_cast<OGRGeoPackageTableLayer *>(this)->GetFIDColumn());
             osSQL += "\" = ";
             osSQL += CPLSPrintf(CPL_FRMT_GIB, nFC);
             osSQL += " AND \"";
@@ -7688,7 +7700,7 @@ OGRGeometryTypeCounter *OGRGeoPackageTableLayer::GetGeometryTypes(
     int iGeomField, int nFlagsGGT, int &nEntryCountOut,
     GDALProgressFunc pfnProgress, void *pProgressData)
 {
-    OGRFeatureDefn *poDefn = GetLayerDefn();
+    const OGRFeatureDefn *poDefn = GetLayerDefn();
 
     /* -------------------------------------------------------------------- */
     /*      Deferred actions, reset state.                                   */
@@ -8584,7 +8596,7 @@ void OGRGeoPackageTableLayer::GetNextArrowArrayAsynchronousWorker()
     std::lock_guard oLock(m_poFillArrowArray->oMutex);
     m_poFillArrowArray->bIsFinished = true;
     m_poFillArrowArray->bErrorOccurred = !osErrorMsg.empty();
-    m_poFillArrowArray->osErrorMsg = osErrorMsg;
+    m_poFillArrowArray->osErrorMsg = std::move(osErrorMsg);
 
     if (m_poFillArrowArray->nCountRows >= 0)
     {
@@ -8837,7 +8849,8 @@ int OGRGeoPackageTableLayer::GetNextArrowArray(struct ArrowArrayStream *stream,
             poOtherLayer->m_nTotalFeatureCount = m_nTotalFeatureCount;
             poOtherLayer->m_aosArrowArrayStreamOptions =
                 m_aosArrowArrayStreamOptions;
-            auto poOtherFDefn = poOtherLayer->GetLayerDefn();
+            OGRLayer *poOtherLayerAsLayer = poOtherLayer;
+            auto poOtherFDefn = poOtherLayerAsLayer->GetLayerDefn();
             for (int i = 0; i < m_poFeatureDefn->GetGeomFieldCount(); ++i)
             {
                 poOtherFDefn->GetGeomFieldDefn(i)->SetIgnored(
@@ -9114,7 +9127,7 @@ OGRErr OGRGeoPackageTableLayer::IGetExtent3D(int iGeomField,
                                              bool bForce)
 {
 
-    OGRFeatureDefn *poDefn = GetLayerDefn();
+    const OGRFeatureDefn *poDefn = GetLayerDefn();
 
     /* -------------------------------------------------------------------- */
     /*      Deferred actions, reset state.                                   */
@@ -9187,7 +9200,7 @@ OGRErr OGRGeoPackageTableLayer::IGetExtent3D(int iGeomField,
 /*                           Truncate()                                 */
 /************************************************************************/
 
-/** Implements "DELETE FROM {table_name}" in an optimzed way.
+/** Implements "DELETE FROM {table_name}" in an optimized way.
  *
  * Disable triggers if we detect that the only triggers on the table are ones
  * under our control (i.e. the ones for the gpkg_ogr_contents table and the

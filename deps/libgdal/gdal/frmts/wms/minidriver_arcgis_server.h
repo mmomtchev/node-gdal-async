@@ -14,16 +14,16 @@
 #ifndef MINIDRIVER_AGS_H_INCLUDED
 #define MINIDRIVER_AGS_H_INCLUDED
 
-class WMSMiniDriver_AGS : public WMSMiniDriver
+class WMSMiniDriver_AGS final : public WMSMiniDriver
 {
   public:
     WMSMiniDriver_AGS();
-    virtual ~WMSMiniDriver_AGS();
+    ~WMSMiniDriver_AGS() override;
 
   public:
     virtual CPLErr Initialize(CPLXMLNode *config,
                               char **papszOpenOptions) override;
-    virtual void GetCapabilities(WMSMiniDriverCapabilities *caps) override;
+    void GetCapabilities(WMSMiniDriverCapabilities *caps) override;
     virtual CPLErr
     TiledImageRequest(WMSHTTPRequest &request,
                       const GDALWMSImageRequestInfo &iri,
@@ -33,7 +33,7 @@ class WMSMiniDriver_AGS : public WMSMiniDriver
                                    const GDALWMSTiledImageRequestInfo &tiri,
                                    int nXInBlock, int nYInBlock) override;
 
-    virtual char **GetMetadataDomainList() override;
+    char **GetMetadataDomainList() override;
 
   protected:
     /*
@@ -41,17 +41,17 @@ class WMSMiniDriver_AGS : public WMSMiniDriver
      * https://developers.arcgis.com/rest/services-reference/enterprise/export-map/
      * Parameter - format
      */
-    CPLString m_image_format;
-    CPLString m_transparent;
-    CPLString m_bbox_order;
-    CPLString m_irs;
+    CPLString m_image_format{};
+    CPLString m_transparent{};
+    CPLString m_bbox_order{};
+    CPLString m_irs{};
 
-    CPLString m_layers;
-    CPLString m_srs;
-    CPLString m_crs;
-    CPLString m_time_range;
+    CPLString m_layers{};
+    CPLString m_srs{};
+    CPLString m_crs{};
+    CPLString m_time_range{};
 
-    CPLString m_identification_tolerance;
+    CPLString m_identification_tolerance{};
 };
 
 #endif /* MINIDRIVER_AGS_H_INCLUDED */

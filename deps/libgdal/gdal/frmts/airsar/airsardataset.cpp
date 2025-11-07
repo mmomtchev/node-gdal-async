@@ -16,6 +16,10 @@
 #include "cpl_vsi.h"
 #include "gdal_frmts.h"
 #include "gdal_pam.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 
 /************************************************************************/
 /* ==================================================================== */
@@ -45,7 +49,7 @@ class AirSARDataset final : public GDALPamDataset
 
   public:
     AirSARDataset();
-    ~AirSARDataset();
+    ~AirSARDataset() override;
 
     static GDALDataset *Open(GDALOpenInfo *);
 };
@@ -156,11 +160,11 @@ CPLErr AirSARRasterBand::IReadBlock(int /* nBlockXOff */, int nBlockYOff,
     float *pafLine = (float *)pImage;
     const double SQRT_2 = 1.4142135623730951;
 
-    CPLErr eErr = ((AirSARDataset *)poDS)->LoadLine(nBlockYOff);
+    CPLErr eErr = cpl::down_cast<AirSARDataset *>(poDS)->LoadLine(nBlockYOff);
     if (eErr != CE_None)
         return eErr;
 
-    double *padfMatrix = ((AirSARDataset *)poDS)->padfMatrix;
+    double *padfMatrix = cpl::down_cast<AirSARDataset *>(poDS)->padfMatrix;
 
     if (nBand == 1) /* C11 */
     {

@@ -12,6 +12,10 @@
 
 #include "gifabstractdataset.h"
 
+#include "gdal_colortable.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
+
 /************************************************************************/
 /* ==================================================================== */
 /*                         GIFAbstractDataset                           */
@@ -26,12 +30,6 @@ GIFAbstractDataset::GIFAbstractDataset()
     : fp(nullptr), hGifFile(nullptr), bGeoTransformValid(FALSE), nGCPCount(0),
       pasGCPList(nullptr), bHasReadXMPMetadata(FALSE)
 {
-    adfGeoTransform[0] = 0.0;
-    adfGeoTransform[1] = 1.0;
-    adfGeoTransform[2] = 0.0;
-    adfGeoTransform[3] = 0.0;
-    adfGeoTransform[4] = 0.0;
-    adfGeoTransform[5] = 1.0;
 }
 
 /************************************************************************/
@@ -208,16 +206,16 @@ char **GIFAbstractDataset::GetMetadata(const char *pszDomain)
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr GIFAbstractDataset::GetGeoTransform(double *padfTransform)
+CPLErr GIFAbstractDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
     if (bGeoTransformValid)
     {
-        memcpy(padfTransform, adfGeoTransform, sizeof(double) * 6);
+        gt = m_gt;
         return CE_None;
     }
 
-    return GDALPamDataset::GetGeoTransform(padfTransform);
+    return GDALPamDataset::GetGeoTransform(gt);
 }
 
 /************************************************************************/
@@ -273,12 +271,12 @@ void GIFAbstractDataset::DetectGeoreferencing(GDALOpenInfo *poOpenInfo)
     char *pszWldFilename = nullptr;
 
     bGeoTransformValid =
-        GDALReadWorldFile2(poOpenInfo->pszFilename, nullptr, adfGeoTransform,
+        GDALReadWorldFile2(poOpenInfo->pszFilename, nullptr, m_gt,
                            poOpenInfo->GetSiblingFiles(), &pszWldFilename);
     if (!bGeoTransformValid)
     {
         bGeoTransformValid =
-            GDALReadWorldFile2(poOpenInfo->pszFilename, ".wld", adfGeoTransform,
+            GDALReadWorldFile2(poOpenInfo->pszFilename, ".wld", m_gt,
                                poOpenInfo->GetSiblingFiles(), &pszWldFilename);
     }
 

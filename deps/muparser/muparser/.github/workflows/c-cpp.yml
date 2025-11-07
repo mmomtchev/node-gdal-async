@@ -1,0 +1,48 @@
+name: build
+
+on:
+  push:
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+
+env:
+  CMAKE_BUILD_TYPE: Debug
+  CMAKE_BUILD_DIR: ${{ github.workspace }}/build
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macOS-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Build
+      shell: bash
+      run: |
+        mkdir -p $CMAKE_BUILD_DIR
+        cd  $CMAKE_BUILD_DIR
+        cmake -DENABLE_SAMPLES=ON -DENABLE_OPENMP=OFF -DENABLE_WIDE_CHAR=ON -DBUILD_SHARED_LIBS=ON ..
+        cmake --build .
+
+    - name: Run Unit Test
+      shell: bash
+      working-directory: ${{ env.CMAKE_BUILD_DIR }}
+      run: |
+        if [[ ${{ matrix.os }} == windows* ]]; then
+          EXAMPLE="$CMAKE_BUILD_TYPE/example1.exe"
+        else
+          EXAMPLE="./example1"
+        fi
+        $EXAMPLE &> example.log << EOF
+        quit
+        EOF
+        cat example.log
+        grep -e "Test passed.*expressions" example.log || (grep -e "Test failed.*expressions" example.log; exit 1)

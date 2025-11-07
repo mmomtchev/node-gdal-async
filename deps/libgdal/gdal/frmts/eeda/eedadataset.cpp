@@ -11,6 +11,7 @@
  ****************************************************************************/
 
 #include "gdal_priv.h"
+#include "gdal_frmts.h"
 #include "ogrsf_frmts.h"
 #include "cpl_http.h"
 #include "cpl_conv.h"
@@ -24,8 +25,6 @@
 #include <map>
 #include <set>
 #include <limits>
-
-extern "C" void GDALRegister_EEDA();
 
 /************************************************************************/
 /*                     CPLEscapeURLQueryParameter()                     */
@@ -75,14 +74,14 @@ class GDALEEDADataset final : public GDALEEDABaseDataset
 
   public:
     GDALEEDADataset();
-    virtual ~GDALEEDADataset();
+    ~GDALEEDADataset() override;
 
-    virtual int GetLayerCount() CPL_OVERRIDE
+    int GetLayerCount() const override
     {
         return m_poLayer ? 1 : 0;
     }
 
-    virtual OGRLayer *GetLayer(int idx) CPL_OVERRIDE;
+    const OGRLayer *GetLayer(int idx) const override;
 
     bool Open(GDALOpenInfo *poOpenInfo);
     json_object *RunRequest(const CPLString &osURL);
@@ -124,18 +123,18 @@ class GDALEEDALayer final : public OGRLayer
     GDALEEDALayer(GDALEEDADataset *poDS, const CPLString &osCollection,
                   const CPLString &osCollectionName, json_object *poAsset,
                   json_object *poLayerConf);
-    virtual ~GDALEEDALayer();
+    ~GDALEEDALayer() override;
 
-    virtual void ResetReading() CPL_OVERRIDE;
-    virtual OGRFeature *GetNextFeature() CPL_OVERRIDE;
-    virtual int TestCapability(const char *) CPL_OVERRIDE;
+    void ResetReading() override;
+    OGRFeature *GetNextFeature() override;
+    int TestCapability(const char *) const override;
 
-    virtual OGRFeatureDefn *GetLayerDefn() CPL_OVERRIDE
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return m_poFeatureDefn;
     }
 
-    virtual GIntBig GetFeatureCount(int) CPL_OVERRIDE
+    GIntBig GetFeatureCount(int) override
     {
         return -1;
     }
@@ -143,10 +142,10 @@ class GDALEEDALayer final : public OGRLayer
     virtual OGRErr ISetSpatialFilter(int iGeomField,
                                      const OGRGeometry *poGeom) override;
 
-    virtual OGRErr SetAttributeFilter(const char *) CPL_OVERRIDE;
+    OGRErr SetAttributeFilter(const char *) override;
 
-    virtual OGRErr IGetExtent(int iGeomField, OGREnvelope *psExtent,
-                              bool bForce) override;
+    OGRErr IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                      bool bForce) override;
 };
 
 /************************************************************************/
@@ -522,23 +521,21 @@ OGRFeature *GDALEEDALayer::GetNextRawFeature()
             int nWidth = 0, nHeight = 0;
             double dfMinPixelSize = std::numeric_limits<double>::max();
             CPLString osSRS(aoBands[0].osWKT);
-            double dfULX = aoBands[0].adfGeoTransform[0];
-            double dfULY = aoBands[0].adfGeoTransform[3];
+            double dfULX = aoBands[0].gt[0];
+            double dfULY = aoBands[0].gt[3];
             bool bULValid = true;
             for (size_t i = 0; i < aoBands.size(); i++)
             {
                 nWidth = std::max(nWidth, aoBands[i].nWidth);
                 nHeight = std::max(nHeight, aoBands[i].nHeight);
                 dfMinPixelSize =
-                    std::min(dfMinPixelSize,
-                             std::min(aoBands[i].adfGeoTransform[1],
-                                      fabs(aoBands[i].adfGeoTransform[5])));
+                    std::min(dfMinPixelSize, std::min(aoBands[i].gt[1],
+                                                      fabs(aoBands[i].gt[5])));
                 if (osSRS != aoBands[i].osWKT)
                 {
                     osSRS.clear();
                 }
-                if (dfULX != aoBands[i].adfGeoTransform[0] ||
-                    dfULY != aoBands[i].adfGeoTransform[3])
+                if (dfULX != aoBands[i].gt[0] || dfULY != aoBands[i].gt[3])
                 {
                     bULValid = false;
                 }
@@ -977,7 +974,7 @@ OGRErr GDALEEDALayer::IGetExtent(int /* iGeomField*/, OGREnvelope *psExtent,
 /*                              TestCapability()                        */
 /************************************************************************/
 
-int GDALEEDALayer::TestCapability(const char *pszCap)
+int GDALEEDALayer::TestCapability(const char *pszCap) const
 {
     if (EQUAL(pszCap, OLCStringsAsUTF8))
         return TRUE;
@@ -1005,7 +1002,7 @@ GDALEEDADataset::~GDALEEDADataset()
 /*                            GetLayer()                                */
 /************************************************************************/
 
-OGRLayer *GDALEEDADataset::GetLayer(int idx)
+const OGRLayer *GDALEEDADataset::GetLayer(int idx) const
 {
     if (idx == 0)
         return m_poLayer;

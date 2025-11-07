@@ -421,7 +421,7 @@ NAN_GETTER(Layer::srsGetter) {
   }
   GDAL_LOCK_PARENT(layer);
   auto r = layer->this_->GetSpatialRef();
-  info.GetReturnValue().Set(SpatialReference::New(r, false));
+  info.GetReturnValue().Set(SpatialReference::New(r));
 }
 
 /**

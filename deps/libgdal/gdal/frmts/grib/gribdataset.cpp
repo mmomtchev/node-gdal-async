@@ -17,15 +17,13 @@
 #include "gribdataset.h"
 #include "gribdrivercore.h"
 
+#include <cassert>
 #include <cerrno>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
 
 #include <algorithm>
 #include <mutex>
@@ -51,7 +49,7 @@ CPL_C_START
 CPL_C_END
 #include "gdal.h"
 #include "gdal_frmts.h"
-#include "gdal_pam.h"
+#include "gdal_pam_multidim.h"
 #include "gdal_priv.h"
 #include "ogr_spatialref.h"
 #include "memdataset.h"
@@ -1195,10 +1193,12 @@ GRIBRasterBand::~GRIBRasterBand()
     UncacheData();
 }
 
+gdal::grib::InventoryWrapper::~InventoryWrapper() = default;
+
 /************************************************************************/
 /*                           InventoryWrapperGrib                       */
 /************************************************************************/
-class InventoryWrapperGrib : public gdal::grib::InventoryWrapper
+class InventoryWrapperGrib final : public gdal::grib::InventoryWrapper
 {
   public:
     explicit InventoryWrapperGrib(VSILFILE *fp) : gdal::grib::InventoryWrapper()
@@ -1207,23 +1207,25 @@ class InventoryWrapperGrib : public gdal::grib::InventoryWrapper
                                  &num_messages_);
     }
 
-    ~InventoryWrapperGrib() override
-    {
-        if (inv_ == nullptr)
-            return;
-        for (uInt4 i = 0; i < inv_len_; i++)
-        {
-            GRIB2InventoryFree(inv_ + i);
-        }
-        free(inv_);
-    }
+    ~InventoryWrapperGrib() override;
 };
+
+InventoryWrapperGrib::~InventoryWrapperGrib()
+{
+    if (inv_ == nullptr)
+        return;
+    for (uInt4 i = 0; i < inv_len_; i++)
+    {
+        GRIB2InventoryFree(inv_ + i);
+    }
+    free(inv_);
+}
 
 /************************************************************************/
 /*                           InventoryWrapperSidecar                    */
 /************************************************************************/
 
-class InventoryWrapperSidecar : public gdal::grib::InventoryWrapper
+class InventoryWrapperSidecar final : public gdal::grib::InventoryWrapper
 {
   public:
     explicit InventoryWrapperSidecar(VSILFILE *fp, uint64_t nStartOffset,
@@ -1318,17 +1320,19 @@ class InventoryWrapperSidecar : public gdal::grib::InventoryWrapper
         result_ = inv_len_;
     }
 
-    ~InventoryWrapperSidecar() override
-    {
-        if (inv_ == nullptr)
-            return;
-
-        for (unsigned i = 0; i < inv_len_; i++)
-            VSIFree(inv_[i].longFstLevel);
-
-        VSIFree(inv_);
-    }
+    ~InventoryWrapperSidecar() override;
 };
+
+InventoryWrapperSidecar::~InventoryWrapperSidecar()
+{
+    if (inv_ == nullptr)
+        return;
+
+    for (unsigned i = 0; i < inv_len_; i++)
+        VSIFree(inv_[i].longFstLevel);
+
+    VSIFree(inv_);
+}
 
 /************************************************************************/
 /* ==================================================================== */
@@ -1345,12 +1349,6 @@ GRIBDataset::GRIBDataset()
                             1024 * 1024),
       bCacheOnlyOneBand(FALSE), nSplitAndSwapColumn(0), poLastUsedBand(nullptr)
 {
-    adfGeoTransform[0] = 0.0;
-    adfGeoTransform[1] = 1.0;
-    adfGeoTransform[2] = 0.0;
-    adfGeoTransform[3] = 0.0;
-    adfGeoTransform[4] = 0.0;
-    adfGeoTransform[5] = 1.0;
 }
 
 /************************************************************************/
@@ -1369,10 +1367,10 @@ GRIBDataset::~GRIBDataset()
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr GRIBDataset::GetGeoTransform(double *padfTransform)
+CPLErr GRIBDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
-    memcpy(padfTransform, adfGeoTransform, sizeof(double) * 6);
+    gt = m_gt;
     return CE_None;
 }
 
@@ -1529,11 +1527,13 @@ GDALDataset *GRIBDataset::Open(GDALOpenInfo *poOpenInfo)
     }
 
     // Create band objects.
-    for (uInt4 i = 0; i < pInventories->length(); ++i)
+    const uInt4 nCount = std::min(pInventories->length(), 65536U);
+    for (uInt4 i = 0; i < nCount; ++i)
     {
         inventoryType *psInv = pInventories->get(i);
         GRIBRasterBand *gribBand = nullptr;
-        uInt4 bandNr = i + 1;
+        const uInt4 bandNr = i + 1;
+        assert(bandNr <= 65536);
 
         if (bandNr == 1)
         {
@@ -1808,8 +1808,8 @@ void GRIBArray::Init(GRIBGroup *poGroup, GRIBDataset *poDS,
     std::shared_ptr<GDALDimension> poDimX;
     std::shared_ptr<GDALDimension> poDimY;
 
-    double adfGT[6];
-    poDS->GetGeoTransform(adfGT);
+    GDALGeoTransform gt;
+    poDS->GetGeoTransform(gt);
 
     for (int i = 1; i <= poGroup->m_nHorizDimCounter; i++)
     {
@@ -1838,7 +1838,7 @@ void GRIBArray::Init(GRIBGroup *poGroup, GRIBDataset *poDS,
                 size_t nCount = 1;
                 double dfVal = 0;
                 poVar->Read(&nStart, &nCount, nullptr, nullptr, m_dt, &dfVal);
-                if (std::fabs(dfVal - (adfGT[0] + 0.5 * adfGT[1])) >
+                if (std::fabs(dfVal - (gt[0] + 0.5 * gt[1])) >
                     EPSILON * std::fabs(dfVal))
                 {
                     bOK = false;
@@ -1854,9 +1854,8 @@ void GRIBArray::Init(GRIBGroup *poGroup, GRIBDataset *poDS,
                     double dfVal = 0;
                     poVar->Read(&nStart, &nCount, nullptr, nullptr, m_dt,
                                 &dfVal);
-                    if (std::fabs(dfVal -
-                                  (adfGT[3] + poDS->nRasterYSize * adfGT[5] -
-                                   0.5 * adfGT[5])) >
+                    if (std::fabs(dfVal - (gt[3] + poDS->nRasterYSize * gt[5] -
+                                           0.5 * gt[5])) >
                         EPSILON * std::fabs(dfVal))
                     {
                         bOK = false;
@@ -1890,7 +1889,7 @@ void GRIBArray::Init(GRIBGroup *poGroup, GRIBDataset *poDS,
 
             auto var = GDALMDArrayRegularlySpaced::Create(
                 "/", poDimY->GetName(), poDimY,
-                adfGT[3] + poDS->GetRasterYSize() * adfGT[5], -adfGT[5], 0.5);
+                gt[3] + poDS->GetRasterYSize() * gt[5], -gt[5], 0.5);
             poDimY->SetIndexingVariable(var);
             poGroup->AddArray(var);
         }
@@ -1909,7 +1908,7 @@ void GRIBArray::Init(GRIBGroup *poGroup, GRIBDataset *poDS,
             poGroup->m_dims.emplace_back(poDimX);
 
             auto var = GDALMDArrayRegularlySpaced::Create(
-                "/", poDimX->GetName(), poDimX, adfGT[0], adfGT[1], 0.5);
+                "/", poDimX->GetName(), poDimX, gt[0], gt[1], 0.5);
             poDimX->SetIndexingVariable(var);
             poGroup->AddArray(var);
         }
@@ -2336,6 +2335,7 @@ GDALDataset *GRIBDataset::OpenMultiDim(GDALOpenInfo *poOpenInfo)
     {
         inventoryType *psInv = pInventories->get(i);
         uInt4 bandNr = i + 1;
+        assert(bandNr <= 65536);
 
         // GRIB messages can be preceded by "garbage". GRIB2Inventory()
         // does not return the offset to the real start of the message
@@ -2402,7 +2402,6 @@ GDALDataset *GRIBDataset::OpenMultiDim(GDALOpenInfo *poOpenInfo)
             // the first GRIB band.
             poDS->SetGribMetaData(metaData);
 
-            // coverity[tainted_data]
             GRIBRasterBand gribBand(poDS, bandNr, psInv);
             if (psInv->GribVersion == 2)
                 gribBand.FindPDSTemplateGRIB2();
@@ -2849,10 +2848,10 @@ void GRIBDataset::SetGribMetaData(grib_MetaData *meta)
     rMinX -= rPixelSizeX / 2;
     rMaxY += rPixelSizeY / 2;
 
-    adfGeoTransform[0] = rMinX;
-    adfGeoTransform[3] = rMaxY;
-    adfGeoTransform[1] = rPixelSizeX;
-    adfGeoTransform[5] = -rPixelSizeY;
+    m_gt[0] = rMinX;
+    m_gt[3] = rMaxY;
+    m_gt[1] = rPixelSizeX;
+    m_gt[5] = -rPixelSizeY;
 
     if (bError)
         m_poSRS.reset();
@@ -2879,9 +2878,9 @@ static void GDALDeregister_GRIB(GDALDriver *)
 /*                          GDALGRIBDriver                              */
 /************************************************************************/
 
-class GDALGRIBDriver : public GDALDriver
+class GDALGRIBDriver final : public GDALDriver
 {
-    std::mutex m_oMutex{};
+    std::recursive_mutex m_oMutex{};
     bool m_bHasFullInitMetadata = false;
     void InitializeMetadata();
 

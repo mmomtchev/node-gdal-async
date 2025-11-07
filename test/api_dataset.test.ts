@@ -504,7 +504,11 @@ describe('gdal.Dataset', () => {
           assert.isNull(ds.srs)
 
           ds = gdal.open(`${__dirname}/data/shp/sample.shp`)
-          assert.isNull(ds.srs)
+          if (semver.gte(gdal.version, '3.12.0-beta1')) {
+            assert.isNotNull(ds.srs)
+          } else {
+            assert.isNull(ds.srs)
+          }
         })
         it('should throw if dataset is already closed', () => {
           const ds = gdal.open(`${__dirname}/data/dem_azimuth50_pa.img`)
@@ -1104,6 +1108,10 @@ describe('gdal.Dataset', () => {
           } })
           assert.isAbove(calls, 0)
           assert.equal(ds.bands.get(1).overviews.count(), 3)
+          // In GDAL overviews have a special Dataset, but
+          // in the JS bindings, they reference the main Dataset
+          assert.instanceOf(ds.bands.get(1).overviews.get(1).ds, gdal.Dataset)
+          assert.strictEqual(ds.bands.get(1).overviews.get(1).ds, ds)
           ds.close()
           gdal.vsimem.release(tempFile)
         })

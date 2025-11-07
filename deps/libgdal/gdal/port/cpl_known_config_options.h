@@ -28,6 +28,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "AWS_ROLE_ARN", // from cpl_aws.cpp
    "AWS_ROLE_SESSION_NAME", // from cpl_aws.cpp
    "AWS_S3_ENDPOINT", // from cpl_aws.cpp
+   "AWS_S3SESSION_TOKEN", // from cpl_aws.cpp
    "AWS_SECRET_ACCESS_KEY", // from cpl_aws.cpp
    "AWS_SESSION_TOKEN", // from cpl_aws.cpp
    "AWS_STS_ENDPOINT", // from cpl_aws.cpp
@@ -55,6 +56,10 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "BAG_GEOREF_MD_BLOCKXSIZE", // from bagdataset.cpp
    "BAG_GEOREF_MD_BLOCKYSIZE", // from bagdataset.cpp
    "BASISU_MAX_FILE_SIZE", // from basisudataset.cpp
+   "BIGQUERY_DATASET_ID", // from ogradbcdataset.cpp
+   "BIGQUERY_JSON_CREDENTIAL_FILE", // from ogradbcdataset.cpp
+   "BIGQUERY_JSON_CREDENTIAL_STRING", // from ogradbcdataset.cpp
+   "BIGQUERY_PROJECT_ID", // from ogradbcdataset.cpp
    "BIGTIFF_OVERVIEW", // from gt_overview.cpp
    "BLOCKXSIZE", // from netcdfdataset.cpp
    "BLOCKYSIZE", // from netcdfdataset.cpp
@@ -99,6 +104,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "CPL_CURL_VERBOSE_DATA_IN", // from cpl_http.cpp
    "CPL_CURL_VSIMEM_PRINT_HEADERS", // from cpl_http.cpp
    "CPL_DEBUG", // from cpl_conv.cpp, cpl_error.cpp, gdalinfo_bin.cpp, gdalsrsinfo.cpp, gdalwarp_bin.cpp, gmlutils.cpp
+   "CPL_ENABLE_PATH_TRAVERSAL_DETECTION", // from cpl_path.cpp
    "CPL_ENABLE_USERFAULTFD", // from cpl_userfaultfd.cpp
    "CPL_ERROR_SEPARATOR", // from cpl_error.cpp
    "CPL_GCE_CHECK_LOCAL_FILES", // from cpl_google_cloud.cpp
@@ -163,6 +169,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "DISABLE_OPEN_REAL_NETCDF_FILES", // from netcdfdataset.cpp, netcdfdrivercore.cpp
    "DRIVER_WISHED", // from test_ogrsf.cpp
    "DTED_APPLY_PIXEL_IS_POINT", // from dteddataset.cpp
+   "DTED_ASSUME_CONFORMANT", // from dted_api.c
    "DTED_VERIFY_CHECKSUM", // from dteddataset.cpp
    "DUMP_JP2_BOXES", // from gdaljp2metadata.cpp
    "DWG_ALL_ATTRIBUTES", // from ogrdwgdatasource.cpp
@@ -218,6 +225,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "ESRI_XML_PAM", // from gtiffdataset.cpp, gtiffdataset_write.cpp
    "FGDB_STRING_WIDTH", // from FGdbUtils.cpp
    "FORCE_BLOCKSIZE", // from hfaopen.cpp
+   "GDAL_ALGORITHM_ALLOW_WRITES_IN_STREAM", // from gdalalg_abstract_pipeline.cpp
    "GDAL_ALLOW_LARGE_LIBJPEG_MEM_ALLOC", // from JPEG_band.cpp, jpgdataset.cpp
    "GDAL_ALLOW_REMOTE_RESOURCE_TO_ACCESS_LOCAL_FILE", // from vsikerchunk.cpp
    "GDAL_BAG_BLOCK_SIZE", // from bagdataset.cpp
@@ -239,6 +247,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "GDAL_DAAS_X_FORWARDED_USER", // from daasdataset.cpp
    "GDAL_DATA", // from cpl_csv.cpp, cpl_findfile.cpp, gdaldrivermanager.cpp
    "GDAL_DEBUG_BLOCK_CACHE", // from gdalrasterblock.cpp
+   "GDAL_DEBUG_CPU_COUNT", // from gdalalgorithm.cpp
    "GDAL_DEBUG_PROCESS_DYNAMIC_METADATA", // from gdaljp2metadata.cpp
    "GDAL_DEFAULT_CREATE_COPY", // from gdaldriver.cpp
    "GDAL_DEFAULT_WMS_CACHE_PATH", // from gdalwmscache.cpp
@@ -295,6 +304,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "GDAL_HTTP_MULTIRANGE", // from cpl_vsil_curl.cpp
    "GDAL_HTTP_NETRC", // from cpl_http.cpp
    "GDAL_HTTP_NETRC_FILE", // from cpl_http.cpp
+   "GDAL_HTTP_PATH_VERBATIM", // from cpl_http.cpp, cpl_vsil_s3.cpp
    "GDAL_HTTP_PROXY", // from cpl_http.cpp
    "GDAL_HTTP_PROXYUSERPWD", // from cpl_http.cpp
    "GDAL_HTTP_RETRY_CODES", // from cpl_http.cpp
@@ -350,6 +360,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "GDAL_PAM_ENABLED", // from gdalpamdataset.cpp
    "GDAL_PAM_MODE", // from gdalpamdataset.cpp
    "GDAL_PAM_PROXY_DIR", // from gdalpamproxydb.cpp
+   "GDAL_PATH", // from gdalgetgdalpath.cpp
    "GDAL_PDF_BANDS", // from pdfdrivercore.cpp
    "GDAL_PDF_DPI", // from pdfdrivercore.cpp
    "GDAL_PDF_GEO_ENCODING", // from pdfcreatecopy.cpp, pdfdataset.cpp
@@ -369,8 +380,12 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "GDAL_PNG_WHOLE_IMAGE_OPTIM", // from pngdataset.cpp
    "GDAL_PROXY_AUTH", // from cpl_http.cpp
    "GDAL_PYTHON_DRIVER_PATH", // from gdalpythondriverloader.cpp
+   "GDAL_RASTER_PIPELINE_USE_GTIFF_FOR_TEMP_DATASET", // from gdalalg_raster_pipeline.cpp
+   "GDAL_RASTER_TILE_EMIT_SPURIOUS_CHARS", // from gdalalg_raster_tile.cpp
    "GDAL_RASTER_TILE_HTML_PREC", // from gdalalg_raster_tile.cpp
    "GDAL_RASTER_TILE_KML_PREC", // from gdalalg_raster_tile.cpp
+   "GDAL_RASTER_TILE_PNG_FILTER", // from gdalalg_raster_tile.cpp
+   "GDAL_RASTER_TILE_USE_PNG_OPTIM", // from gdalalg_raster_tile.cpp
    "GDAL_RASTERIO_RESAMPLING", // from gdal_misc.cpp
    "GDAL_RB_FLUSHBLOCK_SLEEP_AFTER_DROP_LOCK", // from gdalrasterblock.cpp
    "GDAL_RB_FLUSHBLOCK_SLEEP_AFTER_RB_LOCK", // from gdalrasterblock.cpp
@@ -386,9 +401,14 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "GDAL_SIMUL_MEM_ALLOC_FAILURE_NODATA_MASK_BAND", // from gdalnodatamaskband.cpp
    "GDAL_SKIP", // from gdaldrivermanager.cpp
    "GDAL_STACTA_SKIP_MISSING_METATILE", // from stactadataset.cpp
+   "GDAL_STATS_USE_FLOAT32_OPTIM", // from gdalrasterband.cpp
+   "GDAL_STATS_USE_FLOAT64_OPTIM", // from gdalrasterband.cpp
+   "GDAL_STATS_USE_INTEGER_STATS", // from gdalrasterband.cpp
    "GDAL_SWATH_SIZE", // from gdalmultidim.cpp, rasterio.cpp
    "GDAL_TEMP_DRIVER_NAME", // from nearblack_lib_floodfill.cpp
    "GDAL_TERM_PROGRESS_OSC_9_4", // from cpl_progress.cpp
+   "GDAL_THRESHOLD_MIN_THREADS_FOR_SPAWN", // from gdalalg_raster_tile.cpp
+   "GDAL_THRESHOLD_MIN_TILES_PER_JOB", // from gdalalg_raster_tile.cpp
    "GDAL_TIFF_DEFLATE_SUBCODEC", // from gtiffdataset.cpp
    "GDAL_TIFF_ENDIANNESS", // from gtiffdataset_write.cpp
    "GDAL_TIFF_INTERNAL_MASK", // from gtiffdataset_write.cpp
@@ -403,8 +423,10 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "GDAL_VALIDATE_CREATION_OPTIONS", // from gdaldataset.cpp, gdaldriver.cpp
    "GDAL_VECTOR_CONCAT_MAX_OPENED_DATASETS", // from gdalalg_vector_concat.cpp
    "GDAL_VRT_ENABLE_PYTHON", // from vrtderivedrasterband.cpp
+   "GDAL_VRT_ENABLE_RAWRASTERBAND", // from vrtdataset.cpp
    "GDAL_VRT_PYTHON_EXCLUSIVE_LOCK", // from vrtderivedrasterband.cpp
    "GDAL_VRT_PYTHON_TRUSTED_MODULES", // from vrtderivedrasterband.cpp
+   "GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE", // from vrtrawrasterband.cpp
    "GDAL_VRT_WARP_USE_DATASET_RASTERIO", // from vrtwarped.cpp
    "GDAL_WARP_USE_AFFINE_OPTIMIZATION", // from gdalwarpkernel.cpp
    "GDAL_WARP_USE_TRANSLATION_OPTIM", // from gdalwarpoperation.cpp
@@ -519,6 +541,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "GTIFF_VIRTUAL_MEM_IO", // from gtiffdataset.cpp
    "GTIFF_WRITE_ANGULAR_PARAMS_IN_DEGREE", // from gt_wkt_srs.cpp
    "GTIFF_WRITE_IMAGE_STRUCTURE_METADATA", // from gtiffdataset_write.cpp
+   "GTIFF_WRITE_RAT_TO_PAM", // from gtiffdataset_write.cpp, gtiffrasterband_write.cpp
    "GTIFF_WRITE_TOWGS84", // from gt_wkt_srs.cpp
    "GXF_DATATYPE", // from gxfdataset.cpp
    "HDF4_BLOCK_PIXELS", // from hdf4imagedataset.cpp
@@ -676,6 +699,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "OGR_ARROW_LOAD_FILE_SYSTEM_FACTORIES", // from ogrfeatherdriver.cpp
    "OGR_ARROW_MEM_LIMIT", // from ograrrowarrayhelper.cpp
    "OGR_ARROW_READ_GDAL_FOOTER", // from ogrfeatherlayer.cpp
+   "OGR_ARROW_REGISTER_GEOARROW_WKB_EXTENSION", // from ogrfeatherdriver.cpp
    "OGR_ARROW_USE_VSI", // from ogrfeatherdriver.cpp
    "OGR_ARROW_WRITE_BBOX", // from ogrfeatherwriterlayer.cpp
    "OGR_ARROW_WRITE_GDAL_FOOTER", // from ogrfeatherwriterlayer.cpp
@@ -748,21 +772,23 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "OGR_OPENFILEGDB_WRITE_EMPTY_GEOMETRY", // from ogropenfilegdblayer_write.cpp
    "OGR_ORGANIZE_POLYGONS", // from filegdbtable.cpp, ogrgeometryfactory.cpp
    "OGR_PARQUET_BATCH_READ_AHEAD", // from ogrparquetdatasetlayer.cpp
-   "OGR_PARQUET_BATCH_SIZE", // from ogrparquetdatasetlayer.cpp, ogrparquetlayer.cpp
+   "OGR_PARQUET_BATCH_SIZE", // from ogrparquetdataset.cpp, ogrparquetdatasetlayer.cpp
    "OGR_PARQUET_COMPUTE_GEOMETRY_TYPE", // from ogrparquetlayer.cpp
    "OGR_PARQUET_CRS_ENCODING", // from ogrparquetwriterlayer.cpp
    "OGR_PARQUET_CRS_OMIT_IF_WGS84", // from ogrparquetwriterlayer.cpp
+   "OGR_PARQUET_ENABLE_ARROW_EXTENSIONS", // from ogrparquetdataset.cpp, ogrparquetdriver.cpp
    "OGR_PARQUET_FRAGMENT_READ_AHEAD", // from ogrparquetdatasetlayer.cpp
    "OGR_PARQUET_GEO_METADATA", // from ogrparquetwriterlayer.cpp
    "OGR_PARQUET_LOAD_FILE_SYSTEM_FACTORIES", // from ogrparquetdriver.cpp
    "OGR_PARQUET_OPTIMIZED_ATTRIBUTE_FILTER", // from ogrparquetdatasetlayer.cpp
    "OGR_PARQUET_OPTIMIZED_SPATIAL_FILTER", // from ogrparquetdatasetlayer.cpp
+   "OGR_PARQUET_REGISTER_GEOARROW_WKB_EXTENSION", // from ogrparquetdriver.cpp
    "OGR_PARQUET_SHOW_ROW_GROUP_EXTENT", // from ogrparquetdriver.cpp
    "OGR_PARQUET_USE_BBOX", // from ogrparquetdatasetlayer.cpp, ogrparquetlayer.cpp
    "OGR_PARQUET_USE_METADATA_FILE", // from ogrparquetdriver.cpp
    "OGR_PARQUET_USE_STATISTICS", // from ogrparquetdataset.cpp
-   "OGR_PARQUET_USE_THREADS", // from ogrparquetdatasetlayer.cpp, ogrparquetlayer.cpp
-   "OGR_PARQUET_USE_VSI", // from ogrparquetdriver.cpp
+   "OGR_PARQUET_USE_THREADS", // from ogrparquetdataset.cpp, ogrparquetdatasetlayer.cpp
+   "OGR_PARQUET_USE_VSI", // from ogrparquetdataset.cpp, ogrparquetdriver.cpp
    "OGR_PARQUET_WRITE_ARROW_EXTENSION_NAME", // from ogrparquetwriterlayer.cpp
    "OGR_PARQUET_WRITE_ARROW_SCHEMA", // from ogrparquetwriterlayer.cpp
    "OGR_PARQUET_WRITE_BBOX", // from ogrparquetwriterlayer.cpp
@@ -968,6 +994,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "RMF_SET_VERTCS", // from rmfdataset.cpp
    "RPC_INVERSE_LOG", // from gdal_rpc.cpp
    "RPC_INVERSE_VERBOSE", // from gdal_rpc.cpp
+   "RPF_SHOW_ALL_ATTRIBUTES", // from nitfimage.c
    "RPFTOC_FORCE_RGBA", // from rpftocdataset.cpp
    "RPFTOC_MAX_FRAME_COUNT", // from rpftocfile.cpp
    "S57_CSV", // from s57classregistrar.cpp

@@ -13,6 +13,7 @@
 
 #include "cpl_string.h"
 #include "gdal_frmts.h"
+#include "gdal_priv.h"
 #include "ogr_spatialref.h"
 #include "rawdataset.h"
 
@@ -33,8 +34,8 @@ class GenBinDataset final : public RawDataset
 
     VSILFILE *fpImage;  // image data file.
 
-    bool bGotTransform;
-    double adfGeoTransform[6];
+    bool bGotTransform{};
+    GDALGeoTransform m_gt{};
     OGRSpatialReference m_oSRS{};
 
     char **papszHDR;
@@ -49,7 +50,7 @@ class GenBinDataset final : public RawDataset
     GenBinDataset();
     ~GenBinDataset() override;
 
-    CPLErr GetGeoTransform(double *padfTransform) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
 
     const OGRSpatialReference *GetSpatialRef() const override
     {
@@ -110,7 +111,7 @@ CPLErr GenBinBitRasterBand::IReadBlock(int /* nBlockXOff */, int nBlockYOff,
                                        void *pImage)
 
 {
-    GenBinDataset *poGDS = reinterpret_cast<GenBinDataset *>(poDS);
+    GenBinDataset *poGDS = cpl::down_cast<GenBinDataset *>(poDS);
 
     /* -------------------------------------------------------------------- */
     /*      Establish desired position.                                     */
@@ -196,12 +197,6 @@ GenBinDataset::GenBinDataset()
     : fpImage(nullptr), bGotTransform(false), papszHDR(nullptr)
 {
     m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-    adfGeoTransform[0] = 0.0;
-    adfGeoTransform[1] = 1.0;
-    adfGeoTransform[2] = 0.0;
-    adfGeoTransform[3] = 0.0;
-    adfGeoTransform[4] = 0.0;
-    adfGeoTransform[5] = 1.0;
 }
 
 /************************************************************************/
@@ -247,16 +242,16 @@ CPLErr GenBinDataset::Close()
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr GenBinDataset::GetGeoTransform(double *padfTransform)
+CPLErr GenBinDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
     if (bGotTransform)
     {
-        memcpy(padfTransform, adfGeoTransform, sizeof(double) * 6);
+        gt = m_gt;
         return CE_None;
     }
 
-    return GDALPamDataset::GetGeoTransform(padfTransform);
+    return GDALPamDataset::GetGeoTransform(gt);
 }
 
 /************************************************************************/
@@ -705,13 +700,13 @@ GDALDataset *GenBinDataset::Open(GDALOpenInfo *poOpenInfo)
         const double dfLRY =
             CPLAtofM(CSLFetchNameValue(papszHdr, "LR_Y_COORDINATE"));
 
-        poDS->adfGeoTransform[1] = (dfLRX - dfULX) / (poDS->nRasterXSize - 1);
-        poDS->adfGeoTransform[2] = 0.0;
-        poDS->adfGeoTransform[4] = 0.0;
-        poDS->adfGeoTransform[5] = (dfLRY - dfULY) / (poDS->nRasterYSize - 1);
+        poDS->m_gt[1] = (dfLRX - dfULX) / (poDS->nRasterXSize - 1);
+        poDS->m_gt[2] = 0.0;
+        poDS->m_gt[4] = 0.0;
+        poDS->m_gt[5] = (dfLRY - dfULY) / (poDS->nRasterYSize - 1);
 
-        poDS->adfGeoTransform[0] = dfULX - poDS->adfGeoTransform[1] * 0.5;
-        poDS->adfGeoTransform[3] = dfULY - poDS->adfGeoTransform[5] * 0.5;
+        poDS->m_gt[0] = dfULX - poDS->m_gt[1] * 0.5;
+        poDS->m_gt[3] = dfULY - poDS->m_gt[5] * 0.5;
 
         poDS->bGotTransform = true;
     }

@@ -343,49 +343,12 @@ Licensed under the Apache License, Version 2.0 (the "License"); you may not use 
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
 
-## Unit-tested platforms with pre-built binaries
+## Platform support
 
-Release binaries with pre-built bundled GDAL are tested against the full matrix of:
+Since 3.12, the current minimum requirements for the prebuilt binaries are:
 
-* Node.js versions: 14.x, 16.x, 17.x, 18.x, 20.x
-* OS: Ubuntu 20.04, Ubuntu 22.04, CentOS 9 Stream, Fedora 36, Fedora 37, Debian 10 buster, Debian 11 bullseye, Arch Linux current, Amazon Linux, Windows Server 2019, macOS Catalina 10.15 (EOL), macOS Monterey 12
+- Windows - virtually all x86-64 versions
+- macOS - macOS 15 on both x86-64 and arm8-64
+- Linux - glibc at least 2.31 (Debian Bullseye / Ubuntu 22.04) on x84-64 with the exception of the Node 25 prebuilt binaries which require at least 2.41 (Debian Trixie / Ubuntu 24.04)
 
-On Ubuntu 16.04, Amazon Linux, Windows and macOS only the bundled GDAL version is officially supported. On all other platforms both the bundled and the system-installed versions are supported.
-
-Node.js 17 on ArchLinux is not ABI compatible with the NodeSource binaries and requires rebuilding from source.
-
-On Linux, the binaries require glibc 2.23 (Ubuntu 16), except for Node.js 18 which requires glibc 2.28 (Ubuntu 20 / Debian 10).
-
-Development versions are unit tested for the following targets:
-
----
-| Node | OS | GDAL |
-| --- | --- | --- |
-| Node.js 20.x | CentOS 9 Stream | system-installed GDAL 3.0.4
-| Node.js 20.x | CentOS 9 Stream | bundled GDAL
-| Node.js 20.x | Debian 10 buster | system-installed GDAL 2.1.2 (*earliest unit-tested GDAL*) (*earliest supported glibc*)
-| Node.js 20.x | Debian 11 bullseye | system-installed GDAL 3.2.2
-| Node.js 20.x | Debian 11 bullseye | bundled GDAL
-| Node.js 18.x | Fedora 36| system-installed GDAL 3.4.3
-| Node.js 18.x | Fedora 37 | system-installed GDAL 3.5.2
-| Node.js 18.x | Fedora 37 | bundled GDAL
-| Node.js 20.x | Fedora 38 | bundled GDAL
-| Node.js 20.x | Ubuntu 20.04 | system-installed GDAL 3.0.4
-| Node.js 20.x | Ubuntu 22.04 | system-installed GDAL 3.4.1
-| Node.js 20.x | Ubuntu 24.04 | system-installed GDAL 3.8.4
-| Node.js 22.x | Ubuntu 24.04 | system-installed GDAL 3.8.4
-| Node.js 24.x | Ubuntu 24.04 | system-installed GDAL 3.8.4
-| Node.js 16.x | Ubuntu 22.04 | bundled GDAL
-| Node.js 18.x | Ubuntu 22.04 | bundled GDAL
-| Node.js 20.x | Ubuntu 22.04 | bundled GDAL (*code coverage and development platform*)
-| Node.js 22.x | Ubuntu 22.04 | bundled GDAL
-| Node.js 16.x | Amazon Linux 2022 | bundled GDAL
-| Node.js 16.x | Windows Server 2019 | bundled GDAL
-| Node.js 18.x | Windows Server 2019 | bundled GDAL
-| Node.js 20.x | Windows Server 2019 | bundled GDAL
-| Node.js 22.x | Windows Server 2019 | bundled GDAL
-| Node.js 16.x | macOS Monterey 12 | bundled GDAL
-| Node.js 18.x | macOS Monterey 12 | bundled GDAL
-| Node.js 20.x | macOS Monterey 12 | bundled GDAL
-| Node.js 22.x | macOS Monterey 12 | bundled GDAL
----
+When rebuilding from source, the earliest unit tested GDAL is GDAL 3.10.2 (default one on Ubuntu 22.04) although all 3.x versions should work.

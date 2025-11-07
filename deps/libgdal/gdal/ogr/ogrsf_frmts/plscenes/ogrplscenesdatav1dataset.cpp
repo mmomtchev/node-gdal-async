@@ -10,6 +10,8 @@
  * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
+#include "cpl_multiproc.h"  // CPLSleep()
+
 #include "ogr_plscenes.h"
 #include "ogrlibjsonutils.h"
 #include <time.h>
@@ -47,7 +49,7 @@ OGRPLScenesDataV1Dataset::~OGRPLScenesDataV1Dataset()
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGRPLScenesDataV1Dataset::GetLayer(int idx)
+const OGRLayer *OGRPLScenesDataV1Dataset::GetLayer(int idx) const
 {
     if (idx < 0 || idx >= GetLayerCount())
         return nullptr;
@@ -58,12 +60,12 @@ OGRLayer *OGRPLScenesDataV1Dataset::GetLayer(int idx)
 /*                           GetLayerCount()                            */
 /************************************************************************/
 
-int OGRPLScenesDataV1Dataset::GetLayerCount()
+int OGRPLScenesDataV1Dataset::GetLayerCount() const
 {
     if (!m_bLayerListInitialized)
     {
         m_bLayerListInitialized = true;
-        EstablishLayerList();
+        const_cast<OGRPLScenesDataV1Dataset *>(this)->EstablishLayerList();
     }
     return m_nLayers;
 }
@@ -611,7 +613,7 @@ retry:
                 // Set a dummy name so that PAM goes here
                 CPLPushErrorHandler(CPLQuietErrorHandler);
 
-                const std::string osTmpFilename =
+                std::string osTmpFilename =
                     VSIMemGenerateHiddenFilename("ogrplscenesDataV1");
 
                 poOutDS->SetDescription(osTmpFilename.c_str());
@@ -655,6 +657,7 @@ retry:
                 VSIUnlink(
                     std::string(osTmpFilename).append(".aux.xml").c_str());
                 CPLPopErrorHandler();
+                CPL_IGNORE_RET_VAL(osTmpFilename);
             }
         }
 

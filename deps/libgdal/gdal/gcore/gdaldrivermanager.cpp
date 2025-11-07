@@ -31,6 +31,7 @@
 #include "gdal_alg_priv.h"
 #include "gdal.h"
 #include "gdal_pam.h"
+#include "gdalplugindriverproxy.h"
 #include "gdal_version_full/gdal_version.h"
 #include "gdal_thread_pool.h"
 #include "ogr_srs_api.h"
@@ -1232,7 +1233,7 @@ void GDALDriverManager::ReorderDrivers()
                 else if (cpl::contains(oMapNameToDrivers, osUCDriverName))
                 {
                     aosOrderedDrivers.emplace_back(pszLine);
-                    oSetOrderedDrivers.insert(osUCDriverName);
+                    oSetOrderedDrivers.insert(std::move(osUCDriverName));
                 }
 #ifdef DEBUG_VERBOSE
                 else

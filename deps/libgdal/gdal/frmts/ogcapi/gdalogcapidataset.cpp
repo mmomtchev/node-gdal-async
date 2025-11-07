@@ -13,23 +13,19 @@
 #include "cpl_error.h"
 #include "cpl_json.h"
 #include "cpl_http.h"
+#include "gdal_frmts.h"
 #include "gdal_priv.h"
 #include "tilematrixset.hpp"
 #include "gdal_utils.h"
 #include "ogrsf_frmts.h"
 #include "ogr_spatialref.h"
+#include "gdalplugindriverproxy.h"
 
 #include "parsexsd.h"
 
 #include <algorithm>
 #include <memory>
 #include <vector>
-
-// g++ -Wall -Wextra -std=c++11 -Wall -g -fPIC
-// frmts/ogcapi/gdalogcapidataset.cpp -shared -o gdal_OGCAPI.so -Iport -Igcore
-// -Iogr -Iogr/ogrsf_frmts -Iogr/ogrsf_frmts/gml -Iapps -L. -lgdal
-
-extern "C" void GDALRegister_OGCAPI();
 
 #define MEDIA_TYPE_OAPI_3_0 "application/vnd.oai.openapi+json;version=3.0"
 #define MEDIA_TYPE_OAPI_3_0_ALT "application/openapi+json;version=3.0"
@@ -55,7 +51,7 @@ class OGCAPIDataset final : public GDALDataset
     CPLString m_osRootURL{};
     CPLString m_osUserPwd{};
     CPLString m_osUserQueryParams{};
-    double m_adfGeoTransform[6];
+    GDALGeoTransform m_gt{};
 
     OGRSpatialReference m_oSRS{};
     CPLString m_osTileData{};
@@ -124,19 +120,19 @@ class OGCAPIDataset final : public GDALDataset
     int CloseDependentDatasets() override;
 
   public:
-    OGCAPIDataset();
-    ~OGCAPIDataset();
+    OGCAPIDataset() = default;
+    ~OGCAPIDataset() override;
 
-    CPLErr GetGeoTransform(double *padfGeoTransform) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
     const OGRSpatialReference *GetSpatialRef() const override;
 
-    int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return m_poOAPIFDS ? m_poOAPIFDS->GetLayerCount()
                            : static_cast<int>(m_apoLayers.size());
     }
 
-    OGRLayer *GetLayer(int idx) override
+    const OGRLayer *GetLayer(int idx) const override
     {
         return m_poOAPIFDS                         ? m_poOAPIFDS->GetLayer(idx)
                : idx >= 0 && idx < GetLayerCount() ? m_apoLayers[idx].get()
@@ -158,16 +154,15 @@ class OGCAPIMapWrapperBand final : public GDALRasterBand
   public:
     OGCAPIMapWrapperBand(OGCAPIDataset *poDS, int nBand);
 
-    virtual GDALRasterBand *GetOverview(int nLevel) override;
-    virtual int GetOverviewCount() override;
-    virtual GDALColorInterp GetColorInterpretation() override;
+    GDALRasterBand *GetOverview(int nLevel) override;
+    int GetOverviewCount() override;
+    GDALColorInterp GetColorInterpretation() override;
 
   protected:
-    virtual CPLErr IReadBlock(int nBlockXOff, int nBlockYOff,
-                              void *pImage) override;
-    virtual CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
-                             GDALDataType, GSpacing, GSpacing,
-                             GDALRasterIOExtraArg *psExtraArg) override;
+    CPLErr IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage) override;
+    CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
+                     GDALDataType, GSpacing, GSpacing,
+                     GDALRasterIOExtraArg *psExtraArg) override;
 };
 
 /************************************************************************/
@@ -181,16 +176,15 @@ class OGCAPITilesWrapperBand final : public GDALRasterBand
   public:
     OGCAPITilesWrapperBand(OGCAPIDataset *poDS, int nBand);
 
-    virtual GDALRasterBand *GetOverview(int nLevel) override;
-    virtual int GetOverviewCount() override;
-    virtual GDALColorInterp GetColorInterpretation() override;
+    GDALRasterBand *GetOverview(int nLevel) override;
+    int GetOverviewCount() override;
+    GDALColorInterp GetColorInterpretation() override;
 
   protected:
-    virtual CPLErr IReadBlock(int nBlockXOff, int nBlockYOff,
-                              void *pImage) override;
-    virtual CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
-                             GDALDataType, GSpacing, GSpacing,
-                             GDALRasterIOExtraArg *psExtraArg) override;
+    CPLErr IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage) override;
+    CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
+                     GDALDataType, GSpacing, GSpacing,
+                     GDALRasterIOExtraArg *psExtraArg) override;
 };
 
 /************************************************************************/
@@ -204,6 +198,8 @@ class OGCAPITiledLayer;
 class OGCAPITiledLayerFeatureDefn final : public OGRFeatureDefn
 {
     OGCAPITiledLayer *m_poLayer = nullptr;
+
+    CPL_DISALLOW_COPY_ASSIGN(OGCAPITiledLayerFeatureDefn)
 
   public:
     OGCAPITiledLayerFeatureDefn(OGCAPITiledLayer *poLayer, const char *pszName)
@@ -259,6 +255,8 @@ class OGCAPITiledLayer final
     void FinalizeFeatureDefnWithLayer(OGRLayer *poUnderlyingLayer);
     OGRFeature *BuildFeature(OGRFeature *poSrcFeature, int nX, int nY);
 
+    CPL_DISALLOW_COPY_ASSIGN(OGCAPITiledLayer)
+
   protected:
     friend class OGCAPITiledLayerFeatureDefn;
     void EstablishFields();
@@ -268,7 +266,7 @@ class OGCAPITiledLayer final
                      const CPLString &osTileURL, bool bIsMVT,
                      const gdal::TileMatrixSet::TileMatrix &tileMatrix,
                      OGRwkbGeometryType eGeomType);
-    ~OGCAPITiledLayer();
+    ~OGCAPITiledLayer() override;
 
     void SetExtent(double dfXMin, double dfYMin, double dfXMax, double dfYMax);
     void SetFields(const std::vector<std::unique_ptr<OGRFieldDefn>> &apoFields);
@@ -276,17 +274,17 @@ class OGCAPITiledLayer final
 
     void ResetReading() override;
 
-    OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return m_poFeatureDefn;
     }
 
-    const char *GetName() override
+    const char *GetName() const override
     {
         return m_poFeatureDefn->GetName();
     }
 
-    OGRwkbGeometryType GetGeomType() override
+    OGRwkbGeometryType GetGeomType() const override
     {
         return m_poFeatureDefn->GetGeomType();
     }
@@ -304,7 +302,7 @@ class OGCAPITiledLayer final
                              const OGRGeometry *poGeom) override;
 
     OGRFeature *GetFeature(GIntBig nFID) override;
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 };
 
 /************************************************************************/
@@ -318,20 +316,6 @@ int OGCAPITiledLayerFeatureDefn::GetFieldCount() const
         m_poLayer->EstablishFields();
     }
     return OGRFeatureDefn::GetFieldCount();
-}
-
-/************************************************************************/
-/*                            OGCAPIDataset()                           */
-/************************************************************************/
-
-OGCAPIDataset::OGCAPIDataset()
-{
-    m_adfGeoTransform[0] = 0;
-    m_adfGeoTransform[1] = 1;
-    m_adfGeoTransform[2] = 0;
-    m_adfGeoTransform[3] = 0;
-    m_adfGeoTransform[4] = 0;
-    m_adfGeoTransform[5] = 1;
 }
 
 /************************************************************************/
@@ -371,9 +355,9 @@ int OGCAPIDataset::CloseDependentDatasets()
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr OGCAPIDataset::GetGeoTransform(double *padfGeoTransform)
+CPLErr OGCAPIDataset::GetGeoTransform(GDALGeoTransform &gt) const
 {
-    memcpy(padfGeoTransform, m_adfGeoTransform, 6 * sizeof(double));
+    gt = m_gt;
     return CE_None;
 }
 
@@ -702,7 +686,7 @@ int OGCAPIDataset::FigureBands(const std::string &osContentType,
             OpenTile(osImageURL, 0, 0, 0, bEmptyContent, GDAL_OF_RASTER);
 
         // Return the bands from the image, if we didn't get an image then assume 3.
-        result = dataset ? (int)dataset->GetBands().size() : 3;
+        result = dataset ? static_cast<int>(dataset->GetBands().size()) : 3;
     }
 
     return result;
@@ -770,10 +754,10 @@ bool OGCAPIDataset::ProcessScale(const CPLJSONObject &oScaleDenominator,
 
     nRasterXSize = std::max(1, static_cast<int>(0.5 + dfXSize));
     nRasterYSize = std::max(1, static_cast<int>(0.5 + dfYSize));
-    m_adfGeoTransform[0] = dfXMin;
-    m_adfGeoTransform[1] = (dfXMax - dfXMin) / nRasterXSize;
-    m_adfGeoTransform[3] = dfYMax;
-    m_adfGeoTransform[5] = -(dfYMax - dfYMin) / nRasterYSize;
+    m_gt[0] = dfXMin;
+    m_gt[1] = (dfXMax - dfXMin) / nRasterXSize;
+    m_gt[3] = dfYMax;
+    m_gt[5] = -(dfYMax - dfYMin) / nRasterYSize;
 
     return true;
 }
@@ -1002,7 +986,7 @@ bool OGCAPIDataset::InitFromURL(GDALOpenInfo *poOpenInfo)
     {
         if (!oDoc.GetRoot().GetArray("extent").IsValid())
         {
-            // If there is no "colletions" or "extent" member, then it is
+            // If there is no "collections" or "extent" member, then it is
             // perhaps a landing page
             const auto oLinks = oDoc.GetRoot().GetArray("links");
             osURL.clear();
@@ -1420,10 +1404,10 @@ bool OGCAPIDataset::InitWithCoverageAPI(GDALOpenInfo *poOpenInfo,
 
             nRasterXSize = std::max(1, static_cast<int>(0.5 + dfXSize));
             nRasterYSize = std::max(1, static_cast<int>(0.5 + dfYSize));
-            m_adfGeoTransform[0] = dfXMin;
-            m_adfGeoTransform[1] = (dfXMax - dfXMin) / nRasterXSize;
-            m_adfGeoTransform[3] = dfYMax;
-            m_adfGeoTransform[5] = -(dfYMax - dfYMin) / nRasterYSize;
+            m_gt[0] = dfXMin;
+            m_gt[1] = (dfXMax - dfXMin) / nRasterXSize;
+            m_gt[3] = dfYMax;
+            m_gt[5] = -(dfYMax - dfYMin) / nRasterYSize;
         }
 
         OGRSpatialReference oSRS;
@@ -2245,7 +2229,7 @@ bool OGCAPIDataset::InitWithTilesAPI(GDALOpenInfo *poOpenInfo,
             m_apoDatasetsCropped.emplace_back(
                 GDALDataset::FromHandle(hCroppedDS));
 
-            if (tileMatrix.mResX <= m_adfGeoTransform[1])
+            if (tileMatrix.mResX <= m_gt[1])
                 break;
         }
         if (!m_apoDatasetsCropped.empty())
@@ -2254,7 +2238,7 @@ bool OGCAPIDataset::InitWithTilesAPI(GDALOpenInfo *poOpenInfo,
                          std::end(m_apoDatasetsCropped));
             nRasterXSize = m_apoDatasetsCropped[0]->GetRasterXSize();
             nRasterYSize = m_apoDatasetsCropped[0]->GetRasterYSize();
-            m_apoDatasetsCropped[0]->GetGeoTransform(m_adfGeoTransform);
+            m_apoDatasetsCropped[0]->GetGeoTransform(m_gt);
 
             for (int i = 1; i <= m_apoDatasetsCropped[0]->GetRasterCount(); i++)
             {
@@ -2829,7 +2813,7 @@ OGRErr OGCAPITiledLayer::ISetSpatialFilter(int iGeomField,
 /*                          TestCapability()                            */
 /************************************************************************/
 
-int OGCAPITiledLayer::TestCapability(const char *pszCap)
+int OGCAPITiledLayer::TestCapability(const char *pszCap) const
 {
     if (EQUAL(pszCap, OLCRandomRead))
         return true;

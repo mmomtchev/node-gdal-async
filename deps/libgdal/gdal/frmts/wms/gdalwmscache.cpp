@@ -25,7 +25,7 @@ static void CleanCacheThread(void *pData)
 //------------------------------------------------------------------------------
 // GDALWMSFileCache
 //------------------------------------------------------------------------------
-class GDALWMSFileCache : public GDALWMSCacheImpl
+class GDALWMSFileCache final : public GDALWMSCacheImpl
 {
   public:
     GDALWMSFileCache(const CPLString &soPath, CPLXMLNode *pConfig)
@@ -66,10 +66,7 @@ class GDALWMSFileCache : public GDALWMSCacheImpl
         }
     }
 
-    virtual int GetCleanThreadRunTimeout() override
-    {
-        return m_nCleanThreadRunTimeout;
-    }
+    int GetCleanThreadRunTimeout() override;
 
     virtual CPLErr Insert(const char *pszKey,
                           const CPLString &osFileName) override
@@ -106,7 +103,7 @@ class GDALWMSFileCache : public GDALWMSCacheImpl
             papszOpenOptions, nullptr));
     }
 
-    virtual void Clean() override
+    void Clean() override
     {
         char **papszList = VSIReadDirRecursive(m_soPath);
         if (papszList == nullptr)
@@ -200,6 +197,11 @@ class GDALWMSFileCache : public GDALWMSCacheImpl
     long m_nMaxSize;
     int m_nCleanThreadRunTimeout;
 };
+
+int GDALWMSFileCache::GetCleanThreadRunTimeout()
+{
+    return m_nCleanThreadRunTimeout;
+}
 
 //------------------------------------------------------------------------------
 // GDALWMSCache

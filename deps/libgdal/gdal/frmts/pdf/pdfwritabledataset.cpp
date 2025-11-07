@@ -119,7 +119,7 @@ PDFWritableVectorDataset::ICreateLayer(const char *pszLayerName,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int PDFWritableVectorDataset::TestCapability(const char *pszCap)
+int PDFWritableVectorDataset::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, ODsCCreateLayer))
@@ -132,7 +132,7 @@ int PDFWritableVectorDataset::TestCapability(const char *pszCap)
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *PDFWritableVectorDataset::GetLayer(int iLayer)
+const OGRLayer *PDFWritableVectorDataset::GetLayer(int iLayer) const
 
 {
     if (iLayer < 0 || iLayer >= nLayers)
@@ -145,7 +145,7 @@ OGRLayer *PDFWritableVectorDataset::GetLayer(int iLayer)
 /*                            GetLayerCount()                           */
 /************************************************************************/
 
-int PDFWritableVectorDataset::GetLayerCount()
+int PDFWritableVectorDataset::GetLayerCount() const
 {
     return nLayers;
 }
@@ -217,17 +217,17 @@ CPLErr PDFWritableVectorDataset::FlushCache(bool /* bAtClosing*/)
         nWidth = static_cast<int>(dfWidth);
     }
 
-    double adfGeoTransform[6];
-    adfGeoTransform[0] = sGlobalExtent.MinX;
-    adfGeoTransform[1] = (sGlobalExtent.MaxX - sGlobalExtent.MinX) / nWidth;
-    adfGeoTransform[2] = 0;
-    adfGeoTransform[3] = sGlobalExtent.MaxY;
-    adfGeoTransform[4] = 0;
-    adfGeoTransform[5] = -(sGlobalExtent.MaxY - sGlobalExtent.MinY) / nHeight;
+    GDALGeoTransform gt;
+    gt[0] = sGlobalExtent.MinX;
+    gt[1] = (sGlobalExtent.MaxX - sGlobalExtent.MinX) / nWidth;
+    gt[2] = 0;
+    gt[3] = sGlobalExtent.MaxY;
+    gt[4] = 0;
+    gt[5] = -(sGlobalExtent.MaxY - sGlobalExtent.MinY) / nHeight;
 
     // Do again a check against 0, because the above divisions might
     // transform a difference close to 0, to plain 0.
-    if (adfGeoTransform[1] == 0 || adfGeoTransform[5] == 0)
+    if (gt[1] == 0 || gt[5] == 0)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Cannot compute spatial extent of features");
@@ -342,9 +342,9 @@ CPLErr PDFWritableVectorDataset::FlushCache(bool /* bAtClosing*/)
     GDALDataset *poSrcDS =
         MEMDataset::Create("MEM:::", nWidth, nHeight, 0, GDT_Byte, nullptr);
 
-    poSrcDS->SetGeoTransform(adfGeoTransform);
+    poSrcDS->SetGeoTransform(gt);
 
-    OGRSpatialReference *poSRS = papoLayers[0]->GetSpatialRef();
+    const OGRSpatialReference *poSRS = papoLayers[0]->GetSpatialRef();
     if (poSRS)
     {
         char *pszWKT = nullptr;

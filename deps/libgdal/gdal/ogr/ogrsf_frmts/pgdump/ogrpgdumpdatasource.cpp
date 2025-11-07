@@ -125,8 +125,8 @@ char *OGRPGCommonLaunderName(const char *pszSrcName, const char *pszDebugPrefix,
     {
         if (static_cast<unsigned char>(pszSafeName[i]) <= 127)
         {
-            pszSafeName[i] =
-                (char)CPLTolower(static_cast<unsigned char>(pszSafeName[i]));
+            pszSafeName[i] = static_cast<char>(
+                CPLTolower(static_cast<unsigned char>(pszSafeName[i])));
             if (pszSafeName[i] == '\'' || pszSafeName[i] == '-' ||
                 pszSafeName[i] == '#')
             {
@@ -211,6 +211,8 @@ OGRPGDumpDataSource::ICreateLayer(const char *pszLayerName,
         CPLFetchBool(papszOptions, "CREATE_SCHEMA", true);
     const char *pszDropTable =
         CSLFetchNameValueDef(papszOptions, "DROP_TABLE", "IF_EXISTS");
+    const bool bSkipConflicts =
+        CPLFetchBool(papszOptions, "SKIP_CONFLICTS", false);
     int nGeometryTypeFlags = 0;
 
     if (OGR_GT_HasZ(eType))
@@ -634,7 +636,7 @@ OGRPGDumpDataSource::ICreateLayer(const char *pszLayerName,
                          OGRPGDumpEscapeColumnName(osIndexName.c_str()).c_str(),
                          pszSchemaEscaped, pszTableEscaped, pszSpatialIndexType,
                          OGRPGDumpEscapeColumnName(pszGFldName).c_str());
-        aosSpatialIndexCreationCommands.push_back(osCommand);
+        aosSpatialIndexCreationCommands.push_back(std::move(osCommand));
     }
 
     /* -------------------------------------------------------------------- */
@@ -646,7 +648,7 @@ OGRPGDumpDataSource::ICreateLayer(const char *pszLayerName,
     auto poLayer = std::make_unique<OGRPGDumpLayer>(
         this, osSchema.c_str(), osTable.c_str(),
         !osFIDColumnName.empty() ? osFIDColumnName.c_str() : nullptr,
-        bWriteAsHex, bCreateTable);
+        bWriteAsHex, bCreateTable, bSkipConflicts);
     poLayer->SetLaunderFlag(bLaunder);
     poLayer->SetUTF8ToASCIIFlag(bUTF8ToASCII);
     poLayer->SetPrecisionFlag(CPLFetchBool(papszOptions, "PRECISION", true));
@@ -704,7 +706,7 @@ OGRPGDumpDataSource::ICreateLayer(const char *pszLayerName,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRPGDumpDataSource::TestCapability(const char *pszCap)
+int OGRPGDumpDataSource::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, ODsCCreateLayer))
@@ -727,7 +729,7 @@ int OGRPGDumpDataSource::TestCapability(const char *pszCap)
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGRPGDumpDataSource::GetLayer(int iLayer)
+const OGRLayer *OGRPGDumpDataSource::GetLayer(int iLayer) const
 
 {
     if (iLayer < 0 || iLayer >= static_cast<int>(m_apoLayers.size()))

@@ -15,6 +15,10 @@
 
 #include "gdal_frmts.h"
 #include "gdal_pam.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 
 #if defined(_WIN32)
 #define SEP_STRING "\\"
@@ -172,7 +176,7 @@ class PALSARJaxaDataset final : public GDALPamDataset
 
   public:
     PALSARJaxaDataset();
-    ~PALSARJaxaDataset();
+    ~PALSARJaxaDataset() override;
 
     int GetGCPCount() override;
     const GDAL_GCP *GetGCPs() override;
@@ -213,7 +217,7 @@ class PALSARJaxaRasterBand final : public GDALRasterBand
 
   public:
     PALSARJaxaRasterBand(PALSARJaxaDataset *poDS, int nBand, VSILFILE *fp);
-    ~PALSARJaxaRasterBand();
+    ~PALSARJaxaRasterBand() override;
 
     CPLErr IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage) override;
 };
@@ -242,7 +246,7 @@ PALSARJaxaRasterBand::PALSARJaxaRasterBand(PALSARJaxaDataset *poDSIn,
     }
     else if (nBitsPerSample == 8 && nSamplesPerGroup == 2)
     {
-        eDataType = GDT_CInt16; /* shuold be 2 x signed byte */
+        eDataType = GDT_CInt16; /* should be 2 x signed byte */
         nFileType = level_10;
     }
     else

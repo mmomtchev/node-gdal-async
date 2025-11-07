@@ -91,20 +91,20 @@ class PCRasterDataset final : public GDALPamDataset
 
     explicit PCRasterDataset(MAP *map, GDALAccess eAccess);
 
-    /* virtual */ ~PCRasterDataset();
+    ~PCRasterDataset() override;
 
     //----------------------------------------------------------------------------
     // MANIPULATORS
     //----------------------------------------------------------------------------
 
-    CPLErr SetGeoTransform(double *transform) override;
+    CPLErr SetGeoTransform(const GDALGeoTransform &gt) override;
 
     //----------------------------------------------------------------------------
     // ACCESSORS
     //----------------------------------------------------------------------------
 
     MAP *map() const;
-    CPLErr GetGeoTransform(double *transform) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
     CSF_CR cellRepresentation() const;
     CSF_VS valueScale() const;
     double defaultNoDataValue() const;

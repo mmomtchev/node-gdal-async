@@ -2453,7 +2453,6 @@ CPLErr GDALGridDataMetricAverageDistancePts(
  *
  * @return CE_None on success or CE_Failure if something goes wrong.
  *
- * @since GDAL 2.1
  */
 
 CPLErr GDALGridLinear(const void *poOptionsIn, GUInt32 nPoints,
@@ -2560,6 +2559,7 @@ struct _GDALGridJob
     GDALDataType eType;
 
     int *pnCounter;
+    int nCounterSingleThreaded;
     volatile int *pbStop;
     CPLCond *hCond;
     CPLMutex *hCondMutex;
@@ -2591,8 +2591,7 @@ static int GDALGridProgressMultiThread(GDALGridJob *psJob)
 // Return TRUE if the computation must be interrupted.
 static int GDALGridProgressMonoThread(GDALGridJob *psJob)
 {
-    // coverity[missing_lock]
-    const int nCounter = ++(*psJob->pnCounter);
+    const int nCounter = ++(psJob->nCounterSingleThreaded);
     if (!psJob->pfnRealProgress(nCounter / static_cast<double>(psJob->nYSize),
                                 "", psJob->pRealProgressArg))
     {
@@ -2748,7 +2747,6 @@ static void GDALGridContextCreateQuadTree(GDALGridContext *psContext);
  * @return the context (to be freed with GDALGridContextFree()) or NULL in case
  *         or error.
  *
- * @since GDAL 2.1
  */
 
 GDALGridContext *GDALGridContextCreate(GDALGridAlgorithm eAlgorithm,
@@ -3354,7 +3352,6 @@ void GDALGridContextCreateQuadTree(GDALGridContext *psContext)
  *
  * @param psContext the context.
  *
- * @since GDAL 2.1
  */
 void GDALGridContextFree(GDALGridContext *psContext)
 {
@@ -3387,7 +3384,7 @@ void GDALGridContextFree(GDALGridContext *psContext)
 /**
  * Do the gridding of a window of a raster.
  *
- * This function takes the gridding context as input to preprare computation
+ * This function takes the gridding context as input to prepare computation
  * of regular grid (or call it a raster) from these scattered data.
  * You should supply the extent of the output grid and allocate array
  * sufficient to hold such a grid.
@@ -3407,7 +3404,6 @@ void GDALGridContextFree(GDALGridContext *psContext)
  *
  * @return CE_None on success or CE_Failure if something goes wrong.
  *
- * @since GDAL 2.1
  */
 
 CPLErr GDALGridContextProcess(GDALGridContext *psContext, double dfXMin,
@@ -3509,6 +3505,7 @@ CPLErr GDALGridContextProcess(GDALGridContext *psContext, double dfXMin,
     sJob.eType = eType;
     sJob.pfnRealProgress = pfnProgress;
     sJob.pRealProgressArg = pProgressArg;
+    sJob.nCounterSingleThreaded = 0;
     sJob.pnCounter = &nCounter;
     sJob.pbStop = &bStop;
     sJob.hCond = nullptr;
@@ -3602,12 +3599,12 @@ CPLErr GDALGridContextProcess(GDALGridContext *psContext, double dfXMin,
  * scattered data. You should supply geometry and extent of the output grid
  * and allocate array sufficient to hold such a grid.
  *
- * Starting with GDAL 1.10, it is possible to set the GDAL_NUM_THREADS
+ * It is possible to set the GDAL_NUM_THREADS
  * configuration option to parallelize the processing. The value to set is
  * the number of worker threads, or ALL_CPUS to use all the cores/CPUs of the
  * computer (default value).
  *
- * Starting with GDAL 1.10, on Intel/AMD i386/x86_64 architectures, some
+ * On Intel/AMD i386/x86_64 architectures, some
  * gridding methods will be optimized with SSE instructions (provided GDAL
  * has been compiled with such support, and it is available at runtime).
  * Currently, only 'invdist' algorithm with default parameters has an optimized
@@ -3615,7 +3612,7 @@ CPLErr GDALGridContextProcess(GDALGridContext *psContext, double dfXMin,
  * This can provide substantial speed-up, but sometimes at the expense of
  * reduced floating point precision. This can be disabled by setting the
  * GDAL_USE_SSE configuration option to NO.
- * Starting with GDAL 1.11, a further optimized version can use the AVX
+ * A further optimized version can use the AVX
  * instruction set. This can be disabled by setting the GDAL_USE_AVX
  * configuration option to NO.
  *

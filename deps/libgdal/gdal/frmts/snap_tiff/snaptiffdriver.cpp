@@ -4,13 +4,19 @@
 #include "cpl_port.h"
 #include "cpl_minixml.h"
 #include "cpl_vsi_virtual.h"
+#include "gdal_frmts.h"
 #include "gdal_pam.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 #include "rawdataset.h"
 
 #define LIBERTIFF_NS GDAL_libertiff
-#include "../../third_party/libertiff/libertiff.hpp"
+#include "libertiff.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 
 constexpr const char *SNAP_TIFF_PREFIX = "SNAP_TIFF:";
@@ -132,8 +138,9 @@ int SNAPTIFFDataset::Identify(GDALOpenInfo *poOpenInfo)
 #ifdef DEBUG
     // Just to increase coverage testing
     CPLAssert(f->size() == uint64_t(poOpenInfo->nHeaderBytes));
-    char dummy;
+    char dummy = 0;
     CPLAssert(f->read(poOpenInfo->nHeaderBytes, 1, &dummy) == 0);
+    CPL_IGNORE_RET_VAL(dummy);
 #endif
     auto image = LIBERTIFF_NS::open</*acceptBigTIFF = */ false>(std::move(f));
     // Checks that it is a single-band Float32 uncompressed dataset, made
@@ -216,8 +223,9 @@ GDALDataset *SNAPTIFFDataset::Open(GDALOpenInfo *poOpenInfo)
     auto f = std::make_shared<const MyFileReader>(poOpenInfo->fpL);
 #ifdef DEBUG
     // Just to increase coverage testing
-    char dummy;
+    char dummy = 0;
     CPLAssert(f->read(f->size(), 1, &dummy) == 0);
+    CPL_IGNORE_RET_VAL(dummy);
 #endif
 
     auto poDS = std::make_unique<SNAPTIFFDataset>();
@@ -244,6 +252,7 @@ GDALDataset *SNAPTIFFDataset::Open(GDALOpenInfo *poOpenInfo)
 
         const auto *psTag =
             poDS->m_poImage->tag(LIBERTIFF_NS::TagCode::GeoTIFFTiePoints);
+        assert(psTag);
 
         for (int iBand = 1; iBand <= 2; ++iBand)
         {

@@ -36,11 +36,16 @@
 /************************************************************************/
 
 GDALVectorConcatAlgorithm::GDALVectorConcatAlgorithm(bool bStandalone)
-    : GDALVectorPipelineStepAlgorithm(NAME, DESCRIPTION, HELP_URL, bStandalone)
+    : GDALVectorPipelineStepAlgorithm(NAME, DESCRIPTION, HELP_URL,
+                                      ConstructorOptions()
+                                          .SetStandaloneStep(bStandalone)
+                                          .SetInputDatasetMaxCount(INT_MAX)
+                                          .SetAddOutputLayerNameArgument(false)
+                                          .SetAutoOpenInputDatasets(false))
 {
     if (!bStandalone)
     {
-        AddInputArgs(/* hiddenForCLI = */ false);
+        AddVectorInputArgs(/* hiddenForCLI = */ false);
     }
 
     AddArg(
@@ -49,7 +54,7 @@ GDALVectorConcatAlgorithm::GDALVectorConcatAlgorithm(bool bStandalone)
         &m_mode)
         .SetChoices("merge-per-layer-name", "stack", "single")
         .SetDefault(m_mode);
-    AddArg("output-layer", 0,
+    AddArg(GDAL_ARG_NAME_OUTPUT_LAYER, 0,
            _("Name of the output vector layer (single mode), or template to "
              "name the output vector layers (stack mode)"),
            &m_layerNameTemplate);
@@ -93,18 +98,15 @@ class GDALVectorConcatOutputDataset final : public GDALDataset
         m_layers.push_back(std::move(layer));
     }
 
-    int GetLayerCount() override
-    {
-        return static_cast<int>(m_layers.size());
-    }
+    int GetLayerCount() const override;
 
-    OGRLayer *GetLayer(int idx) override
+    OGRLayer *GetLayer(int idx) const override
     {
         return idx >= 0 && idx < GetLayerCount() ? m_layers[idx].get()
                                                  : nullptr;
     }
 
-    int TestCapability(const char *pszCap) override
+    int TestCapability(const char *pszCap) const override
     {
         if (EQUAL(pszCap, ODsCCurveGeometries) ||
             EQUAL(pszCap, ODsCMeasuredGeometries) ||
@@ -115,6 +117,11 @@ class GDALVectorConcatOutputDataset final : public GDALDataset
         return false;
     }
 };
+
+int GDALVectorConcatOutputDataset::GetLayerCount() const
+{
+    return static_cast<int>(m_layers.size());
+}
 
 /************************************************************************/
 /*                     GDALVectorConcatRenamedLayer                     */
@@ -129,14 +136,16 @@ class GDALVectorConcatRenamedLayer final : public OGRLayerDecorator
     {
     }
 
-    const char *GetName() override
-    {
-        return m_newName.c_str();
-    }
+    const char *GetName() const override;
 
   private:
     const std::string m_newName;
 };
+
+const char *GDALVectorConcatRenamedLayer::GetName() const
+{
+    return m_newName.c_str();
+}
 
 /************************************************************************/
 /*                         BuildLayerName()                             */
@@ -230,7 +239,7 @@ static void FreeProxiedLayerUserData(void *pUserData)
 /*                   GDALVectorConcatAlgorithm::RunStep()               */
 /************************************************************************/
 
-bool GDALVectorConcatAlgorithm::RunStep(GDALProgressFunc, void *)
+bool GDALVectorConcatAlgorithm::RunStep(GDALPipelineStepRunContext &)
 {
     std::unique_ptr<OGRSpatialReference> poSrcCRS;
     if (!m_srsCrs.empty())
@@ -282,7 +291,7 @@ bool GDALVectorConcatAlgorithm::RunStep(GDALProgressFunc, void *)
     // First pass on input layers
     std::map<std::string, std::vector<LayerDesc>> allLayerNames;
     int iDS = 0;
-    int countNonOpenedDS = 0;
+    int nonOpenedDSCount = 0;
     for (auto &srcDS : m_inputDataset)
     {
         GDALDataset *poSrcDS = srcDS.GetDatasetRef();
@@ -304,7 +313,7 @@ bool GDALVectorConcatAlgorithm::RunStep(GDALProgressFunc, void *)
             }
             else
             {
-                ++countNonOpenedDS;
+                ++nonOpenedDSCount;
             }
         }
 
@@ -347,7 +356,7 @@ bool GDALVectorConcatAlgorithm::RunStep(GDALProgressFunc, void *)
 
     auto poUnionDS = std::make_unique<GDALVectorConcatOutputDataset>();
 
-    if (countNonOpenedDS > nMaxSimultaneouslyOpened)
+    if (nonOpenedDSCount > nMaxSimultaneouslyOpened)
         m_poLayerPool =
             std::make_unique<OGRLayerPool>(nMaxSimultaneouslyOpened);
 
@@ -419,7 +428,7 @@ bool GDALVectorConcatAlgorithm::RunStep(GDALProgressFunc, void *)
         {
             for (int i = 0; i < nLayerCount; ++i)
             {
-                OGRSpatialReference *poSrcLayerCRS;
+                const OGRSpatialReference *poSrcLayerCRS;
                 if (poSrcCRS)
                     poSrcLayerCRS = poSrcCRS.get();
                 else
@@ -485,7 +494,7 @@ bool GDALVectorConcatAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         GDALVectorWriteAlgorithm writeAlg;
         for (auto &arg : writeAlg.GetArgs())
         {
-            if (arg->GetName() != "output-layer")
+            if (arg->GetName() != GDAL_ARG_NAME_OUTPUT_LAYER)
             {
                 auto stepArg = GetArg(arg->GetName());
                 if (stepArg && stepArg->IsExplicitlySet())
@@ -527,8 +536,14 @@ bool GDALVectorConcatAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
     }
     else
     {
-        return RunStep(pfnProgress, pProgressData);
+        GDALPipelineStepRunContext stepCtxt;
+        stepCtxt.m_pfnProgress = pfnProgress;
+        stepCtxt.m_pProgressData = pProgressData;
+        return RunStep(stepCtxt);
     }
 }
+
+GDALVectorConcatAlgorithmStandalone::~GDALVectorConcatAlgorithmStandalone() =
+    default;
 
 //! @endcond

@@ -14,6 +14,7 @@
 #include "gtiffjpegoverviewds.h"
 
 #include "gtiffdataset.h"
+#include "gdal_priv.h"
 
 #include "tifvsi.h"
 
@@ -28,11 +29,7 @@ class GTiffJPEGOverviewBand final : public GDALRasterBand
   public:
     GTiffJPEGOverviewBand(GTiffJPEGOverviewDS *poDS, int nBand);
 
-    virtual ~GTiffJPEGOverviewBand()
-    {
-    }
-
-    virtual CPLErr IReadBlock(int, int, void *) override;
+    CPLErr IReadBlock(int, int, void *) override;
 
     GDALColorInterp GetColorInterpretation() override
     {
@@ -77,10 +74,8 @@ GTiffJPEGOverviewDS::GTiffJPEGOverviewDS(GTiffDataset *poParentDSIn,
         m_osTmpFilenameJPEGTable, m_pabyJPEGTable, m_nJPEGTableSize, TRUE)));
 
     const int nScaleFactor = 1 << m_nOverviewLevel;
-    nRasterXSize =
-        (m_poParentDS->nRasterXSize + nScaleFactor - 1) / nScaleFactor;
-    nRasterYSize =
-        (m_poParentDS->nRasterYSize + nScaleFactor - 1) / nScaleFactor;
+    nRasterXSize = DIV_ROUND_UP(m_poParentDS->nRasterXSize, nScaleFactor);
+    nRasterYSize = DIV_ROUND_UP(m_poParentDS->nRasterYSize, nScaleFactor);
 
     for (int i = 1; i <= m_poParentDS->nBands; ++i)
         SetBand(i, new GTiffJPEGOverviewBand(this, i));
@@ -149,8 +144,8 @@ GTiffJPEGOverviewBand::GTiffJPEGOverviewBand(GTiffJPEGOverviewDS *poDSIn,
     poDSIn->m_poParentDS->GetRasterBand(nBandIn)->GetBlockSize(&nBlockXSize,
                                                                &nBlockYSize);
     const int nScaleFactor = 1 << poDSIn->m_nOverviewLevel;
-    nBlockXSize = (nBlockXSize + nScaleFactor - 1) / nScaleFactor;
-    nBlockYSize = (nBlockYSize + nScaleFactor - 1) / nScaleFactor;
+    nBlockXSize = DIV_ROUND_UP(nBlockXSize, nScaleFactor);
+    nBlockYSize = DIV_ROUND_UP(nBlockYSize, nScaleFactor);
 }
 
 /************************************************************************/

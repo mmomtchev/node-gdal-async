@@ -25,7 +25,8 @@
 				"../gdal/ogr/ogrsf_frmts/avc/ogravcbinlayer.cpp"
 			],
 			"include_dirs": [
-				"../gdal/ogr/ogrsf_frmts/avc"
+				"../gdal/ogr/ogrsf_frmts/avc",
+				"../gdal/ogr/ogrsf_frmts/shape/shapelib"
 			],
 			"direct_dependent_settings": {
 				"defines": [

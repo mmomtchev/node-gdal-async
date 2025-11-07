@@ -14,6 +14,10 @@
 #include "cpl_vsi_virtual.h"
 #include "gdal_frmts.h"
 #include "gdal_pam.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 
 #include <algorithm>
 #include <cmath>
@@ -53,7 +57,7 @@ class XYZDataset final : public GDALPamDataset
     GIntBig nLineNum;     /* any line */
     GIntBig nDataLineNum; /* line with values (header line and empty lines
                              ignored) */
-    double adfGeoTransform[6];
+    GDALGeoTransform m_gt{};
     int bSameNumberOfValuesPerLine;
     double dfMinZ;
     double dfMaxZ;
@@ -63,11 +67,13 @@ class XYZDataset final : public GDALPamDataset
     static int IdentifyEx(GDALOpenInfo *, int &, int &nCommentLineCount,
                           int &nXIndex, int &nYIndex, int &nZIndex);
 
+    CPL_DISALLOW_COPY_ASSIGN(XYZDataset)
+
   public:
     XYZDataset();
-    virtual ~XYZDataset();
+    ~XYZDataset() override;
 
-    virtual CPLErr GetGeoTransform(double *) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
 
     static GDALDataset *Open(GDALOpenInfo *);
     static int Identify(GDALOpenInfo *);
@@ -93,10 +99,10 @@ class XYZRasterBand final : public GDALPamRasterBand
   public:
     XYZRasterBand(XYZDataset *, int, GDALDataType);
 
-    virtual CPLErr IReadBlock(int, int, void *) override;
-    virtual double GetMinimum(int *pbSuccess = nullptr) override;
-    virtual double GetMaximum(int *pbSuccess = nullptr) override;
-    virtual double GetNoDataValue(int *pbSuccess = nullptr) override;
+    CPLErr IReadBlock(int, int, void *) override;
+    double GetMinimum(int *pbSuccess = nullptr) override;
+    double GetMaximum(int *pbSuccess = nullptr) override;
+    double GetNoDataValue(int *pbSuccess = nullptr) override;
 };
 
 /************************************************************************/
@@ -122,7 +128,7 @@ XYZRasterBand::XYZRasterBand(XYZDataset *poDSIn, int nBandIn, GDALDataType eDT)
 CPLErr XYZRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
                                  void *pImage)
 {
-    XYZDataset *poGDS = reinterpret_cast<XYZDataset *>(poDS);
+    XYZDataset *poGDS = cpl::down_cast<XYZDataset *>(poDS);
 
     if (poGDS->fp == nullptr)
         return CE_Failure;
@@ -252,16 +258,14 @@ CPLErr XYZRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
 
                 poGDS->nDataLineNum++;
 
-                const int nX =
-                    static_cast<int>((dfX - 0.5 * poGDS->adfGeoTransform[1] -
-                                      poGDS->adfGeoTransform[0]) /
-                                         poGDS->adfGeoTransform[1] +
-                                     0.5);
-                const int nY =
-                    static_cast<int>((dfY - 0.5 * poGDS->adfGeoTransform[5] -
-                                      poGDS->adfGeoTransform[3]) /
-                                         poGDS->adfGeoTransform[5] +
-                                     0.5);
+                const int nX = static_cast<int>(
+                    (dfX - 0.5 * poGDS->m_gt[1] - poGDS->m_gt[0]) /
+                        poGDS->m_gt[1] +
+                    0.5);
+                const int nY = static_cast<int>(
+                    (dfY - 0.5 * poGDS->m_gt[5] - poGDS->m_gt[3]) /
+                        poGDS->m_gt[5] +
+                    0.5);
                 if (nX < 0 || nX >= nRasterXSize)
                 {
                     CPLError(CE_Failure, CPLE_AppDefined,
@@ -302,7 +306,7 @@ CPLErr XYZRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
         if (!bSuccess)
             dfNoDataValue = 0.0;
         GDALCopyWords(&dfNoDataValue, GDT_Float64, 0, pImage, eDataType,
-                      GDALGetDataTypeSize(eDataType) / 8, nRasterXSize);
+                      GDALGetDataTypeSizeBytes(eDataType), nRasterXSize);
     }
 
     // Only valid if bSameNumberOfValuesPerLine.
@@ -412,8 +416,8 @@ CPLErr XYZRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
         }
     }
 
-    const double dfExpectedY = poGDS->adfGeoTransform[3] +
-                               (0.5 + nBlockYOff) * poGDS->adfGeoTransform[5];
+    const double dfExpectedY =
+        poGDS->m_gt[3] + (0.5 + nBlockYOff) * poGDS->m_gt[5];
 
     int idx = -1;
     while (true)
@@ -500,20 +504,17 @@ CPLErr XYZRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
                 }
                 else
                 {
-                    if (fabs((dfY - dfExpectedY) / poGDS->adfGeoTransform[5]) >
+                    if (fabs((dfY - dfExpectedY) / poGDS->m_gt[5]) >
                         RELATIVE_ERROR)
                     {
                         if (idx < 0)
                         {
                             const double dfYDeltaOrigin =
-                                dfY + 0.5 * poGDS->adfGeoTransform[5] -
-                                poGDS->adfGeoTransform[3];
-                            if (!(fabs(dfYDeltaOrigin) >
-                                      fabs(poGDS->adfGeoTransform[5]) &&
+                                dfY + 0.5 * poGDS->m_gt[5] - poGDS->m_gt[3];
+                            if (!(fabs(dfYDeltaOrigin) > fabs(poGDS->m_gt[5]) &&
                                   fabs(std::round(dfYDeltaOrigin /
-                                                  poGDS->adfGeoTransform[5]) -
-                                       (dfYDeltaOrigin /
-                                        poGDS->adfGeoTransform[5])) <=
+                                                  poGDS->m_gt[5]) -
+                                       (dfYDeltaOrigin / poGDS->m_gt[5])) <=
                                       RELATIVE_ERROR))
                             {
                                 CPLError(CE_Failure, CPLE_AppDefined,
@@ -531,11 +532,10 @@ CPLErr XYZRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
                         return CE_None;
                     }
 
-                    idx = static_cast<int>((dfX -
-                                            0.5 * poGDS->adfGeoTransform[1] -
-                                            poGDS->adfGeoTransform[0]) /
-                                               poGDS->adfGeoTransform[1] +
-                                           0.5);
+                    idx = static_cast<int>(
+                        (dfX - 0.5 * poGDS->m_gt[1] - poGDS->m_gt[0]) /
+                            poGDS->m_gt[1] +
+                        0.5);
                 }
                 CPLAssert(idx >= 0 && idx < nRasterXSize);
 
@@ -597,7 +597,7 @@ CPLErr XYZRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
 
 double XYZRasterBand::GetMinimum(int *pbSuccess)
 {
-    XYZDataset *poGDS = reinterpret_cast<XYZDataset *>(poDS);
+    XYZDataset *poGDS = cpl::down_cast<XYZDataset *>(poDS);
     if (pbSuccess)
         *pbSuccess = TRUE;
     return poGDS->dfMinZ;
@@ -609,7 +609,7 @@ double XYZRasterBand::GetMinimum(int *pbSuccess)
 
 double XYZRasterBand::GetMaximum(int *pbSuccess)
 {
-    XYZDataset *poGDS = reinterpret_cast<XYZDataset *>(poDS);
+    XYZDataset *poGDS = cpl::down_cast<XYZDataset *>(poDS);
     if (pbSuccess)
         *pbSuccess = TRUE;
     return poGDS->dfMaxZ;
@@ -621,7 +621,7 @@ double XYZRasterBand::GetMaximum(int *pbSuccess)
 
 double XYZRasterBand::GetNoDataValue(int *pbSuccess)
 {
-    XYZDataset *poGDS = reinterpret_cast<XYZDataset *>(poDS);
+    XYZDataset *poGDS = cpl::down_cast<XYZDataset *>(poDS);
     if (!poGDS->bSameNumberOfValuesPerLine && poGDS->dfMinZ > -32768 &&
         eDataType != GDT_Byte)
     {
@@ -650,12 +650,6 @@ XYZDataset::XYZDataset()
       nLineNum(0), nDataLineNum(GINTBIG_MAX), bSameNumberOfValuesPerLine(TRUE),
       dfMinZ(0), dfMaxZ(0), bEOF(false)
 {
-    adfGeoTransform[0] = 0;
-    adfGeoTransform[1] = 1;
-    adfGeoTransform[2] = 0;
-    adfGeoTransform[3] = 0;
-    adfGeoTransform[4] = 0;
-    adfGeoTransform[5] = 1;
 }
 
 /************************************************************************/
@@ -1432,7 +1426,12 @@ GDALDataset *XYZDataset::Open(GDALOpenInfo *poOpenInfo)
 
     if (adfStepX.size() != 1 || adfStepX[0] == 0)
     {
-        CPLError(CE_Failure, CPLE_AppDefined, "Couldn't determine X spacing");
+        if (!((poOpenInfo->nOpenFlags & GDAL_OF_VECTOR) != 0 &&
+              poOpenInfo->IsExtensionEqualToCI("CSV")))
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Couldn't determine X spacing");
+        }
         VSIFCloseL(fp);
         return nullptr;
     }
@@ -1520,11 +1519,10 @@ GDALDataset *XYZDataset::Open(GDALOpenInfo *poOpenInfo)
     poDS->nMinTokens = nMinTokens;
     poDS->nRasterXSize = nXSize;
     poDS->nRasterYSize = nYSize;
-    poDS->adfGeoTransform[0] = dfMinX - dfStepX / 2;
-    poDS->adfGeoTransform[1] = dfStepX;
-    poDS->adfGeoTransform[3] =
-        (dfStepY < 0) ? dfMaxY - dfStepY / 2 : dfMinY - dfStepY / 2;
-    poDS->adfGeoTransform[5] = dfStepY;
+    poDS->m_gt[0] = dfMinX - dfStepX / 2;
+    poDS->m_gt[1] = dfStepX;
+    poDS->m_gt[3] = (dfStepY < 0) ? dfMaxY - dfStepY / 2 : dfMinY - dfStepY / 2;
+    poDS->m_gt[5] = dfStepY;
     poDS->bSameNumberOfValuesPerLine = bSameNumberOfValuesPerLine;
     poDS->dfMinZ = dfMinZ;
     poDS->dfMaxZ = dfMaxZ;
@@ -1599,9 +1597,9 @@ GDALDataset *XYZDataset::CreateCopy(const char *pszFilename,
 
     int nXSize = poSrcDS->GetRasterXSize();
     int nYSize = poSrcDS->GetRasterYSize();
-    double adfGeoTransform[6];
-    poSrcDS->GetGeoTransform(adfGeoTransform);
-    if (adfGeoTransform[2] != 0 || adfGeoTransform[4] != 0)
+    GDALGeoTransform gt;
+    poSrcDS->GetGeoTransform(gt);
+    if (gt[2] != 0 || gt[4] != 0)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "XYZ driver does not support CreateCopy() from skewed or "
@@ -1704,8 +1702,7 @@ GDALDataset *XYZDataset::CreateCopy(const char *pszFilename,
         }
         CPLDebug("XYZ", "Setting precision format: %s", szFormat);
     }
-    void *pLineBuffer =
-        reinterpret_cast<void *>(CPLMalloc(nXSize * sizeof(int)));
+    void *pLineBuffer = static_cast<void *>(CPLMalloc(nXSize * sizeof(int)));
     CPLErr eErr = CE_None;
     for (int j = 0; j < nYSize && eErr == CE_None; j++)
     {
@@ -1714,12 +1711,11 @@ GDALDataset *XYZDataset::CreateCopy(const char *pszFilename,
                                                    eReqDT, 0, 0, nullptr);
         if (eErr != CE_None)
             break;
-        const double dfY = adfGeoTransform[3] + (j + 0.5) * adfGeoTransform[5];
+        const double dfY = gt[3] + (j + 0.5) * gt[5];
         CPLString osBuf;
         for (int i = 0; i < nXSize; i++)
         {
-            const double dfX =
-                adfGeoTransform[0] + (i + 0.5) * adfGeoTransform[1];
+            const double dfX = gt[0] + (i + 0.5) * gt[1];
             char szBuf[256];
             if (eReqDT == GDT_Int32)
                 CPLsnprintf(szBuf, sizeof(szBuf), szFormat, dfX, pszColSep[0],
@@ -1732,8 +1728,7 @@ GDALDataset *XYZDataset::CreateCopy(const char *pszFilename,
             osBuf += szBuf;
             if ((i & 1023) == 0 || i == nXSize - 1)
             {
-                if (VSIFWriteL(osBuf, static_cast<int>(osBuf.size()), 1, fp) !=
-                    1)
+                if (VSIFWriteL(osBuf.c_str(), osBuf.size(), 1, fp) != 1)
                 {
                     eErr = CE_Failure;
                     CPLError(CE_Failure, CPLE_AppDefined,
@@ -1769,7 +1764,7 @@ GDALDataset *XYZDataset::CreateCopy(const char *pszFilename,
     CPLPushErrorHandler(CPLQuietErrorHandler);
     poXYZ_DS->fp = VSIFOpenL(pszFilename, "rb");
     CPLPopErrorHandler();
-    memcpy(&(poXYZ_DS->adfGeoTransform), adfGeoTransform, sizeof(double) * 6);
+    poXYZ_DS->m_gt = gt;
     poXYZ_DS->nXIndex = 0;
     poXYZ_DS->nYIndex = 1;
     poXYZ_DS->nZIndex = 2;
@@ -1786,10 +1781,10 @@ GDALDataset *XYZDataset::CreateCopy(const char *pszFilename,
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr XYZDataset::GetGeoTransform(double *padfTransform)
+CPLErr XYZDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
-    memcpy(padfTransform, adfGeoTransform, 6 * sizeof(double));
+    gt = m_gt;
 
     return CE_None;
 }

@@ -46,8 +46,8 @@ class OGRWAsPLayer final : public OGRLayer,
 
     GDALDataset *m_poDS = nullptr;
     const bool bMerge;
-    std::vector<Zone> oZones;
-    std::vector<Boundary> oBoundaries;
+    std::vector<Zone> oZones{};
+    std::vector<Boundary> oBoundaries{};
 
     static bool isEqual(const double &dfRouhness1, const double &dfRouhness2)
     {
@@ -56,10 +56,10 @@ class OGRWAsPLayer final : public OGRLayer,
 
     /* end of stuff for polygon processing */
 
-    int iFeatureCount;
+    int iFeatureCount{};
 
     const CPLString sName;
-    VSILFILE *hFile;
+    VSILFILE *hFile{};
 
     /* for roughness zone, two fields for linestrings (left/right), one for
      * polygons */
@@ -67,14 +67,14 @@ class OGRWAsPLayer final : public OGRLayer,
     const CPLString sFirstField;
     const CPLString sSecondField;
     const CPLString sGeomField;
-    int iFirstFieldIdx;
-    int iSecondFieldIdx;
-    int iGeomFieldIdx;
+    int iFirstFieldIdx{};
+    int iSecondFieldIdx{};
+    int iGeomFieldIdx{};
 
-    OGRFeatureDefn *poLayerDefn;
-    OGRSpatialReference *poSpatialReference;
+    OGRFeatureDefn *poLayerDefn{};
+    OGRSpatialReference *poSpatialReference{};
 
-    vsi_l_offset iOffsetFeatureBegin;
+    vsi_l_offset iOffsetFeatureBegin{};
 
     enum OpenMode
     {
@@ -82,11 +82,11 @@ class OGRWAsPLayer final : public OGRLayer,
         WRITE_ONLY
     };
 
-    OpenMode eMode;
+    OpenMode eMode = READ_ONLY;
 
-    std::unique_ptr<double> pdfTolerance;
-    std::unique_ptr<double> pdfAdjacentPointTolerance;
-    std::unique_ptr<double> pdfPointToCircleRadius;
+    std::unique_ptr<double> pdfTolerance{};
+    std::unique_ptr<double> pdfAdjacentPointTolerance{};
+    std::unique_ptr<double> pdfPointToCircleRadius{};
 
     OGRErr WriteRoughness(OGRLineString *, const double &dfZleft,
                           const double &dfZright);
@@ -119,6 +119,8 @@ class OGRWAsPLayer final : public OGRLayer,
 
     OGRFeature *GetNextRawFeature();
 
+    CPL_DISALLOW_COPY_ASSIGN(OGRWAsPLayer)
+
   public:
     /* For writing */
     /* Takes ownership of poTolerance */
@@ -133,26 +135,26 @@ class OGRWAsPLayer final : public OGRLayer,
     OGRWAsPLayer(GDALDataset *poDS, const char *pszName, VSILFILE *hFile,
                  OGRSpatialReference *poSpatialRef);
 
-    virtual ~OGRWAsPLayer();
+    ~OGRWAsPLayer() override;
 
-    virtual OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return poLayerDefn;
     }
 
-    virtual void ResetReading() override;
-    virtual int TestCapability(const char *) override;
+    void ResetReading() override;
+    int TestCapability(const char *) const override;
 
     virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
     virtual OGRErr CreateGeomField(const OGRGeomFieldDefn *poGeomField,
                                    int bApproxOK = TRUE) override;
 
-    virtual OGRErr ICreateFeature(OGRFeature *poFeature) override;
+    OGRErr ICreateFeature(OGRFeature *poFeature) override;
 
     DEFINE_GET_NEXT_FEATURE_THROUGH_RAW(OGRWAsPLayer)
 
-    virtual const char *GetName() override
+    const char *GetName() const override
     {
         return sName.c_str();
     }
@@ -169,31 +171,34 @@ class OGRWAsPLayer final : public OGRLayer,
 
 class OGRWAsPDataSource final : public GDALDataset
 {
-    CPLString sFilename;
-    VSILFILE *hFile;
-    std::unique_ptr<OGRWAsPLayer> oLayer;
+    CPLString sFilename{};
+    VSILFILE *hFile{};
+    std::unique_ptr<OGRWAsPLayer> oLayer{};
 
     void GetOptions(CPLString &sFirstField, CPLString &sSecondField,
                     CPLString &sGeomField, bool &bMerge) const;
 
+    CPL_DISALLOW_COPY_ASSIGN(OGRWAsPDataSource)
+
   public:
     /** @note takes ownership of hFile (i.e. responsibility for closing) */
     OGRWAsPDataSource(const char *pszName, VSILFILE *hFile);
-    virtual ~OGRWAsPDataSource();
+    ~OGRWAsPDataSource() override;
 
-    virtual int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return oLayer.get() ? 1 : 0;
     }
 
-    virtual OGRLayer *GetLayer(int) override;
-    virtual OGRLayer *GetLayerByName(const char *) override;
+    using GDALDataset::GetLayer;
+    const OGRLayer *GetLayer(int) const override;
+    OGRLayer *GetLayerByName(const char *) override;
 
     OGRLayer *ICreateLayer(const char *pszName,
                            const OGRGeomFieldDefn *poGeomFieldDefn,
                            CSLConstList papszOptions) override;
 
-    virtual int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
     OGRErr Load(bool bSilent = false);
 };
 

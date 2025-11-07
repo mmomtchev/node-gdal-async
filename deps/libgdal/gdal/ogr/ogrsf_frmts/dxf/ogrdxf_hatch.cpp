@@ -36,10 +36,9 @@ OGRDXFFeature *OGRDXFLayer::TranslateHATCH()
     int nCode = 0;
     OGRDXFFeature *poFeature = new OGRDXFFeature(poFeatureDefn);
 
-    CPLString osHatchPattern;
     double dfElevation = 0.0;  // Z value to be used for EVERY point
-    /* int nFillFlag = 0; */
     OGRGeometryCollection oGC;
+    std::string osExtendedData;
 
     while ((nCode = poDS->ReadValue(szLineBuf, sizeof(szLineBuf))) > 0)
     {
@@ -51,12 +50,15 @@ OGRDXFFeature *OGRDXFLayer::TranslateHATCH()
                 break;
 
             case 70:
-                /* nFillFlag = atoi(szLineBuf); */
+            {
+                const int nFillFlag = atoi(szLineBuf);
+                poFeature->oStyleProperties["FillFlag"] =
+                    nFillFlag ? "Filled" : "Pattern";
                 break;
+            }
 
-            case 2:
-                osHatchPattern = szLineBuf;
-                poFeature->SetField("Text", osHatchPattern.c_str());
+            case 2:  // Hatch pattern name
+                poFeature->SetField("Text", szLineBuf);
                 break;
 
             case 91:
@@ -71,6 +73,32 @@ OGRDXFFeature *OGRDXFLayer::TranslateHATCH()
                 }
             }
             break;
+
+            case 52:
+            {
+                poFeature->oStyleProperties["HatchPatternRotation"] = szLineBuf;
+                break;
+            }
+
+            case 41:
+            {
+                poFeature->oStyleProperties["HatchPatternScale"] = szLineBuf;
+                break;
+            }
+
+            case 1001:
+            {
+                osExtendedData = szLineBuf;
+                break;
+            }
+
+            case 1071:
+            {
+                if (osExtendedData == "HATCHBACKGROUNDCOLOR")
+                    poFeature->oStyleProperties["HatchBackgroundColor"] =
+                        szLineBuf;
+                break;
+            }
 
             default:
                 TranslateGenericProperty(poFeature, nCode, szLineBuf);
@@ -107,19 +135,19 @@ OGRDXFFeature *OGRDXFLayer::TranslateHATCH()
     /* -------------------------------------------------------------------- */
     OGRErr eErr;
 
-    OGRGeometry *poFinalGeom = (OGRGeometry *)OGRBuildPolygonFromEdges(
-        (OGRGeometryH)&oGC, TRUE, TRUE, dfTolerance, &eErr);
+    auto poFinalGeom = std::unique_ptr<OGRGeometry>(
+        OGRGeometry::FromHandle(OGRBuildPolygonFromEdges(
+            OGRGeometry::ToHandle(&oGC), TRUE, TRUE, dfTolerance, &eErr)));
     if (eErr != OGRERR_NONE)
     {
-        delete poFinalGeom;
-        OGRMultiLineString *poMLS = new OGRMultiLineString();
+        auto poMLS = std::make_unique<OGRMultiLineString>();
         for (int i = 0; i < oGC.getNumGeometries(); i++)
             poMLS->addGeometry(oGC.getGeometryRef(i));
-        poFinalGeom = poMLS;
+        poFinalGeom = std::move(poMLS);
     }
 
-    poFeature->ApplyOCSTransformer(poFinalGeom);
-    poFeature->SetGeometryDirectly(poFinalGeom);
+    poFeature->ApplyOCSTransformer(poFinalGeom.get());
+    poFeature->SetGeometry(std::move(poFinalGeom));
 
     PrepareBrushStyle(poFeature);
 

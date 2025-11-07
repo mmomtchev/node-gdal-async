@@ -19,6 +19,8 @@
 #include <cctype>
 #include <set>
 
+#include "memdataset.h"
+
 #define PQexec this_is_an_error
 
 static void OGRPGNoticeProcessor(void *arg, const char *pszMessage);
@@ -161,8 +163,10 @@ static unsigned long OGRPGHashTableEntry(const void *_psTableEntry)
 {
     const PGTableEntry *psTableEntry =
         static_cast<const PGTableEntry *>(_psTableEntry);
-    return CPLHashSetHashStr(CPLString().Printf(
-        "%s.%s", psTableEntry->pszSchemaName, psTableEntry->pszTableName));
+    return CPLHashSetHashStr(CPLString()
+                                 .Printf("%s.%s", psTableEntry->pszSchemaName,
+                                         psTableEntry->pszTableName)
+                                 .c_str());
 }
 
 static int OGRPGEqualTableEntry(const void *_psTableEntry1,
@@ -1399,7 +1403,7 @@ void OGRPGDataSource::LoadTables()
         }
         if (osRegisteredLayers.find(osDefnName) != osRegisteredLayers.end())
             continue;
-        osRegisteredLayers.insert(osDefnName);
+        osRegisteredLayers.insert(std::move(osDefnName));
 
         OGRPGTableLayer *poLayer = OpenTable(
             osCurrentSchema, papsTables[iRecord]->pszTableName,
@@ -2044,13 +2048,6 @@ OGRLayer *OGRPGDataSource::ICreateLayer(const char *pszLayerName,
     if (pszDescription != nullptr)
         poLayer->SetForcedDescription(pszDescription);
 
-    /* HSTORE_COLUMNS existed at a time during GDAL 1.10dev */
-    const char *pszHSTOREColumns =
-        CSLFetchNameValue(papszOptions, "HSTORE_COLUMNS");
-    if (pszHSTOREColumns != nullptr)
-        CPLError(CE_Warning, CPLE_AppDefined,
-                 "HSTORE_COLUMNS not recognized. Use COLUMN_TYPES instead.");
-
     const char *pszOverrideColumnTypes =
         CSLFetchNameValue(papszOptions, "COLUMN_TYPES");
     poLayer->SetOverrideColumnTypes(pszOverrideColumnTypes);
@@ -2080,7 +2077,7 @@ OGRLayer *OGRPGDataSource::ICreateLayer(const char *pszLayerName,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRPGDataSource::TestCapability(const char *pszCap)
+int OGRPGDataSource::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, ODsCCreateLayer) || EQUAL(pszCap, ODsCDeleteLayer) ||
@@ -2104,9 +2101,9 @@ int OGRPGDataSource::TestCapability(const char *pszCap)
 /*                           GetLayerCount()                            */
 /************************************************************************/
 
-int OGRPGDataSource::GetLayerCount()
+int OGRPGDataSource::GetLayerCount() const
 {
-    LoadTables();
+    const_cast<OGRPGDataSource *>(this)->LoadTables();
     return nLayers;
 }
 
@@ -2114,7 +2111,7 @@ int OGRPGDataSource::GetLayerCount()
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGRPGDataSource::GetLayer(int iLayer)
+const OGRLayer *OGRPGDataSource::GetLayer(int iLayer) const
 
 {
     /* Force loading of all registered tables */
@@ -2846,24 +2843,24 @@ class OGRPGNoResetResultLayer final : public OGRPGLayer
   public:
     OGRPGNoResetResultLayer(OGRPGDataSource *poDSIn, PGresult *hResultIn);
 
-    virtual ~OGRPGNoResetResultLayer();
+    ~OGRPGNoResetResultLayer() override;
 
-    virtual void ResetReading() override;
+    void ResetReading() override;
 
-    virtual int TestCapability(const char *) override
+    int TestCapability(const char *) const override
     {
         return FALSE;
     }
 
-    virtual OGRFeature *GetNextFeature() override;
+    OGRFeature *GetNextFeature() override;
 
-    virtual CPLString GetFromClauseForGetExtent() override
+    CPLString GetFromClauseForGetExtent() override
     {
         CPLAssert(false);
         return "";
     }
 
-    virtual void ResolveSRID(const OGRPGGeomFieldDefn *poGFldDefn) override
+    void ResolveSRID(const OGRPGGeomFieldDefn *poGFldDefn) override
     {
         poGFldDefn->nSRSId = -1;
     }
@@ -2940,31 +2937,33 @@ class OGRPGMemLayerWrapper final : public OGRLayer
         poMemLayer = poMemDS->GetLayer(0);
     }
 
-    virtual ~OGRPGMemLayerWrapper()
-    {
-        delete poMemDS;
-    }
+    ~OGRPGMemLayerWrapper() override;
 
-    virtual void ResetReading() override
+    void ResetReading() override
     {
         poMemLayer->ResetReading();
     }
 
-    virtual OGRFeature *GetNextFeature() override
+    OGRFeature *GetNextFeature() override
     {
         return poMemLayer->GetNextFeature();
     }
 
-    virtual OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return poMemLayer->GetLayerDefn();
     }
 
-    virtual int TestCapability(const char *) override
+    int TestCapability(const char *) const override
     {
         return FALSE;
     }
 };
+
+OGRPGMemLayerWrapper::~OGRPGMemLayerWrapper()
+{
+    delete poMemDS;
+}
 
 /************************************************************************/
 /*                           GetMetadataItem()                          */
@@ -3060,22 +3059,15 @@ OGRLayer *OGRPGDataSource::ExecuteSQL(const char *pszSQLCommand,
         {
             CPLDebug("PG", "Command Results Tuples = %d", PQntuples(hResult));
 
-            GDALDriver *poMemDriver =
-                GetGDALDriverManager()->GetDriverByName("MEM");
-            if (poMemDriver)
-            {
-                OGRPGLayer *poResultLayer =
-                    new OGRPGNoResetResultLayer(this, hResult);
-                GDALDataset *poMemDS =
-                    poMemDriver->Create("", 0, 0, 0, GDT_Unknown, nullptr);
-                poMemDS->CopyLayer(poResultLayer, "sql_statement");
-                OGRPGMemLayerWrapper *poResLayer =
-                    new OGRPGMemLayerWrapper(poMemDS);
-                delete poResultLayer;
-                return poResLayer;
-            }
-            else
-                return nullptr;
+            OGRPGLayer *poResultLayer =
+                new OGRPGNoResetResultLayer(this, hResult);
+            auto poMemDS = std::unique_ptr<GDALDataset>(
+                MEMDataset::Create("", 0, 0, 0, GDT_Unknown, nullptr));
+            poMemDS->CopyLayer(poResultLayer, "sql_statement");
+            OGRPGMemLayerWrapper *poResLayer =
+                new OGRPGMemLayerWrapper(poMemDS.release());
+            delete poResultLayer;
+            return poResLayer;
         }
     }
     else

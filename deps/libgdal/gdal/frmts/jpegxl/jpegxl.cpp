@@ -11,6 +11,8 @@
  ****************************************************************************/
 
 #include "cpl_error.h"
+#include "cpl_multiproc.h"
+#include "gdal_frmts.h"
 #include "gdalexif.h"
 #include "gdaljp2metadata.h"
 #include "gdaljp2abstractdataset.h"
@@ -77,7 +79,9 @@ class JPEGXLDataset final : public GDALJP2AbstractDataset
                      GSpacing, GDALRasterIOExtraArg *psExtraArg) override;
 
   public:
-    ~JPEGXLDataset();
+    ~JPEGXLDataset() override;
+
+    CPLErr Close() override;
 
     char **GetMetadataDomainList() override;
     char **GetMetadata(const char *pszDomain) override;
@@ -130,8 +134,28 @@ class JPEGXLRasterBand final : public GDALPamRasterBand
 
 JPEGXLDataset::~JPEGXLDataset()
 {
-    if (m_fp)
-        VSIFCloseL(m_fp);
+    JPEGXLDataset::Close();
+}
+
+/************************************************************************/
+/*                                Close()                               */
+/************************************************************************/
+
+CPLErr JPEGXLDataset::Close()
+{
+    CPLErr eErr = CE_None;
+
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
+    {
+        eErr = JPEGXLDataset::FlushCache(true);
+
+        if (m_fp != nullptr && VSIFCloseL(m_fp) != 0)
+            eErr = CE_Failure;
+        m_fp = nullptr;
+
+        eErr = GDAL::Combine(eErr, GDALPamDataset::Close());
+    }
+    return eErr;
 }
 
 /************************************************************************/
@@ -1486,7 +1510,7 @@ void JPEGXLDataset::GetDecodedImage(void *pabyOutputData,
     }
 
     // Rescale from 8-bits/16-bits
-    if (m_nBits < GDALGetDataTypeSize(eDT))
+    if (m_nBits < GDALGetDataTypeSizeBits(eDT))
     {
         const auto Rescale = [this, eDT](void *pBuffer, int nChannels)
         {
@@ -1758,9 +1782,8 @@ GDALDataset *JPEGXLDataset::CreateCopy(const char *pszFilename,
     char **papszXMP = poSrcDS->GetMetadata("xml:XMP");
 
     const bool bWriteGeoJP2 = CPLFetchBool(papszOptions, "WRITE_GEOJP2", true);
-    double adfGeoTransform[6];
-    const bool bHasGeoTransform =
-        poSrcDS->GetGeoTransform(adfGeoTransform) == CE_None;
+    GDALGeoTransform gt;
+    const bool bHasGeoTransform = poSrcDS->GetGeoTransform(gt) == CE_None;
     const OGRSpatialReference *poSRS = poSrcDS->GetSpatialRef();
     const int nGCPCount = poSrcDS->GetGCPCount();
     char **papszRPCMD = poSrcDS->GetMetadata("RPC");
@@ -1772,7 +1795,7 @@ GDALDataset *JPEGXLDataset::CreateCopy(const char *pszFilename,
         if (poSRS)
             oJP2Metadata.SetSpatialRef(poSRS);
         if (bHasGeoTransform)
-            oJP2Metadata.SetGeoTransform(adfGeoTransform);
+            oJP2Metadata.SetGeoTransform(gt);
         if (nGCPCount)
         {
             const OGRSpatialReference *poSRSGCP = poSrcDS->GetGCPSpatialRef();
@@ -2188,7 +2211,7 @@ GDALDataset *JPEGXLDataset::CreateCopy(const char *pszFilename,
     const int nBits =
         ((eDT == GDT_Byte || eDT == GDT_UInt16) && pszNBits != nullptr)
             ? atoi(pszNBits)
-            : GDALGetDataTypeSize(eDT);
+            : GDALGetDataTypeSizeBits(eDT);
 
     JxlBasicInfo basic_info;
     JxlEncoderInitBasicInfo(&basic_info);

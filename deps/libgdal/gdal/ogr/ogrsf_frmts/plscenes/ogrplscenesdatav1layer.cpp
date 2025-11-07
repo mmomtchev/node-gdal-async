@@ -78,7 +78,7 @@ OGRPLScenesDataV1Layer::~OGRPLScenesDataV1Layer()
 /*                             GetLayerDefn()                           */
 /************************************************************************/
 
-OGRFeatureDefn *OGRPLScenesDataV1Layer::GetLayerDefn()
+const OGRFeatureDefn *OGRPLScenesDataV1Layer::GetLayerDefn() const
 {
     return m_poFeatureDefn;
 }
@@ -1009,17 +1009,19 @@ OGRFeature *OGRPLScenesDataV1Layer::GetNextRawFeature()
     if (poJSonGeom != nullptr &&
         json_object_get_type(poJSonGeom) == json_type_object)
     {
-        OGRGeometry *poGeom = OGRGeoJSONReadGeometry(poJSonGeom);
+        auto poGeom =
+            OGRGeoJSONReadGeometry(poJSonGeom, /* bHasM = */ false,
+                                   /* OGRSpatialReference* = */ nullptr);
         if (poGeom != nullptr)
         {
             if (poGeom->getGeometryType() == wkbPolygon)
             {
-                OGRMultiPolygon *poMP = new OGRMultiPolygon();
-                poMP->addGeometryDirectly(poGeom);
-                poGeom = poMP;
+                auto poMP = std::make_unique<OGRMultiPolygon>();
+                poMP->addGeometry(std::move(poGeom));
+                poGeom = std::move(poMP);
             }
             poGeom->assignSpatialReference(m_poSRS);
-            poFeature->SetGeometryDirectly(poGeom);
+            poFeature->SetGeometry(std::move(poGeom));
         }
     }
 
@@ -1093,7 +1095,7 @@ OGRFeature *OGRPLScenesDataV1Layer::GetNextRawFeature()
                                  "in configuration",
                                  osPrefixedJSonFieldName.c_str());
                         m_oSetUnregisteredFields.insert(
-                            osPrefixedJSonFieldName);
+                            std::move(osPrefixedJSonFieldName));
                     }
                 }
             }
@@ -1365,7 +1367,7 @@ OGRErr OGRPLScenesDataV1Layer::IGetExtent(int iGeomField, OGREnvelope *psExtent,
 /*                              TestCapability()                        */
 /************************************************************************/
 
-int OGRPLScenesDataV1Layer::TestCapability(const char *pszCap)
+int OGRPLScenesDataV1Layer::TestCapability(const char *pszCap) const
 {
     if (EQUAL(pszCap, OLCFastFeatureCount))
         return !m_bFilterMustBeClientSideEvaluated;

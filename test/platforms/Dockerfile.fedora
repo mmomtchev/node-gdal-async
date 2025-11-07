@@ -11,7 +11,7 @@ RUN \
   if [ "${NODEJS}" -le 16 ]; \
   then dnf module install -y nodejs:${NODEJS}/development; \
   else dnf install -y nodejs; fi && \
-  dnf groupinstall -y 'Development Tools' && \
+  dnf group install -y development-tools && \
   dnf install -y g++ git python ccache && \
   mkdir -p /target && chmod 777 /target
 

@@ -19,7 +19,6 @@ add_gdal_driver(
           pdfwritabledataset.cpp
           pdfcreatefromcomposition.cpp
   CORE_SOURCES pdfdrivercore.cpp
-  STRONG_CXX_WFLAGS
   SKIP_GDAL_PRIV_HEADER
   PLUGIN_CAPABLE
   NO_SHARED_SYMBOL_WITH_CORE)
@@ -85,6 +84,7 @@ endif ()
 if (GDAL_USE_PDFIUM)
   target_compile_definitions(gdal_PDF PRIVATE -DHAVE_PDFIUM)
   gdal_target_link_libraries(gdal_PDF PRIVATE PDFIUM::PDFIUM)
+  target_compile_features(gdal_PDF PRIVATE cxx_std_20)
   if (UNIX)
     find_package(JPEG REQUIRED)
     find_package(PNG REQUIRED)

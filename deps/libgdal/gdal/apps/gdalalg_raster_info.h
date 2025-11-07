@@ -13,7 +13,7 @@
 #ifndef GDALALG_RASTER_INFO_INCLUDED
 #define GDALALG_RASTER_INFO_INCLUDED
 
-#include "gdalalgorithm.h"
+#include "gdalalg_raster_pipeline.h"
 
 //! @cond Doxygen_Suppress
 
@@ -21,7 +21,8 @@
 /*                       GDALRasterInfoAlgorithm                        */
 /************************************************************************/
 
-class GDALRasterInfoAlgorithm final : public GDALAlgorithm
+class GDALRasterInfoAlgorithm /* non final */
+    : public GDALRasterPipelineStepAlgorithm
 {
   public:
     static constexpr const char *NAME = "info";
@@ -29,27 +30,17 @@ class GDALRasterInfoAlgorithm final : public GDALAlgorithm
         "Return information on a raster dataset.";
     static constexpr const char *HELP_URL = "/programs/gdal_raster_info.html";
 
-    explicit GDALRasterInfoAlgorithm(bool openForMixedRasterVector = false);
+    explicit GDALRasterInfoAlgorithm(bool standaloneStep = false,
+                                     bool openForMixedRasterVector = false);
 
-    GDALDataset *GetDatasetRef()
+    bool CanBeLastStep() const override
     {
-        return m_dataset.GetDatasetRef();
-    }
-
-    void SetDataset(GDALDataset *poDS)
-    {
-        auto arg = GetArg(GDAL_ARG_NAME_INPUT);
-        if (arg)
-        {
-            arg->Set(poDS);
-            arg->SetSkipIfAlreadySet();
-        }
+        return true;
     }
 
   private:
-    bool RunImpl(GDALProgressFunc pfnProgress, void *pProgressData) override;
+    bool RunStep(GDALPipelineStepRunContext &ctxt) override;
 
-    std::string m_format{};
     bool m_minMax = false;
     bool m_stats = false;
     bool m_approxStats = false;
@@ -62,13 +53,23 @@ class GDALRasterInfoAlgorithm final : public GDALAlgorithm
     bool m_noNodata = false;
     bool m_checksum = false;
     bool m_listMDD = false;
-    bool m_stdout = false;
     std::string m_mdd{};
     int m_subDS = 0;
-    GDALArgDatasetValue m_dataset{};
-    std::vector<std::string> m_openOptions{};
-    std::vector<std::string> m_inputFormats{};
-    std::string m_output{};
+};
+
+/************************************************************************/
+/*                 GDALRasterInfoAlgorithmStandalone                    */
+/************************************************************************/
+
+class GDALRasterInfoAlgorithmStandalone final : public GDALRasterInfoAlgorithm
+{
+  public:
+    GDALRasterInfoAlgorithmStandalone()
+        : GDALRasterInfoAlgorithm(/* standaloneStep = */ true)
+    {
+    }
+
+    ~GDALRasterInfoAlgorithmStandalone() override;
 };
 
 //! @endcond

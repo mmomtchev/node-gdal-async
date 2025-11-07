@@ -13,6 +13,11 @@
 
 #include "gdal_frmts.h"
 #include "gdal_pam.h"
+#include "gdal_colortable.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 #include "northwood.h"
 #include "ogrmitabspatialref.h"
 
@@ -42,12 +47,12 @@ class NWT_GRCDataset final : public GDALPamDataset
 
   public:
     NWT_GRCDataset();
-    ~NWT_GRCDataset();
+    ~NWT_GRCDataset() override;
 
     static GDALDataset *Open(GDALOpenInfo *);
     static int Identify(GDALOpenInfo *poOpenInfo);
 
-    CPLErr GetGeoTransform(double *padfTransform) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
     const OGRSpatialReference *GetSpatialRef() const override;
 };
 
@@ -63,14 +68,14 @@ class NWT_GRCRasterBand final : public GDALPamRasterBand
 
   public:
     NWT_GRCRasterBand(NWT_GRCDataset *, int);
-    virtual ~NWT_GRCRasterBand();
+    ~NWT_GRCRasterBand() override;
 
-    virtual CPLErr IReadBlock(int, int, void *) override;
-    virtual double GetNoDataValue(int *pbSuccess) override;
+    CPLErr IReadBlock(int, int, void *) override;
+    double GetNoDataValue(int *pbSuccess) override;
 
-    virtual GDALColorInterp GetColorInterpretation() override;
-    virtual char **GetCategoryNames() override;
-    virtual GDALColorTable *GetColorTable() override;
+    GDALColorInterp GetColorInterpretation() override;
+    char **GetCategoryNames() override;
+    GDALColorTable *GetColorTable() override;
 };
 
 /************************************************************************/
@@ -254,15 +259,15 @@ NWT_GRCDataset::~NWT_GRCDataset()
 /************************************************************************/
 /*                          GetGeoTransform()                           */
 /************************************************************************/
-CPLErr NWT_GRCDataset::GetGeoTransform(double *padfTransform)
+CPLErr NWT_GRCDataset::GetGeoTransform(GDALGeoTransform &gt) const
 {
-    padfTransform[0] = pGrd->dfMinX - (pGrd->dfStepSize * 0.5);
-    padfTransform[3] = pGrd->dfMaxY + (pGrd->dfStepSize * 0.5);
-    padfTransform[1] = pGrd->dfStepSize;
-    padfTransform[2] = 0.0;
+    gt[0] = pGrd->dfMinX - (pGrd->dfStepSize * 0.5);
+    gt[3] = pGrd->dfMaxY + (pGrd->dfStepSize * 0.5);
+    gt[1] = pGrd->dfStepSize;
+    gt[2] = 0.0;
 
-    padfTransform[4] = 0.0;
-    padfTransform[5] = -1 * pGrd->dfStepSize;
+    gt[4] = 0.0;
+    gt[5] = -1 * pGrd->dfStepSize;
 
     return CE_None;
 }

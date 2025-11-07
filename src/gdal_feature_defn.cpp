@@ -79,25 +79,22 @@ NAN_METHOD(FeatureDefn::New) {
   info.GetReturnValue().Set(info.This());
 }
 
-Local<Value> FeatureDefn::New(OGRFeatureDefn *def) {
+// Currently read-only feature definitions are copied.
+// Modifying a feature definition that should have been
+// read-only modifies a shadow copy without any real effect.
+// TODO: Implement proper read-only objects that throw
+
+Local<Value> FeatureDefn::New(const OGRFeatureDefn *def) {
   Nan::EscapableHandleScope scope;
-  return scope.Escape(FeatureDefn::New(def, false));
+  if (!def) { return scope.Escape(Nan::Null()); }
+  OGRFeatureDefn *copy = def->Clone();
+  return scope.Escape(FeatureDefn::New(copy, true));
 }
 
 Local<Value> FeatureDefn::New(OGRFeatureDefn *def, bool owned) {
   Nan::EscapableHandleScope scope;
 
   if (!def) { return scope.Escape(Nan::Null()); }
-
-  // make a copy of featuredefn owned by a layer
-  // + no need to track when a layer is destroyed
-  // + no need to throw errors when a method trys to modify an owned read-only
-  // featuredefn
-  // - is slower
-
-  // TODO: cloning maybe unnecessary if reference counting is done right.
-  //      def->Reference(); def->Release();
-
   if (!owned) { def = def->Clone(); }
 
   FeatureDefn *wrapped = new FeatureDefn(def);

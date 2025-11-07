@@ -14,6 +14,10 @@
 #include "cpl_vsi_virtual.h"
 #include "gdal_frmts.h"
 #include "gdal_pam.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 #include "ogr_srs_api.h"
 
 #define HEADER_SIZE (4 * 8 + 3 * 4)
@@ -30,19 +34,21 @@ class NGSGEOIDDataset final : public GDALPamDataset
 {
     friend class NGSGEOIDRasterBand;
 
-    VSILFILE *fp;
-    double adfGeoTransform[6];
-    int bIsLittleEndian;
+    VSILFILE *fp{};
+    GDALGeoTransform m_gt{};
+    int bIsLittleEndian{};
     mutable OGRSpatialReference m_oSRS{};
 
-    static int GetHeaderInfo(const GByte *pBuffer, double *padfGeoTransform,
+    static int GetHeaderInfo(const GByte *pBuffer, GDALGeoTransform &gt,
                              int *pnRows, int *pnCols, int *pbIsLittleEndian);
+
+    CPL_DISALLOW_COPY_ASSIGN(NGSGEOIDDataset)
 
   public:
     NGSGEOIDDataset();
-    virtual ~NGSGEOIDDataset();
+    ~NGSGEOIDDataset() override;
 
-    virtual CPLErr GetGeoTransform(double *) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
     const OGRSpatialReference *GetSpatialRef() const override;
 
     static GDALDataset *Open(GDALOpenInfo *);
@@ -62,9 +68,9 @@ class NGSGEOIDRasterBand final : public GDALPamRasterBand
   public:
     explicit NGSGEOIDRasterBand(NGSGEOIDDataset *);
 
-    virtual CPLErr IReadBlock(int, int, void *) override;
+    CPLErr IReadBlock(int, int, void *) override;
 
-    virtual const char *GetUnitType() override
+    const char *GetUnitType() override
     {
         return "m";
     }
@@ -94,7 +100,7 @@ CPLErr NGSGEOIDRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
                                       void *pImage)
 
 {
-    NGSGEOIDDataset *poGDS = reinterpret_cast<NGSGEOIDDataset *>(poDS);
+    NGSGEOIDDataset *poGDS = cpl::down_cast<NGSGEOIDDataset *>(poDS);
 
     /* First values in the file corresponds to the south-most line of the
      * imagery */
@@ -132,12 +138,6 @@ CPLErr NGSGEOIDRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
 NGSGEOIDDataset::NGSGEOIDDataset() : fp(nullptr), bIsLittleEndian(TRUE)
 {
     m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-    adfGeoTransform[0] = 0;
-    adfGeoTransform[1] = 1;
-    adfGeoTransform[2] = 0;
-    adfGeoTransform[3] = 0;
-    adfGeoTransform[4] = 0;
-    adfGeoTransform[5] = 1;
 }
 
 /************************************************************************/
@@ -156,9 +156,9 @@ NGSGEOIDDataset::~NGSGEOIDDataset()
 /*                            GetHeaderInfo()                           */
 /************************************************************************/
 
-int NGSGEOIDDataset::GetHeaderInfo(const GByte *pBuffer,
-                                   double *padfGeoTransform, int *pnRows,
-                                   int *pnCols, int *pbIsLittleEndian)
+int NGSGEOIDDataset::GetHeaderInfo(const GByte *pBuffer, GDALGeoTransform &gt,
+                                   int *pnRows, int *pnCols,
+                                   int *pbIsLittleEndian)
 {
     /* First check IKIND marker to determine if the file */
     /* is in little or big-endian order, and if it is a valid */
@@ -269,12 +269,12 @@ int NGSGEOIDDataset::GetHeaderInfo(const GByte *pBuffer,
           dfWLON >= -180.0 && dfWLON + nNLON * dfDLON <= 360.0))
         return FALSE;
 
-    padfGeoTransform[0] = dfWLON - dfDLON / 2;
-    padfGeoTransform[1] = dfDLON;
-    padfGeoTransform[2] = 0.0;
-    padfGeoTransform[3] = dfSLAT + nNLAT * dfDLAT - dfDLAT / 2;
-    padfGeoTransform[4] = 0.0;
-    padfGeoTransform[5] = -dfDLAT;
+    gt[0] = dfWLON - dfDLON / 2;
+    gt[1] = dfDLON;
+    gt[2] = 0.0;
+    gt[3] = dfSLAT + nNLAT * dfDLAT - dfDLAT / 2;
+    gt[4] = 0.0;
+    gt[5] = -dfDLAT;
 
     *pnRows = nNLAT;
     *pnCols = nNLON;
@@ -291,10 +291,10 @@ int NGSGEOIDDataset::Identify(GDALOpenInfo *poOpenInfo)
     if (poOpenInfo->nHeaderBytes < HEADER_SIZE)
         return FALSE;
 
-    double adfGeoTransform[6];
+    GDALGeoTransform gt;
     int nRows, nCols;
     int bIsLittleEndian;
-    if (!GetHeaderInfo(poOpenInfo->pabyHeader, adfGeoTransform, &nRows, &nCols,
+    if (!GetHeaderInfo(poOpenInfo->pabyHeader, gt, &nRows, &nCols,
                        &bIsLittleEndian))
         return FALSE;
 
@@ -325,7 +325,7 @@ GDALDataset *NGSGEOIDDataset::Open(GDALOpenInfo *poOpenInfo)
     poOpenInfo->fpL = nullptr;
 
     int nRows = 0, nCols = 0;
-    GetHeaderInfo(poOpenInfo->pabyHeader, poDS->adfGeoTransform, &nRows, &nCols,
+    GetHeaderInfo(poOpenInfo->pabyHeader, poDS->m_gt, &nRows, &nCols,
                   &poDS->bIsLittleEndian);
     poDS->nRasterXSize = nCols;
     poDS->nRasterYSize = nRows;
@@ -353,10 +353,10 @@ GDALDataset *NGSGEOIDDataset::Open(GDALOpenInfo *poOpenInfo)
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr NGSGEOIDDataset::GetGeoTransform(double *padfTransform)
+CPLErr NGSGEOIDDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
-    memcpy(padfTransform, adfGeoTransform, 6 * sizeof(double));
+    gt = m_gt;
 
     return CE_None;
 }

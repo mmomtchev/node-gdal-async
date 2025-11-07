@@ -312,7 +312,8 @@ OGRErr OGRJMLWriterLayer::ICreateFeature(OGRFeature *poFeature)
                         eGeomType != wkbPolygon && eGeomType != wkbMultiPolygon)
                     {
                         GBool bIsNull;
-                        pszColor = ((OGRStylePen *)poTool)->Color(bIsNull);
+                        pszColor = cpl::down_cast<OGRStylePen *>(poTool)->Color(
+                            bIsNull);
                         if (bIsNull)
                             pszColor = nullptr;
                     }
@@ -320,7 +321,8 @@ OGRErr OGRJMLWriterLayer::ICreateFeature(OGRFeature *poFeature)
                     {
                         GBool bIsNull;
                         pszColor =
-                            ((OGRStyleBrush *)poTool)->ForeColor(bIsNull);
+                            cpl::down_cast<OGRStyleBrush *>(poTool)->ForeColor(
+                                bIsNull);
                         if (bIsNull)
                             pszColor = nullptr;
                     }
@@ -412,7 +414,7 @@ OGRErr OGRJMLWriterLayer::CreateField(const OGRFieldDefn *poFieldDefn,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRJMLWriterLayer::TestCapability(const char *pszCap)
+int OGRJMLWriterLayer::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, OLCStringsAsUTF8))

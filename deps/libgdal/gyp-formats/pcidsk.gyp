@@ -42,6 +42,7 @@
 				"../gdal/frmts/pcidsk/sdk/core/pcidskexception.cpp",
 				"../gdal/frmts/pcidsk/sdk/core/pcidskinterfaces.cpp",
 				"../gdal/frmts/pcidsk/sdk/core/pcidskopen.cpp",
+				"../gdal/frmts/pcidsk/sdk/core/pcidsk_mutex.cpp",
 				"../gdal/frmts/pcidsk/sdk/segment/cpcidsk_array.cpp",
 				"../gdal/frmts/pcidsk/sdk/segment/cpcidsk_tex.cpp",
 				"../gdal/frmts/pcidsk/sdk/segment/cpcidskbinarysegment.cpp",

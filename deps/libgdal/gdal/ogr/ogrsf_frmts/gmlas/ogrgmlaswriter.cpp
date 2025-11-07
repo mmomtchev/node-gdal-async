@@ -1769,7 +1769,7 @@ bool GMLASWriter::WriteFieldRegular(
     {
         // Particular case for <a foo="bar" xsi:nil="true"/>
         VSIFPrintfL(m_fpXML.get(), " xsi:nil=\"true\">");
-        aoCurComponents = aoFieldComponents;
+        aoCurComponents = std::move(aoFieldComponents);
         bCurIsRegularField = true;
         return true;
     }
@@ -2405,7 +2405,10 @@ bool GMLASWriter::WriteFieldNoLink(
                 </xs:complexType>
             </xs:element>
             */
-            aoNewInitialContext = std::move(aoLayerComponents);
+            aoNewInitialContext = aoLayerComponents;
+            // so that Coverity doesn't ask to move it, which it won't like
+            // as this is an input argument
+            CPL_IGNORE_RET_VAL(aoLayerComponents);
         }
 
         WriteClosingAndStartingTags(aoCurComponents, aoNewInitialContext,
@@ -2804,10 +2807,11 @@ void GMLASWriter::PrintLine(VSILFILE *fp, const char *fmt, ...)
 class GMLASFakeDataset final : public GDALDataset
 {
   public:
-    GMLASFakeDataset()
-    {
-    }
+    GMLASFakeDataset() = default;
+    ~GMLASFakeDataset() override;
 };
+
+GMLASFakeDataset::~GMLASFakeDataset() = default;
 
 /************************************************************************/
 /*                        OGRGMLASDriverCreateCopy()                    */

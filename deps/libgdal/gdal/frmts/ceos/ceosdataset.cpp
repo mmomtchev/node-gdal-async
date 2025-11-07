@@ -14,6 +14,10 @@
 #include "ceosopen.h"
 #include "gdal_frmts.h"
 #include "gdal_pam.h"
+#include "gdal_driver.h"
+#include "gdal_drivermanager.h"
+#include "gdal_openinfo.h"
+#include "gdal_cpp_functions.h"
 
 /************************************************************************/
 /* ==================================================================== */
@@ -29,9 +33,11 @@ class CEOSDataset final : public GDALPamDataset
 
     CEOSImage *psCEOS;
 
+    CPL_DISALLOW_COPY_ASSIGN(CEOSDataset)
+
   public:
     CEOSDataset();
-    ~CEOSDataset();
+    ~CEOSDataset() override;
     static GDALDataset *Open(GDALOpenInfo *);
 };
 
@@ -74,7 +80,7 @@ CEOSRasterBand::CEOSRasterBand(CEOSDataset *poDSIn, int nBandIn)
 CPLErr CEOSRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
                                   void *pImage)
 {
-    CEOSDataset *poCEOS_DS = (CEOSDataset *)poDS;
+    CEOSDataset *poCEOS_DS = cpl::down_cast<CEOSDataset *>(poDS);
 
     CPLAssert(nBlockXOff == 0);
 

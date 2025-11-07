@@ -36,7 +36,8 @@
 #include "cpl_vsi_virtual.h"
 #include "cpl_worker_thread_pool.h"
 #include "fetchbufferdirectio.h"
-#include "gdal_mdreader.h"    // MD_DOMAIN_RPC
+#include "gdal_mdreader.h"  // MD_DOMAIN_RPC
+#include "gdal_priv.h"
 #include "geovalues.h"        // RasterPixelIsPoint
 #include "gt_wkt_srs_priv.h"  // GDALGTIFKeyGetSHORT()
 #include "tif_jxl.h"
@@ -4327,15 +4328,15 @@ void GTiffDataset::ApplyPamInfo()
           m_nPAMGeorefSrcIndex < m_nGeoTransformGeorefSrcIndex) ||
          m_nGeoTransformGeorefSrcIndex < 0 || !m_bGeoTransformValid))
     {
-        double adfPamGeoTransform[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-        if (GDALPamDataset::GetGeoTransform(adfPamGeoTransform) == CE_None)
+        GDALGeoTransform pamGT;
+        if (GDALPamDataset::GetGeoTransform(pamGT) == CE_None)
         {
             if (m_nGeoTransformGeorefSrcIndex == m_nWORLDFILEGeorefSrcIndex)
             {
                 CPLFree(m_pszGeorefFilename);
                 m_pszGeorefFilename = nullptr;
             }
-            memcpy(m_adfGeoTransform, adfPamGeoTransform, sizeof(double) * 6);
+            m_gt = pamGT;
             m_bGeoTransformValid = true;
             bGotGTFromPAM = true;
         }
@@ -5191,7 +5192,8 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
             {
                 m_dfNoDataValue =
                     GDALAdjustNoDataCloseToFloatMax(m_dfNoDataValue);
-                m_dfNoDataValue = static_cast<float>(m_dfNoDataValue);
+                m_dfNoDataValue =
+                    static_cast<double>(static_cast<float>(m_dfNoDataValue));
             }
         }
     }
@@ -5289,7 +5291,8 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
             float fVal = 0.0;
             if (TIFFGetField(m_hTIFF, pasTIFFTags[iTag].nTagVal, &fVal))
             {
-                CPLsnprintf(szWorkMDI, sizeof(szWorkMDI), "%.8g", fVal);
+                CPLsnprintf(szWorkMDI, sizeof(szWorkMDI), "%.8g",
+                            static_cast<double>(fVal));
                 m_oGTiffMDMD.SetMetadataItem(pasTIFFTags[iTag].pszTagName,
                                              szWorkMDI);
             }
@@ -5441,9 +5444,10 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
 
     if (TIFFGetField(m_hTIFF, TIFFTAG_GDAL_METADATA, &pszText))
     {
-        CPLXMLNode *psRoot = CPLParseXMLString(pszText);
+        auto psRoot = CPLXMLTreeCloser(CPLParseXMLString(pszText));
         const CPLXMLNode *psItem =
-            psRoot ? CPLGetXMLNode(psRoot, "=GDALMetadata") : nullptr;
+            psRoot.get() ? CPLGetXMLNode(psRoot.get(), "=GDALMetadata")
+                         : nullptr;
         if (psItem)
             psItem = psItem->psChild;
         bool bMaxZErrorFound = false;
@@ -5458,17 +5462,47 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
             const char *pszKey = CPLGetXMLValue(psItem, "name", nullptr);
             const char *pszValue = CPLGetXMLValue(psItem, nullptr, nullptr);
             int nBand = atoi(CPLGetXMLValue(psItem, "sample", "-1"));
-            if (nBand < -1 || nBand > 65535)
+            if (nBand < -1 || nBand > nBands - 1)
                 continue;
             nBand++;
             const char *pszRole = CPLGetXMLValue(psItem, "role", "");
             const char *pszDomain = CPLGetXMLValue(psItem, "domain", "");
 
+            if (nBand > 0 && pszKey &&
+                strcmp(pszKey, DEFAULT_RASTER_ATTRIBUTE_TABLE) == 0 &&
+                strcmp(pszRole, RAT_ROLE) == 0)
+            {
+                const CPLXMLNode *psValueNode = psItem->psChild;
+                while (psValueNode && psValueNode->eType != CXT_Element)
+                    psValueNode = psValueNode->psNext;
+                if (psValueNode && psValueNode->eType == CXT_Element)
+                {
+                    auto poRAT =
+                        std::make_unique<GDALDefaultRasterAttributeTable>();
+                    if (poRAT->XMLInit(psValueNode, nullptr) == CE_None)
+                    {
+                        GTiffRasterBand *poBand =
+                            cpl::down_cast<GTiffRasterBand *>(
+                                GetRasterBand(nBand));
+                        if (poBand != nullptr)
+                        {
+                            poBand->m_poRAT = std::move(poRAT);
+                            poBand->m_bRATSet = true;
+                        }
+                    }
+                }
+            }
+
             if (pszKey == nullptr || pszValue == nullptr)
                 continue;
             if (EQUAL(pszDomain, "IMAGE_STRUCTURE"))
             {
-                if (EQUAL(pszKey, "INTERLEAVE"))
+                if (EQUAL(pszKey, "OVERVIEW_RESAMPLING"))
+                {
+                    m_oGTiffMDMD.SetMetadataItem(pszKey, pszValue,
+                                                 "IMAGE_STRUCTURE");
+                }
+                else if (EQUAL(pszKey, "INTERLEAVE"))
                 {
                     if (EQUAL(pszValue, "TILE"))
                     {
@@ -5571,10 +5605,11 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
                 }
             }
 
-            bool bIsXML = false;
+            bool bIsXMLOrJSON = false;
 
-            if (STARTS_WITH_CI(pszDomain, "xml:"))
-                bIsXML = TRUE;
+            if (STARTS_WITH_CI(pszDomain, "xml:") ||
+                STARTS_WITH_CI(pszDomain, "json:"))
+                bIsXMLOrJSON = true;
 
             // Note: this un-escaping should not normally be done, as the
             // deserialization of the tree from XML also does it, so we end up
@@ -5584,7 +5619,7 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
                 CPLUnescapeString(pszValue, nullptr, CPLES_XML);
             if (nBand == 0)
             {
-                if (bIsXML)
+                if (bIsXMLOrJSON)
                 {
                     char *apszMD[2] = {pszUnescapedValue, nullptr};
                     m_oGTiffMDMD.SetMetadata(apszMD, pszDomain);
@@ -5637,7 +5672,7 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
                     }
                     else
                     {
-                        if (bIsXML)
+                        if (bIsXMLOrJSON)
                         {
                             char *apszMD[2] = {pszUnescapedValue, nullptr};
                             poBand->m_oGTiffMDMD.SetMetadata(apszMD, pszDomain);
@@ -5657,8 +5692,6 @@ CPLErr GTiffDataset::OpenOffset(TIFF *hTIFFIn, toff_t nDirOffsetIn,
         {
             m_dfMaxZErrorOverview = m_dfMaxZError;
         }
-
-        CPLDestroyXMLNode(psRoot);
     }
 
     if (m_bStreamingIn)
@@ -5882,12 +5915,7 @@ void GTiffDataset::LoadGeoreferencingAndPamIfNeeded()
                     GTIFFree(psGTIF);
                 }
 
-                m_adfGeoTransform[0] = 0.0;
-                m_adfGeoTransform[1] = 1.0;
-                m_adfGeoTransform[2] = 0.0;
-                m_adfGeoTransform[3] = 0.0;
-                m_adfGeoTransform[4] = 0.0;
-                m_adfGeoTransform[5] = 1.0;
+                m_gt = GDALGeoTransform();
 
                 uint16_t nCountScale = 0;
                 if (TIFFGetField(m_hTIFF, TIFFTAG_GEOPIXELSCALE, &nCountScale,
@@ -5895,7 +5923,7 @@ void GTiffDataset::LoadGeoreferencingAndPamIfNeeded()
                     nCountScale >= 2 && padfScale[0] != 0.0 &&
                     padfScale[1] != 0.0)
                 {
-                    m_adfGeoTransform[1] = padfScale[0];
+                    m_gt[1] = padfScale[0];
                     if (padfScale[1] < 0)
                     {
                         const char *pszOptionVal = CPLGetConfigOption(
@@ -5913,41 +5941,33 @@ void GTiffDataset::LoadGeoreferencingAndPamIfNeeded()
                                 "positive. You may override this behavior "
                                 "by setting the GTIFF_HONOUR_NEGATIVE_SCALEY "
                                 "configuration option to YES");
-                            m_adfGeoTransform[5] = padfScale[1];
+                            m_gt[5] = padfScale[1];
                         }
                         else if (CPLTestBool(pszOptionVal))
                         {
-                            m_adfGeoTransform[5] = -padfScale[1];
+                            m_gt[5] = -padfScale[1];
                         }
                         else
                         {
-                            m_adfGeoTransform[5] = padfScale[1];
+                            m_gt[5] = padfScale[1];
                         }
                     }
                     else
                     {
-                        m_adfGeoTransform[5] = -padfScale[1];
+                        m_gt[5] = -padfScale[1];
                     }
 
                     if (TIFFGetField(m_hTIFF, TIFFTAG_GEOTIEPOINTS, &nCount,
                                      &padfTiePoints) &&
                         nCount >= 6)
                     {
-                        m_adfGeoTransform[0] =
-                            padfTiePoints[3] -
-                            padfTiePoints[0] * m_adfGeoTransform[1];
-                        m_adfGeoTransform[3] =
-                            padfTiePoints[4] -
-                            padfTiePoints[1] * m_adfGeoTransform[5];
+                        m_gt[0] = padfTiePoints[3] - padfTiePoints[0] * m_gt[1];
+                        m_gt[3] = padfTiePoints[4] - padfTiePoints[1] * m_gt[5];
 
                         if (bPixelIsPoint && !bPointGeoIgnore)
                         {
-                            m_adfGeoTransform[0] -=
-                                (m_adfGeoTransform[1] * 0.5 +
-                                 m_adfGeoTransform[2] * 0.5);
-                            m_adfGeoTransform[3] -=
-                                (m_adfGeoTransform[4] * 0.5 +
-                                 m_adfGeoTransform[5] * 0.5);
+                            m_gt[0] -= (m_gt[1] * 0.5 + m_gt[2] * 0.5);
+                            m_gt[3] -= (m_gt[4] * 0.5 + m_gt[5] * 0.5);
                         }
 
                         m_bGeoTransformValid = true;
@@ -5986,19 +6006,17 @@ void GTiffDataset::LoadGeoreferencingAndPamIfNeeded()
                                       &padfMatrix) &&
                          nCount == 16)
                 {
-                    m_adfGeoTransform[0] = padfMatrix[3];
-                    m_adfGeoTransform[1] = padfMatrix[0];
-                    m_adfGeoTransform[2] = padfMatrix[1];
-                    m_adfGeoTransform[3] = padfMatrix[7];
-                    m_adfGeoTransform[4] = padfMatrix[4];
-                    m_adfGeoTransform[5] = padfMatrix[5];
+                    m_gt[0] = padfMatrix[3];
+                    m_gt[1] = padfMatrix[0];
+                    m_gt[2] = padfMatrix[1];
+                    m_gt[3] = padfMatrix[7];
+                    m_gt[4] = padfMatrix[4];
+                    m_gt[5] = padfMatrix[5];
 
                     if (bPixelIsPoint && !bPointGeoIgnore)
                     {
-                        m_adfGeoTransform[0] -= m_adfGeoTransform[1] * 0.5 +
-                                                m_adfGeoTransform[2] * 0.5;
-                        m_adfGeoTransform[3] -= m_adfGeoTransform[4] * 0.5 +
-                                                m_adfGeoTransform[5] * 0.5;
+                        m_gt[0] -= m_gt[1] * 0.5 + m_gt[2] * 0.5;
+                        m_gt[3] -= m_gt[4] * 0.5 + m_gt[5] * 0.5;
                     }
 
                     m_bGeoTransformValid = true;
@@ -6023,10 +6041,9 @@ void GTiffDataset::LoadGeoreferencingAndPamIfNeeded()
                 // Begin with .tab since it can also have projection info.
                 int nGCPCount = 0;
                 GDAL_GCP *pasGCPList = nullptr;
-                const int bTabFileOK =
-                    GDALReadTabFile2(m_osFilename.c_str(), m_adfGeoTransform,
-                                     &pszTabWKT, &nGCPCount, &pasGCPList,
-                                     papszSiblingFiles, &pszGeorefFilename);
+                const int bTabFileOK = GDALReadTabFile2(
+                    m_osFilename.c_str(), m_gt.data(), &pszTabWKT, &nGCPCount,
+                    &pasGCPList, papszSiblingFiles, &pszGeorefFilename);
 
                 if (bTabFileOK)
                 {
@@ -6064,15 +6081,15 @@ void GTiffDataset::LoadGeoreferencingAndPamIfNeeded()
 
                 CSLConstList papszSiblingFiles = GetSiblingFiles();
 
-                m_bGeoTransformValid = CPL_TO_BOOL(GDALReadWorldFile2(
-                    m_osFilename.c_str(), nullptr, m_adfGeoTransform,
-                    papszSiblingFiles, &pszGeorefFilename));
+                m_bGeoTransformValid = CPL_TO_BOOL(
+                    GDALReadWorldFile2(m_osFilename.c_str(), nullptr, m_gt,
+                                       papszSiblingFiles, &pszGeorefFilename));
 
                 if (!m_bGeoTransformValid)
                 {
                     m_bGeoTransformValid = CPL_TO_BOOL(GDALReadWorldFile2(
-                        m_osFilename.c_str(), "wld", m_adfGeoTransform,
-                        papszSiblingFiles, &pszGeorefFilename));
+                        m_osFilename.c_str(), "wld", m_gt, papszSiblingFiles,
+                        &pszGeorefFilename));
                 }
                 if (m_bGeoTransformValid)
                     m_nGeoTransformGeorefSrcIndex = nIndex;
@@ -6181,12 +6198,12 @@ const OGRSpatialReference *GTiffDataset::GetSpatialRef() const
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr GTiffDataset::GetGeoTransform(double *padfTransform)
+CPLErr GTiffDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
-    LoadGeoreferencingAndPamIfNeeded();
+    const_cast<GTiffDataset *>(this)->LoadGeoreferencingAndPamIfNeeded();
 
-    memcpy(padfTransform, m_adfGeoTransform, sizeof(double) * 6);
+    gt = m_gt;
 
     if (!m_bGeoTransformValid)
         return CE_Failure;
@@ -6196,10 +6213,10 @@ CPLErr GTiffDataset::GetGeoTransform(double *padfTransform)
     if (CPLFetchBool(papszOpenOptions, "SHIFT_ORIGIN_IN_MINUS_180_PLUS_180",
                      false))
     {
-        if (padfTransform[0] < -180.0 - padfTransform[1])
-            padfTransform[0] += 360.0;
-        else if (padfTransform[0] > 180.0)
-            padfTransform[0] -= 360.0;
+        if (gt[0] < -180.0 - gt[1])
+            gt[0] += 360.0;
+        else if (gt[0] > 180.0)
+            gt[0] -= 360.0;
     }
 
     return CE_None;
@@ -6482,11 +6499,11 @@ const char *GTiffDataset::GetMetadataItem(const char *pszName,
         }
         else if (EQUAL(pszName, "JXL_DISTANCE"))
         {
-            return CPLSPrintf("%f", m_fJXLDistance);
+            return CPLSPrintf("%f", static_cast<double>(m_fJXLDistance));
         }
         else if (EQUAL(pszName, "JXL_ALPHA_DISTANCE"))
         {
-            return CPLSPrintf("%f", m_fJXLAlphaDistance);
+            return CPLSPrintf("%f", static_cast<double>(m_fJXLAlphaDistance));
         }
         else if (EQUAL(pszName, "JXL_EFFORT"))
         {

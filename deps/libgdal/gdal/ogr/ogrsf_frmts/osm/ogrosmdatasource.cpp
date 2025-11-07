@@ -182,7 +182,7 @@ static void AddInterestLayersForDSName(const CPLString &osDSName,
     oDSToBeOpened.nPID = CPLGetPID();
     oDSToBeOpened.osDSName = osDSName;
     oDSToBeOpened.osInterestLayers = osInterestLayers;
-    oListDSToBeOpened.push_back(oDSToBeOpened);
+    oListDSToBeOpened.push_back(std::move(oDSToBeOpened));
 }
 
 /************************************************************************/
@@ -478,7 +478,7 @@ Bucket *OGROSMDataSource::AllocBucket(int iBucket)
         Bucket *psPrevBucket = GetBucket(iBucket - nRem);
         if (psPrevBucket->u.pabyBitmap == nullptr)
             psPrevBucket->u.pabyBitmap =
-                reinterpret_cast<GByte *>(VSI_CALLOC_VERBOSE(1, knPAGE_SIZE));
+                static_cast<GByte *>(VSI_CALLOC_VERBOSE(1, knPAGE_SIZE));
         GByte *pabyBitmap = psPrevBucket->u.pabyBitmap;
         Bucket *psBucket = GetBucket(iBucket);
         if (pabyBitmap != nullptr)
@@ -1466,7 +1466,7 @@ void OGROSMDataSource::UncompressWay(int nBytes, const GByte *pabyCompressedWay,
     if (pnTags)
         *pnTags = nTags;
 
-    // TODO: Some additional safety checks.
+    assert(nTags <= MAX_COUNT_FOR_TAGS_IN_WAY);
     for (unsigned int iTag = 0; iTag < nTags; iTag++)
     {
         const int nK = ReadVarInt32(&pabyPtr);
@@ -2629,7 +2629,6 @@ void OGROSMDataSource::ProcessPolygonsStandalone()
             int nBlobSize = sqlite3_column_bytes(m_pahSelectWayStmt[0], 1);
             const void *blob = sqlite3_column_blob(m_pahSelectWayStmt[0], 1);
 
-            // coverity[tainted_data]
             UncompressWay(nBlobSize, static_cast<const GByte *>(blob), nullptr,
                           m_asLonLatCache, &nTags, pasTags, &sInfo);
             CPLAssert(nTags <= MAX_COUNT_FOR_TAGS_IN_WAY);
@@ -4212,7 +4211,7 @@ bool OGROSMDataSource::TransferToDiskIfNecesserary()
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGROSMDataSource::TestCapability(const char *pszCap)
+int OGROSMDataSource::TestCapability(const char *pszCap) const
 {
     return EQUAL(pszCap, ODsCRandomLayerRead);
 }
@@ -4221,7 +4220,7 @@ int OGROSMDataSource::TestCapability(const char *pszCap)
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGROSMDataSource::GetLayer(int iLayer)
+const OGRLayer *OGROSMDataSource::GetLayer(int iLayer) const
 
 {
     if (iLayer < 0 || static_cast<size_t>(iLayer) >= m_apoLayers.size())
@@ -4231,10 +4230,10 @@ OGRLayer *OGROSMDataSource::GetLayer(int iLayer)
 }
 
 /************************************************************************/
-/*                             GetExtent()                              */
+/*                          GetNativeExtent()                           */
 /************************************************************************/
 
-OGRErr OGROSMDataSource::GetExtent(OGREnvelope *psExtent)
+OGRErr OGROSMDataSource::GetNativeExtent(OGREnvelope *psExtent)
 {
     if (!m_bHasParsedFirstChunk)
     {
@@ -4270,21 +4269,21 @@ class OGROSMSingleFeatureLayer final : public OGRLayer
   public:
     OGROSMSingleFeatureLayer(const char *pszLayerName, int nVal);
     OGROSMSingleFeatureLayer(const char *pszLayerName, const char *pszVal);
-    virtual ~OGROSMSingleFeatureLayer();
+    ~OGROSMSingleFeatureLayer() override;
 
-    virtual void ResetReading() override
+    void ResetReading() override
     {
         iNextShapeId = 0;
     }
 
-    virtual OGRFeature *GetNextFeature() override;
+    OGRFeature *GetNextFeature() override;
 
-    virtual OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return poFeatureDefn;
     }
 
-    virtual int TestCapability(const char *) override
+    int TestCapability(const char *) const override
     {
         return FALSE;
     }
@@ -4363,15 +4362,17 @@ class OGROSMResultLayerDecorator final : public OGRLayerDecorator
     {
     }
 
-    virtual GIntBig GetFeatureCount(int bForce = TRUE) override
-    {
-        /* When we run GetFeatureCount() with SQLite SQL dialect, */
-        /* the OSM dataset will be re-opened. Make sure that it is */
-        /* re-opened with the same interest layers */
-        AddInterestLayersForDSName(osDSName, osInterestLayers);
-        return OGRLayerDecorator::GetFeatureCount(bForce);
-    }
+    GIntBig GetFeatureCount(int bForce = TRUE) override;
 };
+
+GIntBig OGROSMResultLayerDecorator::GetFeatureCount(int bForce)
+{
+    /* When we run GetFeatureCount() with SQLite SQL dialect, */
+    /* the OSM dataset will be re-opened. Make sure that it is */
+    /* re-opened with the same interest layers */
+    AddInterestLayersForDSName(osDSName, osInterestLayers);
+    return OGRLayerDecorator::GetFeatureCount(bForce);
+}
 
 /************************************************************************/
 /*                             ExecuteSQL()                             */

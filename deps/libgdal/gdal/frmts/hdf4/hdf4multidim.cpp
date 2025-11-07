@@ -9,6 +9,7 @@
  * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
+#include "cpl_multiproc.h"
 #include "hdf4dataset.h"
 
 #include "hdf.h"
@@ -17,6 +18,7 @@
 #include "HdfEosDef.h"
 
 #include "cpl_string.h"
+#include "gdal_pam_multidim.h"
 
 #include <algorithm>
 #include <map>
@@ -37,8 +39,8 @@ class HDF4SharedResources
 {
     friend class ::HDF4Dataset;
     int32 m_hSD = -1;
-    std::string m_osFilename;
-    CPLStringList m_aosOpenOptions;
+    std::string m_osFilename{};
+    CPLStringList m_aosOpenOptions{};
     std::shared_ptr<GDALPamMultiDim> m_poPAM{};
 
   public:
@@ -115,7 +117,7 @@ class HDF4Group final : public GDALGroup
 /*                         HDF4AbstractAttribute                        */
 /************************************************************************/
 
-class HDF4AbstractAttribute : public GDALAttribute
+class HDF4AbstractAttribute /* non final */ : public GDALAttribute
 {
     std::shared_ptr<HDF4SharedResources> m_poShared;
     std::vector<std::shared_ptr<GDALDimension>> m_dims{};
@@ -364,11 +366,13 @@ class HDF4SwathAttribute final : public HDF4AbstractAttribute
     {
     }
 
-    void ReadData(void *pDstBuffer) const override
-    {
-        SWreadattr(m_poSwathHandle->m_handle, GetName().c_str(), pDstBuffer);
-    }
+    void ReadData(void *pDstBuffer) const override;
 };
+
+void HDF4SwathAttribute::ReadData(void *pDstBuffer) const
+{
+    SWreadattr(m_poSwathHandle->m_handle, GetName().c_str(), pDstBuffer);
+}
 
 /************************************************************************/
 /*                             HDF4GDsHandle                             */
@@ -610,11 +614,13 @@ class HDF4EOSGridAttribute final : public HDF4AbstractAttribute
     {
     }
 
-    void ReadData(void *pDstBuffer) const override
-    {
-        GDreadattr(m_poGDHandle->m_handle, GetName().c_str(), pDstBuffer);
-    }
+    void ReadData(void *pDstBuffer) const override;
 };
+
+void HDF4EOSGridAttribute::ReadData(void *pDstBuffer) const
+{
+    GDreadattr(m_poGDHandle->m_handle, GetName().c_str(), pDstBuffer);
+}
 
 /************************************************************************/
 /*                             HDF4SDSGroup                             */
@@ -703,7 +709,7 @@ class HDF4SDSArray final : public GDALPamMDArray
         return ar;
     }
 
-    ~HDF4SDSArray();
+    ~HDF4SDSArray() override;
 
     void SetGlobalAttributes(
         const std::vector<std::shared_ptr<GDALAttribute>> &attrs)
@@ -864,10 +870,7 @@ class HDF4GRArray final : public GDALPamMDArray
         return ar;
     }
 
-    bool IsWritable() const override
-    {
-        return false;
-    }
+    bool IsWritable() const override;
 
     const std::string &GetFilename() const override
     {
@@ -893,6 +896,11 @@ class HDF4GRArray final : public GDALPamMDArray
         return HDF4Group::Create(std::string(), "/", m_poShared);
     }
 };
+
+bool HDF4GRArray::IsWritable() const
+{
+    return false;
+}
 
 /************************************************************************/
 /*                            HDF4SDAttribute                           */
@@ -920,11 +928,13 @@ class HDF4SDAttribute final : public HDF4AbstractAttribute
     {
     }
 
-    void ReadData(void *pDstBuffer) const override
-    {
-        SDreadattr(m_sdHandle, m_iAttribute, pDstBuffer);
-    }
+    void ReadData(void *pDstBuffer) const override;
 };
+
+void HDF4SDAttribute::ReadData(void *pDstBuffer) const
+{
+    SDreadattr(m_sdHandle, m_iAttribute, pDstBuffer);
+}
 
 /************************************************************************/
 /*                           HDF4GRAttribute                            */
@@ -952,11 +962,13 @@ class HDF4GRAttribute final : public HDF4AbstractAttribute
     {
     }
 
-    void ReadData(void *pDstBuffer) const override
-    {
-        GRgetattr(m_grHandle, m_iAttribute, pDstBuffer);
-    }
+    void ReadData(void *pDstBuffer) const override;
 };
+
+void HDF4GRAttribute::ReadData(void *pDstBuffer) const
+{
+    GRgetattr(m_grHandle, m_iAttribute, pDstBuffer);
+}
 
 /************************************************************************/
 /*                         HDF4GRPalette                                */
@@ -984,16 +996,19 @@ class HDF4GRPalette final : public GDALAttribute
                   int32 nValues);
 
     const std::vector<std::shared_ptr<GDALDimension>> &
-    GetDimensions() const override
-    {
-        return m_dims;
-    }
+    GetDimensions() const override;
 
     const GDALExtendedDataType &GetDataType() const override
     {
         return m_dt;
     }
 };
+
+const std::vector<std::shared_ptr<GDALDimension>> &
+HDF4GRPalette::GetDimensions() const
+{
+    return m_dims;
+}
 
 /************************************************************************/
 /*                        HDF4SharedResources()                         */
@@ -2878,7 +2893,7 @@ std::vector<std::string> HDF4GRsGroup::GetMDArrayNames(CSLConstList) const
         {
             osName.resize(strlen(osName.c_str()));
             m_oMapNameToGRIdx[osName] = i;
-            res.push_back(osName);
+            res.push_back(std::move(osName));
         }
 
         GRendaccess(iGR);

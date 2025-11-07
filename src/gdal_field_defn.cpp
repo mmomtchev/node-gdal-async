@@ -84,22 +84,22 @@ NAN_METHOD(FieldDefn::New) {
   info.GetReturnValue().Set(info.This());
 }
 
-Local<Value> FieldDefn::New(OGRFieldDefn *def) {
+// Currently read-only field definitions are copied.
+// Modifying a field definition that should have been
+// read-only modifies a shadow copy without any real effect.
+// TODO: Implement proper read-only objects that throw
+
+Local<Value> FieldDefn::New(const OGRFieldDefn *def) {
   Nan::EscapableHandleScope scope;
-  return scope.Escape(FieldDefn::New(def, false));
+  if (!def) { return scope.Escape(Nan::Null()); }
+  OGRFieldDefn *copy = new OGRFieldDefn(def);
+  return scope.Escape(FieldDefn::New(copy, true));
 }
 
 Local<Value> FieldDefn::New(OGRFieldDefn *def, bool owned) {
   Nan::EscapableHandleScope scope;
 
   if (!def) { return scope.Escape(Nan::Null()); }
-
-  // make a copy of fielddefn owned by a featuredefn
-  // + no need to track when a featuredefn is destroyed
-  // + no need to throw errors when a method trys to modify an owned read-only
-  // fielddefn
-  // - is slower
-
   if (!owned) { def = new OGRFieldDefn(def); }
 
   FieldDefn *wrapped = new FieldDefn(def);

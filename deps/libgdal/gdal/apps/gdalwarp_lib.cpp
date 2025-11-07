@@ -63,17 +63,6 @@
 #define USE_PROJ_BASED_VERTICAL_SHIFT_METHOD
 #endif
 
-struct TransformerUniquePtrReleaser
-{
-    void operator()(void *p)
-    {
-        GDALDestroyTransformer(p);
-    }
-};
-
-using TransformerUniquePtr =
-    std::unique_ptr<void, TransformerUniquePtrReleaser>;
-
 /************************************************************************/
 /*                        GDALWarpAppOptions                            */
 /************************************************************************/
@@ -83,6 +72,9 @@ using TransformerUniquePtr =
  */
 struct GDALWarpAppOptions
 {
+    /*! Raw program arguments */
+    CPLStringList aosArgs{};
+
     /*! set georeferenced extents of output file to be created (in target SRS by
        default, or in the SRS specified with pszTE_SRS) */
     double dfMinX = 0;
@@ -265,7 +257,7 @@ static CPLErr TransformCutlineToSource(GDALDataset *poSrcDS,
 static GDALDatasetH GDALWarpCreateOutput(
     int nSrcCount, GDALDatasetH *pahSrcDS, const char *pszFilename,
     const char *pszFormat, char **papszTO, CSLConstList papszCreateOptions,
-    GDALDataType eDT, TransformerUniquePtr &hTransformArg,
+    GDALDataType eDT, GDALTransformerArgUniquePtr &hTransformArg,
     bool bSetColorInterpretation, GDALWarpAppOptions *psOptions,
     bool bUpdateTransformerWithDestGT);
 
@@ -1148,7 +1140,7 @@ static bool CanUseBuildVRT(int nSrcCount, GDALDatasetH *pahSrcDS)
 static bool DealWithCOGOptions(CPLStringList &aosCreateOptions, int nSrcCount,
                                GDALDatasetH *pahSrcDS,
                                GDALWarpAppOptions *psOptions,
-                               TransformerUniquePtr &hUniqueTransformArg)
+                               GDALTransformerArgUniquePtr &hUniqueTransformArg)
 {
     const auto SetDstSRS = [psOptions](const std::string &osTargetSRS)
     {
@@ -1250,11 +1242,11 @@ static bool DealWithCOGOptions(CPLStringList &aosCreateOptions, int nSrcCount,
 /*                      GDALWarpIndirect()                              */
 /************************************************************************/
 
-static GDALDatasetH GDALWarpDirect(const char *pszDest, GDALDatasetH hDstDS,
-                                   int nSrcCount, GDALDatasetH *pahSrcDS,
-                                   TransformerUniquePtr hUniqueTransformArg,
-                                   GDALWarpAppOptions *psOptions,
-                                   int *pbUsageError);
+static GDALDatasetH
+GDALWarpDirect(const char *pszDest, GDALDatasetH hDstDS, int nSrcCount,
+               GDALDatasetH *pahSrcDS,
+               GDALTransformerArgUniquePtr hUniqueTransformArg,
+               GDALWarpAppOptions *psOptions, int *pbUsageError);
 
 static int CPL_STDCALL myScaledProgress(double dfProgress, const char *,
                                         void *pProgressData)
@@ -1335,7 +1327,7 @@ static GDALDatasetH GDALWarpIndirect(const char *pszDest, GDALDriverH hDriver,
     double dfStartPctCreateCopy = 0.0;
     if (hTmpDS == nullptr)
     {
-        TransformerUniquePtr hUniqueTransformArg;
+        GDALTransformerArgUniquePtr hUniqueTransformArg;
 #ifdef HAVE_TIFF
         // Special processing for COG output. As some of its options do
         // on-the-fly reprojection, take them into account now, and remove them
@@ -1443,12 +1435,11 @@ GDALDatasetH GDALWarp(const char *pszDest, GDALDatasetH hDstDS, int nSrcCount,
     {
         if (psOptions->osFormat.empty())
         {
-            const std::string osFormat = GetOutputDriverForRaster(pszDest);
-            if (osFormat.empty())
+            psOptions->osFormat = GetOutputDriverForRaster(pszDest);
+            if (psOptions->osFormat.empty())
             {
                 return nullptr;
             }
-            psOptions->osFormat = osFormat;
         }
 
         auto hDriver = GDALGetDriverByName(psOptions->osFormat.c_str());
@@ -1730,11 +1721,10 @@ static bool ProcessCutlineOptions(int nSrcCount, GDALDatasetH *pahSrcDS,
 /*                            CreateOutput()                            */
 /************************************************************************/
 
-static GDALDatasetH CreateOutput(const char *pszDest, int nSrcCount,
-                                 GDALDatasetH *pahSrcDS,
-                                 GDALWarpAppOptions *psOptions,
-                                 const bool bInitDestSetByUser,
-                                 TransformerUniquePtr &hUniqueTransformArg)
+static GDALDatasetH
+CreateOutput(const char *pszDest, int nSrcCount, GDALDatasetH *pahSrcDS,
+             GDALWarpAppOptions *psOptions, const bool bInitDestSetByUser,
+             GDALTransformerArgUniquePtr &hUniqueTransformArg)
 {
     if (nSrcCount == 1 && !psOptions->bDisableSrcAlpha)
     {
@@ -1778,11 +1768,67 @@ static GDALDatasetH CreateOutput(const char *pszDest, int nSrcCount,
 }
 
 /************************************************************************/
+/*                    EditISIS3ForMetadataChanges()                     */
+/************************************************************************/
+
+static std::string
+EditISIS3ForMetadataChanges(const char *pszJSON,
+                            const GDALWarpAppOptions *psOptions)
+{
+    CPLJSONDocument oJSONDocument;
+    if (!oJSONDocument.LoadMemory(pszJSON))
+    {
+        return std::string();
+    }
+
+    auto oRoot = oJSONDocument.GetRoot();
+    if (!oRoot.IsValid())
+    {
+        return std::string();
+    }
+
+    auto oGDALHistory = oRoot.GetObj("GDALHistory");
+    if (!oGDALHistory.IsValid())
+    {
+        oGDALHistory = CPLJSONObject();
+        oRoot.Add("GDALHistory", oGDALHistory);
+    }
+    oGDALHistory["_type"] = "object";
+
+    char szFullFilename[2048] = {0};
+    if (!CPLGetExecPath(szFullFilename, sizeof(szFullFilename) - 1))
+        strcpy(szFullFilename, "unknown_program");
+    const CPLString osProgram(CPLGetBasenameSafe(szFullFilename));
+    const CPLString osPath(CPLGetPathSafe(szFullFilename));
+
+    oGDALHistory["GdalVersion"] = GDALVersionInfo("RELEASE_NAME");
+    oGDALHistory["Program"] = osProgram;
+    if (osPath != ".")
+        oGDALHistory["ProgramPath"] = osPath;
+
+    std::string osArgs;
+    for (const char *pszArg : psOptions->aosArgs)
+    {
+        if (!osArgs.empty())
+            osArgs += ' ';
+        osArgs += pszArg;
+    }
+    oGDALHistory["ProgramArguments"] = osArgs;
+
+    oGDALHistory.Add(
+        "Comment",
+        "Part of that metadata might be invalid due to a reprojection "
+        "operation having been performed by GDAL tools");
+
+    return oRoot.Format(CPLJSONObject::PrettyFormat::Pretty);
+}
+
+/************************************************************************/
 /*                           ProcessMetadata()                          */
 /************************************************************************/
 
 static void ProcessMetadata(int iSrc, GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
-                            GDALWarpAppOptions *psOptions,
+                            const GDALWarpAppOptions *psOptions,
                             const bool bEnableDstAlpha)
 {
     if (psOptions->bCopyMetadata)
@@ -1832,11 +1878,23 @@ static void ProcessMetadata(int iSrc, GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
             CSLDestroy(papszMetadataNew);
 
             /* ISIS3 -> ISIS3 special case */
-            if (EQUAL(psOptions->osFormat.c_str(), "ISIS3"))
+            if (EQUAL(psOptions->osFormat.c_str(), "ISIS3") ||
+                EQUAL(psOptions->osFormat.c_str(), "PDS4") ||
+                EQUAL(psOptions->osFormat.c_str(), "GTIFF") ||
+                EQUAL(psOptions->osFormat.c_str(), "COG"))
             {
                 char **papszMD_ISIS3 = GDALGetMetadata(hSrcDS, "json:ISIS3");
-                if (papszMD_ISIS3 != nullptr)
-                    GDALSetMetadata(hDstDS, papszMD_ISIS3, "json:ISIS3");
+                if (papszMD_ISIS3 != nullptr && papszMD_ISIS3[0])
+                {
+                    std::string osJSON = papszMD_ISIS3[0];
+                    osJSON =
+                        EditISIS3ForMetadataChanges(osJSON.c_str(), psOptions);
+                    if (!osJSON.empty())
+                    {
+                        char *apszMD[] = {osJSON.data(), nullptr};
+                        GDALSetMetadata(hDstDS, apszMD, "json:ISIS3");
+                    }
+                }
             }
             else if (EQUAL(psOptions->osFormat.c_str(), "PDS4"))
             {
@@ -2450,11 +2508,11 @@ static bool AdjustOutputExtentForRPC(GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
 /*                           GDALWarpDirect()                           */
 /************************************************************************/
 
-static GDALDatasetH GDALWarpDirect(const char *pszDest, GDALDatasetH hDstDS,
-                                   int nSrcCount, GDALDatasetH *pahSrcDS,
-                                   TransformerUniquePtr hUniqueTransformArg,
-                                   GDALWarpAppOptions *psOptions,
-                                   int *pbUsageError)
+static GDALDatasetH
+GDALWarpDirect(const char *pszDest, GDALDatasetH hDstDS, int nSrcCount,
+               GDALDatasetH *pahSrcDS,
+               GDALTransformerArgUniquePtr hUniqueTransformArg,
+               GDALWarpAppOptions *psOptions, int *pbUsageError)
 {
     CPLErrorReset();
     if (pszDest == nullptr && hDstDS == nullptr)
@@ -2740,7 +2798,7 @@ static GDALDatasetH GDALWarpDirect(const char *pszDest, GDALDatasetH hDstDS,
         /*      destination coordinate system. */
         /* --------------------------------------------------------------------
          */
-        TransformerUniquePtr hTransformArg;
+        GDALTransformerArgUniquePtr hTransformArg;
         if (hUniqueTransformArg)
             hTransformArg = std::move(hUniqueTransformArg);
         else
@@ -3180,8 +3238,6 @@ static GDALDatasetH GDALWarpDirect(const char *pszDest, GDALDatasetH hDstDS,
             GDALApproxTransformerOwnsSubtransformer(hTransformArg.get(), TRUE);
         }
 
-        psWO->pfnTransformer = pfnTransformer;
-
         /* --------------------------------------------------------------------
          */
         /*      If we have a cutline, transform it into the source */
@@ -3217,6 +3273,7 @@ static GDALDatasetH GDALWarpDirect(const char *pszDest, GDALDatasetH hDstDS,
 
             // In case of success, hDstDS has become the owner of hTransformArg
             // so we need to release it
+            psWO->pfnTransformer = pfnTransformer;
             psWO->pTransformerArg = hTransformArg.release();
             CPLErr eErr = GDALInitializeWarpedVRT(hDstDS, psWO.get());
             if (eErr != CE_None)
@@ -3255,10 +3312,9 @@ static GDALDatasetH GDALWarpDirect(const char *pszDest, GDALDatasetH hDstDS,
         /* --------------------------------------------------------------------
          */
         GDALWarpOperation oWO;
-        // coverity[escape]
-        psWO->pTransformerArg = hTransformArg.get();
 
-        if (oWO.Initialize(psWO.get()) == CE_None)
+        if (oWO.Initialize(psWO.get(), pfnTransformer,
+                           std::move(hTransformArg)) == CE_None)
         {
             CPLErr eErr;
             if (psOptions->bMulti)
@@ -3529,7 +3585,7 @@ error:
 static GDALDatasetH GDALWarpCreateOutput(
     int nSrcCount, GDALDatasetH *pahSrcDS, const char *pszFilename,
     const char *pszFormat, char **papszTO, CSLConstList papszCreateOptions,
-    GDALDataType eDT, TransformerUniquePtr &hUniqueTransformArg,
+    GDALDataType eDT, GDALTransformerArgUniquePtr &hUniqueTransformArg,
     bool bSetColorInterpretation, GDALWarpAppOptions *psOptions,
     bool bUpdateTransformerWithDestGT)
 
@@ -3915,7 +3971,7 @@ static GDALDatasetH GDALWarpCreateOutput(
         /*      destination coordinate system. */
         /* --------------------------------------------------------------------
          */
-        TransformerUniquePtr hTransformArg;
+        GDALTransformerArgUniquePtr hTransformArg;
         if (hUniqueTransformArg)
             hTransformArg = std::move(hUniqueTransformArg);
         else
@@ -5096,20 +5152,17 @@ class CutlineTransformer : public OGRCoordinateTransformation
     {
     }
 
-    virtual const OGRSpatialReference *GetSourceCS() const override
+    const OGRSpatialReference *GetSourceCS() const override
     {
         return nullptr;
     }
 
-    virtual const OGRSpatialReference *GetTargetCS() const override
+    const OGRSpatialReference *GetTargetCS() const override
     {
         return nullptr;
     }
 
-    virtual ~CutlineTransformer()
-    {
-        GDALDestroyTransformer(hSrcImageTransformer);
-    }
+    ~CutlineTransformer() override;
 
     virtual int Transform(size_t nCount, double *x, double *y, double *z,
                           double * /* t */, int *pabSuccess) override
@@ -5121,17 +5174,22 @@ class CutlineTransformer : public OGRCoordinateTransformation
                                        pabSuccess);
     }
 
-    virtual OGRCoordinateTransformation *Clone() const override
+    OGRCoordinateTransformation *Clone() const override
     {
         return new CutlineTransformer(
             GDALCloneTransformer(hSrcImageTransformer));
     }
 
-    virtual OGRCoordinateTransformation *GetInverse() const override
+    OGRCoordinateTransformation *GetInverse() const override
     {
         return nullptr;
     }
 };
+
+CutlineTransformer::~CutlineTransformer()
+{
+    GDALDestroyTransformer(hSrcImageTransformer);
+}
 
 static double GetMaximumSegmentLength(OGRGeometry *poGeom)
 {
@@ -6323,6 +6381,8 @@ GDALWarpAppOptionsNew(char **papszArgv,
                       GDALWarpAppOptionsForBinary *psOptionsForBinary)
 {
     auto psOptions = std::make_unique<GDALWarpAppOptions>();
+
+    psOptions->aosArgs.Assign(CSLDuplicate(papszArgv), true);
 
     /* -------------------------------------------------------------------- */
     /*      Pre-processing for custom syntax that ArgumentParser does not   */

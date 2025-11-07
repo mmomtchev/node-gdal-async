@@ -31,11 +31,11 @@ deps/libcurl/cur*tar.gz
 deps/libhdf5/hdf5*.tar.gz
 deps/libnetcdf/netcdf*.tar.gz
 deps/libaec/libaec*.tar.gz
+deps/muparser/muparser*.tar.gz
 lib/binding
 lib/index.d.ts
 doc
 /coverage
-package-lock.json
 yarn.lock
 Attic
 

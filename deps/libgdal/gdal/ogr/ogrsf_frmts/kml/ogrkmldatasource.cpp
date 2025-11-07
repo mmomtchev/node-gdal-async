@@ -35,16 +35,7 @@
 /*                         OGRKMLDataSource()                           */
 /************************************************************************/
 
-OGRKMLDataSource::OGRKMLDataSource()
-    :
-#ifdef HAVE_EXPAT
-      poKMLFile_(nullptr),
-#endif
-      papoLayers_(nullptr), nLayers_(0), pszNameField_(nullptr),
-      pszDescriptionField_(nullptr), pszAltitudeMode_(nullptr),
-      papszCreateOptions_(nullptr), fpOutput_(nullptr), bIssuedCTError_(false)
-{
-}
+OGRKMLDataSource::OGRKMLDataSource() = default;
 
 /************************************************************************/
 /*                        ~OGRKMLDataSource()                           */
@@ -421,7 +412,7 @@ OGRKMLDataSource::ICreateLayer(const char *pszLayerName,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRKMLDataSource::TestCapability(const char *pszCap)
+int OGRKMLDataSource::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, ODsCCreateLayer))
@@ -436,7 +427,7 @@ int OGRKMLDataSource::TestCapability(const char *pszCap)
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGRKMLDataSource::GetLayer(int iLayer)
+const OGRLayer *OGRKMLDataSource::GetLayer(int iLayer) const
 {
     if (iLayer < 0 || iLayer >= nLayers_)
         return nullptr;

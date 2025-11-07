@@ -74,11 +74,11 @@ class CPL_DLL GNMNetwork : public GDALDataset
 {
   public:
     GNMNetwork();
-    virtual ~GNMNetwork();
+    ~GNMNetwork() override;
 
     // GDALDataset Interface
     const OGRSpatialReference *GetSpatialRef() const override;
-    virtual char **GetFileList(void) override;
+    char **GetFileList(void) override;
 
     // GNMNetwork Interface
 
@@ -163,6 +163,18 @@ class CPL_DLL GNMNetwork : public GDALDataset
                               GNMGraphAlgorithmType eAlgorithm,
                               char **papszOptions) = 0;
 
+    /** Casts a handle to a pointer */
+    static inline GNMNetwork *FromHandle(GNMGenericNetworkH hNet)
+    {
+        return static_cast<GNMNetwork *>(hNet);
+    }
+
+    /** Casts a pointer to a handle */
+    static inline GNMGenericNetworkH ToHandle(GNMNetwork *poNetwork)
+    {
+        return static_cast<GNMGenericNetworkH>(poNetwork);
+    }
+
   protected:
     /**
      * @brief Check if network already exist
@@ -175,7 +187,7 @@ class CPL_DLL GNMNetwork : public GDALDataset
 
   protected:
     //! @cond Doxygen_Suppress
-    CPLString m_soName;
+    CPLString m_soName{};
     OGRSpatialReference m_oSRS{};
     //! @endcond
 };
@@ -193,29 +205,29 @@ class CPL_DLL GNMGenericNetwork : public GNMNetwork
 {
   public:
     GNMGenericNetwork();
-    virtual ~GNMGenericNetwork();
+    ~GNMGenericNetwork() override;
 
     // GDALDataset Interface
 
-    virtual int GetLayerCount() override;
-    virtual OGRLayer *GetLayer(int) override;
-    virtual OGRErr DeleteLayer(int) override;
+    int GetLayerCount() const override;
+    OGRLayer *GetLayer(int) const override;
+    OGRErr DeleteLayer(int) override;
 
-    virtual int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 
     virtual OGRLayer *CopyLayer(OGRLayer *poSrcLayer, const char *pszNewName,
                                 char **papszOptions = nullptr) override;
 
-    virtual int CloseDependentDatasets() override;
-    virtual CPLErr FlushCache(bool bAtClosing) override;
+    int CloseDependentDatasets() override;
+    CPLErr FlushCache(bool bAtClosing) override;
 
     // GNMNetwork Interface
 
     virtual CPLErr Create(const char *pszFilename,
                           char **papszOptions) override = 0;
-    virtual CPLErr Delete() override;
+    CPLErr Delete() override;
 
-    virtual int GetVersion() const override;
+    int GetVersion() const override;
     /**
      * @brief GetNewGlobalFID increase the global ID counter.
      * @return New global feature ID.
@@ -294,9 +306,9 @@ class CPL_DLL GNMGenericNetwork : public GNMNetwork
                                      double dfInvCost = 1,
                                      GNMDirection eDir = GNM_EDGE_DIR_BOTH);
 
-    virtual CPLErr DisconnectAll() override;
+    CPLErr DisconnectAll() override;
 
-    virtual OGRFeature *GetFeatureByGlobalFID(GNMGFID nFID) override;
+    OGRFeature *GetFeatureByGlobalFID(GNMGFID nFID) override;
 
     /**
      * @brief Create network rule
@@ -404,6 +416,18 @@ class CPL_DLL GNMGenericNetwork : public GNMNetwork
                               GNMGraphAlgorithmType eAlgorithm,
                               char **papszOptions) override;
 
+    /** Casts a handle to a pointer */
+    static inline GNMGenericNetwork *FromHandle(GNMGenericNetworkH hNet)
+    {
+        return static_cast<GNMGenericNetwork *>(hNet);
+    }
+
+    /** Casts a pointer to a handle */
+    static inline GNMGenericNetworkH ToHandle(GNMGenericNetwork *poNetwork)
+    {
+        return static_cast<GNMGenericNetworkH>(poNetwork);
+    }
+
   protected:
     /**
      * @brief Check or create layer OGR driver
@@ -460,23 +484,25 @@ class CPL_DLL GNMGenericNetwork : public GNMNetwork
     //! @endcond
   protected:
     //! @cond Doxygen_Suppress
-    int m_nVersion;
-    GNMGFID m_nGID;
-    GNMGFID m_nVirtualConnectionGID;
-    OGRLayer *m_poMetadataLayer;
-    OGRLayer *m_poGraphLayer;
-    OGRLayer *m_poFeaturesLayer;
+    int m_nVersion = 0;
+    GNMGFID m_nGID = 0;
+    GNMGFID m_nVirtualConnectionGID = -1;
+    OGRLayer *m_poMetadataLayer = nullptr;
+    OGRLayer *m_poGraphLayer = nullptr;
+    OGRLayer *m_poFeaturesLayer = nullptr;
 
-    GDALDriver *m_poLayerDriver;
+    GDALDriver *m_poLayerDriver = nullptr;
 
-    std::map<GNMGFID, CPLString> m_moFeatureFIDMap;
-    std::vector<OGRLayer *> m_apoLayers;
+    std::map<GNMGFID, CPLString> m_moFeatureFIDMap{};
+    std::vector<OGRLayer *> m_apoLayers{};
     std::vector<GNMRule> m_asRules;
-    bool m_bIsRulesChanged;
+    bool m_bIsRulesChanged = false;
 
-    GNMGraph m_oGraph;
-    bool m_bIsGraphLoaded;
+    GNMGraph m_oGraph{};
+    bool m_bIsGraphLoaded = false;
     //! @endcond
+  private:
+    CPL_DISALLOW_COPY_ASSIGN(GNMGenericNetwork)
 };
 
 /**
@@ -486,67 +512,67 @@ class CPL_DLL GNMGenericNetwork : public GNMNetwork
  * @since GDAL 2.1
  */
 
-class GNMGenericLayer : public OGRLayer
+class GNMGenericLayer final : public OGRLayer
 {
   public:
     GNMGenericLayer(OGRLayer *poLayer, GNMGenericNetwork *poNetwork);
-    virtual ~GNMGenericLayer();
+    ~GNMGenericLayer() override;
 
     // OGRLayer Interface
 
-    virtual OGRGeometry *GetSpatialFilter() override;
+    OGRGeometry *GetSpatialFilter() override;
 
     virtual OGRErr ISetSpatialFilter(int iGeomField,
                                      const OGRGeometry *) override;
 
-    virtual OGRErr SetAttributeFilter(const char *) override;
+    OGRErr SetAttributeFilter(const char *) override;
 
-    virtual void ResetReading() override;
-    virtual OGRFeature *GetNextFeature() override;
-    virtual OGRErr SetNextByIndex(GIntBig nIndex) override;
+    void ResetReading() override;
+    OGRFeature *GetNextFeature() override;
+    OGRErr SetNextByIndex(GIntBig nIndex) override;
 
-    virtual OGRErr DeleteFeature(GIntBig nFID) override;
+    OGRErr DeleteFeature(GIntBig nFID) override;
 
-    virtual const char *GetName() override;
-    virtual OGRwkbGeometryType GetGeomType() override;
-    virtual OGRFeatureDefn *GetLayerDefn() override;
+    const char *GetName() const override;
+    OGRwkbGeometryType GetGeomType() const override;
+    const OGRFeatureDefn *GetLayerDefn() const override;
     virtual int FindFieldIndex(const char *pszFieldName,
                                int bExactMatch) override;
 
-    virtual OGRSpatialReference *GetSpatialRef() override;
+    const OGRSpatialReference *GetSpatialRef() const override;
 
-    virtual GIntBig GetFeatureCount(int bForce = TRUE) override;
+    GIntBig GetFeatureCount(int bForce = TRUE) override;
 
     virtual OGRErr IGetExtent(int iGeomField, OGREnvelope *psExtent,
                               bool bForce = true) override;
 
-    virtual int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 
     virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
-    virtual OGRErr DeleteField(int iField) override;
-    virtual OGRErr ReorderFields(int *panMap) override;
+    OGRErr DeleteField(int iField) override;
+    OGRErr ReorderFields(int *panMap) override;
     virtual OGRErr AlterFieldDefn(int iField, OGRFieldDefn *poNewFieldDefn,
                                   int nFlagsIn) override;
 
     virtual OGRErr CreateGeomField(const OGRGeomFieldDefn *poField,
                                    int bApproxOK = TRUE) override;
 
-    virtual OGRErr SyncToDisk() override;
+    OGRErr SyncToDisk() override;
 
-    virtual OGRStyleTable *GetStyleTable() override;
-    virtual void SetStyleTableDirectly(OGRStyleTable *poStyleTable) override;
+    OGRStyleTable *GetStyleTable() override;
+    void SetStyleTableDirectly(OGRStyleTable *poStyleTable) override;
 
-    virtual void SetStyleTable(OGRStyleTable *poStyleTable) override;
+    void SetStyleTable(OGRStyleTable *poStyleTable) override;
 
-    virtual OGRErr StartTransaction() override;
-    virtual OGRErr CommitTransaction() override;
-    virtual OGRErr RollbackTransaction() override;
+    OGRErr StartTransaction() override;
+    OGRErr CommitTransaction() override;
+    OGRErr RollbackTransaction() override;
 
-    virtual const char *GetFIDColumn() override;
-    virtual const char *GetGeometryColumn() override;
+    const char *GetFIDColumn() const override;
+    const char *GetGeometryColumn() const override;
 
-    virtual OGRErr SetIgnoredFields(CSLConstList papszFields) override;
+    OGRErr SetIgnoredFields(CSLConstList papszFields) override;
 
     /** Intersection */
     OGRErr Intersection(OGRLayer *pLayerMethod, OGRLayer *pLayerResult,
@@ -597,15 +623,18 @@ class GNMGenericLayer : public OGRLayer
 
   protected:
     //! @cond Doxygen_Suppress
-    virtual OGRErr ISetFeature(OGRFeature *poFeature) override;
-    virtual OGRErr ICreateFeature(OGRFeature *poFeature) override;
+    OGRErr ISetFeature(OGRFeature *poFeature) override;
+    OGRErr ICreateFeature(OGRFeature *poFeature) override;
 
   protected:
-    CPLString m_soLayerName;
-    OGRLayer *m_poLayer;
-    GNMGenericNetwork *m_poNetwork;
-    std::map<GNMGFID, GIntBig> m_mnFIDMap;
+    CPLString m_soLayerName{};
+    OGRLayer *m_poLayer = nullptr;
+    GNMGenericNetwork *m_poNetwork = nullptr;
+    std::map<GNMGFID, GIntBig> m_mnFIDMap{};
     //! @endcond
+
+  private:
+    CPL_DISALLOW_COPY_ASSIGN(GNMGenericLayer)
 };
 
 typedef enum
@@ -622,12 +651,8 @@ typedef enum
  * @since GDAL 2.1
  */
 
-class CPL_DLL GNMRule
+class CPL_DLL GNMRule /* non final */
 {
-    // to hopefully please Coverity Scan which complains about missing
-    // move assignment operator for performance reasons
-    GNMRule &operator==(GNMRule &&) = delete;
-
   public:
     /** Constructor */
     GNMRule();
@@ -635,13 +660,22 @@ class CPL_DLL GNMRule
     explicit GNMRule(const std::string &oRule);
     /** Constructor */
     explicit GNMRule(const char *pszRule);
-    /** Constructor */
-    GNMRule(const GNMRule &oRule);
+
+    /** Copy constructor */
+    GNMRule(const GNMRule &) = default;
+
+    /** Move constructor */
+    GNMRule(GNMRule &&) = default;
 
     /** Assignment operator */
     GNMRule &operator=(const GNMRule &) = default;
 
+    /** Move assignment operator */
+    GNMRule &operator=(GNMRule &&) = default;
+
+    /** Destructor */
     virtual ~GNMRule();
+
     /**
      * @brief  This function indicate if rule string was parsed successfully
      * @return true if rule is valid
@@ -685,13 +719,13 @@ class CPL_DLL GNMRule
     virtual bool ParseRuleString();
 
   protected:
-    CPLString m_soSrcLayerName;
-    CPLString m_soTgtLayerName;
-    CPLString m_soConnLayerName;
+    CPLString m_soSrcLayerName{};
+    CPLString m_soTgtLayerName{};
+    CPLString m_soConnLayerName{};
     bool m_bAllow = false;
     bool m_bValid = false;
     bool m_bAny = false;
-    CPLString m_soRuleString;
+    CPLString m_soRuleString{};
     //! @endcond
 };
 
@@ -701,42 +735,44 @@ class CPL_DLL GNMRule
  * @since GDAL 2.1
  */
 
-class OGRGNMWrappedResultLayer : public OGRLayer
+class OGRGNMWrappedResultLayer final : public OGRLayer
 {
   public:
     OGRGNMWrappedResultLayer(GDALDataset *poDS, OGRLayer *poLayer);
-    ~OGRGNMWrappedResultLayer();
+    ~OGRGNMWrappedResultLayer() override;
 
     // OGRLayer
-    virtual void ResetReading() override;
-    virtual OGRFeature *GetNextFeature() override;
-    virtual OGRErr SetNextByIndex(GIntBig nIndex) override;
-    virtual OGRFeature *GetFeature(GIntBig nFID) override;
-    virtual OGRFeatureDefn *GetLayerDefn() override;
-    virtual GIntBig GetFeatureCount(int bForce = TRUE) override;
-    virtual int TestCapability(const char *pszCap) override;
+    void ResetReading() override;
+    OGRFeature *GetNextFeature() override;
+    OGRErr SetNextByIndex(GIntBig nIndex) override;
+    OGRFeature *GetFeature(GIntBig nFID) override;
+    const OGRFeatureDefn *GetLayerDefn() const override;
+    GIntBig GetFeatureCount(int bForce = TRUE) override;
+    int TestCapability(const char *pszCap) const override;
     virtual OGRErr CreateField(const OGRFieldDefn *poField,
                                int bApproxOK = TRUE) override;
     virtual OGRErr CreateGeomField(const OGRGeomFieldDefn *poField,
                                    int bApproxOK = TRUE) override;
-    virtual const char *GetFIDColumn() override;
-    virtual const char *GetGeometryColumn() override;
-    virtual OGRSpatialReference *GetSpatialRef() override;
+    const char *GetFIDColumn() const override;
+    const char *GetGeometryColumn() const override;
+    const OGRSpatialReference *GetSpatialRef() const override;
 
     // OGRGNMWrappedResultLayer
-    virtual OGRErr InsertFeature(OGRFeature *poFeature,
-                                 const CPLString &soLayerName, int nPathNo,
-                                 bool bIsEdge);
+    OGRErr InsertFeature(OGRFeature *poFeature, const CPLString &soLayerName,
+                         int nPathNo, bool bIsEdge);
 
   protected:
-    virtual OGRErr ISetFeature(OGRFeature *poFeature) override;
-    virtual OGRErr ICreateFeature(OGRFeature *poFeature) override;
+    OGRErr ISetFeature(OGRFeature *poFeature) override;
+    OGRErr ICreateFeature(OGRFeature *poFeature) override;
 
   protected:
     //! @cond Doxygen_Suppress
-    GDALDataset *poDS;
-    OGRLayer *poLayer;
+    GDALDataset *poDS = nullptr;
+    OGRLayer *poLayer = nullptr;
     //! @endcond
+
+  private:
+    CPL_DISALLOW_COPY_ASSIGN(OGRGNMWrappedResultLayer)
 };
 
 #endif  // __cplusplus

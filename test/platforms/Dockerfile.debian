@@ -11,7 +11,7 @@ RUN \
   curl -fsSL https://deb.nodesource.com/setup_${NODEJS}.x -o nodesource_setup.sh && \
   bash nodesource_setup.sh && \
   DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs && \
-  DEBIAN_FRONTEND=noninteractive apt-get install -y python python3 git build-essential ccache && \
+  DEBIAN_FRONTEND=noninteractive apt-get install -y python3 git build-essential ccache && \
   mkdir -p /target && chmod 777 /target
 
 RUN if [ "${GDAL}" = "shared" ]; then DEBIAN_FRONTEND=noninteractive apt-get install -y libgdal-dev; fi

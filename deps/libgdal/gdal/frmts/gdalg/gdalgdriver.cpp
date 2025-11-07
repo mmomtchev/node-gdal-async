@@ -14,6 +14,7 @@
 #include "cpl_string.h"
 
 #include "gdalalgorithm.h"
+#include "gdal_frmts.h"
 #include "gdal_proxy.h"
 #include "gdal_priv.h"
 
@@ -44,9 +45,7 @@ class GDALGDataset final : public GDALProxyDataset
         return m_poUnderlyingDS;
     }
 
-    void UnrefUnderlyingDataset(GDALDataset *) const override
-    {
-    }
+    void UnrefUnderlyingDataset(GDALDataset *) const override;
 
   private:
     const std::string m_filename;
@@ -60,12 +59,12 @@ class GDALGDataset final : public GDALProxyDataset
         return poDriver;
     }
 
-    int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return m_poUnderlyingDS->GetLayerCount();
     }
 
-    OGRLayer *GetLayer(int idx) override
+    const OGRLayer *GetLayer(int idx) const override
     {
         return m_poUnderlyingDS->GetLayer(idx);
     }
@@ -96,7 +95,7 @@ class GDALGDataset final : public GDALProxyDataset
             ppoBelongingLayer, pdfProgressPct, pfnProgress, pProgressData);
     }
 
-    int TestCapability(const char *pszCap) override
+    int TestCapability(const char *pszCap) const override
     {
         return m_poUnderlyingDS->TestCapability(pszCap);
     }
@@ -118,9 +117,7 @@ class GDALGRasterBand final : public GDALProxyRasterBand
         return m_poUnderlyingBand;
     }
 
-    void UnrefUnderlyingRasterBand(GDALRasterBand *) const override
-    {
-    }
+    void UnrefUnderlyingRasterBand(GDALRasterBand *) const override;
 
   private:
     GDALRasterBand *m_poUnderlyingBand = nullptr;
@@ -147,6 +144,14 @@ GDALGDataset::GDALGDataset(const std::string &filename,
 }
 
 /************************************************************************/
+/*                GDALGDataset::UnrefUnderlyingDataset()                */
+/************************************************************************/
+
+void GDALGDataset::UnrefUnderlyingDataset(GDALDataset *) const
+{
+}
+
+/************************************************************************/
 /*                    GDALGRasterBand::GDALGRasterBand()                */
 /************************************************************************/
 
@@ -158,6 +163,14 @@ GDALGRasterBand::GDALGRasterBand(GDALRasterBand *poUnderlyingBand)
     nRasterXSize = poUnderlyingBand->GetXSize();
     nRasterYSize = poUnderlyingBand->GetYSize();
     poUnderlyingBand->GetBlockSize(&nBlockXSize, &nBlockYSize);
+}
+
+/************************************************************************/
+/*             GDALGRasterBand::UnrefUnderlyingDataset()                */
+/************************************************************************/
+
+void GDALGRasterBand::UnrefUnderlyingRasterBand(GDALRasterBand *) const
+{
 }
 
 /************************************************************************/

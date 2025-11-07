@@ -32,10 +32,17 @@ class GDALRasterReprojectAlgorithm /* non final */
     static constexpr const char *HELP_URL =
         "/programs/gdal_raster_reproject.html";
 
+    static std::vector<std::string> GetAliasesStatic()
+    {
+        return {GDALAlgorithmRegistry::HIDDEN_ALIAS_SEPARATOR, "warp"};
+    }
+
     explicit GDALRasterReprojectAlgorithm(bool standaloneStep = false);
 
+    bool CanHandleNextStep(GDALPipelineStepAlgorithm *) const override;
+
   private:
-    bool RunStep(GDALProgressFunc pfnProgress, void *pProgressData) override;
+    bool RunStep(GDALPipelineStepRunContext &ctxt) override;
 
     std::string m_srsCrs{};
     std::string m_dstCrs{};
@@ -51,6 +58,10 @@ class GDALRasterReprojectAlgorithm /* non final */
     std::vector<std::string> m_warpOptions{};
     std::vector<std::string> m_transformOptions{};
     double m_errorThreshold = std::numeric_limits<double>::quiet_NaN();
+    int m_numThreads = 0;
+
+    // Work variables
+    std::string m_numThreadsStr{"ALL_CPUS"};
 };
 
 /************************************************************************/
@@ -65,6 +76,22 @@ class GDALRasterReprojectAlgorithmStandalone final
         : GDALRasterReprojectAlgorithm(/* standaloneStep = */ true)
     {
     }
+
+    ~GDALRasterReprojectAlgorithmStandalone() override;
+};
+
+/************************************************************************/
+/*                     GDALRasterReprojectUtils                         */
+/************************************************************************/
+
+class GDALRasterReprojectUtils final
+{
+  public:
+    static void AddResamplingArg(GDALAlgorithm *alg, std::string &resampling);
+
+    static void AddWarpOptTransformOptErrorThresholdArg(
+        GDALAlgorithm *alg, std::vector<std::string> &warpOptions,
+        std::vector<std::string> &transformOptions, double &errorThreshold);
 };
 
 //! @endcond

@@ -33,9 +33,6 @@
 #include <climits>
 #include <cmath>
 #include <cstring>
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
 
 #include "cpl_conv.h"
 #include "cpl_error.h"
@@ -212,7 +209,7 @@ RPFToc *RPFTOCReadFromBuffer(const char *pszFilename, VSILFILE *fp,
         return nullptr;
     }
 
-    RPFToc *toc = reinterpret_cast<RPFToc *>(CPLMalloc(sizeof(RPFToc)));
+    RPFToc *toc = static_cast<RPFToc *>(CPLMalloc(sizeof(RPFToc)));
     toc->nEntries = boundaryRectangleCount;
     toc->entries = reinterpret_cast<RPFTocEntry *>(
         CPLMalloc(boundaryRectangleCount * sizeof(RPFTocEntry)));
@@ -376,7 +373,7 @@ RPFToc *RPFTOCReadFromBuffer(const char *pszFilename, VSILFILE *fp,
         else
         {
             toc->entries[i].frameEntries =
-                reinterpret_cast<RPFTocFrameEntry *>(VSI_CALLOC_VERBOSE(
+                static_cast<RPFTocFrameEntry *>(VSI_CALLOC_VERBOSE(
                     static_cast<size_t>(toc->entries[i].nVertFrames) *
                         toc->entries[i].nHorizFrames,
                     sizeof(RPFTocFrameEntry)));
@@ -519,7 +516,8 @@ RPFToc *RPFTOCReadFromBuffer(const char *pszFilename, VSILFILE *fp,
                 RPFTOCFree(toc);
                 return nullptr;
             }
-            frameRow = (unsigned short)((entry->nVertFrames - 1) - frameRow);
+            frameRow = static_cast<unsigned short>((entry->nVertFrames - 1) -
+                                                   frameRow);
         }
 
         if (frameRow >= entry->nVertFrames)
@@ -574,6 +572,14 @@ RPFToc *RPFTOCReadFromBuffer(const char *pszFilename, VSILFILE *fp,
         }
         frameEntry->filename[12] = '\0';
         bOK &= strlen(frameEntry->filename) > 0;
+
+        if (CPLHasPathTraversal(frameEntry->filename))
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Path traversal detected in %s", frameEntry->filename);
+            RPFTOCFree(toc);
+            return nullptr;
+        }
 
         // Check (case insensitive) if the filename is an overview or legend
         // some CADRG maps have legend name smaller than 8.3 then the extension
@@ -638,8 +644,7 @@ RPFToc *RPFTOCReadFromBuffer(const char *pszFilename, VSILFILE *fp,
             return nullptr;
         }
 
-        frameEntry->directory =
-            reinterpret_cast<char *>(CPLMalloc(pathLength + 1));
+        frameEntry->directory = static_cast<char *>(CPLMalloc(pathLength + 1));
         bOK &=
             VSIFReadL(frameEntry->directory, 1, pathLength, fp) == pathLength;
         if (!bOK)
@@ -651,6 +656,14 @@ RPFToc *RPFTOCReadFromBuffer(const char *pszFilename, VSILFILE *fp,
         frameEntry->directory[pathLength] = 0;
         if (frameEntry->directory[pathLength - 1] == '/')
             frameEntry->directory[pathLength - 1] = 0;
+
+        if (CPLHasPathTraversal(frameEntry->directory))
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Path traversal detected in %s", frameEntry->directory);
+            RPFTOCFree(toc);
+            return nullptr;
+        }
 
         if (frameEntry->directory[0] == '.' && frameEntry->directory[1] == '/')
         {

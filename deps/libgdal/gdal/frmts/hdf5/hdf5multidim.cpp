@@ -84,7 +84,7 @@ class HDF5Group final : public GDALGroup
         return poGroup;
     }
 
-    ~HDF5Group()
+    ~HDF5Group() override
     {
         H5Gclose(m_hGroup);
     }
@@ -313,7 +313,7 @@ class HDF5Array final : public GDALMDArray
                void *pDstBuffer) const override;
 
   public:
-    ~HDF5Array();
+    ~HDF5Array() override;
 
     static std::shared_ptr<HDF5Array>
     Create(const std::string &osParentName, const std::string &osName,
@@ -468,7 +468,7 @@ class HDF5Attribute final : public GDALAttribute
                void *pDstBuffer) const override;
 
   public:
-    ~HDF5Attribute();
+    ~HDF5Attribute() override;
 
     static std::shared_ptr<HDF5Attribute>
     Create(const std::string &osGroupFullName, const std::string &osParentName,
@@ -575,7 +575,7 @@ HDF5Group::GetDimensions(CSLConstList) const
     {
         std::shared_ptr<HDF5SharedResources> poShared{};
         std::string osFullName{};
-        std::vector<std::shared_ptr<GDALDimension>> oListDim{};
+        std::map<std::string, std::shared_ptr<GDALDimension>> oDimMap{};
     };
 
     struct Callback
@@ -605,6 +605,12 @@ HDF5Group::GetDimensions(CSLConstList) const
                             const char *pszStr = attrCLASS->ReadAsString();
                             if (pszStr && EQUAL(pszStr, "DIMENSION_SCALE"))
                             {
+                                std::string osType;
+                                if (strcmp(pszObjName, "XDim") == 0)
+                                    osType = GDAL_DIM_TYPE_HORIZONTAL_X;
+                                else if (strcmp(pszObjName, "YDim") == 0)
+                                    osType = GDAL_DIM_TYPE_HORIZONTAL_Y;
+
                                 auto attrNAME = ar->GetAttribute("NAME");
                                 if (attrNAME &&
                                     attrNAME->GetDimensionCount() == 0 &&
@@ -619,22 +625,22 @@ HDF5Group::GetDimensions(CSLConstList) const
                                             "This is a netCDF dimension but "
                                             "not a netCDF variable"))
                                     {
-                                        data->oListDim.emplace_back(
+                                        data->oDimMap[pszObjName] =
                                             std::make_shared<GDALDimension>(
                                                 data->osFullName, pszObjName,
-                                                std::string(), std::string(),
+                                                osType, std::string(),
                                                 ar->GetDimensions()[0]
-                                                    ->GetSize()));
+                                                    ->GetSize());
                                         return 0;
                                     }
                                 }
 
-                                data->oListDim.emplace_back(
+                                data->oDimMap[pszObjName] =
                                     std::make_shared<HDF5Dimension>(
-                                        data->osFullName, pszObjName,
-                                        std::string(), std::string(),
+                                        data->osFullName, pszObjName, osType,
+                                        std::string(),
                                         ar->GetDimensions()[0]->GetSize(),
-                                        data->poShared));
+                                        data->poShared);
                             }
                         }
                     }
@@ -651,28 +657,111 @@ HDF5Group::GetDimensions(CSLConstList) const
     H5Giterate(m_poShared->GetHDF5(), GetFullName().c_str(), nullptr,
                &(Callback::f), &data);
     m_bGotDims = true;
-    m_cachedDims = data.oListDim;
 
-    if (m_cachedDims.empty() && m_bIsEOSGridGroup)
+    if (m_bIsEOSGridGroup)
     {
         const auto poHDF5EOSParser = m_poShared->GetHDF5EOSParser();
         HDF5EOSParser::GridMetadata oGridMetadata;
         if (poHDF5EOSParser &&
             poHDF5EOSParser->GetGridMetadata(GetName(), oGridMetadata))
         {
-            double adfGT[6] = {0};
-            const bool bHasGT = oGridMetadata.GetGeoTransform(adfGT) &&
-                                adfGT[2] == 0 && adfGT[4] == 0;
+            GDALGeoTransform gt;
+            const bool bHasGT =
+                oGridMetadata.GetGeoTransform(gt) && gt[2] == 0 && gt[4] == 0;
             for (auto &oDim : oGridMetadata.aoDimensions)
             {
+                auto iterInDimMap = data.oDimMap.find(oDim.osName);
+                if (iterInDimMap != data.oDimMap.end())
+                {
+                    auto indexingVar =
+                        iterInDimMap->second->GetIndexingVariable();
+                    if (indexingVar != nullptr)
+                    {
+                        if (oDim.osName == "XDim" && bHasGT &&
+                            indexingVar->GetDimensions()[0]->GetSize() > 0)
+                        {
+                            const GUInt64 anArrayStartIdx0[] = {0};
+                            const size_t anCount[] = {1};
+                            const GInt64 anArrayStep[] = {0};
+                            const GPtrDiff_t anBufferStride[] = {0};
+                            double dfFirstVal = 0;
+                            if (indexingVar->Read(
+                                    anArrayStartIdx0, anCount, anArrayStep,
+                                    anBufferStride,
+                                    GDALExtendedDataType::Create(GDT_Float64),
+                                    &dfFirstVal))
+                            {
+                                CPLDebug(
+                                    "HDF5",
+                                    "XDim FirstX: (from XDim array:%.17g,) "
+                                    "from HDF5EOS metadata:%.17g",
+                                    dfFirstVal, gt[0]);
+                            }
+
+                            const GUInt64 anArrayStartIdx1[] = {
+                                indexingVar->GetDimensions()[0]->GetSize() - 1};
+                            double dfLastVal = 0;
+                            if (indexingVar->Read(
+                                    anArrayStartIdx1, anCount, anArrayStep,
+                                    anBufferStride,
+                                    GDALExtendedDataType::Create(GDT_Float64),
+                                    &dfLastVal))
+                            {
+                                CPLDebug("HDF5",
+                                         "XDim LastX: (from XDim array:%.17g,) "
+                                         "from HDF5EOS metadata:%.17g",
+                                         dfLastVal, gt[0] + oDim.nSize * gt[1]);
+                            }
+                        }
+                        else if (oDim.osName == "YDim" && bHasGT &&
+                                 indexingVar->GetDimensions()[0]->GetSize() > 0)
+                        {
+                            const GUInt64 anArrayStartIdx0[] = {0};
+                            const size_t anCount[] = {1};
+                            const GInt64 anArrayStep[] = {0};
+                            const GPtrDiff_t anBufferStride[] = {0};
+                            double dfFirstVal = 0;
+                            if (indexingVar->Read(
+                                    anArrayStartIdx0, anCount, anArrayStep,
+                                    anBufferStride,
+                                    GDALExtendedDataType::Create(GDT_Float64),
+                                    &dfFirstVal))
+                            {
+                                CPLDebug(
+                                    "HDF5",
+                                    "YDim FirstY: (from YDim array:%.17g,) "
+                                    "from HDF5EOS metadata:%.17g",
+                                    dfFirstVal, gt[3]);
+                            }
+
+                            const GUInt64 anArrayStartIdx1[] = {
+                                indexingVar->GetDimensions()[0]->GetSize() - 1};
+                            double dfLastVal = 0;
+                            if (indexingVar->Read(
+                                    anArrayStartIdx1, anCount, anArrayStep,
+                                    anBufferStride,
+                                    GDALExtendedDataType::Create(GDT_Float64),
+                                    &dfLastVal))
+                            {
+                                CPLDebug("HDF5",
+                                         "YDim LastY: (from YDim array:%.17g,) "
+                                         "from HDF5EOS metadata:%.17g",
+                                         dfLastVal, gt[3] + oDim.nSize * gt[5]);
+                            }
+                        }
+                    }
+                }
+
                 if (oDim.osName == "XDim" && bHasGT)
                 {
+                    if (iterInDimMap != data.oDimMap.end())
+                        data.oDimMap.erase(iterInDimMap);
                     auto poDim = std::make_shared<GDALDimensionWeakIndexingVar>(
                         GetFullName(), oDim.osName, GDAL_DIM_TYPE_HORIZONTAL_X,
                         std::string(), oDim.nSize);
                     auto poIndexingVar = GDALMDArrayRegularlySpaced::Create(
-                        GetFullName(), oDim.osName, poDim,
-                        adfGT[0] + adfGT[1] / 2, adfGT[1], 0);
+                        GetFullName(), oDim.osName, poDim, gt[0] + gt[1] / 2,
+                        gt[1], 0);
                     poDim->SetIndexingVariable(poIndexingVar);
                     m_poXIndexingArray = poIndexingVar;
                     m_poShared->KeepRef(poIndexingVar);
@@ -680,28 +769,33 @@ HDF5Group::GetDimensions(CSLConstList) const
                 }
                 else if (oDim.osName == "YDim" && bHasGT)
                 {
+                    if (iterInDimMap != data.oDimMap.end())
+                        data.oDimMap.erase(iterInDimMap);
                     auto poDim = std::make_shared<GDALDimensionWeakIndexingVar>(
                         GetFullName(), oDim.osName, GDAL_DIM_TYPE_HORIZONTAL_Y,
                         std::string(), oDim.nSize);
                     auto poIndexingVar = GDALMDArrayRegularlySpaced::Create(
-                        GetFullName(), oDim.osName, poDim,
-                        adfGT[3] + adfGT[5] / 2, adfGT[5], 0);
+                        GetFullName(), oDim.osName, poDim, gt[3] + gt[5] / 2,
+                        gt[5], 0);
                     poDim->SetIndexingVariable(poIndexingVar);
                     m_poYIndexingArray = poIndexingVar;
                     m_poShared->KeepRef(poIndexingVar);
                     m_cachedDims.emplace_back(poDim);
                 }
-                else
+                else if (iterInDimMap == data.oDimMap.end())
                 {
                     m_cachedDims.emplace_back(std::make_shared<GDALDimension>(
                         GetFullName(), oDim.osName, std::string(),
                         std::string(), oDim.nSize));
                 }
             }
+            for (auto &iter : data.oDimMap)
+                m_cachedDims.emplace_back(std::move(iter.second));
             m_poShared->RegisterEOSGridDimensions(GetName(), m_cachedDims);
+            return m_cachedDims;
         }
     }
-    else if (m_cachedDims.empty() && m_bIsEOSSwathGroup)
+    else if (m_bIsEOSSwathGroup)
     {
         const auto poHDF5EOSParser = m_poShared->GetHDF5EOSParser();
         HDF5EOSParser::SwathMetadata oSwathMetadata;
@@ -710,14 +804,29 @@ HDF5Group::GetDimensions(CSLConstList) const
         {
             for (auto &oDim : oSwathMetadata.aoDimensions)
             {
+                auto iterInDimMap = data.oDimMap.find(oDim.osName);
+                if (iterInDimMap != data.oDimMap.end())
+                {
+                    if (iterInDimMap->second->GetIndexingVariable() != nullptr)
+                    {
+                        continue;
+                    }
+                    data.oDimMap.erase(iterInDimMap);
+                }
+
                 m_cachedDims.emplace_back(std::make_shared<GDALDimension>(
                     GetFullName(), oDim.osName, std::string(), std::string(),
                     oDim.nSize));
             }
+            for (auto &iter : data.oDimMap)
+                m_cachedDims.emplace_back(std::move(iter.second));
             m_poShared->RegisterEOSSwathDimensions(GetName(), m_cachedDims);
+            return m_cachedDims;
         }
     }
 
+    for (auto &iter : data.oDimMap)
+        m_cachedDims.emplace_back(std::move(iter.second));
     return m_cachedDims;
 }
 
@@ -1668,8 +1777,8 @@ HDF5Array::GetCoordinateVariables() const
                                     "Geolocation Fields"));
                 if (poLongitude && poLatitude)
                 {
-                    ret.push_back(poLongitude);
-                    ret.push_back(poLatitude);
+                    ret.push_back(std::move(poLongitude));
+                    ret.push_back(std::move(poLatitude));
                 }
             }
         }

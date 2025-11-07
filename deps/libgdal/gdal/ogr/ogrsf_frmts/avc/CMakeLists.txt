@@ -18,14 +18,20 @@ add_gdal_driver(
           ogravce00layer.cpp
           ogravclayer.cpp
           # avc_binwr.cpp avc_e00write.cpp
-  BUILTIN)
+  BUILTIN
+  NO_CXX_WFLAGS_EFFCXX
+  NO_WFLAG_OLD_STYLE_CAST
+)
 gdal_standard_includes(ogr_AVC)
 
 if (NOT OGR_ENABLE_DRIVER_SHAPE OR OGR_ENABLE_DRIVER_SHAPE_PLUGIN)
-target_compile_definitions(ogr_AVC PRIVATE -DWITHOUT_SHAPEFILE)
+    target_compile_definitions(ogr_AVC PRIVATE -DWITHOUT_SHAPEFILE)
+    target_include_directories(ogr_AVC PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../shape)
+    target_include_directories(ogr_AVC PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../shape/shapelib)
 else()
     if (GDAL_USE_SHAPELIB_INTERNAL)
       gdal_add_vendored_lib(ogr_AVC shapelib)
+      target_include_directories(ogr_AVC PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../shape/shapelib)
     else ()
       gdal_target_link_libraries(ogr_AVC PRIVATE SHAPELIB::shp)
     endif ()

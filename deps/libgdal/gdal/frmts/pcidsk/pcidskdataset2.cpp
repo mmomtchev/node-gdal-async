@@ -1222,7 +1222,7 @@ char **PCIDSK2Dataset::GetMetadata(const char *pszDomain)
 /*                          SetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr PCIDSK2Dataset::SetGeoTransform(double *padfTransform)
+CPLErr PCIDSK2Dataset::SetGeoTransform(const GDALGeoTransform &gt)
 {
     PCIDSKGeoref *poGeoref = nullptr;
     try
@@ -1236,7 +1236,7 @@ CPLErr PCIDSK2Dataset::SetGeoTransform(double *padfTransform)
     }
 
     if (poGeoref == nullptr)
-        return GDALPamDataset::SetGeoTransform(padfTransform);
+        return GDALPamDataset::SetGeoTransform(gt);
 
     if (GetAccess() == GA_ReadOnly)
     {
@@ -1247,10 +1247,8 @@ CPLErr PCIDSK2Dataset::SetGeoTransform(double *padfTransform)
 
     try
     {
-        poGeoref->WriteSimple(poGeoref->GetGeosys(), padfTransform[0],
-                              padfTransform[1], padfTransform[2],
-                              padfTransform[3], padfTransform[4],
-                              padfTransform[5]);
+        poGeoref->WriteSimple(poGeoref->GetGeosys(), gt[0], gt[1], gt[2], gt[3],
+                              gt[4], gt[5]);
     }
     catch (const PCIDSKException &ex)
     {
@@ -1265,7 +1263,7 @@ CPLErr PCIDSK2Dataset::SetGeoTransform(double *padfTransform)
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr PCIDSK2Dataset::GetGeoTransform(double *padfTransform)
+CPLErr PCIDSK2Dataset::GetGeoTransform(GDALGeoTransform &gt) const
 {
     PCIDSKGeoref *poGeoref = nullptr;
     try
@@ -1282,9 +1280,7 @@ CPLErr PCIDSK2Dataset::GetGeoTransform(double *padfTransform)
     {
         try
         {
-            poGeoref->GetTransform(padfTransform[0], padfTransform[1],
-                                   padfTransform[2], padfTransform[3],
-                                   padfTransform[4], padfTransform[5]);
+            poGeoref->GetTransform(gt[0], gt[1], gt[2], gt[3], gt[4], gt[5]);
         }
         catch (const PCIDSKException &ex)
         {
@@ -1293,19 +1289,17 @@ CPLErr PCIDSK2Dataset::GetGeoTransform(double *padfTransform)
         }
 
         // If we got anything non-default return it.
-        if (padfTransform[0] != 0.0 || padfTransform[1] != 1.0 ||
-            padfTransform[2] != 0.0 || padfTransform[3] != 0.0 ||
-            padfTransform[4] != 0.0 || padfTransform[5] != 1.0)
+        if (gt != GDALGeoTransform())
             return CE_None;
     }
 
     /* -------------------------------------------------------------------- */
     /*      Check for worldfile if we have no other georeferencing.         */
     /* -------------------------------------------------------------------- */
-    if (GDALReadWorldFile(GetDescription(), "pxw", padfTransform))
+    if (GDALReadWorldFile(GetDescription(), "pxw", gt.data()))
         return CE_None;
 
-    return GDALPamDataset::GetGeoTransform(padfTransform);
+    return GDALPamDataset::GetGeoTransform(gt);
 }
 
 /************************************************************************/
@@ -1399,6 +1393,21 @@ CPLErr PCIDSK2Dataset::SetSpatialRef(const OGRSpatialReference *poSRS)
 
 const OGRSpatialReference *PCIDSK2Dataset::GetSpatialRef() const
 {
+    return GetSpatialRef(false);
+}
+
+const OGRSpatialReference *PCIDSK2Dataset::GetSpatialRefRasterOnly() const
+{
+    return GetSpatialRef(true);
+}
+
+static thread_local int tlsEnableLayersInGetSpatialRefCounter = 0;
+
+const OGRSpatialReference *PCIDSK2Dataset::GetSpatialRef(bool bRasterOnly) const
+{
+    if (tlsEnableLayersInGetSpatialRefCounter)
+        return nullptr;
+
     if (m_poSRS)
         return m_poSRS;
 
@@ -1416,7 +1425,12 @@ const OGRSpatialReference *PCIDSK2Dataset::GetSpatialRef() const
 
     if (poGeoref == nullptr)
     {
-        return GDALPamDataset::GetSpatialRef();
+        ++tlsEnableLayersInGetSpatialRefCounter;
+        const OGRSpatialReference *poRet =
+            (bRasterOnly) ? GDALPamDataset::GetSpatialRefRasterOnly()
+                          : GDALPamDataset::GetSpatialRef();
+        --tlsEnableLayersInGetSpatialRefCounter;
+        return poRet;
     }
 
     CPLString osGeosys;
@@ -1456,7 +1470,12 @@ const OGRSpatialReference *PCIDSK2Dataset::GetSpatialRef() const
     }
     else
     {
-        return GDALPamDataset::GetSpatialRef();
+        ++tlsEnableLayersInGetSpatialRefCounter;
+        const OGRSpatialReference *poRet =
+            (bRasterOnly) ? GDALPamDataset::GetSpatialRefRasterOnly()
+                          : GDALPamDataset::GetSpatialRef();
+        --tlsEnableLayersInGetSpatialRefCounter;
+        return poRet;
     }
 }
 
@@ -1532,7 +1551,7 @@ CPLErr PCIDSK2Dataset::IBuildOverviews(
 
     int nNewOverviews = 0;
     int *panNewOverviewList =
-        reinterpret_cast<int *>(CPLCalloc(sizeof(int), nOverviews));
+        static_cast<int *>(CPLCalloc(sizeof(int), nOverviews));
     std::vector<bool> abFoundOverviewFactor(nOverviews);
     for (int i = 0; i < nOverviews && poBand != nullptr; i++)
     {
@@ -2048,7 +2067,7 @@ GDALDataset *PCIDSK2Dataset::Create(const char *pszFilename, int nXSize,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int PCIDSK2Dataset::TestCapability(const char *pszCap)
+int PCIDSK2Dataset::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, ODsCCreateLayer))
@@ -2065,7 +2084,7 @@ int PCIDSK2Dataset::TestCapability(const char *pszCap)
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *PCIDSK2Dataset::GetLayer(int iLayer)
+const OGRLayer *PCIDSK2Dataset::GetLayer(int iLayer) const
 
 {
     if (iLayer < 0 || iLayer >= static_cast<int>(apoLayers.size()))

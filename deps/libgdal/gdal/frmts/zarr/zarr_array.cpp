@@ -14,6 +14,7 @@
 #include "ucs4_utf8.hpp"
 
 #include "cpl_float.h"
+#include "cpl_multiproc.h"
 
 #include "netcdf_cf_constants.h"  // for CF_UNITS, etc
 
@@ -325,12 +326,10 @@ bool ZarrArray::FillBlockSize(
         size_t nBlockSize = oDataType.GetSize();
         for (size_t i = 0; i < nDims; ++i)
         {
-            anBlockSize[i] = static_cast<GUInt64>(CPLAtoGIntBig(aszTokens[i]));
-            if (anBlockSize[i] == 0)
+            const auto v = static_cast<GUInt64>(CPLAtoGIntBig(aszTokens[i]));
+            if (v > 0)
             {
-                CPLError(CE_Failure, CPLE_AppDefined,
-                         "Values in BLOCKSIZE should be > 0");
-                return false;
+                anBlockSize[i] = v;
             }
             if (anBlockSize[i] >
                 std::numeric_limits<size_t>::max() / nBlockSize)
@@ -868,7 +867,7 @@ bool ZarrArray::IAdviseReadCommon(const GUInt64 *arrayStartIdx,
     std::vector<uint64_t> anIndicesMax(nDims);
 
     // Compute min and max tile indices in each dimension, and the total
-    // nomber of tiles this represents.
+    // number of tiles this represents.
     nReqTiles = 1;
     for (size_t i = 0; i < nDims; ++i)
     {
@@ -2779,6 +2778,40 @@ void ZarrArray::ParseSpecialAttributes(
                 }
             }
         }
+    }
+
+    // For EOPF Sentinel Zarr Samples Service datasets, read attributes from
+    // the STAC Proj extension attributes to get the CRS.
+    if (!poSRS)
+    {
+        const auto oProjEPSG = oAttributes["proj:epsg"];
+        if (oProjEPSG.GetType() == CPLJSONObject::Type::Integer)
+        {
+            poSRS = std::make_shared<OGRSpatialReference>();
+            poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+            if (poSRS->importFromEPSG(oProjEPSG.ToInteger()) != OGRERR_NONE)
+            {
+                poSRS.reset();
+            }
+        }
+        else
+        {
+            const auto oProjWKT2 = oAttributes["proj:wkt2"];
+            if (oProjWKT2.GetType() == CPLJSONObject::Type::String)
+            {
+                poSRS = std::make_shared<OGRSpatialReference>();
+                poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                if (poSRS->importFromWkt(oProjWKT2.ToString().c_str()) !=
+                    OGRERR_NONE)
+                {
+                    poSRS.reset();
+                }
+            }
+        }
+
+        // There is also a "proj:transform" attribute, but we don't need to
+        // use it since the x and y dimensions are already associated with a
+        // 1-dimensional array with the values.
     }
 
     if (poSRS)

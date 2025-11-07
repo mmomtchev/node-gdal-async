@@ -26,6 +26,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunknown-pragmas"
 #pragma clang diagnostic ignored "-Wdocumentation"
+#pragma clang diagnostic ignored "-Wdocumentation-unknown-command"
 #pragma clang diagnostic ignored "-Wzero-as-null-pointer-constant"
 #endif
 
@@ -33,6 +34,12 @@
 #include <libxml/tree.h>
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
+
+#if !(defined(LIBXML_VERSION) && LIBXML_VERSION >= 21400)
+// Cf https://gitlab.gnome.org/GNOME/libxml2/-/commit/92d7b0cd909beb61cd90d9746964f303eab36d78
+#define xmlXPathValuePush valuePush
+#define xmlXPathValuePop valuePop
+#endif
 
 #ifdef __clang__
 #pragma clang diagnostic pop
@@ -214,13 +221,13 @@ GDALGMLJP2Expr *GDALGMLJP2Expr::Build(const char *pszOriStr,
                 if (nParenthesisIndent < 0)
                 {
                     pszStr++;
-                    GDALGMLJP2Expr *poExpr = new GDALGMLJP2Expr();
-                    poExpr->eType = GDALGMLJP2ExprType::GDALGMLJP2Expr_XPATH;
-                    poExpr->osValue = l_osValue;
 #if DEBUG_VERBOSE
                     CPLDebug("GMLJP2", "XPath expression '%s'",
                              l_osValue.c_str());
 #endif
+                    GDALGMLJP2Expr *poExpr = new GDALGMLJP2Expr();
+                    poExpr->eType = GDALGMLJP2ExprType::GDALGMLJP2Expr_XPATH;
+                    poExpr->osValue = std::move(l_osValue);
                     return poExpr;
                 }
                 l_osValue += *pszStr;
@@ -400,20 +407,20 @@ static void GDALGMLJP2XPathIf(xmlXPathParserContextPtr ctxt, int nargs)
     xmlXPathObjectPtr cond_val, then_val, else_val;
 
     CHECK_ARITY(3);
-    else_val = valuePop(ctxt);
-    then_val = valuePop(ctxt);
+    else_val = xmlXPathValuePop(ctxt);
+    then_val = xmlXPathValuePop(ctxt);
     CAST_TO_BOOLEAN
-    cond_val = valuePop(ctxt);
+    cond_val = xmlXPathValuePop(ctxt);
 
     if (cond_val->boolval)
     {
         xmlXPathFreeObject(else_val);
-        valuePush(ctxt, then_val);
+        xmlXPathValuePush(ctxt, then_val);
     }
     else
     {
         xmlXPathFreeObject(then_val);
-        valuePush(ctxt, else_val);
+        xmlXPathValuePush(ctxt, else_val);
     }
     xmlXPathFreeObject(cond_val);
 }
@@ -427,32 +434,40 @@ static void GDALGMLJP2XPathUUID(xmlXPathParserContextPtr ctxt, int nargs)
     CHECK_ARITY(0);
 
     CPLString osRet;
-    static int nCounter = 0;
-    // coverity[store_truncates_time_t]
-    srand(static_cast<unsigned int>(time(nullptr)) + nCounter);
-    ++nCounter;
+
+    // From POSIX.1-2001 as an example of an implementation of rand()
+    const auto fakeRand = []()
+    {
+        static uint32_t nCounter =
+            static_cast<unsigned int>(time(nullptr) & UINT_MAX);
+        uint32_t nCounterLocal = static_cast<uint32_t>(
+            (static_cast<uint64_t>(nCounter) * 1103515245U + 12345U) &
+            UINT32_MAX);
+        nCounter = nCounterLocal;
+        return (nCounterLocal / 65536U) % 32768U;
+    };
+
     for (int i = 0; i < 4; i++)
-        osRet += GDALGMLJP2HexFormatter(rand() & 0xFF);
+        osRet += GDALGMLJP2HexFormatter(fakeRand() & 0xFF);
     osRet += "-";
-    osRet += GDALGMLJP2HexFormatter(rand() & 0xFF);
-    osRet += GDALGMLJP2HexFormatter(rand() & 0xFF);
+    osRet += GDALGMLJP2HexFormatter(fakeRand() & 0xFF);
+    osRet += GDALGMLJP2HexFormatter(fakeRand() & 0xFF);
     osRet += "-";
     // Set the version number bits (4 == random).
-    osRet += GDALGMLJP2HexFormatter((rand() & 0x0F) | 0x40);
-    osRet += GDALGMLJP2HexFormatter(rand() & 0xFF);
+    osRet += GDALGMLJP2HexFormatter((fakeRand() & 0x0F) | 0x40);
+    osRet += GDALGMLJP2HexFormatter(fakeRand() & 0xFF);
     osRet += "-";
     // Set the variant bits.
-    osRet += GDALGMLJP2HexFormatter((rand() & 0x3F) | 0x80);
-    osRet += GDALGMLJP2HexFormatter(rand() & 0xFF);
+    osRet += GDALGMLJP2HexFormatter((fakeRand() & 0x3F) | 0x80);
+    osRet += GDALGMLJP2HexFormatter(fakeRand() & 0xFF);
     osRet += "-";
     for (int i = 0; i < 6; ++i)
     {
-        // coverity[dont_call]
-        osRet += GDALGMLJP2HexFormatter(rand() & 0xFF);
+        osRet += GDALGMLJP2HexFormatter(fakeRand() & 0xFF);
     }
 
-    valuePush(ctxt, xmlXPathNewString(
-                        reinterpret_cast<const xmlChar *>(osRet.c_str())));
+    xmlXPathValuePush(ctxt, xmlXPathNewString(reinterpret_cast<const xmlChar *>(
+                                osRet.c_str())));
 }
 
 #endif  // LIBXML2

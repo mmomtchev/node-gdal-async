@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <algorithm>
 
+#include "cpl_conv.h"
 #include "cpl_error.h"
 #include "cpl_vsi.h"
 
@@ -1321,7 +1322,7 @@ int VSICryptFileHandle::Truncate(vsi_l_offset nNewSize)
         return -1;
     if (poBaseHandle->Truncate(
             poHeader->nHeaderSize +
-            ((nNewSize + poHeader->nSectorSize - 1) / poHeader->nSectorSize) *
+            cpl::div_round_up(nNewSize, poHeader->nSectorSize) *
                 poHeader->nSectorSize) != 0)
         return -1;
     bUpdateHeader = true;
@@ -1465,9 +1466,9 @@ class VSICryptFilesystemHandler final : public VSIFilesystemHandler
     VSICryptFilesystemHandler();
     ~VSICryptFilesystemHandler() override;
 
-    VSIVirtualHandle *Open(const char *pszFilename, const char *pszAccess,
-                           bool bSetError,
-                           CSLConstList /* papszOptions */) override;
+    VSIVirtualHandleUniquePtr Open(const char *pszFilename,
+                                   const char *pszAccess, bool bSetError,
+                                   CSLConstList /* papszOptions */) override;
     int Stat(const char *pszFilename, VSIStatBufL *pStatBuf,
              int nFlags) override;
     int Unlink(const char *pszFilename) override;
@@ -1577,7 +1578,7 @@ static CPLString GetKey(const char *pszFilename)
 /*                                Open()                                */
 /************************************************************************/
 
-VSIVirtualHandle *
+VSIVirtualHandleUniquePtr
 VSICryptFilesystemHandler::Open(const char *pszFilename, const char *pszAccess,
                                 bool /* bSetError */,
                                 CSLConstList /* papszOptions */)
@@ -1602,32 +1603,27 @@ VSICryptFilesystemHandler::Open(const char *pszFilename, const char *pszAccess,
         osAccess += "b";
     if (strchr(pszAccess, 'r'))
     {
-        VSIVirtualHandle *fpBase = reinterpret_cast<VSIVirtualHandle *>(
-            VSIFOpenL(osFilename, osAccess));
+        auto fpBase = VSIFilesystemHandler::OpenStatic(osFilename, osAccess);
         if (fpBase == nullptr)
             return nullptr;
-        VSICryptFileHeader *poHeader = new VSICryptFileHeader();
-        if (!poHeader->ReadFromFile(fpBase, osKey))
+        auto poHeader = std::make_unique<VSICryptFileHeader>();
+        if (!poHeader->ReadFromFile(fpBase.get(), osKey))
         {
             memset(osKey.data(), 0, osKey.size());
-            fpBase->Close();
-            delete fpBase;
-            delete poHeader;
             return nullptr;
         }
 
-        VSICryptFileHandle *poHandle = new VSICryptFileHandle(
-            osFilename, fpBase, poHeader,
+        auto poHandle = std::make_unique<VSICryptFileHandle>(
+            osFilename, fpBase.release(), poHeader.release(),
             strchr(pszAccess, '+') ? VSICRYPT_READ | VSICRYPT_WRITE
                                    : VSICRYPT_READ);
         if (!poHandle->Init(osKey, false))
         {
             memset(osKey.data(), 0, osKey.size());
-            delete poHandle;
-            poHandle = nullptr;
+            poHandle.reset();
         }
         memset(osKey.data(), 0, osKey.size());
-        return poHandle;
+        return VSIVirtualHandleUniquePtr(poHandle.release());
     }
     else if (strchr(pszAccess, 'w'))
     {
@@ -1730,15 +1726,14 @@ VSICryptFilesystemHandler::Open(const char *pszFilename, const char *pszAccess,
             return nullptr;
         }
 
-        VSIVirtualHandle *fpBase = reinterpret_cast<VSIVirtualHandle *>(
-            VSIFOpenL(osFilename, osAccess.c_str()));
+        auto fpBase = VSIFilesystemHandler::OpenStatic(osFilename, osAccess);
         if (fpBase == nullptr)
         {
             memset(osKey.data(), 0, osKey.size());
             return nullptr;
         }
 
-        VSICryptFileHeader *poHeader = new VSICryptFileHeader();
+        auto poHeader = std::make_unique<VSICryptFileHeader>();
         poHeader->osIV = osIV;
         CPL_IGNORE_RET_VAL(osIV);
         poHeader->eAlg = eAlg;
@@ -1747,49 +1742,44 @@ VSICryptFilesystemHandler::Open(const char *pszFilename, const char *pszAccess,
         poHeader->osFreeText = std::move(osFreeText);
         poHeader->bAddKeyCheck = bAddKeyCheck;
 
-        VSICryptFileHandle *poHandle = new VSICryptFileHandle(
-            osFilename, fpBase, poHeader,
+        auto poHandle = std::make_unique<VSICryptFileHandle>(
+            osFilename, fpBase.release(), poHeader.release(),
             strchr(pszAccess, '+') ? VSICRYPT_READ | VSICRYPT_WRITE
                                    : VSICRYPT_WRITE);
         if (!poHandle->Init(osKey, true))
         {
             memset(osKey.data(), 0, osKey.size());
-            delete poHandle;
-            poHandle = nullptr;
+            poHandle.reset();
         }
         memset(osKey.data(), 0, osKey.size());
-        return poHandle;
+        return VSIVirtualHandleUniquePtr(poHandle.release());
     }
     else if (strchr(pszAccess, 'a'))
     {
-        VSIVirtualHandle *fpBase =
-            reinterpret_cast<VSIVirtualHandle *>(VSIFOpenL(osFilename, "rb+"));
+        auto fpBase = VSIFilesystemHandler::OpenStatic(osFilename, "rb+");
         if (fpBase == nullptr)
         {
             memset(osKey.data(), 0, osKey.size());
-            return VSIFilesystemHandler::Open(pszFilename, "wb+");
+            return VSIFilesystemHandler::OpenStatic(pszFilename, "wb+");
         }
-        VSICryptFileHeader *poHeader = new VSICryptFileHeader();
-        if (!poHeader->ReadFromFile(fpBase, osKey))
+        auto poHeader = std::make_unique<VSICryptFileHeader>();
+        if (!poHeader->ReadFromFile(fpBase.get(), osKey))
         {
             memset(osKey.data(), 0, osKey.size());
-            fpBase->Close();
-            delete fpBase;
-            delete poHeader;
             return nullptr;
         }
 
-        VSICryptFileHandle *poHandle = new VSICryptFileHandle(
-            osFilename, fpBase, poHeader, VSICRYPT_READ | VSICRYPT_WRITE);
+        auto poHandle = std::make_unique<VSICryptFileHandle>(
+            osFilename, fpBase.release(), poHeader.release(),
+            VSICRYPT_READ | VSICRYPT_WRITE);
         if (!poHandle->Init(osKey))
         {
-            delete poHandle;
-            poHandle = nullptr;
+            poHandle.reset();
         }
         memset(osKey.data(), 0, osKey.size());
         if (poHandle != nullptr)
             poHandle->Seek(0, SEEK_END);
-        return poHandle;
+        return VSIVirtualHandleUniquePtr(poHandle.release());
     }
 
     return nullptr;
@@ -2064,7 +2054,6 @@ static GDALDataset *VSICryptOpen(GDALOpenInfo *poOpenInfo)
  * VSISetCryptKey() to set the key might make it a bit more complicated to spy
  * the key.  But, as said initially, this is in no way a perfect protection.
  *
- * @since GDAL 2.1.0
  */
 void VSIInstallCryptFileHandler(void)
 
@@ -2098,18 +2087,12 @@ void VSIInstallCryptFileHandler(void)
 class VSIDummyCryptFilesystemHandler : public VSIFilesystemHandler
 {
   public:
-    VSIDummyCryptFilesystemHandler()
-    {
-    }
+    VSIDummyCryptFilesystemHandler() = default;
 
-    VSIVirtualHandle *Open(const char * /* pszFilename */,
-                           const char * /* pszAccess */, bool /* bSetError */,
-                           CSLConstList /* papszOptions */) override
-    {
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "%s support not available in this build", VSICRYPT_PREFIX);
-        return nullptr;
-    }
+    VSIVirtualHandleUniquePtr Open(const char * /* pszFilename */,
+                                   const char * /* pszAccess */,
+                                   bool /* bSetError */,
+                                   CSLConstList /* papszOptions */) override;
 
     int Stat(const char * /* pszFilename */, VSIStatBufL * /*pStatBuf */,
              int /* nFlags */) override
@@ -2119,6 +2102,15 @@ class VSIDummyCryptFilesystemHandler : public VSIFilesystemHandler
         return -1;
     }
 };
+
+VSIVirtualHandleUniquePtr VSIDummyCryptFilesystemHandler::Open(
+    const char * /* pszFilename */, const char * /* pszAccess */,
+    bool /* bSetError */, CSLConstList /* papszOptions */)
+{
+    CPLError(CE_Failure, CPLE_NotSupported,
+             "%s support not available in this build", VSICRYPT_PREFIX);
+    return nullptr;
+}
 
 void VSIInstallCryptFileHandler(void)
 {
@@ -2133,7 +2125,7 @@ void VSISetCryptKey(const GByte * /* pabyKey */, int /* nKeySize */)
 
 #endif  // HAVE_CRYPTOPP
 
-// Below is only useful if using as a plugin over GDAL >= 2.0.
+// Below is only useful if using as a plugin.
 #ifdef VSICRYPT_AUTOLOAD
 
 CPL_C_START

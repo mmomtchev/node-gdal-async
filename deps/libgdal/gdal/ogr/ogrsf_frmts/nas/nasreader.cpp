@@ -666,9 +666,11 @@ void NASReader::SetFeaturePropertyDirectly(const char *pszElement,
         auto poClassProperty = poClass->GetProperty(iProperty);
         if (poClassProperty)
         {
-            // coverity[dereference]
-            poClassProperty->AnalysePropertyValue(
-                poFeature->GetProperty(iProperty));
+            const GMLProperty *poProp = poFeature->GetProperty(iProperty);
+            if (poProp)
+            {
+                poClassProperty->AnalysePropertyValue(poProp);
+            }
         }
         else
         {
@@ -1039,8 +1041,6 @@ int NASReader::GetAttributeElementIndex(const char *pszElement, int nLen,
         return poClass->GetPropertyIndexBySrcElement(osElemPath.c_str(),
                                                      nFullLen);
     }
-
-    return -1;
 }
 
 /************************************************************************/

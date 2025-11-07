@@ -13,21 +13,52 @@
 #include "gdalalg_raster_tile.h"
 
 #include "cpl_conv.h"
+#include "cpl_json.h"
 #include "cpl_mem_cache.h"
+#include "cpl_spawn.h"
+#include "cpl_time.h"
+#include "cpl_vsi_virtual.h"
 #include "cpl_worker_thread_pool.h"
 #include "gdal_alg_priv.h"
 #include "gdal_priv.h"
+#include "gdalgetgdalpath.h"
 #include "gdalwarper.h"
 #include "gdal_utils.h"
 #include "ogr_spatialref.h"
 #include "memdataset.h"
 #include "tilematrixset.hpp"
+#include "ogr_p.h"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cinttypes>
 #include <cmath>
 #include <mutex>
+#include <utility>
+#include <thread>
+
+#ifdef USE_NEON_OPTIMIZATIONS
+#include "include_sse2neon.h"
+#elif defined(__x86_64) || defined(_M_X64)
+#include <emmintrin.h>
+#if defined(__SSSE3__) || defined(__AVX__)
+#include <tmmintrin.h>
+#endif
+#if defined(__SSE4_1__) || defined(__AVX__)
+#include <smmintrin.h>
+#endif
+#endif
+
+#if defined(__x86_64) || defined(_M_X64) || defined(USE_NEON_OPTIMIZATIONS)
+#define USE_PAETH_SSE2
+#endif
+
+#ifndef _WIN32
+#define FORK_ALLOWED
+#endif
+
+#include "cpl_zlib_header.h"  // for crc32()
 
 //! @cond Doxygen_Suppress
 
@@ -35,28 +66,111 @@
 #define _(x) (x)
 #endif
 
+// Unlikely substring to appear in stdout. We do that in case some GDAL
+// driver would output on stdout.
+constexpr const char PROGRESS_MARKER[] = {'!', '.', 'x'};
+constexpr const char END_MARKER[] = {'?', 'E', '?', 'N', '?', 'D', '?'};
+
+constexpr const char *STOP_MARKER = "STOP\n";
+
+namespace
+{
+struct BandMetadata
+{
+    std::string osDescription{};
+    GDALDataType eDT{};
+    GDALColorInterp eColorInterp{};
+    std::string osCenterWaveLength{};
+    std::string osFWHM{};
+};
+}  // namespace
+
+/************************************************************************/
+/*                       GetThresholdMinTilesPerJob()                   */
+/************************************************************************/
+
+static int GetThresholdMinThreadsForSpawn()
+{
+    // Minimum number of threads for automatic switch to spawning
+    constexpr int THRESHOLD_MIN_THREADS_FOR_SPAWN = 8;
+
+    // Config option for test only
+    return std::max(1, atoi(CPLGetConfigOption(
+                           "GDAL_THRESHOLD_MIN_THREADS_FOR_SPAWN",
+                           CPLSPrintf("%d", THRESHOLD_MIN_THREADS_FOR_SPAWN))));
+}
+
+/************************************************************************/
+/*                        GetThresholdMinTilesPerJob()                  */
+/************************************************************************/
+
+static int GetThresholdMinTilesPerJob()
+{
+    // Minimum number of tiles per job to decide for automatic switch to spawning
+    constexpr int THRESHOLD_TILES_PER_JOB = 100;
+
+    // Config option for test only
+    return std::max(
+        1, atoi(CPLGetConfigOption("GDAL_THRESHOLD_MIN_TILES_PER_JOB",
+                                   CPLSPrintf("%d", THRESHOLD_TILES_PER_JOB))));
+}
+
 /************************************************************************/
 /*           GDALRasterTileAlgorithm::GDALRasterTileAlgorithm()         */
 /************************************************************************/
 
-GDALRasterTileAlgorithm::GDALRasterTileAlgorithm()
-    : GDALAlgorithm(NAME, DESCRIPTION, HELP_URL)
+GDALRasterTileAlgorithm::GDALRasterTileAlgorithm(bool standaloneStep)
+    : GDALRasterPipelineStepAlgorithm(NAME, DESCRIPTION, HELP_URL,
+                                      ConstructorOptions()
+                                          .SetStandaloneStep(standaloneStep)
+                                          .SetInputDatasetMaxCount(1)
+                                          .SetAddDefaultArguments(false)
+                                          .SetInputDatasetAlias("dataset"))
 {
     AddProgressArg();
-    AddOpenOptionsArg(&m_openOptions);
-    AddInputFormatsArg(&m_inputFormats)
-        .AddMetadataItem(GAAMDI_REQUIRED_CAPABILITIES, {GDAL_DCAP_RASTER});
-    AddInputDatasetArg(&m_dataset, GDAL_OF_RASTER);
-    AddOutputFormatArg(&m_outputFormat)
-        .SetDefault(m_outputFormat)
+    AddArg("spawned", 0, _("Whether this is a spawned worker"),
+           &m_spawned)
+        .SetHidden();  // Used in spawn mode
+#ifdef FORK_ALLOWED
+    AddArg("forked", 0, _("Whether this is a forked worker"),
+           &m_forked)
+        .SetHidden();  // Used in forked mode
+#else
+    CPL_IGNORE_RET_VAL(m_forked);
+#endif
+    AddArg("config-options-in-stdin", 0, _(""), &m_dummy)
+        .SetHidden();  // Used in spawn mode
+    AddArg("ovr-zoom-level", 0, _("Overview zoom level to compute"),
+           &m_ovrZoomLevel)
+        .SetMinValueIncluded(0)
+        .SetHidden();  // Used in spawn mode
+    AddArg("ovr-min-x", 0, _("Minimum tile X coordinate"), &m_minOvrTileX)
+        .SetMinValueIncluded(0)
+        .SetHidden();  // Used in spawn mode
+    AddArg("ovr-max-x", 0, _("Maximum tile X coordinate"), &m_maxOvrTileX)
+        .SetMinValueIncluded(0)
+        .SetHidden();  // Used in spawn mode
+    AddArg("ovr-min-y", 0, _("Minimum tile Y coordinate"), &m_minOvrTileY)
+        .SetMinValueIncluded(0)
+        .SetHidden();  // Used in spawn mode
+    AddArg("ovr-max-y", 0, _("Maximum tile Y coordinate"), &m_maxOvrTileY)
+        .SetMinValueIncluded(0)
+        .SetHidden();  // Used in spawn mode
+
+    AddRasterInputArgs(false, !standaloneStep);
+
+    m_format = "PNG";
+    AddOutputFormatArg(&m_format)
+        .SetDefault(m_format)
         .AddMetadataItem(
             GAAMDI_REQUIRED_CAPABILITIES,
             {GDAL_DCAP_RASTER, GDAL_DCAP_CREATECOPY, GDAL_DMD_EXTENSIONS})
         .AddMetadataItem(GAAMDI_VRT_COMPATIBLE, {"false"});
     AddCreationOptionsArg(&m_creationOptions);
 
-    AddArg("output", 'o', _("Output directory"), &m_outputDirectory)
+    AddArg(GDAL_ARG_NAME_OUTPUT, 'o', _("Output directory"), &m_output)
         .SetRequired()
+        .SetIsInput()
         .SetMinCharCount(1)
         .SetPositional();
 
@@ -69,11 +183,11 @@ GDALRasterTileAlgorithm::GDALRasterTileAlgorithm()
         if (poTMS && !poTMS->hasVariableMatrixWidth() &&
             oSRS_TMS.SetFromUserInput(poTMS->crs().c_str()) == OGRERR_NONE)
         {
-            const std::string identifier = scheme == "GoogleMapsCompatible"
-                                               ? "WebMercatorQuad"
-                                               : poTMS->identifier();
+            std::string identifier = scheme == "GoogleMapsCompatible"
+                                         ? "WebMercatorQuad"
+                                         : poTMS->identifier();
             m_mapTileMatrixIdentifierToScheme[identifier] = scheme;
-            tilingSchemes.push_back(identifier);
+            tilingSchemes.push_back(std::move(identifier));
         }
     }
     AddArg("tiling-scheme", 0, _("Tiling scheme"), &m_tilingScheme)
@@ -154,6 +268,20 @@ GDALRasterTileAlgorithm::GDALRasterTileAlgorithm()
     AddArg("resume", 0, _("Generate only missing files"), &m_resume);
 
     AddNumThreadsArg(&m_numThreads, &m_numThreadsStr);
+    AddArg("parallel-method", 0,
+#ifdef FORK_ALLOWED
+           _("Parallelization method (thread, spawn, fork)")
+#else
+           _("Parallelization method (thread / spawn)")
+#endif
+               ,
+           &m_parallelMethod)
+        .SetChoices("thread", "spawn"
+#ifdef FORK_ALLOWED
+                    ,
+                    "fork"
+#endif
+        );
 
     constexpr const char *ADVANCED_RESAMPLING_CATEGORY = "Advanced Resampling";
     auto &excludedValuesArg =
@@ -189,7 +317,7 @@ GDALRasterTileAlgorithm::GDALRasterTileAlgorithm()
     constexpr const char *PUBLICATION_CATEGORY = "Publication";
     AddArg("webviewer", 0, _("Web viewer to generate"), &m_webviewers)
         .SetDefault("all")
-        .SetChoices("none", "all", "leaflet", "openlayers", "mapml")
+        .SetChoices("none", "all", "leaflet", "openlayers", "mapml", "stac")
         .SetCategory(PUBLICATION_CATEGORY);
     AddArg("url", 0,
            _("URL address where the generated tiles are going to be published"),
@@ -355,8 +483,144 @@ static int GetFileY(int iY, const gdal::TileMatrixSet::TileMatrix &tileMatrix,
 /*                          GenerateTile()                              */
 /************************************************************************/
 
+// Cf http://www.libpng.org/pub/png/spec/1.2/PNG-Filters.html
+// for specification of SUB and AVG filters
+inline GByte PNG_SUB(int nVal, int nValPrev)
+{
+    return static_cast<GByte>((nVal - nValPrev) & 0xff);
+}
+
+inline GByte PNG_AVG(int nVal, int nValPrev, int nValUp)
+{
+    return static_cast<GByte>((nVal - (nValPrev + nValUp) / 2) & 0xff);
+}
+
+inline GByte PNG_PAETH(int nVal, int nValPrev, int nValUp, int nValUpPrev)
+{
+    const int p = nValPrev + nValUp - nValUpPrev;
+    const int pa = std::abs(p - nValPrev);
+    const int pb = std::abs(p - nValUp);
+    const int pc = std::abs(p - nValUpPrev);
+    if (pa <= pb && pa <= pc)
+        return static_cast<GByte>((nVal - nValPrev) & 0xff);
+    else if (pb <= pc)
+        return static_cast<GByte>((nVal - nValUp) & 0xff);
+    else
+        return static_cast<GByte>((nVal - nValUpPrev) & 0xff);
+}
+
+#ifdef USE_PAETH_SSE2
+
+static inline __m128i abs_epi16(__m128i x)
+{
+#if defined(__SSSE3__) || defined(__AVX__) || defined(USE_NEON_OPTIMIZATIONS)
+    return _mm_abs_epi16(x);
+#else
+    __m128i mask = _mm_srai_epi16(x, 15);
+    return _mm_sub_epi16(_mm_xor_si128(x, mask), mask);
+#endif
+}
+
+static inline __m128i blendv(__m128i a, __m128i b, __m128i mask)
+{
+#if defined(__SSE4_1__) || defined(__AVX__) || defined(USE_NEON_OPTIMIZATIONS)
+    return _mm_blendv_epi8(a, b, mask);
+#else
+    return _mm_or_si128(_mm_andnot_si128(mask, a), _mm_and_si128(mask, b));
+#endif
+}
+
+static inline __m128i PNG_PAETH_SSE2(__m128i up_prev, __m128i up, __m128i prev,
+                                     __m128i cur, __m128i &cost)
+{
+    auto cur_lo = _mm_unpacklo_epi8(cur, _mm_setzero_si128());
+    auto prev_lo = _mm_unpacklo_epi8(prev, _mm_setzero_si128());
+    auto up_lo = _mm_unpacklo_epi8(up, _mm_setzero_si128());
+    auto up_prev_lo = _mm_unpacklo_epi8(up_prev, _mm_setzero_si128());
+    auto cur_hi = _mm_unpackhi_epi8(cur, _mm_setzero_si128());
+    auto prev_hi = _mm_unpackhi_epi8(prev, _mm_setzero_si128());
+    auto up_hi = _mm_unpackhi_epi8(up, _mm_setzero_si128());
+    auto up_prev_hi = _mm_unpackhi_epi8(up_prev, _mm_setzero_si128());
+
+    auto pa_lo = _mm_sub_epi16(up_lo, up_prev_lo);
+    auto pb_lo = _mm_sub_epi16(prev_lo, up_prev_lo);
+    auto pc_lo = _mm_add_epi16(pa_lo, pb_lo);
+    pa_lo = abs_epi16(pa_lo);
+    pb_lo = abs_epi16(pb_lo);
+    pc_lo = abs_epi16(pc_lo);
+    auto min_lo = _mm_min_epi16(_mm_min_epi16(pa_lo, pb_lo), pc_lo);
+
+    auto res_lo = blendv(up_prev_lo, up_lo, _mm_cmpeq_epi16(min_lo, pb_lo));
+    res_lo = blendv(res_lo, prev_lo, _mm_cmpeq_epi16(min_lo, pa_lo));
+    res_lo = _mm_and_si128(_mm_sub_epi16(cur_lo, res_lo), _mm_set1_epi16(0xFF));
+
+    auto cost_lo = blendv(_mm_sub_epi16(_mm_set1_epi16(256), res_lo), res_lo,
+                          _mm_cmplt_epi16(res_lo, _mm_set1_epi16(128)));
+
+    auto pa_hi = _mm_sub_epi16(up_hi, up_prev_hi);
+    auto pb_hi = _mm_sub_epi16(prev_hi, up_prev_hi);
+    auto pc_hi = _mm_add_epi16(pa_hi, pb_hi);
+    pa_hi = abs_epi16(pa_hi);
+    pb_hi = abs_epi16(pb_hi);
+    pc_hi = abs_epi16(pc_hi);
+    auto min_hi = _mm_min_epi16(_mm_min_epi16(pa_hi, pb_hi), pc_hi);
+
+    auto res_hi = blendv(up_prev_hi, up_hi, _mm_cmpeq_epi16(min_hi, pb_hi));
+    res_hi = blendv(res_hi, prev_hi, _mm_cmpeq_epi16(min_hi, pa_hi));
+    res_hi = _mm_and_si128(_mm_sub_epi16(cur_hi, res_hi), _mm_set1_epi16(0xFF));
+
+    auto cost_hi = blendv(_mm_sub_epi16(_mm_set1_epi16(256), res_hi), res_hi,
+                          _mm_cmplt_epi16(res_hi, _mm_set1_epi16(128)));
+
+    cost_lo = _mm_add_epi16(cost_lo, cost_hi);
+
+    cost =
+        _mm_add_epi32(cost, _mm_unpacklo_epi16(cost_lo, _mm_setzero_si128()));
+    cost =
+        _mm_add_epi32(cost, _mm_unpackhi_epi16(cost_lo, _mm_setzero_si128()));
+
+    return _mm_packus_epi16(res_lo, res_hi);
+}
+
+static int RunPaeth(const GByte *srcBuffer, int nBands,
+                    int nSrcBufferBandStride, GByte *outBuffer, int W,
+                    int &costPaeth)
+{
+    __m128i xmm_cost = _mm_setzero_si128();
+    int i = 1;
+    for (int k = 0; k < nBands; ++k)
+    {
+        for (i = 1; i + 15 < W; i += 16)
+        {
+            auto up_prev = _mm_loadu_si128(
+                reinterpret_cast<const __m128i *>(srcBuffer - W + (i - 1)));
+            auto up = _mm_loadu_si128(
+                reinterpret_cast<const __m128i *>(srcBuffer - W + i));
+            auto prev = _mm_loadu_si128(
+                reinterpret_cast<const __m128i *>(srcBuffer + (i - 1)));
+            auto cur = _mm_loadu_si128(
+                reinterpret_cast<const __m128i *>(srcBuffer + i));
+
+            auto res = PNG_PAETH_SSE2(up_prev, up, prev, cur, xmm_cost);
+
+            _mm_storeu_si128(reinterpret_cast<__m128i *>(outBuffer + k * W + i),
+                             res);
+        }
+        srcBuffer += nSrcBufferBandStride;
+    }
+
+    int32_t ar_cost[4];
+    _mm_storeu_si128(reinterpret_cast<__m128i *>(ar_cost), xmm_cost);
+    for (int k = 0; k < 4; ++k)
+        costPaeth += ar_cost[k];
+
+    return i;
+}
+
+#endif  // USE_PAETH_SSE2
+
 static bool GenerateTile(
-    GDALDataset *poSrcDS, GDALDriver *poDstDriver, const char *pszExtension,
+    GDALDataset *poSrcDS, GDALDriver *m_poDstDriver, const char *pszExtension,
     CSLConstList creationOptions, GDALWarpOperation &oWO,
     const OGRSpatialReference &oSRS_TMS, GDALDataType eWorkingDataType,
     const gdal::TileMatrixSet::TileMatrix &tileMatrix,
@@ -364,7 +628,8 @@ static bool GenerateTile(
     int nZoomLevel, int iX, int iY, const std::string &convention,
     int nMinTileX, int nMinTileY, bool bSkipBlank, bool bUserAskedForAlpha,
     bool bAuxXML, bool bResume, const std::vector<std::string> &metadata,
-    const GDALColorTable *poColorTable, std::vector<GByte> &dstBuffer)
+    const GDALColorTable *poColorTable, std::vector<GByte> &dstBuffer,
+    std::vector<GByte> &tmpBuffer)
 {
     const std::string osDirZ = CPLFormFilenameSafe(
         outputDirectory.c_str(), CPLSPrintf("%d", nZoomLevel), nullptr);
@@ -390,7 +655,7 @@ static bool GenerateTile(
     if (eErr != CE_None)
         return false;
 
-    const bool bDstHasAlpha =
+    bool bDstHasAlpha =
         nBands > poSrcDS->GetRasterCount() ||
         (nBands == poSrcDS->GetRasterCount() &&
          poSrcDS->GetRasterBand(nBands)->GetColorInterpretation() ==
@@ -416,11 +681,681 @@ static bool GenerateTile(
             bAllOpaque = (dstBuffer[(nBands - 1) * nBytesPerBand + i] == 255);
         }
         if (bAllOpaque)
+        {
+            bDstHasAlpha = false;
             nBands--;
+        }
     }
 
     VSIMkdir(osDirZ.c_str(), 0755);
     VSIMkdir(osDirX.c_str(), 0755);
+
+    const bool bSupportsCreateOnlyVisibleAtCloseTime =
+        m_poDstDriver->GetMetadataItem(
+            GDAL_DCAP_CREATE_ONLY_VISIBLE_AT_CLOSE_TIME) != nullptr;
+
+    const std::string osTmpFilename = bSupportsCreateOnlyVisibleAtCloseTime
+                                          ? osFilename
+                                          : osFilename + ".tmp." + pszExtension;
+
+    const int W = tileMatrix.mTileWidth;
+    const int H = tileMatrix.mTileHeight;
+    constexpr int EXTRA_BYTE_PER_ROW = 1;  // for filter type
+    constexpr int EXTRA_ROWS = 2;          // for paethBuffer and paethBufferTmp
+    if (!bAuxXML && EQUAL(pszExtension, "png") &&
+        eWorkingDataType == GDT_Byte && poColorTable == nullptr &&
+        pdfDstNoData == nullptr && W <= INT_MAX / nBands &&
+        nBands * W <= INT_MAX - EXTRA_BYTE_PER_ROW &&
+        H <= INT_MAX - EXTRA_ROWS &&
+        EXTRA_BYTE_PER_ROW + nBands * W <= INT_MAX / (H + EXTRA_ROWS) &&
+        CSLCount(creationOptions) == 0 &&
+        CPLTestBool(
+            CPLGetConfigOption("GDAL_RASTER_TILE_USE_PNG_OPTIM", "YES")))
+    {
+        // This is an optimized code path completely shortcircuiting libpng
+        // We manually generate the PNG file using the Average or PAETH filter
+        // and ZLIB compressing the whole buffer, hopefully with libdeflate.
+
+        const int nDstBytesPerRow = EXTRA_BYTE_PER_ROW + nBands * W;
+        const int nBPB = static_cast<int>(nBytesPerBand);
+
+        bool bBlank = false;
+        if (bDstHasAlpha)
+        {
+            bBlank = true;
+            for (int i = 0; i < nBPB && bBlank; ++i)
+            {
+                bBlank = (dstBuffer[(nBands - 1) * nBPB + i] == 0);
+            }
+        }
+
+        constexpr GByte PNG_FILTER_SUB = 1;  // horizontal diff
+        constexpr GByte PNG_FILTER_AVG = 3;  // average with pixel before and up
+        constexpr GByte PNG_FILTER_PAETH = 4;
+
+        if (bBlank)
+            tmpBuffer.clear();
+        const int tmpBufferSize = cpl::fits_on<int>(nDstBytesPerRow * H);
+        try
+        {
+            // cppcheck-suppress integerOverflowCond
+            tmpBuffer.resize(tmpBufferSize + EXTRA_ROWS * nDstBytesPerRow);
+        }
+        catch (const std::exception &)
+        {
+            CPLError(CE_Failure, CPLE_OutOfMemory,
+                     "Out of memory allocating temporary buffer");
+            return false;
+        }
+        GByte *const paethBuffer = tmpBuffer.data() + tmpBufferSize;
+#ifdef USE_PAETH_SSE2
+        GByte *const paethBufferTmp =
+            tmpBuffer.data() + tmpBufferSize + nDstBytesPerRow;
+#endif
+
+        const char *pszGDAL_RASTER_TILE_PNG_FILTER =
+            CPLGetConfigOption("GDAL_RASTER_TILE_PNG_FILTER", "");
+        const bool bForcePaeth = EQUAL(pszGDAL_RASTER_TILE_PNG_FILTER, "PAETH");
+        const bool bForceAvg = EQUAL(pszGDAL_RASTER_TILE_PNG_FILTER, "AVERAGE");
+
+        for (int j = 0; !bBlank && j < H; ++j)
+        {
+            if (j > 0)
+            {
+                tmpBuffer[cpl::fits_on<int>(j * nDstBytesPerRow)] =
+                    PNG_FILTER_AVG;
+                for (int i = 0; i < nBands; ++i)
+                {
+                    tmpBuffer[1 + j * nDstBytesPerRow + i] =
+                        PNG_AVG(dstBuffer[i * nBPB + j * W], 0,
+                                dstBuffer[i * nBPB + (j - 1) * W]);
+                }
+            }
+            else
+            {
+                tmpBuffer[cpl::fits_on<int>(j * nDstBytesPerRow)] =
+                    PNG_FILTER_SUB;
+                for (int i = 0; i < nBands; ++i)
+                {
+                    tmpBuffer[1 + j * nDstBytesPerRow + i] =
+                        dstBuffer[i * nBPB + j * W];
+                }
+            }
+
+            if (nBands == 1)
+            {
+                if (j > 0)
+                {
+                    int costAvg = 0;
+                    for (int i = 1; i < W; ++i)
+                    {
+                        const GByte v =
+                            PNG_AVG(dstBuffer[0 * nBPB + j * W + i],
+                                    dstBuffer[0 * nBPB + j * W + i - 1],
+                                    dstBuffer[0 * nBPB + (j - 1) * W + i]);
+                        tmpBuffer[1 + j * nDstBytesPerRow + i * nBands + 0] = v;
+
+                        costAvg += (v < 128) ? v : 256 - v;
+                    }
+
+                    if (!bForceAvg)
+                    {
+                        int costPaeth = 0;
+                        {
+                            const int i = 0;
+                            const GByte v = PNG_PAETH(
+                                dstBuffer[0 * nBPB + j * W + i], 0,
+                                dstBuffer[0 * nBPB + (j - 1) * W + i], 0);
+                            paethBuffer[i] = v;
+
+                            costPaeth += (v < 128) ? v : 256 - v;
+                        }
+
+#ifdef USE_PAETH_SSE2
+                        const int iLimitSSE2 =
+                            RunPaeth(dstBuffer.data() + j * W, nBands, nBPB,
+                                     paethBuffer, W, costPaeth);
+                        int i = iLimitSSE2;
+#else
+                        int i = 1;
+#endif
+                        for (; i < W && (costPaeth < costAvg || bForcePaeth);
+                             ++i)
+                        {
+                            const GByte v = PNG_PAETH(
+                                dstBuffer[0 * nBPB + j * W + i],
+                                dstBuffer[0 * nBPB + j * W + i - 1],
+                                dstBuffer[0 * nBPB + (j - 1) * W + i],
+                                dstBuffer[0 * nBPB + (j - 1) * W + i - 1]);
+                            paethBuffer[i] = v;
+
+                            costPaeth += (v < 128) ? v : 256 - v;
+                        }
+                        if (costPaeth < costAvg || bForcePaeth)
+                        {
+                            GByte *out = tmpBuffer.data() +
+                                         cpl::fits_on<int>(j * nDstBytesPerRow);
+                            *out = PNG_FILTER_PAETH;
+                            ++out;
+                            memcpy(out, paethBuffer, nDstBytesPerRow - 1);
+                        }
+                    }
+                }
+                else
+                {
+                    for (int i = 1; i < W; ++i)
+                    {
+                        tmpBuffer[1 + j * nDstBytesPerRow + i * nBands + 0] =
+                            PNG_SUB(dstBuffer[0 * nBPB + j * W + i],
+                                    dstBuffer[0 * nBPB + j * W + i - 1]);
+                    }
+                }
+            }
+            else if (nBands == 2)
+            {
+                if (j > 0)
+                {
+                    int costAvg = 0;
+                    for (int i = 1; i < W; ++i)
+                    {
+                        {
+                            const GByte v =
+                                PNG_AVG(dstBuffer[0 * nBPB + j * W + i],
+                                        dstBuffer[0 * nBPB + j * W + i - 1],
+                                        dstBuffer[0 * nBPB + (j - 1) * W + i]);
+                            tmpBuffer[1 + j * nDstBytesPerRow + i * nBands +
+                                      0] = v;
+
+                            costAvg += (v < 128) ? v : 256 - v;
+                        }
+                        {
+                            const GByte v =
+                                PNG_AVG(dstBuffer[1 * nBPB + j * W + i],
+                                        dstBuffer[1 * nBPB + j * W + i - 1],
+                                        dstBuffer[1 * nBPB + (j - 1) * W + i]);
+                            tmpBuffer[1 + j * nDstBytesPerRow + i * nBands +
+                                      1] = v;
+
+                            costAvg += (v < 128) ? v : 256 - v;
+                        }
+                    }
+
+                    if (!bForceAvg)
+                    {
+                        int costPaeth = 0;
+                        for (int k = 0; k < nBands; ++k)
+                        {
+                            const int i = 0;
+                            const GByte v = PNG_PAETH(
+                                dstBuffer[k * nBPB + j * W + i], 0,
+                                dstBuffer[k * nBPB + (j - 1) * W + i], 0);
+                            paethBuffer[i * nBands + k] = v;
+
+                            costPaeth += (v < 128) ? v : 256 - v;
+                        }
+
+#ifdef USE_PAETH_SSE2
+                        const int iLimitSSE2 =
+                            RunPaeth(dstBuffer.data() + j * W, nBands, nBPB,
+                                     paethBufferTmp, W, costPaeth);
+                        int i = iLimitSSE2;
+#else
+                        int i = 1;
+#endif
+                        for (; i < W && (costPaeth < costAvg || bForcePaeth);
+                             ++i)
+                        {
+                            {
+                                const GByte v = PNG_PAETH(
+                                    dstBuffer[0 * nBPB + j * W + i],
+                                    dstBuffer[0 * nBPB + j * W + i - 1],
+                                    dstBuffer[0 * nBPB + (j - 1) * W + i],
+                                    dstBuffer[0 * nBPB + (j - 1) * W + i - 1]);
+                                paethBuffer[i * nBands + 0] = v;
+
+                                costPaeth += (v < 128) ? v : 256 - v;
+                            }
+                            {
+                                const GByte v = PNG_PAETH(
+                                    dstBuffer[1 * nBPB + j * W + i],
+                                    dstBuffer[1 * nBPB + j * W + i - 1],
+                                    dstBuffer[1 * nBPB + (j - 1) * W + i],
+                                    dstBuffer[1 * nBPB + (j - 1) * W + i - 1]);
+                                paethBuffer[i * nBands + 1] = v;
+
+                                costPaeth += (v < 128) ? v : 256 - v;
+                            }
+                        }
+                        if (costPaeth < costAvg || bForcePaeth)
+                        {
+                            GByte *out = tmpBuffer.data() +
+                                         cpl::fits_on<int>(j * nDstBytesPerRow);
+                            *out = PNG_FILTER_PAETH;
+                            ++out;
+#ifdef USE_PAETH_SSE2
+                            memcpy(out, paethBuffer, nBands);
+                            for (int iTmp = 1; iTmp < iLimitSSE2; ++iTmp)
+                            {
+                                out[nBands * iTmp + 0] =
+                                    paethBufferTmp[0 * W + iTmp];
+                                out[nBands * iTmp + 1] =
+                                    paethBufferTmp[1 * W + iTmp];
+                            }
+                            memcpy(
+                                out + iLimitSSE2 * nBands,
+                                paethBuffer + iLimitSSE2 * nBands,
+                                cpl::fits_on<int>((W - iLimitSSE2) * nBands));
+#else
+                            memcpy(out, paethBuffer, nDstBytesPerRow - 1);
+#endif
+                        }
+                    }
+                }
+                else
+                {
+                    for (int i = 1; i < W; ++i)
+                    {
+                        tmpBuffer[1 + j * nDstBytesPerRow + i * nBands + 0] =
+                            PNG_SUB(dstBuffer[0 * nBPB + j * W + i],
+                                    dstBuffer[0 * nBPB + j * W + i - 1]);
+                        tmpBuffer[1 + j * nDstBytesPerRow + i * nBands + 1] =
+                            PNG_SUB(dstBuffer[1 * nBPB + j * W + i],
+                                    dstBuffer[1 * nBPB + j * W + i - 1]);
+                    }
+                }
+            }
+            else if (nBands == 3)
+            {
+                if (j > 0)
+                {
+                    int costAvg = 0;
+                    for (int i = 1; i < W; ++i)
+                    {
+                        {
+                            const GByte v =
+                                PNG_AVG(dstBuffer[0 * nBPB + j * W + i],
+                                        dstBuffer[0 * nBPB + j * W + i - 1],
+                                        dstBuffer[0 * nBPB + (j - 1) * W + i]);
+                            tmpBuffer[1 + j * nDstBytesPerRow + i * nBands +
+                                      0] = v;
+
+                            costAvg += (v < 128) ? v : 256 - v;
+                        }
+                        {
+                            const GByte v =
+                                PNG_AVG(dstBuffer[1 * nBPB + j * W + i],
+                                        dstBuffer[1 * nBPB + j * W + i - 1],
+                                        dstBuffer[1 * nBPB + (j - 1) * W + i]);
+                            tmpBuffer[1 + j * nDstBytesPerRow + i * nBands +
+                                      1] = v;
+
+                            costAvg += (v < 128) ? v : 256 - v;
+                        }
+                        {
+                            const GByte v =
+                                PNG_AVG(dstBuffer[2 * nBPB + j * W + i],
+                                        dstBuffer[2 * nBPB + j * W + i - 1],
+                                        dstBuffer[2 * nBPB + (j - 1) * W + i]);
+                            tmpBuffer[1 + j * nDstBytesPerRow + i * nBands +
+                                      2] = v;
+
+                            costAvg += (v < 128) ? v : 256 - v;
+                        }
+                    }
+
+                    if (!bForceAvg)
+                    {
+                        int costPaeth = 0;
+                        for (int k = 0; k < nBands; ++k)
+                        {
+                            const int i = 0;
+                            const GByte v = PNG_PAETH(
+                                dstBuffer[k * nBPB + j * W + i], 0,
+                                dstBuffer[k * nBPB + (j - 1) * W + i], 0);
+                            paethBuffer[i * nBands + k] = v;
+
+                            costPaeth += (v < 128) ? v : 256 - v;
+                        }
+
+#ifdef USE_PAETH_SSE2
+                        const int iLimitSSE2 =
+                            RunPaeth(dstBuffer.data() + j * W, nBands, nBPB,
+                                     paethBufferTmp, W, costPaeth);
+                        int i = iLimitSSE2;
+#else
+                        int i = 1;
+#endif
+                        for (; i < W && (costPaeth < costAvg || bForcePaeth);
+                             ++i)
+                        {
+                            {
+                                const GByte v = PNG_PAETH(
+                                    dstBuffer[0 * nBPB + j * W + i],
+                                    dstBuffer[0 * nBPB + j * W + i - 1],
+                                    dstBuffer[0 * nBPB + (j - 1) * W + i],
+                                    dstBuffer[0 * nBPB + (j - 1) * W + i - 1]);
+                                paethBuffer[i * nBands + 0] = v;
+
+                                costPaeth += (v < 128) ? v : 256 - v;
+                            }
+                            {
+                                const GByte v = PNG_PAETH(
+                                    dstBuffer[1 * nBPB + j * W + i],
+                                    dstBuffer[1 * nBPB + j * W + i - 1],
+                                    dstBuffer[1 * nBPB + (j - 1) * W + i],
+                                    dstBuffer[1 * nBPB + (j - 1) * W + i - 1]);
+                                paethBuffer[i * nBands + 1] = v;
+
+                                costPaeth += (v < 128) ? v : 256 - v;
+                            }
+                            {
+                                const GByte v = PNG_PAETH(
+                                    dstBuffer[2 * nBPB + j * W + i],
+                                    dstBuffer[2 * nBPB + j * W + i - 1],
+                                    dstBuffer[2 * nBPB + (j - 1) * W + i],
+                                    dstBuffer[2 * nBPB + (j - 1) * W + i - 1]);
+                                paethBuffer[i * nBands + 2] = v;
+
+                                costPaeth += (v < 128) ? v : 256 - v;
+                            }
+                        }
+
+                        if (costPaeth < costAvg || bForcePaeth)
+                        {
+                            GByte *out = tmpBuffer.data() +
+                                         cpl::fits_on<int>(j * nDstBytesPerRow);
+                            *out = PNG_FILTER_PAETH;
+                            ++out;
+#ifdef USE_PAETH_SSE2
+                            memcpy(out, paethBuffer, nBands);
+                            for (int iTmp = 1; iTmp < iLimitSSE2; ++iTmp)
+                            {
+                                out[nBands * iTmp + 0] =
+                                    paethBufferTmp[0 * W + iTmp];
+                                out[nBands * iTmp + 1] =
+                                    paethBufferTmp[1 * W + iTmp];
+                                out[nBands * iTmp + 2] =
+                                    paethBufferTmp[2 * W + iTmp];
+                            }
+                            memcpy(
+                                out + iLimitSSE2 * nBands,
+                                paethBuffer + iLimitSSE2 * nBands,
+                                cpl::fits_on<int>((W - iLimitSSE2) * nBands));
+#else
+                            memcpy(out, paethBuffer, nDstBytesPerRow - 1);
+#endif
+                        }
+                    }
+                }
+                else
+                {
+                    for (int i = 1; i < W; ++i)
+                    {
+                        tmpBuffer[1 + j * nDstBytesPerRow + i * nBands + 0] =
+                            PNG_SUB(dstBuffer[0 * nBPB + j * W + i],
+                                    dstBuffer[0 * nBPB + j * W + i - 1]);
+                        tmpBuffer[1 + j * nDstBytesPerRow + i * nBands + 1] =
+                            PNG_SUB(dstBuffer[1 * nBPB + j * W + i],
+                                    dstBuffer[1 * nBPB + j * W + i - 1]);
+                        tmpBuffer[1 + j * nDstBytesPerRow + i * nBands + 2] =
+                            PNG_SUB(dstBuffer[2 * nBPB + j * W + i],
+                                    dstBuffer[2 * nBPB + j * W + i - 1]);
+                    }
+                }
+            }
+            else /* if( nBands == 4 ) */
+            {
+                if (j > 0)
+                {
+                    int costAvg = 0;
+                    for (int i = 1; i < W; ++i)
+                    {
+                        {
+                            const GByte v =
+                                PNG_AVG(dstBuffer[0 * nBPB + j * W + i],
+                                        dstBuffer[0 * nBPB + j * W + i - 1],
+                                        dstBuffer[0 * nBPB + (j - 1) * W + i]);
+                            tmpBuffer[1 + j * nDstBytesPerRow + i * nBands +
+                                      0] = v;
+
+                            costAvg += (v < 128) ? v : 256 - v;
+                        }
+                        {
+                            const GByte v =
+                                PNG_AVG(dstBuffer[1 * nBPB + j * W + i],
+                                        dstBuffer[1 * nBPB + j * W + i - 1],
+                                        dstBuffer[1 * nBPB + (j - 1) * W + i]);
+                            tmpBuffer[1 + j * nDstBytesPerRow + i * nBands +
+                                      1] = v;
+
+                            costAvg += (v < 128) ? v : 256 - v;
+                        }
+                        {
+                            const GByte v =
+                                PNG_AVG(dstBuffer[2 * nBPB + j * W + i],
+                                        dstBuffer[2 * nBPB + j * W + i - 1],
+                                        dstBuffer[2 * nBPB + (j - 1) * W + i]);
+                            tmpBuffer[1 + j * nDstBytesPerRow + i * nBands +
+                                      2] = v;
+
+                            costAvg += (v < 128) ? v : 256 - v;
+                        }
+                        {
+                            const GByte v =
+                                PNG_AVG(dstBuffer[3 * nBPB + j * W + i],
+                                        dstBuffer[3 * nBPB + j * W + i - 1],
+                                        dstBuffer[3 * nBPB + (j - 1) * W + i]);
+                            tmpBuffer[1 + j * nDstBytesPerRow + i * nBands +
+                                      3] = v;
+
+                            costAvg += (v < 128) ? v : 256 - v;
+                        }
+                    }
+
+                    if (!bForceAvg)
+                    {
+                        int costPaeth = 0;
+                        for (int k = 0; k < nBands; ++k)
+                        {
+                            const int i = 0;
+                            const GByte v = PNG_PAETH(
+                                dstBuffer[k * nBPB + j * W + i], 0,
+                                dstBuffer[k * nBPB + (j - 1) * W + i], 0);
+                            paethBuffer[i * nBands + k] = v;
+
+                            costPaeth += (v < 128) ? v : 256 - v;
+                        }
+
+#ifdef USE_PAETH_SSE2
+                        const int iLimitSSE2 =
+                            RunPaeth(dstBuffer.data() + j * W, nBands, nBPB,
+                                     paethBufferTmp, W, costPaeth);
+                        int i = iLimitSSE2;
+#else
+                        int i = 1;
+#endif
+                        for (; i < W && (costPaeth < costAvg || bForcePaeth);
+                             ++i)
+                        {
+                            {
+                                const GByte v = PNG_PAETH(
+                                    dstBuffer[0 * nBPB + j * W + i],
+                                    dstBuffer[0 * nBPB + j * W + i - 1],
+                                    dstBuffer[0 * nBPB + (j - 1) * W + i],
+                                    dstBuffer[0 * nBPB + (j - 1) * W + i - 1]);
+                                paethBuffer[i * nBands + 0] = v;
+
+                                costPaeth += (v < 128) ? v : 256 - v;
+                            }
+                            {
+                                const GByte v = PNG_PAETH(
+                                    dstBuffer[1 * nBPB + j * W + i],
+                                    dstBuffer[1 * nBPB + j * W + i - 1],
+                                    dstBuffer[1 * nBPB + (j - 1) * W + i],
+                                    dstBuffer[1 * nBPB + (j - 1) * W + i - 1]);
+                                paethBuffer[i * nBands + 1] = v;
+
+                                costPaeth += (v < 128) ? v : 256 - v;
+                            }
+                            {
+                                const GByte v = PNG_PAETH(
+                                    dstBuffer[2 * nBPB + j * W + i],
+                                    dstBuffer[2 * nBPB + j * W + i - 1],
+                                    dstBuffer[2 * nBPB + (j - 1) * W + i],
+                                    dstBuffer[2 * nBPB + (j - 1) * W + i - 1]);
+                                paethBuffer[i * nBands + 2] = v;
+
+                                costPaeth += (v < 128) ? v : 256 - v;
+                            }
+                            {
+                                const GByte v = PNG_PAETH(
+                                    dstBuffer[3 * nBPB + j * W + i],
+                                    dstBuffer[3 * nBPB + j * W + i - 1],
+                                    dstBuffer[3 * nBPB + (j - 1) * W + i],
+                                    dstBuffer[3 * nBPB + (j - 1) * W + i - 1]);
+                                paethBuffer[i * nBands + 3] = v;
+
+                                costPaeth += (v < 128) ? v : 256 - v;
+                            }
+                        }
+                        if (costPaeth < costAvg || bForcePaeth)
+                        {
+                            GByte *out = tmpBuffer.data() +
+                                         cpl::fits_on<int>(j * nDstBytesPerRow);
+                            *out = PNG_FILTER_PAETH;
+                            ++out;
+#ifdef USE_PAETH_SSE2
+                            memcpy(out, paethBuffer, nBands);
+                            for (int iTmp = 1; iTmp < iLimitSSE2; ++iTmp)
+                            {
+                                out[nBands * iTmp + 0] =
+                                    paethBufferTmp[0 * W + iTmp];
+                                out[nBands * iTmp + 1] =
+                                    paethBufferTmp[1 * W + iTmp];
+                                out[nBands * iTmp + 2] =
+                                    paethBufferTmp[2 * W + iTmp];
+                                out[nBands * iTmp + 3] =
+                                    paethBufferTmp[3 * W + iTmp];
+                            }
+                            memcpy(
+                                out + iLimitSSE2 * nBands,
+                                paethBuffer + iLimitSSE2 * nBands,
+                                cpl::fits_on<int>((W - iLimitSSE2) * nBands));
+#else
+                            memcpy(out, paethBuffer, nDstBytesPerRow - 1);
+#endif
+                        }
+                    }
+                }
+                else
+                {
+                    for (int i = 1; i < W; ++i)
+                    {
+                        tmpBuffer[1 + j * nDstBytesPerRow + i * nBands + 0] =
+                            PNG_SUB(dstBuffer[0 * nBPB + j * W + i],
+                                    dstBuffer[0 * nBPB + j * W + i - 1]);
+                        tmpBuffer[1 + j * nDstBytesPerRow + i * nBands + 1] =
+                            PNG_SUB(dstBuffer[1 * nBPB + j * W + i],
+                                    dstBuffer[1 * nBPB + j * W + i - 1]);
+                        tmpBuffer[1 + j * nDstBytesPerRow + i * nBands + 2] =
+                            PNG_SUB(dstBuffer[2 * nBPB + j * W + i],
+                                    dstBuffer[2 * nBPB + j * W + i - 1]);
+                        tmpBuffer[1 + j * nDstBytesPerRow + i * nBands + 3] =
+                            PNG_SUB(dstBuffer[3 * nBPB + j * W + i],
+                                    dstBuffer[3 * nBPB + j * W + i - 1]);
+                    }
+                }
+            }
+        }
+        size_t nOutSize = 0;
+        // Shouldn't happen given the care we have done to dimension dstBuffer
+        if (CPLZLibDeflate(tmpBuffer.data(), tmpBufferSize, -1,
+                           dstBuffer.data(), dstBuffer.size(),
+                           &nOutSize) == nullptr ||
+            nOutSize > static_cast<size_t>(INT32_MAX))
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "CPLZLibDeflate() failed: too small destination buffer");
+            return false;
+        }
+
+        VSILFILE *fp = VSIFOpenL(osTmpFilename.c_str(), "wb");
+        if (!fp)
+        {
+            CPLError(CE_Failure, CPLE_FileIO, "Cannot create %s",
+                     osTmpFilename.c_str());
+            return false;
+        }
+
+        // Cf https://en.wikipedia.org/wiki/PNG#Examples for formatting of
+        // IHDR, IDAT and IEND chunks
+
+        // PNG Signature
+        fp->Write("\x89PNG\x0D\x0A\x1A\x0A", 8, 1);
+
+        uLong crc;
+        const auto WriteAndUpdateCRC_Byte = [fp, &crc](uint8_t nVal)
+        {
+            fp->Write(&nVal, 1, sizeof(nVal));
+            crc = crc32(crc, &nVal, sizeof(nVal));
+        };
+        const auto WriteAndUpdateCRC_Int = [fp, &crc](int32_t nVal)
+        {
+            CPL_MSBPTR32(&nVal);
+            fp->Write(&nVal, 1, sizeof(nVal));
+            crc = crc32(crc, reinterpret_cast<const Bytef *>(&nVal),
+                        sizeof(nVal));
+        };
+
+        // IHDR chunk
+        uint32_t nIHDRSize = 13;
+        CPL_MSBPTR32(&nIHDRSize);
+        fp->Write(&nIHDRSize, 1, sizeof(nIHDRSize));
+        crc = crc32(0, reinterpret_cast<const Bytef *>("IHDR"), 4);
+        fp->Write("IHDR", 1, 4);
+        WriteAndUpdateCRC_Int(W);
+        WriteAndUpdateCRC_Int(H);
+        WriteAndUpdateCRC_Byte(8);  // Number of bits per pixel
+        const uint8_t nColorType = nBands == 1   ? 0
+                                   : nBands == 2 ? 4
+                                   : nBands == 3 ? 2
+                                                 : 6;
+        WriteAndUpdateCRC_Byte(nColorType);
+        WriteAndUpdateCRC_Byte(0);  // Compression method
+        WriteAndUpdateCRC_Byte(0);  // Filter method
+        WriteAndUpdateCRC_Byte(0);  // Interlacing=off
+        {
+            uint32_t nCrc32 = static_cast<uint32_t>(crc);
+            CPL_MSBPTR32(&nCrc32);
+            fp->Write(&nCrc32, 1, sizeof(nCrc32));
+        }
+
+        // IDAT chunk
+        uint32_t nIDATSize = static_cast<uint32_t>(nOutSize);
+        CPL_MSBPTR32(&nIDATSize);
+        fp->Write(&nIDATSize, 1, sizeof(nIDATSize));
+        crc = crc32(0, reinterpret_cast<const Bytef *>("IDAT"), 4);
+        fp->Write("IDAT", 1, 4);
+        crc = crc32(crc, dstBuffer.data(), static_cast<uint32_t>(nOutSize));
+        fp->Write(dstBuffer.data(), 1, nOutSize);
+        {
+            uint32_t nCrc32 = static_cast<uint32_t>(crc);
+            CPL_MSBPTR32(&nCrc32);
+            fp->Write(&nCrc32, 1, sizeof(nCrc32));
+        }
+
+        // IEND chunk
+        fp->Write("\x00\x00\x00\x00IEND\xAE\x42\x60\x82", 12, 1);
+
+        bool bRet =
+            fp->Tell() == 8 + 4 + 4 + 13 + 4 + 4 + 4 + nOutSize + 4 + 12;
+        bRet = VSIFCloseL(fp) == 0 && bRet &&
+               VSIRename(osTmpFilename.c_str(), osFilename.c_str()) == 0;
+        if (!bRet)
+            VSIUnlink(osTmpFilename.c_str());
+
+        return bRet;
+    }
 
     auto memDS = std::unique_ptr<GDALDataset>(
         MEMDataset::Create("", tileMatrix.mTileWidth, tileMatrix.mTileHeight, 0,
@@ -456,36 +1391,52 @@ static bool GenerateTile(
         memDS->SetMetadataItem(key, value);
     }
 
-    double adfGT[6];
-    adfGT[0] =
+    GDALGeoTransform gt;
+    gt[0] =
         tileMatrix.mTopLeftX + iX * tileMatrix.mResX * tileMatrix.mTileWidth;
-    adfGT[1] = tileMatrix.mResX;
-    adfGT[2] = 0;
-    adfGT[3] =
+    gt[1] = tileMatrix.mResX;
+    gt[2] = 0;
+    gt[3] =
         tileMatrix.mTopLeftY - iY * tileMatrix.mResY * tileMatrix.mTileHeight;
-    adfGT[4] = 0;
-    adfGT[5] = -tileMatrix.mResY;
-    memDS->SetGeoTransform(adfGT);
+    gt[4] = 0;
+    gt[5] = -tileMatrix.mResY;
+    memDS->SetGeoTransform(gt);
 
     memDS->SetSpatialRef(&oSRS_TMS);
 
     CPLConfigOptionSetter oSetter("GDAL_PAM_ENABLED", bAuxXML ? "YES" : "NO",
                                   false);
+    CPLConfigOptionSetter oSetter2("GDAL_DISABLE_READDIR_ON_OPEN", "YES",
+                                   false);
 
-    const std::string osTmpFilename = osFilename + ".tmp." + pszExtension;
+    std::unique_ptr<CPLConfigOptionSetter> poSetter;
+    // No need to reopen the dataset at end of CreateCopy() (for PNG
+    // and JPEG) if we don't need to generate .aux.xml
+    if (!bAuxXML)
+        poSetter = std::make_unique<CPLConfigOptionSetter>(
+            "GDAL_OPEN_AFTER_COPY", "NO", false);
+    CPL_IGNORE_RET_VAL(poSetter);
+
+    CPLStringList aosCreationOptions(creationOptions);
+    if (bSupportsCreateOnlyVisibleAtCloseTime)
+        aosCreationOptions.SetNameValue("@CREATE_ONLY_VISIBLE_AT_CLOSE_TIME",
+                                        "YES");
 
     std::unique_ptr<GDALDataset> poOutDS(
-        poDstDriver->CreateCopy(osTmpFilename.c_str(), memDS.get(), false,
-                                creationOptions, nullptr, nullptr));
+        m_poDstDriver->CreateCopy(osTmpFilename.c_str(), memDS.get(), false,
+                                  aosCreationOptions.List(), nullptr, nullptr));
     bool bRet = poOutDS && poOutDS->Close() == CE_None;
     poOutDS.reset();
     if (bRet)
     {
-        bRet = VSIRename(osTmpFilename.c_str(), osFilename.c_str()) == 0;
-        if (bAuxXML)
+        if (!bSupportsCreateOnlyVisibleAtCloseTime)
         {
-            VSIRename((osTmpFilename + ".aux.xml").c_str(),
-                      (osFilename + ".aux.xml").c_str());
+            bRet = VSIRename(osTmpFilename.c_str(), osFilename.c_str()) == 0;
+            if (bAuxXML)
+            {
+                VSIRename((osTmpFilename + ".aux.xml").c_str(),
+                          (osFilename + ".aux.xml").c_str());
+            }
         }
     }
     else
@@ -500,7 +1451,7 @@ static bool GenerateTile(
 /************************************************************************/
 
 static bool
-GenerateOverviewTile(GDALDataset &oSrcDS, GDALDriver *poDstDriver,
+GenerateOverviewTile(GDALDataset &oSrcDS, GDALDriver *m_poDstDriver,
                      const std::string &outputFormat, const char *pszExtension,
                      CSLConstList creationOptions,
                      CSLConstList papszWarpOptions,
@@ -529,6 +1480,10 @@ GenerateOverviewTile(GDALDataset &oSrcDS, GDALDriver *poDstDriver,
     VSIMkdir(osDirZ.c_str(), 0755);
     VSIMkdir(osDirX.c_str(), 0755);
 
+    const bool bSupportsCreateOnlyVisibleAtCloseTime =
+        m_poDstDriver->GetMetadataItem(
+            GDAL_DCAP_CREATE_ONLY_VISIBLE_AT_CLOSE_TIME) != nullptr;
+
     CPLStringList aosOptions;
 
     aosOptions.AddString("-of");
@@ -539,8 +1494,16 @@ GenerateOverviewTile(GDALDataset &oSrcDS, GDALDriver *poDstDriver,
         aosOptions.AddString("-co");
         aosOptions.AddString(pszCO);
     }
+    if (bSupportsCreateOnlyVisibleAtCloseTime)
+    {
+        aosOptions.AddString("-co");
+        aosOptions.AddString("@CREATE_ONLY_VISIBLE_AT_CLOSE_TIME=YES");
+    }
+
     CPLConfigOptionSetter oSetter("GDAL_PAM_ENABLED", bAuxXML ? "YES" : "NO",
                                   false);
+    CPLConfigOptionSetter oSetter2("GDAL_DISABLE_READDIR_ON_OPEN", "YES",
+                                   false);
 
     aosOptions.AddString("-r");
     aosOptions.AddString(resampling.c_str());
@@ -560,18 +1523,20 @@ GenerateOverviewTile(GDALDataset &oSrcDS, GDALDriver *poDstDriver,
          resampling == "cubicspline" || resampling == "lanczos" ||
          resampling == "mode");
 
-    const std::string osTmpFilename = osFilename + ".tmp." + pszExtension;
+    const std::string osTmpFilename = bSupportsCreateOnlyVisibleAtCloseTime
+                                          ? osFilename
+                                          : osFilename + ".tmp." + pszExtension;
 
     if (resamplingCompatibleOfTranslate)
     {
-        double adfUpperGT[6];
-        oSrcDS.GetGeoTransform(adfUpperGT);
-        const double dfMinXUpper = adfUpperGT[0];
+        GDALGeoTransform upperGT;
+        oSrcDS.GetGeoTransform(upperGT);
+        const double dfMinXUpper = upperGT[0];
         const double dfMaxXUpper =
-            dfMinXUpper + adfUpperGT[1] * oSrcDS.GetRasterXSize();
-        const double dfMaxYUpper = adfUpperGT[3];
+            dfMinXUpper + upperGT[1] * oSrcDS.GetRasterXSize();
+        const double dfMaxYUpper = upperGT[3];
         const double dfMinYUpper =
-            dfMaxYUpper + adfUpperGT[5] * oSrcDS.GetRasterYSize();
+            dfMaxYUpper + upperGT[5] * oSrcDS.GetRasterYSize();
         if (dfMinX >= dfMinXUpper && dfMaxX <= dfMaxXUpper &&
             dfMinY >= dfMinYUpper && dfMaxY <= dfMaxYUpper)
         {
@@ -585,10 +1550,10 @@ GenerateOverviewTile(GDALDataset &oSrcDS, GDALDriver *poDstDriver,
             std::vector<GByte> dstBuffer(nBytesPerBand *
                                          oSrcDS.GetRasterCount());
 
-            const double dfXOff = (dfMinX - dfMinXUpper) / adfUpperGT[1];
-            const double dfYOff = (dfMaxYUpper - dfMaxY) / -adfUpperGT[5];
-            const double dfXSize = (dfMaxX - dfMinX) / adfUpperGT[1];
-            const double dfYSize = (dfMaxY - dfMinY) / -adfUpperGT[5];
+            const double dfXOff = (dfMinX - dfMinXUpper) / upperGT[1];
+            const double dfYOff = (dfMaxYUpper - dfMaxY) / -upperGT[5];
+            const double dfXSize = (dfMaxX - dfMinX) / upperGT[1];
+            const double dfYSize = (dfMaxY - dfMinY) / -upperGT[5];
             GDALRasterIOExtraArg sExtraArg;
             INIT_RASTERIO_EXTRA_ARG(sExtraArg);
             CPL_IGNORE_RET_VAL(sExtraArg.eResampleAlg);
@@ -671,20 +1636,26 @@ GenerateOverviewTile(GDALDataset &oSrcDS, GDALDriver *poDstDriver,
                         poDstBand->SetColorTable(poCT);
                 }
                 memDS->SetMetadata(oSrcDS.GetMetadata());
-                double adfGT[6];
-                adfGT[0] = dfMinX;
-                adfGT[1] = tileMatrix.mResX;
-                adfGT[2] = 0;
-                adfGT[3] = dfMaxY;
-                adfGT[4] = 0;
-                adfGT[5] = -tileMatrix.mResY;
-                memDS->SetGeoTransform(adfGT);
+                memDS->SetGeoTransform(GDALGeoTransform(
+                    dfMinX, tileMatrix.mResX, 0, dfMaxY, 0, -tileMatrix.mResY));
 
                 memDS->SetSpatialRef(oSrcDS.GetSpatialRef());
 
-                poOutDS.reset(poDstDriver->CreateCopy(
-                    osTmpFilename.c_str(), memDS.get(), false, creationOptions,
-                    nullptr, nullptr));
+                std::unique_ptr<CPLConfigOptionSetter> poSetter;
+                // No need to reopen the dataset at end of CreateCopy() (for PNG
+                // and JPEG) if we don't need to generate .aux.xml
+                if (!bAuxXML)
+                    poSetter = std::make_unique<CPLConfigOptionSetter>(
+                        "GDAL_OPEN_AFTER_COPY", "NO", false);
+                CPL_IGNORE_RET_VAL(poSetter);
+
+                CPLStringList aosCreationOptions(creationOptions);
+                if (bSupportsCreateOnlyVisibleAtCloseTime)
+                    aosCreationOptions.SetNameValue(
+                        "@CREATE_ONLY_VISIBLE_AT_CLOSE_TIME", "YES");
+                poOutDS.reset(m_poDstDriver->CreateCopy(
+                    osTmpFilename.c_str(), memDS.get(), false,
+                    aosCreationOptions.List(), nullptr, nullptr));
             }
         }
         else
@@ -771,11 +1742,14 @@ GenerateOverviewTile(GDALDataset &oSrcDS, GDALDriver *poDstDriver,
     poOutDS.reset();
     if (bRet)
     {
-        bRet = VSIRename(osTmpFilename.c_str(), osFilename.c_str()) == 0;
-        if (bAuxXML)
+        if (!bSupportsCreateOnlyVisibleAtCloseTime)
         {
-            VSIRename((osTmpFilename + ".aux.xml").c_str(),
-                      (osFilename + ".aux.xml").c_str());
+            bRet = VSIRename(osTmpFilename.c_str(), osFilename.c_str()) == 0;
+            if (bAuxXML)
+            {
+                VSIRename((osTmpFilename + ".aux.xml").c_str(),
+                          (osFilename + ".aux.xml").c_str());
+            }
         }
     }
     else
@@ -877,19 +1851,20 @@ class FakeMaxZoomDataset : public GDALDataset
     const int m_nBlockXSize;
     const int m_nBlockYSize;
     const OGRSpatialReference m_oSRS;
-    double m_adfGT[6];
+    const GDALGeoTransform m_gt{};
 
   public:
     FakeMaxZoomDataset(int nWidth, int nHeight, int nBandsIn, int nBlockXSize,
-                       int nBlockYSize, GDALDataType eDT, const double adfGT[6],
+                       int nBlockYSize, GDALDataType eDT,
+                       const GDALGeoTransform &gt,
                        const OGRSpatialReference &oSRS,
                        std::vector<GByte> &dstBuffer)
-        : m_nBlockXSize(nBlockXSize), m_nBlockYSize(nBlockYSize), m_oSRS(oSRS)
+        : m_nBlockXSize(nBlockXSize), m_nBlockYSize(nBlockYSize), m_oSRS(oSRS),
+          m_gt(gt)
     {
         eAccess = GA_Update;
         nRasterXSize = nWidth;
         nRasterYSize = nHeight;
-        memcpy(m_adfGT, adfGT, sizeof(double) * 6);
         for (int i = 1; i <= nBandsIn; ++i)
         {
             SetBand(i,
@@ -906,9 +1881,9 @@ class FakeMaxZoomDataset : public GDALDataset
         return m_oSRS.IsEmpty() ? nullptr : &m_oSRS;
     }
 
-    CPLErr GetGeoTransform(double *padfGT) override
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override
     {
-        memcpy(padfGT, m_adfGT, sizeof(double) * 6);
+        gt = m_gt;
         return CE_None;
     }
 
@@ -919,7 +1894,7 @@ class FakeMaxZoomDataset : public GDALDataset
     {
         return std::make_unique<FakeMaxZoomDataset>(
             nRasterXSize, nRasterYSize, nBands, m_nBlockXSize, m_nBlockYSize,
-            GetRasterBand(1)->GetRasterDataType(), m_adfGT, m_oSRS, dstBuffer);
+            GetRasterBand(1)->GetRasterDataType(), m_gt, m_oSRS, dstBuffer);
     }
 };
 
@@ -999,7 +1974,7 @@ class MosaicDataset : public GDALDataset
     const std::string m_directory;
     const std::string m_extension;
     const std::string m_format;
-    GDALDataset *const m_poSrcDS;
+    const std::vector<GDALColorInterp> m_aeColorInterp;
     const gdal::TileMatrixSet::TileMatrix &m_oTM;
     const OGRSpatialReference m_oSRS;
     const int m_nTileMinX;
@@ -1012,39 +1987,44 @@ class MosaicDataset : public GDALDataset
     const std::vector<std::string> &m_metadata;
     const GDALColorTable *const m_poCT;
 
-    double m_adfGT[6];
-    lru11::Cache<std::string, std::shared_ptr<GDALDataset>> m_oCacheTile{};
+    GDALGeoTransform m_gt{};
+    const int m_nMaxCacheTileSize;
+    lru11::Cache<std::string, std::shared_ptr<GDALDataset>> m_oCacheTile;
 
     CPL_DISALLOW_COPY_ASSIGN(MosaicDataset)
 
   public:
     MosaicDataset(const std::string &directory, const std::string &extension,
-                  const std::string &format, GDALDataset *poSrcDS,
+                  const std::string &format,
+                  const std::vector<GDALColorInterp> &aeColorInterp,
                   const gdal::TileMatrixSet::TileMatrix &oTM,
                   const OGRSpatialReference &oSRS, int nTileMinX, int nTileMinY,
                   int nTileMaxX, int nTileMaxY, const std::string &convention,
                   int nBandsIn, GDALDataType eDT, const double *pdfDstNoData,
                   const std::vector<std::string> &metadata,
-                  const GDALColorTable *poCT)
+                  const GDALColorTable *poCT, int maxCacheTileSize)
         : m_directory(directory), m_extension(extension), m_format(format),
-          m_poSrcDS(poSrcDS), m_oTM(oTM), m_oSRS(oSRS), m_nTileMinX(nTileMinX),
-          m_nTileMinY(nTileMinY), m_nTileMaxX(nTileMaxX),
-          m_nTileMaxY(nTileMaxY), m_convention(convention), m_eDT(eDT),
-          m_pdfDstNoData(pdfDstNoData), m_metadata(metadata), m_poCT(poCT)
+          m_aeColorInterp(aeColorInterp), m_oTM(oTM), m_oSRS(oSRS),
+          m_nTileMinX(nTileMinX), m_nTileMinY(nTileMinY),
+          m_nTileMaxX(nTileMaxX), m_nTileMaxY(nTileMaxY),
+          m_convention(convention), m_eDT(eDT), m_pdfDstNoData(pdfDstNoData),
+          m_metadata(metadata), m_poCT(poCT),
+          m_nMaxCacheTileSize(maxCacheTileSize),
+          m_oCacheTile(/* max_size = */ maxCacheTileSize, /* elasticity = */ 0)
     {
         nRasterXSize = (nTileMaxX - nTileMinX + 1) * oTM.mTileWidth;
         nRasterYSize = (nTileMaxY - nTileMinY + 1) * oTM.mTileHeight;
-        m_adfGT[0] = oTM.mTopLeftX + nTileMinX * oTM.mResX * oTM.mTileWidth;
-        m_adfGT[1] = oTM.mResX;
-        m_adfGT[2] = 0;
-        m_adfGT[3] = oTM.mTopLeftY - nTileMinY * oTM.mResY * oTM.mTileHeight;
-        m_adfGT[4] = 0;
-        m_adfGT[5] = -oTM.mResY;
+        m_gt[0] = oTM.mTopLeftX + nTileMinX * oTM.mResX * oTM.mTileWidth;
+        m_gt[1] = oTM.mResX;
+        m_gt[2] = 0;
+        m_gt[3] = oTM.mTopLeftY - nTileMinY * oTM.mResY * oTM.mTileHeight;
+        m_gt[4] = 0;
+        m_gt[5] = -oTM.mResY;
         for (int i = 1; i <= nBandsIn; ++i)
         {
             const GDALColorInterp eColorInterp =
-                (i <= poSrcDS->GetRasterCount())
-                    ? poSrcDS->GetRasterBand(i)->GetColorInterpretation()
+                (i <= static_cast<int>(m_aeColorInterp.size()))
+                    ? m_aeColorInterp[i - 1]
                     : GCI_AlphaBand;
             SetBand(i, new MosaicRasterBand(
                            this, i, nRasterXSize, nRasterYSize, oTM.mTileWidth,
@@ -1065,9 +2045,9 @@ class MosaicDataset : public GDALDataset
         return m_oSRS.IsEmpty() ? nullptr : &m_oSRS;
     }
 
-    CPLErr GetGeoTransform(double *padfGT) override
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override
     {
-        memcpy(padfGT, m_adfGT, sizeof(double) * 6);
+        gt = m_gt;
         return CE_None;
     }
 
@@ -1076,9 +2056,10 @@ class MosaicDataset : public GDALDataset
     std::unique_ptr<MosaicDataset> Clone() const
     {
         return std::make_unique<MosaicDataset>(
-            m_directory, m_extension, m_format, m_poSrcDS, m_oTM, m_oSRS,
+            m_directory, m_extension, m_format, m_aeColorInterp, m_oTM, m_oSRS,
             m_nTileMinX, m_nTileMinY, m_nTileMaxX, m_nTileMaxY, m_convention,
-            nBands, m_eDT, m_pdfDstNoData, m_metadata, m_poCT);
+            nBands, m_eDT, m_pdfDstNoData, m_metadata, m_poCT,
+            m_nMaxCacheTileSize);
     }
 };
 
@@ -1102,6 +2083,7 @@ CPLErr MosaicRasterBand::IReadBlock(int nXBlock, int nYBlock, void *pData)
                                                   nullptr};
         const char *const apszAllowedDriversForCOG[] = {"GTiff", "LIBERTIFF",
                                                         nullptr};
+        // CPLDebugOnly("gdal_raster_tile", "Opening %s", filename.c_str());
         poTileDS.reset(GDALDataset::Open(
             filename.c_str(), GDAL_OF_RASTER | GDAL_OF_INTERNAL,
             EQUAL(poThisDS->m_format.c_str(), "COG") ? apszAllowedDriversForCOG
@@ -1279,6 +2261,354 @@ GenerateMapML(const std::string &osDirectory, const std::string &mapmlTemplate,
                 VSIFCloseL(f);
             }
         }
+    }
+}
+
+/************************************************************************/
+/*                            GenerateSTAC()                            */
+/************************************************************************/
+
+static void
+GenerateSTAC(const std::string &osDirectory, const std::string &osTitle,
+             double dfWestLon, double dfSouthLat, double dfEastLon,
+             double dfNorthLat, const std::vector<std::string> &metadata,
+             const std::vector<BandMetadata> &aoBandMetadata, int nMinZoom,
+             int nMaxZoom, const std::string &osExtension,
+             const std::string &osFormat, const std::string &osURL,
+             const std::string &osCopyright, const OGRSpatialReference &oSRS,
+             const gdal::TileMatrixSet &tms, bool bInvertAxisTMS, int tileSize,
+             const double adfExtent[4], const GDALArgDatasetValue &dataset)
+{
+    CPLJSONObject oRoot;
+    oRoot["stac_version"] = "1.1.0";
+    CPLJSONArray oExtensions;
+    oRoot["stac_extensions"] = oExtensions;
+    oRoot["id"] = osTitle;
+    oRoot["type"] = "Feature";
+    oRoot["bbox"] = {dfWestLon, dfSouthLat, dfEastLon, dfNorthLat};
+    CPLJSONObject oGeometry;
+
+    const auto BuildPolygon = [](double x1, double y1, double x2, double y2)
+    {
+        return CPLJSONArray::Build({CPLJSONArray::Build(
+            {CPLJSONArray::Build({x1, y1}), CPLJSONArray::Build({x1, y2}),
+             CPLJSONArray::Build({x2, y2}), CPLJSONArray::Build({x2, y1}),
+             CPLJSONArray::Build({x1, y1})})});
+    };
+
+    if (dfWestLon <= dfEastLon)
+    {
+        oGeometry["type"] = "Polygon";
+        oGeometry["coordinates"] =
+            BuildPolygon(dfWestLon, dfSouthLat, dfEastLon, dfNorthLat);
+    }
+    else
+    {
+        oGeometry["type"] = "MultiPolygon";
+        oGeometry["coordinates"] = {
+            BuildPolygon(dfWestLon, dfSouthLat, 180.0, dfNorthLat),
+            BuildPolygon(-180.0, dfSouthLat, dfEastLon, dfNorthLat)};
+    }
+    oRoot["geometry"] = std::move(oGeometry);
+
+    CPLJSONObject oProperties;
+    oRoot["properties"] = oProperties;
+    const CPLStringList aosMD(metadata);
+    std::string osDateTime = "1970-01-01T00:00:00.000Z";
+    if (!dataset.GetName().empty())
+    {
+        VSIStatBufL sStat;
+        if (VSIStatL(dataset.GetName().c_str(), &sStat) == 0 &&
+            sStat.st_mtime != 0)
+        {
+            struct tm tm;
+            CPLUnixTimeToYMDHMS(sStat.st_mtime, &tm);
+            osDateTime = CPLSPrintf(
+                "%04d-%02d-%02dT%02d:%02d:%02dZ", tm.tm_year + 1900,
+                tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+        }
+    }
+    std::string osStartDateTime = "0001-01-01T00:00:00.000Z";
+    std::string osEndDateTime = "9999-12-31T23:59:59.999Z";
+
+    const auto GetDateTimeAsISO8211 = [](const char *pszInput)
+    {
+        std::string osRet;
+        OGRField sField;
+        if (OGRParseDate(pszInput, &sField, 0))
+        {
+            char *pszDT = OGRGetXMLDateTime(&sField);
+            if (pszDT)
+                osRet = pszDT;
+            CPLFree(pszDT);
+        }
+        return osRet;
+    };
+
+    for (const auto &[key, value] : cpl::IterateNameValue(aosMD))
+    {
+        if (EQUAL(key, "datetime"))
+        {
+            std::string osTmp = GetDateTimeAsISO8211(value);
+            if (!osTmp.empty())
+            {
+                osDateTime = std::move(osTmp);
+                continue;
+            }
+        }
+        else if (EQUAL(key, "start_datetime"))
+        {
+            std::string osTmp = GetDateTimeAsISO8211(value);
+            if (!osTmp.empty())
+            {
+                osStartDateTime = std::move(osTmp);
+                continue;
+            }
+        }
+        else if (EQUAL(key, "end_datetime"))
+        {
+            std::string osTmp = GetDateTimeAsISO8211(value);
+            if (!osTmp.empty())
+            {
+                osEndDateTime = std::move(osTmp);
+                continue;
+            }
+        }
+        else if (EQUAL(key, "TIFFTAG_DATETIME"))
+        {
+            int nYear, nMonth, nDay, nHour, nMin, nSec;
+            if (sscanf(value, "%04d:%02d:%02d %02d:%02d:%02d", &nYear, &nMonth,
+                       &nDay, &nHour, &nMin, &nSec) == 6)
+            {
+                osDateTime = CPLSPrintf("%04d-%02d-%02dT%02d:%02d:%02dZ", nYear,
+                                        nMonth, nDay, nHour, nMin, nSec);
+                continue;
+            }
+        }
+
+        oProperties[key] = value;
+    }
+    oProperties["datetime"] = osDateTime;
+    oProperties["start_datetime"] = osStartDateTime;
+    oProperties["end_datetime"] = osEndDateTime;
+    if (!osCopyright.empty())
+        oProperties["copyright"] = osCopyright;
+
+    // Just keep the tile matrix zoom levels we use
+    gdal::TileMatrixSet tmsLimitedToZoomLevelUsed(tms);
+    auto &tileMatrixList = tmsLimitedToZoomLevelUsed.tileMatrixList();
+    tileMatrixList.erase(tileMatrixList.begin() + nMaxZoom + 1,
+                         tileMatrixList.end());
+    tileMatrixList.erase(tileMatrixList.begin(),
+                         tileMatrixList.begin() + nMinZoom);
+
+    CPLJSONObject oLimits;
+    // Patch their definition with the potentially overridden tileSize.
+    for (auto &tm : tileMatrixList)
+    {
+        int nOvrMinTileX = 0;
+        int nOvrMinTileY = 0;
+        int nOvrMaxTileX = 0;
+        int nOvrMaxTileY = 0;
+        bool bIntersects = false;
+        CPL_IGNORE_RET_VAL(GetTileIndices(
+            tm, bInvertAxisTMS, tileSize, adfExtent, nOvrMinTileX, nOvrMinTileY,
+            nOvrMaxTileX, nOvrMaxTileY, /* noIntersectionIsOK = */ true,
+            bIntersects));
+
+        CPLJSONObject oLimit;
+        oLimit["min_tile_col"] = nOvrMinTileX;
+        oLimit["max_tile_col"] = nOvrMaxTileX;
+        oLimit["min_tile_row"] = nOvrMinTileY;
+        oLimit["max_tile_row"] = nOvrMaxTileY;
+        oLimits[tm.mId] = std::move(oLimit);
+    }
+
+    CPLJSONObject oTilesTileMatrixSets;
+    {
+        CPLJSONDocument oDoc;
+        CPL_IGNORE_RET_VAL(
+            oDoc.LoadMemory(tmsLimitedToZoomLevelUsed.exportToTMSJsonV1()));
+        oTilesTileMatrixSets[tmsLimitedToZoomLevelUsed.identifier()] =
+            oDoc.GetRoot();
+    }
+    oProperties["tiles:tile_matrix_sets"] = std::move(oTilesTileMatrixSets);
+
+    CPLJSONObject oTilesTileMatrixLinks;
+    CPLJSONObject oTilesTileMatrixLink;
+    oTilesTileMatrixLink["url"] =
+        std::string("#").append(tmsLimitedToZoomLevelUsed.identifier());
+    oTilesTileMatrixLink["limits"] = std::move(oLimits);
+    oTilesTileMatrixLinks[tmsLimitedToZoomLevelUsed.identifier()] =
+        std::move(oTilesTileMatrixLink);
+    oProperties["tiles:tile_matrix_links"] = std::move(oTilesTileMatrixLinks);
+
+    const char *pszAuthName = oSRS.GetAuthorityName(nullptr);
+    const char *pszAuthCode = oSRS.GetAuthorityCode(nullptr);
+    if (pszAuthName && pszAuthCode)
+    {
+        oProperties["proj:code"] =
+            std::string(pszAuthName).append(":").append(pszAuthCode);
+    }
+    else
+    {
+        char *pszPROJJSON = nullptr;
+        CPL_IGNORE_RET_VAL(oSRS.exportToPROJJSON(&pszPROJJSON, nullptr));
+        if (pszPROJJSON)
+        {
+            CPLJSONDocument oDoc;
+            CPL_IGNORE_RET_VAL(oDoc.LoadMemory(pszPROJJSON));
+            CPLFree(pszPROJJSON);
+            oProperties["proj:projjson"] = oDoc.GetRoot();
+        }
+    }
+    {
+        auto ovrTileMatrix = tms.tileMatrixList()[nMaxZoom];
+        int nOvrMinTileX = 0;
+        int nOvrMinTileY = 0;
+        int nOvrMaxTileX = 0;
+        int nOvrMaxTileY = 0;
+        bool bIntersects = false;
+        CPL_IGNORE_RET_VAL(GetTileIndices(
+            ovrTileMatrix, bInvertAxisTMS, tileSize, adfExtent, nOvrMinTileX,
+            nOvrMinTileY, nOvrMaxTileX, nOvrMaxTileY,
+            /* noIntersectionIsOK = */ true, bIntersects));
+        oProperties["proj:shape"] = {
+            (nOvrMaxTileY - nOvrMinTileY + 1) * ovrTileMatrix.mTileHeight,
+            (nOvrMaxTileX - nOvrMinTileX + 1) * ovrTileMatrix.mTileWidth};
+
+        oProperties["proj:transform"] = {
+            ovrTileMatrix.mResX,
+            0.0,
+            ovrTileMatrix.mTopLeftX +
+                nOvrMinTileX * ovrTileMatrix.mTileWidth * ovrTileMatrix.mResX,
+            0.0,
+            -ovrTileMatrix.mResY,
+            ovrTileMatrix.mTopLeftY +
+                nOvrMinTileY * ovrTileMatrix.mTileHeight * ovrTileMatrix.mResY,
+            0.0,
+            0.0,
+            0.0};
+    }
+
+    constexpr const char *ASSET_NAME = "bands";
+
+    CPLJSONObject oAssetTemplates;
+    oRoot["asset_templates"] = oAssetTemplates;
+
+    CPLJSONObject oAssetTemplate;
+    oAssetTemplates[ASSET_NAME] = oAssetTemplate;
+
+    std::string osHref = (osURL.empty() ? std::string(".") : std::string(osURL))
+                             .append("/{TileMatrix}/{TileCol}/{TileRow}.")
+                             .append(osExtension);
+
+    const std::map<std::string, std::string> oMapVSIToURIPrefix = {
+        {"vsis3", "s3://"},
+        {"vsigs", "gs://"},
+        {"vsiaz", "az://"},  // Not universally recognized
+    };
+
+    const CPLStringList aosSplitHref(
+        CSLTokenizeString2(osHref.c_str(), "/", 0));
+    if (!aosSplitHref.empty())
+    {
+        const auto oIter = oMapVSIToURIPrefix.find(aosSplitHref[0]);
+        if (oIter != oMapVSIToURIPrefix.end())
+        {
+            // +2 because of 2 slash characters
+            osHref = std::string(oIter->second)
+                         .append(osHref.c_str() + strlen(aosSplitHref[0]) + 2);
+        }
+    }
+    oAssetTemplate["href"] = osHref;
+
+    if (EQUAL(osFormat.c_str(), "COG"))
+        oAssetTemplate["type"] =
+            "image/tiff; application=geotiff; profile=cloud-optimized";
+    else if (osExtension == "tif")
+        oAssetTemplate["type"] = "image/tiff; application=geotiff";
+    else if (osExtension == "png")
+        oAssetTemplate["type"] = "image/png";
+    else if (osExtension == "jpg")
+        oAssetTemplate["type"] = "image/jpeg";
+    else if (osExtension == "webp")
+        oAssetTemplate["type"] = "image/webp";
+
+    const std::map<GDALDataType, const char *> oMapDTToStac = {
+        {GDT_Int8, "int8"},
+        {GDT_Int16, "int16"},
+        {GDT_Int32, "int32"},
+        {GDT_Int64, "int64"},
+        {GDT_Byte, "uint8"},
+        {GDT_UInt16, "uint16"},
+        {GDT_UInt32, "uint32"},
+        {GDT_UInt64, "uint64"},
+        // float16: 16-bit float; unhandled
+        {GDT_Float32, "float32"},
+        {GDT_Float64, "float64"},
+        {GDT_CInt16, "cint16"},
+        {GDT_CInt32, "cint32"},
+        // cfloat16: complex 16-bit float; unhandled
+        {GDT_CFloat32, "cfloat32"},
+        {GDT_CFloat64, "cfloat64"},
+    };
+
+    CPLJSONArray oBands;
+    int iBand = 1;
+    bool bEOExtensionUsed = false;
+    for (const auto &bandMD : aoBandMetadata)
+    {
+        CPLJSONObject oBand;
+        oBand["name"] = bandMD.osDescription.empty()
+                            ? std::string(CPLSPrintf("Band%d", iBand))
+                            : bandMD.osDescription;
+
+        const auto oIter = oMapDTToStac.find(bandMD.eDT);
+        if (oIter != oMapDTToStac.end())
+            oBand["data_type"] = oIter->second;
+
+        if (const char *pszCommonName =
+                GDALGetSTACCommonNameFromColorInterp(bandMD.eColorInterp))
+        {
+            bEOExtensionUsed = true;
+            oBand["eo:common_name"] = pszCommonName;
+        }
+        if (!bandMD.osCenterWaveLength.empty() && !bandMD.osFWHM.empty())
+        {
+            bEOExtensionUsed = true;
+            oBand["eo:center_wavelength"] =
+                CPLAtof(bandMD.osCenterWaveLength.c_str());
+            oBand["eo:full_width_half_max"] = CPLAtof(bandMD.osFWHM.c_str());
+        }
+        ++iBand;
+        oBands.Add(oBand);
+    }
+    oAssetTemplate["bands"] = oBands;
+
+    oRoot.Add("assets", CPLJSONObject());
+    oRoot.Add("links", CPLJSONArray());
+
+    oExtensions.Add(
+        "https://stac-extensions.github.io/tiled-assets/v1.0.0/schema.json");
+    oExtensions.Add(
+        "https://stac-extensions.github.io/projection/v2.0.0/schema.json");
+    if (bEOExtensionUsed)
+        oExtensions.Add(
+            "https://stac-extensions.github.io/eo/v2.0.0/schema.json");
+
+    // Serialize JSON document to file
+    const std::string osJSON =
+        CPLString(oRoot.Format(CPLJSONObject::PrettyFormat::Pretty))
+            .replaceAll("\\/", '/');
+    VSILFILE *f = VSIFOpenL(
+        CPLFormFilenameSafe(osDirectory.c_str(), "stacta.json", nullptr)
+            .c_str(),
+        "wb");
+    if (f)
+    {
+        VSIFWriteL(osJSON.data(), 1, osJSON.size(), f);
+        VSIFCloseL(f);
     }
 }
 
@@ -2067,21 +3397,998 @@ class PerThreadLowerZoomResourceManager final
 }  // namespace
 
 /************************************************************************/
+/*            GDALRasterTileAlgorithm::ValidateOutputFormat()           */
+/************************************************************************/
+
+bool GDALRasterTileAlgorithm::ValidateOutputFormat(GDALDataType eSrcDT) const
+{
+    if (m_format == "PNG")
+    {
+        if (m_poSrcDS->GetRasterCount() > 4)
+        {
+            ReportError(CE_Failure, CPLE_NotSupported,
+                        "Only up to 4 bands supported for PNG.");
+            return false;
+        }
+        if (eSrcDT != GDT_Byte && eSrcDT != GDT_UInt16)
+        {
+            ReportError(CE_Failure, CPLE_NotSupported,
+                        "Only Byte and UInt16 data types supported for PNG.");
+            return false;
+        }
+    }
+    else if (m_format == "JPEG")
+    {
+        if (m_poSrcDS->GetRasterCount() > 4)
+        {
+            ReportError(
+                CE_Failure, CPLE_NotSupported,
+                "Only up to 4 bands supported for JPEG (with alpha ignored).");
+            return false;
+        }
+        const bool bUInt16Supported =
+            strstr(m_poDstDriver->GetMetadataItem(GDAL_DMD_CREATIONDATATYPES),
+                   "UInt16");
+        if (eSrcDT != GDT_Byte && !(eSrcDT == GDT_UInt16 && bUInt16Supported))
+        {
+            ReportError(
+                CE_Failure, CPLE_NotSupported,
+                bUInt16Supported
+                    ? "Only Byte and UInt16 data types supported for JPEG."
+                    : "Only Byte data type supported for JPEG.");
+            return false;
+        }
+        if (eSrcDT == GDT_UInt16)
+        {
+            if (const char *pszNBITS =
+                    m_poSrcDS->GetRasterBand(1)->GetMetadataItem(
+                        "NBITS", "IMAGE_STRUCTURE"))
+            {
+                if (atoi(pszNBITS) > 12)
+                {
+                    ReportError(CE_Failure, CPLE_NotSupported,
+                                "JPEG output only supported up to 12 bits");
+                    return false;
+                }
+            }
+            else
+            {
+                double adfMinMax[2] = {0, 0};
+                m_poSrcDS->GetRasterBand(1)->ComputeRasterMinMax(
+                    /* bApproxOK = */ true, adfMinMax);
+                if (adfMinMax[1] >= (1 << 12))
+                {
+                    ReportError(CE_Failure, CPLE_NotSupported,
+                                "JPEG output only supported up to 12 bits");
+                    return false;
+                }
+            }
+        }
+    }
+    else if (m_format == "WEBP")
+    {
+        if (m_poSrcDS->GetRasterCount() != 3 &&
+            m_poSrcDS->GetRasterCount() != 4)
+        {
+            ReportError(CE_Failure, CPLE_NotSupported,
+                        "Only 3 or 4 bands supported for WEBP.");
+            return false;
+        }
+        if (eSrcDT != GDT_Byte)
+        {
+            ReportError(CE_Failure, CPLE_NotSupported,
+                        "Only Byte data type supported for WEBP.");
+            return false;
+        }
+    }
+    return true;
+}
+
+/************************************************************************/
+/*            GDALRasterTileAlgorithm::ComputeJobChunkSize()            */
+/************************************************************************/
+
+// Given a number of tiles in the Y dimension being nTilesPerCol and
+// in the X dimension being nTilesPerRow, compute the (upper bound of)
+// number of jobs needed to be nYOuterIterations x nXOuterIterations,
+// with each job processing in average dfTilesYPerJob x dfTilesXPerJob
+// tiles.
+/* static */
+void GDALRasterTileAlgorithm::ComputeJobChunkSize(
+    int nMaxJobCount, int nTilesPerCol, int nTilesPerRow,
+    double &dfTilesYPerJob, int &nYOuterIterations, double &dfTilesXPerJob,
+    int &nXOuterIterations)
+{
+    CPLAssert(nMaxJobCount >= 1);
+    dfTilesYPerJob = static_cast<double>(nTilesPerCol) / nMaxJobCount;
+    nYOuterIterations = dfTilesYPerJob >= 1 ? nMaxJobCount : 1;
+
+    dfTilesXPerJob = dfTilesYPerJob >= 1
+                         ? nTilesPerRow
+                         : static_cast<double>(nTilesPerRow) / nMaxJobCount;
+    nXOuterIterations = dfTilesYPerJob >= 1 ? 1 : nMaxJobCount;
+
+    if (dfTilesYPerJob < 1 && dfTilesXPerJob < 1 &&
+        nTilesPerCol <= nMaxJobCount / nTilesPerRow)
+    {
+        dfTilesYPerJob = 1;
+        dfTilesXPerJob = 1;
+        nYOuterIterations = nTilesPerCol;
+        nXOuterIterations = nTilesPerRow;
+    }
+}
+
+/************************************************************************/
+/*               GDALRasterTileAlgorithm::AddArgToArgv()                */
+/************************************************************************/
+
+bool GDALRasterTileAlgorithm::AddArgToArgv(const GDALAlgorithmArg *arg,
+                                           CPLStringList &aosArgv) const
+{
+    aosArgv.push_back(CPLSPrintf("--%s", arg->GetName().c_str()));
+    if (arg->GetType() == GAAT_STRING)
+    {
+        aosArgv.push_back(arg->Get<std::string>().c_str());
+    }
+    else if (arg->GetType() == GAAT_STRING_LIST)
+    {
+        bool bFirst = true;
+        for (const std::string &s : arg->Get<std::vector<std::string>>())
+        {
+            if (!bFirst)
+            {
+                aosArgv.push_back(CPLSPrintf("--%s", arg->GetName().c_str()));
+            }
+            bFirst = false;
+            aosArgv.push_back(s.c_str());
+        }
+    }
+    else if (arg->GetType() == GAAT_REAL)
+    {
+        aosArgv.push_back(CPLSPrintf("%.17g", arg->Get<double>()));
+    }
+    else if (arg->GetType() == GAAT_INTEGER)
+    {
+        aosArgv.push_back(CPLSPrintf("%d", arg->Get<int>()));
+    }
+    else if (arg->GetType() != GAAT_BOOLEAN)
+    {
+        ReportError(CE_Failure, CPLE_AppDefined,
+                    "Bug: argument of type %d not handled "
+                    "by gdal raster tile!",
+                    static_cast<int>(arg->GetType()));
+        return false;
+    }
+    return true;
+}
+
+/************************************************************************/
+/*            GDALRasterTileAlgorithm::IsCompatibleOfSpawn()            */
+/************************************************************************/
+
+bool GDALRasterTileAlgorithm::IsCompatibleOfSpawn(const char *&pszErrorMsg)
+{
+    pszErrorMsg = "";
+    if (!m_bIsNamedNonMemSrcDS)
+    {
+        pszErrorMsg = "Unnamed or memory dataset sources are not supported "
+                      "with spawn parallelization method";
+        return false;
+    }
+    if (cpl::starts_with(m_output, "/vsimem/"))
+    {
+        pszErrorMsg = "/vsimem/ output directory not supported with spawn "
+                      "parallelization method";
+        return false;
+    }
+
+    if (m_osGDALPath.empty())
+        m_osGDALPath = GDALGetGDALPath();
+    return !(m_osGDALPath.empty());
+}
+
+/************************************************************************/
+/*                      GetProgressForChildProcesses()                  */
+/************************************************************************/
+
+static void GetProgressForChildProcesses(
+    bool &bRet, std::vector<CPLSpawnedProcess *> &ahSpawnedProcesses,
+    std::vector<uint64_t> &anRemainingTilesForProcess, uint64_t &nCurTile,
+    uint64_t nTotalTiles, GDALProgressFunc pfnProgress, void *pProgressData)
+{
+    std::vector<unsigned int> anProgressState(ahSpawnedProcesses.size(), 0);
+    std::vector<unsigned int> anEndState(ahSpawnedProcesses.size(), 0);
+    std::vector<bool> abFinished(ahSpawnedProcesses.size(), false);
+
+    while (bRet)
+    {
+        size_t iProcess = 0;
+        size_t nFinished = 0;
+        for (CPLSpawnedProcess *hSpawnedProcess : ahSpawnedProcesses)
+        {
+            char ch = 0;
+            if (abFinished[iProcess] ||
+                !CPLPipeRead(CPLSpawnAsyncGetInputFileHandle(hSpawnedProcess),
+                             &ch, 1))
+            {
+                ++nFinished;
+            }
+            else if (ch == PROGRESS_MARKER[anProgressState[iProcess]])
+            {
+                ++anProgressState[iProcess];
+                if (anProgressState[iProcess] == sizeof(PROGRESS_MARKER))
+                {
+                    anProgressState[iProcess] = 0;
+                    --anRemainingTilesForProcess[iProcess];
+                    ++nCurTile;
+                    if (bRet && pfnProgress)
+                    {
+                        if (!pfnProgress(static_cast<double>(nCurTile) /
+                                             static_cast<double>(nTotalTiles),
+                                         "", pProgressData))
+                        {
+                            CPLError(CE_Failure, CPLE_UserInterrupt,
+                                     "Process interrupted by user");
+                            bRet = false;
+                            return;
+                        }
+                    }
+                }
+            }
+            else if (ch == END_MARKER[anEndState[iProcess]])
+            {
+                ++anEndState[iProcess];
+                if (anEndState[iProcess] == sizeof(END_MARKER))
+                {
+                    anEndState[iProcess] = 0;
+                    abFinished[iProcess] = true;
+                    ++nFinished;
+                }
+            }
+            else
+            {
+                CPLErrorOnce(
+                    CE_Warning, CPLE_AppDefined,
+                    "Spurious character detected on stdout of child process");
+                anProgressState[iProcess] = 0;
+                if (ch == PROGRESS_MARKER[anProgressState[iProcess]])
+                {
+                    ++anProgressState[iProcess];
+                }
+            }
+            ++iProcess;
+        }
+        if (!bRet || nFinished == ahSpawnedProcesses.size())
+            break;
+    }
+}
+
+/************************************************************************/
+/*                       WaitForSpawnedProcesses()                      */
+/************************************************************************/
+
+void GDALRasterTileAlgorithm::WaitForSpawnedProcesses(
+    bool &bRet, const std::vector<std::string> &asCommandLines,
+    std::vector<CPLSpawnedProcess *> &ahSpawnedProcesses) const
+{
+    size_t iProcess = 0;
+    for (CPLSpawnedProcess *hSpawnedProcess : ahSpawnedProcesses)
+    {
+        CPL_IGNORE_RET_VAL(
+            CPLPipeWrite(CPLSpawnAsyncGetOutputFileHandle(hSpawnedProcess),
+                         STOP_MARKER, static_cast<int>(strlen(STOP_MARKER))));
+
+        char ch = 0;
+        std::string errorMsg;
+        while (CPLPipeRead(CPLSpawnAsyncGetErrorFileHandle(hSpawnedProcess),
+                           &ch, 1))
+        {
+            if (ch == '\n')
+            {
+                if (!errorMsg.empty())
+                {
+                    if (cpl::starts_with(errorMsg, "ERROR "))
+                    {
+                        const auto nPos = errorMsg.find(": ");
+                        if (nPos != std::string::npos)
+                            errorMsg = errorMsg.substr(nPos + 1);
+                        ReportError(CE_Failure, CPLE_AppDefined, "%s",
+                                    errorMsg.c_str());
+                    }
+                    else
+                    {
+                        std::string osComp = "GDAL";
+                        const auto nPos = errorMsg.find(": ");
+                        if (nPos != std::string::npos)
+                        {
+                            osComp = errorMsg.substr(0, nPos);
+                            errorMsg = errorMsg.substr(nPos + 1);
+                        }
+                        CPLDebug(osComp.c_str(), "%s", errorMsg.c_str());
+                    }
+                    errorMsg.clear();
+                }
+            }
+            else
+            {
+                errorMsg += ch;
+            }
+        }
+
+        if (CPLSpawnAsyncFinish(hSpawnedProcess, /* bWait = */ true,
+                                /* bKill = */ false) != 0)
+        {
+            bRet = false;
+            ReportError(CE_Failure, CPLE_AppDefined,
+                        "Child process '%s' failed",
+                        asCommandLines[iProcess].c_str());
+        }
+        ++iProcess;
+    }
+}
+
+/************************************************************************/
+/*               GDALRasterTileAlgorithm::GetMaxChildCount()            */
+/**********************************f**************************************/
+
+int GDALRasterTileAlgorithm::GetMaxChildCount(int nMaxJobCount) const
+{
+#ifndef _WIN32
+    // Limit the number of jobs compared to how many file descriptors we have
+    // left
+    const int remainingFileDescriptorCount =
+        CPLGetRemainingFileDescriptorCount();
+    constexpr int SOME_MARGIN = 3;
+    constexpr int FD_PER_CHILD = 3; /* stdin, stdout and stderr */
+    if (FD_PER_CHILD * nMaxJobCount + SOME_MARGIN >
+        remainingFileDescriptorCount)
+    {
+        nMaxJobCount = std::max(
+            1, (remainingFileDescriptorCount - SOME_MARGIN) / FD_PER_CHILD);
+        ReportError(
+            CE_Warning, CPLE_AppDefined,
+            "Limiting the number of child workers to %d (instead of %d), "
+            "because there are not enough file descriptors left (%d)",
+            nMaxJobCount, m_numThreads, remainingFileDescriptorCount);
+    }
+#endif
+    return nMaxJobCount;
+}
+
+/************************************************************************/
+/*                           SendConfigOptions()                        */
+/************************************************************************/
+
+static void SendConfigOptions(CPLSpawnedProcess *hSpawnedProcess, bool &bRet)
+{
+    // Send most config options through pipe, to avoid leaking
+    // secrets when listing processes
+    auto handle = CPLSpawnAsyncGetOutputFileHandle(hSpawnedProcess);
+    for (auto pfnFunc : {&CPLGetConfigOptions, &CPLGetThreadLocalConfigOptions})
+    {
+        CPLStringList aosConfigOptions((*pfnFunc)());
+        for (const char *pszNameValue : aosConfigOptions)
+        {
+            if (!STARTS_WITH(pszNameValue, "GDAL_CACHEMAX") &&
+                !STARTS_WITH(pszNameValue, "GDAL_NUM_THREADS"))
+            {
+                constexpr const char *CONFIG_MARKER = "--config\n";
+                bRet &= CPL_TO_BOOL(
+                    CPLPipeWrite(handle, CONFIG_MARKER,
+                                 static_cast<int>(strlen(CONFIG_MARKER))));
+                char *pszEscaped = CPLEscapeString(pszNameValue, -1, CPLES_URL);
+                bRet &= CPL_TO_BOOL(CPLPipeWrite(
+                    handle, pszEscaped, static_cast<int>(strlen(pszEscaped))));
+                CPLFree(pszEscaped);
+                bRet &= CPL_TO_BOOL(CPLPipeWrite(handle, "\n", 1));
+            }
+        }
+    }
+    constexpr const char *END_CONFIG_MARKER = "END_CONFIG\n";
+    bRet &=
+        CPL_TO_BOOL(CPLPipeWrite(handle, END_CONFIG_MARKER,
+                                 static_cast<int>(strlen(END_CONFIG_MARKER))));
+}
+
+/************************************************************************/
+/*                        GenerateTilesForkMethod()                     */
+/************************************************************************/
+
+#ifdef FORK_ALLOWED
+
+namespace
+{
+struct ForkWorkStructure
+{
+    uint64_t nCacheMaxPerProcess = 0;
+    CPLStringList aosArgv{};
+    GDALDataset *poMemSrcDS{};
+};
+}  // namespace
+
+static CPL_FILE_HANDLE pipeIn = CPL_FILE_INVALID_HANDLE;
+static CPL_FILE_HANDLE pipeOut = CPL_FILE_INVALID_HANDLE;
+
+static int GenerateTilesForkMethod(CPL_FILE_HANDLE in, CPL_FILE_HANDLE out)
+{
+    pipeIn = in;
+    pipeOut = out;
+
+    const ForkWorkStructure *pWorkStructure = nullptr;
+    CPLPipeRead(in, &pWorkStructure, sizeof(pWorkStructure));
+
+    CPLSetConfigOption("GDAL_NUM_THREADS", "1");
+    GDALSetCacheMax64(pWorkStructure->nCacheMaxPerProcess);
+
+    GDALRasterTileAlgorithm alg;
+    if (pWorkStructure->poMemSrcDS)
+    {
+        auto *inputArg = alg.GetArg(GDAL_ARG_NAME_INPUT);
+        auto &val = inputArg->Get<std::vector<GDALArgDatasetValue>>();
+        val.resize(1);
+        val[0].Set(pWorkStructure->poMemSrcDS);
+    }
+    return alg.ParseCommandLineArguments(pWorkStructure->aosArgv) && alg.Run()
+               ? 0
+               : 1;
+}
+
+#endif  // FORK_ALLOWED
+
+/************************************************************************/
+/*          GDALRasterTileAlgorithm::GenerateBaseTilesSpawnMethod()     */
+/************************************************************************/
+
+bool GDALRasterTileAlgorithm::GenerateBaseTilesSpawnMethod(
+    int nBaseTilesPerCol, int nBaseTilesPerRow, int nMinTileX, int nMinTileY,
+    int nMaxTileX, int nMaxTileY, uint64_t nTotalTiles, uint64_t nBaseTiles,
+    GDALProgressFunc pfnProgress, void *pProgressData)
+{
+    if (m_parallelMethod == "spawn")
+    {
+        CPLAssert(!m_osGDALPath.empty());
+    }
+
+    const int nMaxJobCount = GetMaxChildCount(std::max(
+        1, static_cast<int>(std::min<uint64_t>(
+               m_numThreads, nBaseTiles / GetThresholdMinTilesPerJob()))));
+
+    double dfTilesYPerJob;
+    int nYOuterIterations;
+    double dfTilesXPerJob;
+    int nXOuterIterations;
+    ComputeJobChunkSize(nMaxJobCount, nBaseTilesPerCol, nBaseTilesPerRow,
+                        dfTilesYPerJob, nYOuterIterations, dfTilesXPerJob,
+                        nXOuterIterations);
+
+    CPLDebugOnly("gdal_raster_tile",
+                 "nYOuterIterations=%d, dfTilesYPerJob=%g, "
+                 "nXOuterIterations=%d, dfTilesXPerJob=%g",
+                 nYOuterIterations, dfTilesYPerJob, nXOuterIterations,
+                 dfTilesXPerJob);
+
+    std::vector<std::string> asCommandLines;
+    std::vector<CPLSpawnedProcess *> ahSpawnedProcesses;
+    std::vector<uint64_t> anRemainingTilesForProcess;
+
+    const uint64_t nCacheMaxPerProcess = GDALGetCacheMax64() / nMaxJobCount;
+
+    const auto poSrcDriver = m_poSrcDS->GetDriver();
+    const bool bIsMEMSource =
+        poSrcDriver && EQUAL(poSrcDriver->GetDescription(), "MEM");
+
+    int nLastYEndIncluded = nMinTileY - 1;
+
+#ifdef FORK_ALLOWED
+    std::vector<std::unique_ptr<ForkWorkStructure>> forkWorkStructures;
+#endif
+
+    bool bRet = true;
+    for (int iYOuterIter = 0; bRet && iYOuterIter < nYOuterIterations &&
+                              nLastYEndIncluded < nMaxTileY;
+         ++iYOuterIter)
+    {
+        const int iYStart = nLastYEndIncluded + 1;
+        const int iYEndIncluded =
+            iYOuterIter + 1 == nYOuterIterations
+                ? nMaxTileY
+                : std::max(
+                      iYStart,
+                      static_cast<int>(std::floor(
+                          nMinTileY + (iYOuterIter + 1) * dfTilesYPerJob - 1)));
+
+        nLastYEndIncluded = iYEndIncluded;
+
+        int nLastXEndIncluded = nMinTileX - 1;
+        for (int iXOuterIter = 0; bRet && iXOuterIter < nXOuterIterations &&
+                                  nLastXEndIncluded < nMaxTileX;
+             ++iXOuterIter)
+        {
+            const int iXStart = nLastXEndIncluded + 1;
+            const int iXEndIncluded =
+                iXOuterIter + 1 == nXOuterIterations
+                    ? nMaxTileX
+                    : std::max(iXStart,
+                               static_cast<int>(std::floor(
+                                   nMinTileX +
+                                   (iXOuterIter + 1) * dfTilesXPerJob - 1)));
+
+            nLastXEndIncluded = iXEndIncluded;
+
+            anRemainingTilesForProcess.push_back(
+                static_cast<uint64_t>(iYEndIncluded - iYStart + 1) *
+                (iXEndIncluded - iXStart + 1));
+
+            CPLStringList aosArgv;
+            if (m_parallelMethod == "spawn")
+            {
+                aosArgv.push_back(m_osGDALPath.c_str());
+                aosArgv.push_back("raster");
+                aosArgv.push_back("tile");
+                aosArgv.push_back("--config-options-in-stdin");
+                aosArgv.push_back("--config");
+                aosArgv.push_back("GDAL_NUM_THREADS=1");
+                aosArgv.push_back("--config");
+                aosArgv.push_back(
+                    CPLSPrintf("GDAL_CACHEMAX=%" PRIu64, nCacheMaxPerProcess));
+            }
+            aosArgv.push_back(
+                std::string("--").append(GDAL_ARG_NAME_NUM_THREADS).c_str());
+            aosArgv.push_back("1");
+            aosArgv.push_back("--min-x");
+            aosArgv.push_back(CPLSPrintf("%d", iXStart));
+            aosArgv.push_back("--max-x");
+            aosArgv.push_back(CPLSPrintf("%d", iXEndIncluded));
+            aosArgv.push_back("--min-y");
+            aosArgv.push_back(CPLSPrintf("%d", iYStart));
+            aosArgv.push_back("--max-y");
+            aosArgv.push_back(CPLSPrintf("%d", iYEndIncluded));
+            aosArgv.push_back("--webviewer");
+            aosArgv.push_back("none");
+            aosArgv.push_back(m_parallelMethod == "spawn" ? "--spawned"
+                                                          : "--forked");
+            if (!bIsMEMSource)
+            {
+                aosArgv.push_back("--input");
+                aosArgv.push_back(m_poSrcDS->GetDescription());
+            }
+            for (const auto &arg : GetArgs())
+            {
+                if (arg->IsExplicitlySet() && arg->GetName() != "min-x" &&
+                    arg->GetName() != "min-y" && arg->GetName() != "max-x" &&
+                    arg->GetName() != "max-y" && arg->GetName() != "min-zoom" &&
+                    arg->GetName() != "progress" &&
+                    arg->GetName() != "progress-forked" &&
+                    arg->GetName() != GDAL_ARG_NAME_INPUT &&
+                    arg->GetName() != GDAL_ARG_NAME_NUM_THREADS &&
+                    arg->GetName() != "webviewer" &&
+                    arg->GetName() != "parallel-method")
+                {
+                    if (!AddArgToArgv(arg.get(), aosArgv))
+                        return false;
+                }
+            }
+
+            std::string cmdLine;
+            for (const char *arg : aosArgv)
+            {
+                if (!cmdLine.empty())
+                    cmdLine += ' ';
+                CPLString sArg(arg);
+                if (sArg.find_first_of(" \"") != std::string::npos)
+                {
+                    cmdLine += '"';
+                    cmdLine += sArg.replaceAll('"', "\\\"");
+                    cmdLine += '"';
+                }
+                else
+                    cmdLine += sArg;
+            }
+            CPLDebugOnly("gdal_raster_tile", "%s %s",
+                         m_parallelMethod == "spawn" ? "Spawning" : "Forking",
+                         cmdLine.c_str());
+            asCommandLines.push_back(std::move(cmdLine));
+
+#ifdef FORK_ALLOWED
+            if (m_parallelMethod == "fork")
+            {
+                forkWorkStructures.push_back(
+                    std::make_unique<ForkWorkStructure>());
+                ForkWorkStructure *pData = forkWorkStructures.back().get();
+                pData->nCacheMaxPerProcess = nCacheMaxPerProcess;
+                pData->aosArgv = aosArgv;
+                if (bIsMEMSource)
+                    pData->poMemSrcDS = m_poSrcDS;
+            }
+            CPL_IGNORE_RET_VAL(aosArgv);
+#endif
+
+            CPLSpawnedProcess *hSpawnedProcess = CPLSpawnAsync(
+#ifdef FORK_ALLOWED
+                m_parallelMethod == "fork" ? GenerateTilesForkMethod :
+#endif
+                                           nullptr,
+                m_parallelMethod == "fork" ? nullptr : aosArgv.List(),
+                /* bCreateInputPipe = */ true,
+                /* bCreateOutputPipe = */ true,
+                /* bCreateErrorPipe = */ true, nullptr);
+            if (!hSpawnedProcess)
+            {
+                ReportError(CE_Failure, CPLE_AppDefined,
+                            "Spawning child gdal process '%s' failed",
+                            asCommandLines.back().c_str());
+                bRet = false;
+                break;
+            }
+
+            CPLDebugOnly("gdal_raster_tile",
+                         "Job for y in [%d,%d] and x in [%d,%d], "
+                         "run by process %" PRIu64,
+                         iYStart, iYEndIncluded, iXStart, iXEndIncluded,
+                         static_cast<uint64_t>(
+                             CPLSpawnAsyncGetChildProcessId(hSpawnedProcess)));
+
+            ahSpawnedProcesses.push_back(hSpawnedProcess);
+
+            if (m_parallelMethod == "spawn")
+            {
+                SendConfigOptions(hSpawnedProcess, bRet);
+            }
+
+#ifdef FORK_ALLOWED
+            else
+            {
+                ForkWorkStructure *pData = forkWorkStructures.back().get();
+                auto handle = CPLSpawnAsyncGetOutputFileHandle(hSpawnedProcess);
+                bRet &= CPL_TO_BOOL(CPLPipeWrite(
+                    handle, &pData, static_cast<int>(sizeof(pData))));
+            }
+#endif
+
+            if (!bRet)
+            {
+                ReportError(CE_Failure, CPLE_AppDefined,
+                            "Could not transmit config options to child gdal "
+                            "process '%s'",
+                            asCommandLines.back().c_str());
+                break;
+            }
+        }
+    }
+
+    uint64_t nCurTile = 0;
+    GetProgressForChildProcesses(bRet, ahSpawnedProcesses,
+                                 anRemainingTilesForProcess, nCurTile,
+                                 nTotalTiles, pfnProgress, pProgressData);
+
+    WaitForSpawnedProcesses(bRet, asCommandLines, ahSpawnedProcesses);
+
+    if (bRet && nCurTile != nBaseTiles)
+    {
+        bRet = false;
+        ReportError(CE_Failure, CPLE_AppDefined,
+                    "Not all tiles at max zoom level have been "
+                    "generated. Got %" PRIu64 ", expected %" PRIu64,
+                    nCurTile, nBaseTiles);
+    }
+
+    return bRet;
+}
+
+/************************************************************************/
+/*      GDALRasterTileAlgorithm::GenerateOverviewTilesSpawnMethod()     */
+/************************************************************************/
+
+bool GDALRasterTileAlgorithm::GenerateOverviewTilesSpawnMethod(
+    int iZ, int nOvrMinTileX, int nOvrMinTileY, int nOvrMaxTileX,
+    int nOvrMaxTileY, std::atomic<uint64_t> &nCurTile, uint64_t nTotalTiles,
+    GDALProgressFunc pfnProgress, void *pProgressData)
+{
+    if (m_parallelMethod == "spawn")
+    {
+        CPLAssert(!m_osGDALPath.empty());
+    }
+
+    const int nOvrTilesPerCol = nOvrMaxTileY - nOvrMinTileY + 1;
+    const int nOvrTilesPerRow = nOvrMaxTileX - nOvrMinTileX + 1;
+    const uint64_t nExpectedOvrTileCount =
+        static_cast<uint64_t>(nOvrTilesPerCol) * nOvrTilesPerRow;
+
+    const int nMaxJobCount = GetMaxChildCount(
+        std::max(1, static_cast<int>(std::min<uint64_t>(
+                        m_numThreads, nExpectedOvrTileCount /
+                                          GetThresholdMinTilesPerJob()))));
+
+    double dfTilesYPerJob;
+    int nYOuterIterations;
+    double dfTilesXPerJob;
+    int nXOuterIterations;
+    ComputeJobChunkSize(nMaxJobCount, nOvrTilesPerCol, nOvrTilesPerRow,
+                        dfTilesYPerJob, nYOuterIterations, dfTilesXPerJob,
+                        nXOuterIterations);
+
+    CPLDebugOnly("gdal_raster_tile",
+                 "z=%d, nYOuterIterations=%d, dfTilesYPerJob=%g, "
+                 "nXOuterIterations=%d, dfTilesXPerJob=%g",
+                 iZ, nYOuterIterations, dfTilesYPerJob, nXOuterIterations,
+                 dfTilesXPerJob);
+
+    std::vector<std::string> asCommandLines;
+    std::vector<CPLSpawnedProcess *> ahSpawnedProcesses;
+    std::vector<uint64_t> anRemainingTilesForProcess;
+
+#ifdef FORK_ALLOWED
+    std::vector<std::unique_ptr<ForkWorkStructure>> forkWorkStructures;
+#endif
+
+    const uint64_t nCacheMaxPerProcess = GDALGetCacheMax64() / nMaxJobCount;
+
+    const auto poSrcDriver = m_poSrcDS ? m_poSrcDS->GetDriver() : nullptr;
+    const bool bIsMEMSource =
+        poSrcDriver && EQUAL(poSrcDriver->GetDescription(), "MEM");
+
+    int nLastYEndIncluded = nOvrMinTileY - 1;
+    bool bRet = true;
+    for (int iYOuterIter = 0; bRet && iYOuterIter < nYOuterIterations &&
+                              nLastYEndIncluded < nOvrMaxTileY;
+         ++iYOuterIter)
+    {
+        const int iYStart = nLastYEndIncluded + 1;
+        const int iYEndIncluded =
+            iYOuterIter + 1 == nYOuterIterations
+                ? nOvrMaxTileY
+                : std::max(iYStart,
+                           static_cast<int>(std::floor(
+                               nOvrMinTileY +
+                               (iYOuterIter + 1) * dfTilesYPerJob - 1)));
+
+        nLastYEndIncluded = iYEndIncluded;
+
+        int nLastXEndIncluded = nOvrMinTileX - 1;
+        for (int iXOuterIter = 0; bRet && iXOuterIter < nXOuterIterations &&
+                                  nLastXEndIncluded < nOvrMaxTileX;
+             ++iXOuterIter)
+        {
+            const int iXStart = nLastXEndIncluded + 1;
+            const int iXEndIncluded =
+                iXOuterIter + 1 == nXOuterIterations
+                    ? nOvrMaxTileX
+                    : std::max(iXStart,
+                               static_cast<int>(std::floor(
+                                   nOvrMinTileX +
+                                   (iXOuterIter + 1) * dfTilesXPerJob - 1)));
+
+            nLastXEndIncluded = iXEndIncluded;
+
+            anRemainingTilesForProcess.push_back(
+                static_cast<uint64_t>(iYEndIncluded - iYStart + 1) *
+                (iXEndIncluded - iXStart + 1));
+
+            CPLStringList aosArgv;
+            if (m_parallelMethod == "spawn")
+            {
+                aosArgv.push_back(m_osGDALPath.c_str());
+                aosArgv.push_back("raster");
+                aosArgv.push_back("tile");
+                aosArgv.push_back("--config-options-in-stdin");
+                aosArgv.push_back("--config");
+                aosArgv.push_back("GDAL_NUM_THREADS=1");
+                aosArgv.push_back("--config");
+                aosArgv.push_back(
+                    CPLSPrintf("GDAL_CACHEMAX=%" PRIu64, nCacheMaxPerProcess));
+            }
+            aosArgv.push_back(
+                std::string("--").append(GDAL_ARG_NAME_NUM_THREADS).c_str());
+            aosArgv.push_back("1");
+            aosArgv.push_back("--ovr-zoom-level");
+            aosArgv.push_back(CPLSPrintf("%d", iZ));
+            aosArgv.push_back("--ovr-min-x");
+            aosArgv.push_back(CPLSPrintf("%d", iXStart));
+            aosArgv.push_back("--ovr-max-x");
+            aosArgv.push_back(CPLSPrintf("%d", iXEndIncluded));
+            aosArgv.push_back("--ovr-min-y");
+            aosArgv.push_back(CPLSPrintf("%d", iYStart));
+            aosArgv.push_back("--ovr-max-y");
+            aosArgv.push_back(CPLSPrintf("%d", iYEndIncluded));
+            aosArgv.push_back("--webviewer");
+            aosArgv.push_back("none");
+            aosArgv.push_back(m_parallelMethod == "spawn" ? "--spawned"
+                                                          : "--forked");
+            if (!bIsMEMSource)
+            {
+                aosArgv.push_back("--input");
+                aosArgv.push_back(m_inputDataset[0].GetName().c_str());
+            }
+            for (const auto &arg : GetArgs())
+            {
+                if (arg->IsExplicitlySet() && arg->GetName() != "progress" &&
+                    arg->GetName() != "progress-forked" &&
+                    arg->GetName() != GDAL_ARG_NAME_INPUT &&
+                    arg->GetName() != GDAL_ARG_NAME_NUM_THREADS &&
+                    arg->GetName() != "webviewer" &&
+                    arg->GetName() != "parallel-method")
+                {
+                    if (!AddArgToArgv(arg.get(), aosArgv))
+                        return false;
+                }
+            }
+
+            std::string cmdLine;
+            for (const char *arg : aosArgv)
+            {
+                if (!cmdLine.empty())
+                    cmdLine += ' ';
+                CPLString sArg(arg);
+                if (sArg.find_first_of(" \"") != std::string::npos)
+                {
+                    cmdLine += '"';
+                    cmdLine += sArg.replaceAll('"', "\\\"");
+                    cmdLine += '"';
+                }
+                else
+                    cmdLine += sArg;
+            }
+            CPLDebugOnly("gdal_raster_tile", "%s %s",
+                         m_parallelMethod == "spawn" ? "Spawning" : "Forking",
+                         cmdLine.c_str());
+            asCommandLines.push_back(std::move(cmdLine));
+
+#ifdef FORK_ALLOWED
+            if (m_parallelMethod == "fork")
+            {
+                forkWorkStructures.push_back(
+                    std::make_unique<ForkWorkStructure>());
+                ForkWorkStructure *pData = forkWorkStructures.back().get();
+                pData->nCacheMaxPerProcess = nCacheMaxPerProcess;
+                pData->aosArgv = aosArgv;
+                if (bIsMEMSource)
+                    pData->poMemSrcDS = m_poSrcDS;
+            }
+            CPL_IGNORE_RET_VAL(aosArgv);
+#endif
+
+            CPLSpawnedProcess *hSpawnedProcess = CPLSpawnAsync(
+#ifdef FORK_ALLOWED
+                m_parallelMethod == "fork" ? GenerateTilesForkMethod :
+#endif
+                                           nullptr,
+                m_parallelMethod == "fork" ? nullptr : aosArgv.List(),
+                /* bCreateInputPipe = */ true,
+                /* bCreateOutputPipe = */ true,
+                /* bCreateErrorPipe = */ true, nullptr);
+            if (!hSpawnedProcess)
+            {
+                ReportError(CE_Failure, CPLE_AppDefined,
+                            "Spawning child gdal process '%s' failed",
+                            asCommandLines.back().c_str());
+                bRet = false;
+                break;
+            }
+
+            CPLDebugOnly("gdal_raster_tile",
+                         "Job for z = %d, y in [%d,%d] and x in [%d,%d], "
+                         "run by process %" PRIu64,
+                         iZ, iYStart, iYEndIncluded, iXStart, iXEndIncluded,
+                         static_cast<uint64_t>(
+                             CPLSpawnAsyncGetChildProcessId(hSpawnedProcess)));
+
+            ahSpawnedProcesses.push_back(hSpawnedProcess);
+
+            if (m_parallelMethod == "spawn")
+            {
+                SendConfigOptions(hSpawnedProcess, bRet);
+            }
+
+#ifdef FORK_ALLOWED
+            else
+            {
+                ForkWorkStructure *pData = forkWorkStructures.back().get();
+                auto handle = CPLSpawnAsyncGetOutputFileHandle(hSpawnedProcess);
+                bRet &= CPL_TO_BOOL(CPLPipeWrite(
+                    handle, &pData, static_cast<int>(sizeof(pData))));
+            }
+#endif
+            if (!bRet)
+            {
+                ReportError(CE_Failure, CPLE_AppDefined,
+                            "Could not transmit config options to child gdal "
+                            "process '%s'",
+                            asCommandLines.back().c_str());
+                break;
+            }
+        }
+    }
+
+    uint64_t nCurTileLocal = nCurTile;
+    GetProgressForChildProcesses(bRet, ahSpawnedProcesses,
+                                 anRemainingTilesForProcess, nCurTileLocal,
+                                 nTotalTiles, pfnProgress, pProgressData);
+
+    WaitForSpawnedProcesses(bRet, asCommandLines, ahSpawnedProcesses);
+
+    if (bRet && nCurTileLocal - nCurTile != nExpectedOvrTileCount)
+    {
+        bRet = false;
+        ReportError(CE_Failure, CPLE_AppDefined,
+                    "Not all tiles at zoom level %d have been "
+                    "generated. Got %" PRIu64 ", expected %" PRIu64,
+                    iZ, nCurTileLocal - nCurTile, nExpectedOvrTileCount);
+    }
+
+    nCurTile = nCurTileLocal;
+
+    return bRet;
+}
+
+/************************************************************************/
 /*                  GDALRasterTileAlgorithm::RunImpl()                  */
 /************************************************************************/
 
 bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                                       void *pProgressData)
 {
-    auto poSrcDS = m_dataset.GetDatasetRef();
-    CPLAssert(poSrcDS);
-    const int nSrcWidth = poSrcDS->GetRasterXSize();
-    const int nSrcHeight = poSrcDS->GetRasterYSize();
-    if (poSrcDS->GetRasterCount() == 0 || nSrcWidth == 0 || nSrcHeight == 0)
+    GDALPipelineStepRunContext stepCtxt;
+    stepCtxt.m_pfnProgress = pfnProgress;
+    stepCtxt.m_pProgressData = pProgressData;
+    return RunStep(stepCtxt);
+}
+
+/************************************************************************/
+/*                  GDALRasterTileAlgorithm::RunStep()                  */
+/************************************************************************/
+
+bool GDALRasterTileAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)
+{
+    auto pfnProgress = ctxt.m_pfnProgress;
+    auto pProgressData = ctxt.m_pProgressData;
+    CPLAssert(m_inputDataset.size() == 1);
+    m_poSrcDS = m_inputDataset[0].GetDatasetRef();
+    CPLAssert(m_poSrcDS);
+
+    const int nSrcWidth = m_poSrcDS->GetRasterXSize();
+    const int nSrcHeight = m_poSrcDS->GetRasterYSize();
+    if (m_poSrcDS->GetRasterCount() == 0 || nSrcWidth == 0 || nSrcHeight == 0)
     {
         ReportError(CE_Failure, CPLE_AppDefined, "Invalid source dataset");
         return false;
     }
+
+    const bool bIsNamedSource = m_poSrcDS->GetDescription()[0] != 0;
+    auto poSrcDriver = m_poSrcDS->GetDriver();
+    const bool bIsMEMSource =
+        poSrcDriver && EQUAL(poSrcDriver->GetDescription(), "MEM");
+    m_bIsNamedNonMemSrcDS = bIsNamedSource && !bIsMEMSource;
+    const bool bSrcIsFineForFork = bIsNamedSource || bIsMEMSource;
+
+    if (m_parallelMethod == "spawn")
+    {
+        const char *pszErrorMsg = "";
+        if (!IsCompatibleOfSpawn(pszErrorMsg))
+        {
+            if (pszErrorMsg[0])
+                ReportError(CE_Failure, CPLE_AppDefined, "%s", pszErrorMsg);
+            return false;
+        }
+    }
+#ifdef FORK_ALLOWED
+    else if (m_parallelMethod == "fork")
+    {
+        if (!bSrcIsFineForFork)
+        {
+            ReportError(CE_Failure, CPLE_AppDefined,
+                        "Unnamed non-MEM source are not supported "
+                        "with fork parallelization method");
+            return false;
+        }
+        if (cpl::starts_with(m_output, "/vsimem/"))
+        {
+            ReportError(CE_Failure, CPLE_AppDefined,
+                        "/vsimem/ output directory not supported with fork "
+                        "parallelization method");
+            return false;
+        }
+    }
+#endif
 
     if (m_resampling == "near")
         m_resampling = "nearest";
@@ -2106,7 +4413,7 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         }
     }
 
-    if (poSrcDS->GetRasterBand(1)->GetColorInterpretation() ==
+    if (m_poSrcDS->GetRasterBand(1)->GetColorInterpretation() ==
             GCI_PaletteIndex &&
         ((m_resampling != "nearest" && m_resampling != "mode") ||
          (m_overviewResampling != "nearest" && m_overviewResampling != "mode")))
@@ -2119,120 +4426,42 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         return false;
     }
 
-    const auto eSrcDT = poSrcDS->GetRasterBand(1)->GetRasterDataType();
-    auto poDstDriver =
-        GetGDALDriverManager()->GetDriverByName(m_outputFormat.c_str());
-    if (!poDstDriver)
+    const auto eSrcDT = m_poSrcDS->GetRasterBand(1)->GetRasterDataType();
+    m_poDstDriver = GetGDALDriverManager()->GetDriverByName(m_format.c_str());
+    if (!m_poDstDriver)
     {
         ReportError(CE_Failure, CPLE_AppDefined,
                     "Invalid value for argument 'output-format'. Driver '%s' "
                     "does not exist",
-                    m_outputFormat.c_str());
+                    m_format.c_str());
         return false;
     }
 
-    if (m_outputFormat == "PNG")
-    {
-        if (poSrcDS->GetRasterCount() > 4)
-        {
-            ReportError(CE_Failure, CPLE_NotSupported,
-                        "Only up to 4 bands supported for PNG.");
-            return false;
-        }
-        if (eSrcDT != GDT_Byte && eSrcDT != GDT_UInt16)
-        {
-            ReportError(CE_Failure, CPLE_NotSupported,
-                        "Only Byte and UInt16 data types supported for PNG.");
-            return false;
-        }
-    }
-    else if (m_outputFormat == "JPEG")
-    {
-        if (poSrcDS->GetRasterCount() > 4)
-        {
-            ReportError(
-                CE_Failure, CPLE_NotSupported,
-                "Only up to 4 bands supported for JPEG (with alpha ignored).");
-            return false;
-        }
-        const bool bUInt16Supported = strstr(
-            poDstDriver->GetMetadataItem(GDAL_DMD_CREATIONDATATYPES), "UInt16");
-        if (eSrcDT != GDT_Byte && !(eSrcDT == GDT_UInt16 && bUInt16Supported))
-        {
-            ReportError(
-                CE_Failure, CPLE_NotSupported,
-                bUInt16Supported
-                    ? "Only Byte and UInt16 data types supported for JPEG."
-                    : "Only Byte data type supported for JPEG.");
-            return false;
-        }
-        if (eSrcDT == GDT_UInt16)
-        {
-            if (const char *pszNBITS =
-                    poSrcDS->GetRasterBand(1)->GetMetadataItem(
-                        "NBITS", "IMAGE_STRUCTURE"))
-            {
-                if (atoi(pszNBITS) > 12)
-                {
-                    ReportError(CE_Failure, CPLE_NotSupported,
-                                "JPEG output only supported up to 12 bits");
-                    return false;
-                }
-            }
-            else
-            {
-                double adfMinMax[2] = {0, 0};
-                poSrcDS->GetRasterBand(1)->ComputeRasterMinMax(
-                    /* bApproxOK = */ true, adfMinMax);
-                if (adfMinMax[1] >= (1 << 12))
-                {
-                    ReportError(CE_Failure, CPLE_NotSupported,
-                                "JPEG output only supported up to 12 bits");
-                    return false;
-                }
-            }
-        }
-    }
-    else if (m_outputFormat == "WEBP")
-    {
-        if (poSrcDS->GetRasterCount() != 3 && poSrcDS->GetRasterCount() != 4)
-        {
-            ReportError(CE_Failure, CPLE_NotSupported,
-                        "Only 3 or 4 bands supported for WEBP.");
-            return false;
-        }
-        if (eSrcDT != GDT_Byte)
-        {
-            ReportError(CE_Failure, CPLE_NotSupported,
-                        "Only Byte data type supported for WEBP.");
-            return false;
-        }
-    }
+    if (!ValidateOutputFormat(eSrcDT))
+        return false;
 
     const char *pszExtensions =
-        poDstDriver->GetMetadataItem(GDAL_DMD_EXTENSIONS);
+        m_poDstDriver->GetMetadataItem(GDAL_DMD_EXTENSIONS);
     CPLAssert(pszExtensions && pszExtensions[0] != 0);
     const CPLStringList aosExtensions(
         CSLTokenizeString2(pszExtensions, " ", 0));
     const char *pszExtension = aosExtensions[0];
-    std::array<double, 6> adfSrcGeoTransform;
-    const bool bHasSrcGT =
-        poSrcDS->GetGeoTransform(adfSrcGeoTransform.data()) == CE_None;
-    const bool bHasNorthUpSrcGT = bHasSrcGT && adfSrcGeoTransform[2] == 0 &&
-                                  adfSrcGeoTransform[4] == 0 &&
-                                  adfSrcGeoTransform[5] < 0;
+    GDALGeoTransform srcGT;
+    const bool bHasSrcGT = m_poSrcDS->GetGeoTransform(srcGT) == CE_None;
+    const bool bHasNorthUpSrcGT =
+        bHasSrcGT && srcGT[2] == 0 && srcGT[4] == 0 && srcGT[5] < 0;
     OGRSpatialReference oSRS_TMS;
 
     if (m_tilingScheme == "raster")
     {
-        if (const auto poSRS = poSrcDS->GetSpatialRef())
+        if (const auto poSRS = m_poSrcDS->GetSpatialRef())
             oSRS_TMS = *poSRS;
     }
     else
     {
-        if (!bHasSrcGT && poSrcDS->GetGCPCount() == 0 &&
-            poSrcDS->GetMetadata("GEOLOCATION") == nullptr &&
-            poSrcDS->GetMetadata("RPC") == nullptr)
+        if (!bHasSrcGT && m_poSrcDS->GetGCPCount() == 0 &&
+            m_poSrcDS->GetMetadata("GEOLOCATION") == nullptr &&
+            m_poSrcDS->GetMetadata("RPC") == nullptr)
         {
             ReportError(CE_Failure, CPLE_NotSupported,
                         "Ungeoreferenced datasets are not supported, unless "
@@ -2240,10 +4469,10 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
             return false;
         }
 
-        if (poSrcDS->GetMetadata("GEOLOCATION") == nullptr &&
-            poSrcDS->GetMetadata("RPC") == nullptr &&
-            poSrcDS->GetSpatialRef() == nullptr &&
-            poSrcDS->GetGCPSpatialRef() == nullptr)
+        if (m_poSrcDS->GetMetadata("GEOLOCATION") == nullptr &&
+            m_poSrcDS->GetMetadata("RPC") == nullptr &&
+            m_poSrcDS->GetSpatialRef() == nullptr &&
+            m_poSrcDS->GetGCPSpatialRef() == nullptr)
         {
             ReportError(CE_Failure, CPLE_NotSupported,
                         "Ungeoreferenced datasets are not supported, unless "
@@ -2254,7 +4483,7 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
 
     if (m_copySrcMetadata)
     {
-        CPLStringList aosMD(CSLDuplicate(poSrcDS->GetMetadata()));
+        CPLStringList aosMD(CSLDuplicate(m_poSrcDS->GetMetadata()));
         const CPLStringList aosNewMD(m_metadata);
         for (const auto [key, value] : cpl::IterateNameValue(aosNewMD))
         {
@@ -2263,7 +4492,23 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         m_metadata = aosMD;
     }
 
-    std::array<double, 6> adfSrcGeoTransformModif{0, 1, 0, 0, 0, -1};
+    std::vector<BandMetadata> aoBandMetadata;
+    for (int i = 1; i <= m_poSrcDS->GetRasterCount(); ++i)
+    {
+        auto poBand = m_poSrcDS->GetRasterBand(i);
+        BandMetadata bm;
+        bm.osDescription = poBand->GetDescription();
+        bm.eDT = poBand->GetRasterDataType();
+        bm.eColorInterp = poBand->GetColorInterpretation();
+        if (const char *pszCenterWavelength =
+                poBand->GetMetadataItem("CENTRAL_WAVELENGTH_UM", "IMAGERY"))
+            bm.osCenterWaveLength = pszCenterWavelength;
+        if (const char *pszFWHM = poBand->GetMetadataItem("FWHM_UM", "IMAGERY"))
+            bm.osFWHM = pszFWHM;
+        aoBandMetadata.emplace_back(std::move(bm));
+    }
+
+    GDALGeoTransform srcGTModif{0, 1, 0, 0, 0, -1};
 
     if (m_tilingScheme == "mercator")
         m_tilingScheme = "WebMercatorQuad";
@@ -2280,7 +4525,7 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         }
         if (bHasNorthUpSrcGT)
         {
-            adfSrcGeoTransformModif = adfSrcGeoTransform;
+            srcGTModif = srcGT;
         }
     }
 
@@ -2288,8 +4533,7 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         m_tilingScheme == "raster"
             ? gdal::TileMatrixSet::createRaster(
                   nSrcWidth, nSrcHeight, m_tileSize, 1 + m_maxZoomLevel,
-                  adfSrcGeoTransformModif[0], adfSrcGeoTransformModif[3],
-                  adfSrcGeoTransformModif[1], -adfSrcGeoTransformModif[5],
+                  srcGTModif[0], srcGTModif[3], srcGTModif[1], -srcGTModif[5],
                   oSRS_TMS.IsEmpty() ? std::string() : oSRS_TMS.exportToWkt())
             : gdal::TileMatrixSet::parse(
                   m_mapTileMatrixIdentifierToScheme[m_tilingScheme].c_str());
@@ -2331,12 +4575,11 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
     bool bEPSG3857Adjust = false;
     if (nEPSGCode == 3857 && bHasNorthUpSrcGT)
     {
-        const auto poSrcSRS = poSrcDS->GetSpatialRef();
+        const auto poSrcSRS = m_poSrcDS->GetSpatialRef();
         if (poSrcSRS && poSrcSRS->IsGeographic())
         {
-            double maxLat = adfSrcGeoTransform[3];
-            double minLat =
-                adfSrcGeoTransform[3] + nSrcHeight * adfSrcGeoTransform[5];
+            double maxLat = srcGT[3];
+            double minLat = srcGT[3] + nSrcHeight * srcGT[5];
             // Corresponds to the latitude of below MAX_GM
             constexpr double MAX_LAT = 85.0511287798066;
             bool bModified = false;
@@ -2356,17 +4599,15 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                 aosOptions.AddString("-of");
                 aosOptions.AddString("VRT");
                 aosOptions.AddString("-projwin");
-                aosOptions.AddString(
-                    CPLSPrintf("%.17g", adfSrcGeoTransform[0]));
+                aosOptions.AddString(CPLSPrintf("%.17g", srcGT[0]));
                 aosOptions.AddString(CPLSPrintf("%.17g", maxLat));
                 aosOptions.AddString(
-                    CPLSPrintf("%.17g", adfSrcGeoTransform[0] +
-                                            nSrcWidth * adfSrcGeoTransform[1]));
+                    CPLSPrintf("%.17g", srcGT[0] + nSrcWidth * srcGT[1]));
                 aosOptions.AddString(CPLSPrintf("%.17g", minLat));
                 auto psOptions =
                     GDALTranslateOptionsNew(aosOptions.List(), nullptr);
                 poTmpDS.reset(GDALDataset::FromHandle(GDALTranslate(
-                    "", GDALDataset::ToHandle(poSrcDS), psOptions, nullptr)));
+                    "", GDALDataset::ToHandle(m_poSrcDS), psOptions, nullptr)));
                 GDALTranslateOptionsFree(psOptions);
                 if (poTmpDS)
                 {
@@ -2379,7 +4620,7 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         }
     }
 
-    std::array<double, 6> adfDstGeoTransform;
+    GDALGeoTransform dstGT;
     double adfExtent[4];
     int nXSize, nYSize;
 
@@ -2389,20 +4630,18 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         bSuggestOK = true;
         nXSize = nSrcWidth;
         nYSize = nSrcHeight;
-        adfDstGeoTransform = adfSrcGeoTransformModif;
-        adfExtent[0] = adfDstGeoTransform[0];
-        adfExtent[1] =
-            adfDstGeoTransform[3] + nSrcHeight * adfDstGeoTransform[5];
-        adfExtent[2] =
-            adfDstGeoTransform[0] + nSrcWidth * adfDstGeoTransform[1];
-        adfExtent[3] = adfDstGeoTransform[3];
+        dstGT = srcGTModif;
+        adfExtent[0] = dstGT[0];
+        adfExtent[1] = dstGT[3] + nSrcHeight * dstGT[5];
+        adfExtent[2] = dstGT[0] + nSrcWidth * dstGT[1];
+        adfExtent[3] = dstGT[3];
     }
     else
     {
         if (!hTransformArg)
         {
             hTransformArg.reset(GDALCreateGenImgProjTransformer2(
-                poSrcDS, nullptr, aosTO.List()));
+                m_poSrcDS, nullptr, aosTO.List()));
         }
         if (!hTransformArg)
         {
@@ -2411,11 +4650,11 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
         bSuggestOK =
             (GDALSuggestedWarpOutput2(
-                 poSrcDS,
+                 m_poSrcDS,
                  static_cast<GDALTransformerInfo *>(hTransformArg.get())
                      ->pfnTransform,
-                 hTransformArg.get(), adfDstGeoTransform.data(), &nXSize,
-                 &nYSize, adfExtent, 0) == CE_None);
+                 hTransformArg.get(), dstGT.data(), &nXSize, &nYSize, adfExtent,
+                 0) == CE_None);
     }
     if (!bSuggestOK)
     {
@@ -2431,9 +4670,8 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         constexpr double SPHERICAL_RADIUS = 6378137.0;
         constexpr double MAX_GM =
             SPHERICAL_RADIUS * M_PI;  // 20037508.342789244
-        double maxNorthing = adfDstGeoTransform[3];
-        double minNorthing =
-            adfDstGeoTransform[3] + adfDstGeoTransform[5] * nYSize;
+        double maxNorthing = dstGT[3];
+        double minNorthing = dstGT[3] + dstGT[5] * nYSize;
         bool bChanged = false;
         if (maxNorthing > MAX_GM)
         {
@@ -2447,10 +4685,9 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         }
         if (bChanged)
         {
-            adfDstGeoTransform[3] = maxNorthing;
-            nYSize = int(
-                (maxNorthing - minNorthing) / (-adfDstGeoTransform[5]) + 0.5);
-            adfExtent[1] = maxNorthing + nYSize * adfDstGeoTransform[5];
+            dstGT[3] = maxNorthing;
+            nYSize = int((maxNorthing - minNorthing) / (-dstGT[5]) + 0.5);
+            adfExtent[1] = maxNorthing + nYSize * dstGT[5];
             adfExtent[3] = maxNorthing;
         }
     }
@@ -2469,7 +4706,7 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
     }
     else
     {
-        const double dfComputedRes = adfDstGeoTransform[1];
+        const double dfComputedRes = dstGT[1];
         double dfPrevRes = 0.0;
         double dfRes = 0.0;
         constexpr double EPSILON = 1e-8;
@@ -2597,16 +4834,14 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         return false;
     }
 
-    adfDstGeoTransform[0] = tileMatrix.mTopLeftX + nMinTileX *
-                                                       tileMatrix.mResX *
-                                                       tileMatrix.mTileWidth;
-    adfDstGeoTransform[1] = tileMatrix.mResX;
-    adfDstGeoTransform[2] = 0;
-    adfDstGeoTransform[3] = tileMatrix.mTopLeftY - nMinTileY *
-                                                       tileMatrix.mResY *
-                                                       tileMatrix.mTileHeight;
-    adfDstGeoTransform[4] = 0;
-    adfDstGeoTransform[5] = -tileMatrix.mResY;
+    dstGT[0] = tileMatrix.mTopLeftX +
+               nMinTileX * tileMatrix.mResX * tileMatrix.mTileWidth;
+    dstGT[1] = tileMatrix.mResX;
+    dstGT[2] = 0;
+    dstGT[3] = tileMatrix.mTopLeftY -
+               nMinTileY * tileMatrix.mResY * tileMatrix.mTileHeight;
+    dstGT[4] = 0;
+    dstGT[5] = -tileMatrix.mResY;
 
     /* -------------------------------------------------------------------- */
     /*      Setup warp options.                                             */
@@ -2622,18 +4857,22 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
 
     int bHasSrcNoData = false;
     const double dfSrcNoDataValue =
-        poSrcDS->GetRasterBand(1)->GetNoDataValue(&bHasSrcNoData);
+        m_poSrcDS->GetRasterBand(1)->GetNoDataValue(&bHasSrcNoData);
 
     const bool bLastSrcBandIsAlpha =
-        (poSrcDS->GetRasterCount() > 1 &&
-         poSrcDS->GetRasterBand(poSrcDS->GetRasterCount())
+        (m_poSrcDS->GetRasterCount() > 1 &&
+         m_poSrcDS->GetRasterBand(m_poSrcDS->GetRasterCount())
                  ->GetColorInterpretation() == GCI_AlphaBand);
 
-    const bool bOutputSupportsAlpha = !EQUAL(m_outputFormat.c_str(), "JPEG");
-    const bool bOutputSupportsNoData = EQUAL(m_outputFormat.c_str(), "GTiff");
+    const bool bOutputSupportsAlpha = !EQUAL(m_format.c_str(), "JPEG");
+    const bool bOutputSupportsNoData = EQUAL(m_format.c_str(), "GTiff");
     const bool bDstNoDataSpecified = GetArg("dst-nodata")->IsExplicitlySet();
-    const GDALColorTable *poColorTable =
-        poSrcDS->GetRasterBand(1)->GetColorTable();
+    auto poColorTable = std::unique_ptr<GDALColorTable>(
+        [this]()
+        {
+            auto poCT = m_poSrcDS->GetRasterBand(1)->GetColorTable();
+            return poCT ? poCT->Clone() : nullptr;
+        }());
 
     const bool bUserAskedForAlpha = m_addalpha;
     if (!m_noalpha && !m_addalpha)
@@ -2643,11 +4882,11 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
     }
     m_addalpha &= bOutputSupportsAlpha;
 
-    psWO->nBandCount = poSrcDS->GetRasterCount();
+    psWO->nBandCount = m_poSrcDS->GetRasterCount();
     if (bLastSrcBandIsAlpha)
     {
         --psWO->nBandCount;
-        psWO->nSrcAlphaBand = poSrcDS->GetRasterCount();
+        psWO->nSrcAlphaBand = m_poSrcDS->GetRasterCount();
     }
 
     if (bHasSrcNoData)
@@ -2698,9 +4937,18 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         psWO->nDstAlphaBand ? psWO->nDstAlphaBand : psWO->nBandCount;
 
     std::vector<GByte> dstBuffer;
-    const uint64_t dstBufferSize =
-        static_cast<uint64_t>(tileMatrix.mTileWidth) * tileMatrix.mTileHeight *
-        nDstBands * GDALGetDataTypeSizeBytes(psWO->eWorkingDataType);
+    const bool bIsPNGOutput = EQUAL(pszExtension, "png");
+    uint64_t dstBufferSize =
+        (static_cast<uint64_t>(tileMatrix.mTileWidth) *
+             // + 1 for PNG filter type / row byte
+             nDstBands * GDALGetDataTypeSizeBytes(psWO->eWorkingDataType) +
+         (bIsPNGOutput ? 1 : 0)) *
+        tileMatrix.mTileHeight;
+    if (bIsPNGOutput)
+    {
+        // Security margin for deflate compression
+        dstBufferSize += dstBufferSize / 10;
+    }
     const uint64_t nUsableRAM =
         std::min<uint64_t>(INT_MAX, CPLGetUsablePhysicalRAM() / 4);
     if (dstBufferSize <=
@@ -2726,10 +4974,10 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         (nMaxTileX - nMinTileX + 1) * tileMatrix.mTileWidth,
         (nMaxTileY - nMinTileY + 1) * tileMatrix.mTileHeight, nDstBands,
         tileMatrix.mTileWidth, tileMatrix.mTileHeight, psWO->eWorkingDataType,
-        adfDstGeoTransform.data(), oSRS_TMS, dstBuffer);
+        dstGT, oSRS_TMS, dstBuffer);
     CPL_IGNORE_RET_VAL(oFakeMaxZoomDS.GetSpatialRef());
 
-    psWO->hSrcDS = GDALDataset::ToHandle(poSrcDS);
+    psWO->hSrcDS = GDALDataset::ToHandle(m_poSrcDS);
     psWO->hDstDS = GDALDataset::ToHandle(&oFakeMaxZoomDS);
 
     std::unique_ptr<GDALDataset> tmpSrcDS;
@@ -2739,14 +4987,12 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         aosOptions.AddString("-of");
         aosOptions.AddString("VRT");
         aosOptions.AddString("-a_ullr");
-        aosOptions.AddString(CPLSPrintf("%.17g", adfSrcGeoTransformModif[0]));
-        aosOptions.AddString(CPLSPrintf("%.17g", adfSrcGeoTransformModif[3]));
+        aosOptions.AddString(CPLSPrintf("%.17g", srcGTModif[0]));
+        aosOptions.AddString(CPLSPrintf("%.17g", srcGTModif[3]));
         aosOptions.AddString(
-            CPLSPrintf("%.17g", adfSrcGeoTransformModif[0] +
-                                    nSrcWidth * adfSrcGeoTransformModif[1]));
+            CPLSPrintf("%.17g", srcGTModif[0] + nSrcWidth * srcGTModif[1]));
         aosOptions.AddString(
-            CPLSPrintf("%.17g", adfSrcGeoTransformModif[3] +
-                                    nSrcHeight * adfSrcGeoTransformModif[5]));
+            CPLSPrintf("%.17g", srcGTModif[3] + nSrcHeight * srcGTModif[5]));
         if (oSRS_TMS.IsEmpty())
         {
             aosOptions.AddString("-a_srs");
@@ -2757,13 +5003,13 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
             GDALTranslateOptionsNew(aosOptions.List(), nullptr);
 
         tmpSrcDS.reset(GDALDataset::FromHandle(GDALTranslate(
-            "", GDALDataset::ToHandle(poSrcDS), psOptions, nullptr)));
+            "", GDALDataset::ToHandle(m_poSrcDS), psOptions, nullptr)));
         GDALTranslateOptionsFree(psOptions);
         if (!tmpSrcDS)
             return false;
     }
     hTransformArg.reset(GDALCreateGenImgProjTransformer2(
-        tmpSrcDS ? tmpSrcDS.get() : poSrcDS, &oFakeMaxZoomDS, aosTO.List()));
+        tmpSrcDS ? tmpSrcDS.get() : m_poSrcDS, &oFakeMaxZoomDS, aosTO.List()));
     CPLAssert(hTransformArg);
 
     /* -------------------------------------------------------------------- */
@@ -2779,9 +5025,11 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
     /* -------------------------------------------------------------------- */
     /*      Determine total number of tiles                                 */
     /* -------------------------------------------------------------------- */
-    uint64_t nTotalTiles = static_cast<uint64_t>(nMaxTileY - nMinTileY + 1) *
-                           (nMaxTileX - nMinTileX + 1);
-    const uint64_t nBaseTiles = nTotalTiles;
+    const int nBaseTilesPerRow = nMaxTileX - nMinTileX + 1;
+    const int nBaseTilesPerCol = nMaxTileY - nMinTileY + 1;
+    const uint64_t nBaseTiles =
+        static_cast<uint64_t>(nBaseTilesPerCol) * nBaseTilesPerRow;
+    uint64_t nTotalTiles = nBaseTiles;
     std::atomic<uint64_t> nCurTile = 0;
     bool bRet = true;
 
@@ -2816,7 +5064,7 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         [this](const gdal::TileMatrixSet::TileMatrix &oTM)
     {
         CPLStringList aosCreationOptions(m_creationOptions);
-        if (m_outputFormat == "GTiff")
+        if (m_format == "GTiff")
         {
             if (aosCreationOptions.FetchNameValue("TILED") == nullptr &&
                 aosCreationOptions.FetchNameValue("BLOCKYSIZE") == nullptr)
@@ -2834,7 +5082,7 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
             if (aosCreationOptions.FetchNameValue("COMPRESS") == nullptr)
                 aosCreationOptions.SetNameValue("COMPRESS", "LZW");
         }
-        else if (m_outputFormat == "COG")
+        else if (m_format == "COG")
         {
             if (aosCreationOptions.FetchNameValue("OVERVIEW_RESAMPLING") ==
                 nullptr)
@@ -2852,14 +5100,12 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
         return aosCreationOptions;
     };
 
-    VSIMkdir(m_outputDirectory.c_str(), 0755);
+    VSIMkdir(m_output.c_str(), 0755);
     VSIStatBufL sStat;
-    if (VSIStatL(m_outputDirectory.c_str(), &sStat) != 0 ||
-        !VSI_ISDIR(sStat.st_mode))
+    if (VSIStatL(m_output.c_str(), &sStat) != 0 || !VSI_ISDIR(sStat.st_mode))
     {
         ReportError(CE_Failure, CPLE_FileIO,
-                    "Cannot create output directory %s",
-                    m_outputDirectory.c_str());
+                    "Cannot create output directory %s", m_output.c_str());
         return false;
     }
 
@@ -2899,23 +5145,151 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
     }
 
     if (m_title.empty())
-        m_title = CPLGetFilename(m_dataset.GetName().c_str());
+        m_title = CPLGetFilename(m_inputDataset[0].GetName().c_str());
 
     if (!m_url.empty())
     {
         if (m_url.back() != '/')
             m_url += '/';
-        std::string out_path = m_outputDirectory;
-        if (m_outputDirectory.back() == '/')
+        std::string out_path = m_output;
+        if (m_output.back() == '/')
             out_path.pop_back();
         m_url += CPLGetFilename(out_path.c_str());
     }
 
     CPLWorkerThreadPool oThreadPool;
 
+    bool bThreadPoolInitialized = false;
+    const auto InitThreadPool =
+        [this, &oThreadPool, &bRet, &bThreadPoolInitialized]()
     {
+        if (!bThreadPoolInitialized)
+        {
+            bThreadPoolInitialized = true;
+
+            if (bRet && m_numThreads > 1)
+            {
+                CPLDebug("gdal_raster_tile", "Using %d threads", m_numThreads);
+                bRet = oThreadPool.Setup(m_numThreads, nullptr, nullptr);
+            }
+        }
+
+        return bRet;
+    };
+
+    // Just for unit test purposes
+    const bool bEmitSpuriousCharsOnStdout = CPLTestBool(
+        CPLGetConfigOption("GDAL_RASTER_TILE_EMIT_SPURIOUS_CHARS", "NO"));
+
+    const auto IsCompatibleOfSpawnSilent = [bSrcIsFineForFork, this]()
+    {
+        const char *pszErrorMsg = "";
+        {
+            CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
+            if (IsCompatibleOfSpawn(pszErrorMsg))
+            {
+                m_parallelMethod = "spawn";
+                return true;
+            }
+        }
+        (void)bSrcIsFineForFork;
+#ifdef FORK_ALLOWED
+        if (bSrcIsFineForFork && !cpl::starts_with(m_output, "/vsimem/"))
+        {
+            if (CPLGetCurrentThreadCount() == 1)
+            {
+                CPLDebugOnce(
+                    "gdal_raster_tile",
+                    "'gdal' binary not found. Using instead "
+                    "parallel-method=fork. If causing instability issues, set "
+                    "parallel-method to 'thread' or 'spawn'");
+                m_parallelMethod = "fork";
+                return true;
+            }
+        }
+#endif
+        return false;
+    };
+
+    m_numThreads = std::max(
+        1, static_cast<int>(std::min<uint64_t>(
+               m_numThreads, nBaseTiles / GetThresholdMinTilesPerJob())));
+
+    std::atomic<bool> bParentAskedForStop = false;
+    std::thread threadWaitForParentStop;
+    if (m_spawned)
+    {
+        threadWaitForParentStop = std::thread(
+            [&bParentAskedForStop]()
+            {
+                char szBuffer[81] = {0};
+                while (fgets(szBuffer, 80, stdin))
+                {
+                    if (strcmp(szBuffer, STOP_MARKER) == 0)
+                    {
+                        bParentAskedForStop = true;
+                        break;
+                    }
+                    else
+                    {
+                        CPLError(CE_Failure, CPLE_AppDefined,
+                                 "Got unexpected input from parent '%s'",
+                                 szBuffer);
+                    }
+                }
+            });
+    }
+#ifdef FORK_ALLOWED
+    else if (m_forked)
+    {
+        threadWaitForParentStop = std::thread(
+            [&bParentAskedForStop]()
+            {
+                std::string buffer;
+                buffer.resize(strlen(STOP_MARKER));
+                if (CPLPipeRead(pipeIn, buffer.data(),
+                                static_cast<int>(strlen(STOP_MARKER))) &&
+                    buffer == STOP_MARKER)
+                {
+                    bParentAskedForStop = true;
+                }
+                else
+                {
+                    CPLError(CE_Failure, CPLE_AppDefined,
+                             "Got unexpected input from parent '%s'",
+                             buffer.c_str());
+                }
+            });
+    }
+#endif
+
+    if (m_ovrZoomLevel >= 0)
+    {
+        // do not generate base tiles if called as a child process with
+        // --ovr-zoom-level
+    }
+    else if (m_numThreads > 1 && nBaseTiles > 1 &&
+             ((m_parallelMethod.empty() &&
+               m_numThreads >= GetThresholdMinThreadsForSpawn() &&
+               IsCompatibleOfSpawnSilent()) ||
+              (m_parallelMethod == "spawn" || m_parallelMethod == "fork")))
+    {
+        if (!GenerateBaseTilesSpawnMethod(nBaseTilesPerCol, nBaseTilesPerRow,
+                                          nMinTileX, nMinTileY, nMaxTileX,
+                                          nMaxTileY, nTotalTiles, nBaseTiles,
+                                          pfnProgress, pProgressData))
+        {
+            return false;
+        }
+        nCurTile = nBaseTiles;
+    }
+    else
+    {
+        // Branch for multi-threaded or single-threaded max zoom level tile
+        // generation
+
         PerThreadMaxZoomResourceManager oResourceManager(
-            poSrcDS, psWO.get(), hTransformArg.get(), oFakeMaxZoomDS,
+            m_poSrcDS, psWO.get(), hTransformArg.get(), oFakeMaxZoomDS,
             dstBuffer.size());
 
         const CPLStringList aosCreationOptions(
@@ -2925,50 +5299,118 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                  "Generating tiles z=%d, y=%d...%d, x=%d...%d", m_maxZoomLevel,
                  nMinTileY, nMaxTileY, nMinTileX, nMaxTileX);
 
-        if (static_cast<uint64_t>(m_numThreads) > nBaseTiles)
-            m_numThreads = static_cast<int>(nBaseTiles);
+        bRet &= InitThreadPool();
 
         if (bRet && m_numThreads > 1)
         {
-            CPLDebug("gdal_raster_tile", "Using %d threads", m_numThreads);
-            bRet = oThreadPool.Setup(m_numThreads, nullptr, nullptr);
-        }
+            std::atomic<bool> bFailure = false;
+            std::atomic<int> nQueuedJobs = 0;
 
-        std::atomic<bool> bFailure = false;
-        std::atomic<int> nQueuedJobs = 0;
+            double dfTilesYPerJob;
+            int nYOuterIterations;
+            double dfTilesXPerJob;
+            int nXOuterIterations;
+            ComputeJobChunkSize(m_numThreads, nBaseTilesPerCol,
+                                nBaseTilesPerRow, dfTilesYPerJob,
+                                nYOuterIterations, dfTilesXPerJob,
+                                nXOuterIterations);
 
-        for (int iY = nMinTileY; bRet && iY <= nMaxTileY; ++iY)
-        {
-            for (int iX = nMinTileX; bRet && iX <= nMaxTileX; ++iX)
+            CPLDebugOnly("gdal_raster_tile",
+                         "nYOuterIterations=%d, dfTilesYPerJob=%g, "
+                         "nXOuterIterations=%d, dfTilesXPerJob=%g",
+                         nYOuterIterations, dfTilesYPerJob, nXOuterIterations,
+                         dfTilesXPerJob);
+
+            int nLastYEndIncluded = nMinTileY - 1;
+            for (int iYOuterIter = 0; bRet && iYOuterIter < nYOuterIterations &&
+                                      nLastYEndIncluded < nMaxTileY;
+                 ++iYOuterIter)
             {
-                if (m_numThreads > 1)
+                const int iYStart = nLastYEndIncluded + 1;
+                const int iYEndIncluded =
+                    iYOuterIter + 1 == nYOuterIterations
+                        ? nMaxTileY
+                        : std::max(
+                              iYStart,
+                              static_cast<int>(std::floor(
+                                  nMinTileY +
+                                  (iYOuterIter + 1) * dfTilesYPerJob - 1)));
+
+                nLastYEndIncluded = iYEndIncluded;
+
+                int nLastXEndIncluded = nMinTileX - 1;
+                for (int iXOuterIter = 0;
+                     bRet && iXOuterIter < nXOuterIterations &&
+                     nLastXEndIncluded < nMaxTileX;
+                     ++iXOuterIter)
                 {
-                    auto job = [this, &oResourceManager, &bFailure, &nCurTile,
-                                &nQueuedJobs, poDstDriver, pszExtension,
-                                &aosCreationOptions, &psWO, &tileMatrix,
-                                nDstBands, iX, iY, nMinTileX, nMinTileY,
-                                poColorTable, bUserAskedForAlpha]()
+                    const int iXStart = nLastXEndIncluded + 1;
+                    const int iXEndIncluded =
+                        iXOuterIter + 1 == nXOuterIterations
+                            ? nMaxTileX
+                            : std::max(
+                                  iXStart,
+                                  static_cast<int>(std::floor(
+                                      nMinTileX +
+                                      (iXOuterIter + 1) * dfTilesXPerJob - 1)));
+
+                    nLastXEndIncluded = iXEndIncluded;
+
+                    CPLDebugOnly("gdal_raster_tile",
+                                 "Job for y in [%d,%d] and x in [%d,%d]",
+                                 iYStart, iYEndIncluded, iXStart,
+                                 iXEndIncluded);
+
+                    auto job = [this, &oThreadPool, &oResourceManager,
+                                &bFailure, &bParentAskedForStop, &nCurTile,
+                                &nQueuedJobs, pszExtension, &aosCreationOptions,
+                                &psWO, &tileMatrix, nDstBands, iXStart,
+                                iXEndIncluded, iYStart, iYEndIncluded,
+                                nMinTileX, nMinTileY, &poColorTable,
+                                bUserAskedForAlpha]()
                     {
                         CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
 
-                        --nQueuedJobs;
                         auto resources = oResourceManager.AcquireResources();
-                        if (resources &&
-                            GenerateTile(
-                                resources->poSrcDS.get(), poDstDriver,
-                                pszExtension, aosCreationOptions.List(),
-                                *(resources->poWO.get()),
-                                *(resources->poFakeMaxZoomDS->GetSpatialRef()),
-                                psWO->eWorkingDataType, tileMatrix,
-                                m_outputDirectory, nDstBands,
-                                psWO->padfDstNoDataReal
-                                    ? &(psWO->padfDstNoDataReal[0])
-                                    : nullptr,
-                                m_maxZoomLevel, iX, iY, m_convention, nMinTileX,
-                                nMinTileY, m_skipBlank, bUserAskedForAlpha,
-                                m_auxXML, m_resume, m_metadata, poColorTable,
-                                resources->dstBuffer))
+                        if (resources)
                         {
+                            std::vector<GByte> tmpBuffer;
+                            for (int iY = iYStart;
+                                 iY <= iYEndIncluded && !bParentAskedForStop;
+                                 ++iY)
+                            {
+                                for (int iX = iXStart; iX <= iXEndIncluded &&
+                                                       !bParentAskedForStop;
+                                     ++iX)
+                                {
+                                    if (!GenerateTile(
+                                            resources->poSrcDS.get(),
+                                            m_poDstDriver, pszExtension,
+                                            aosCreationOptions.List(),
+                                            *(resources->poWO.get()),
+                                            *(resources->poFakeMaxZoomDS
+                                                  ->GetSpatialRef()),
+                                            psWO->eWorkingDataType, tileMatrix,
+                                            m_output, nDstBands,
+                                            psWO->padfDstNoDataReal
+                                                ? &(psWO->padfDstNoDataReal[0])
+                                                : nullptr,
+                                            m_maxZoomLevel, iX, iY,
+                                            m_convention, nMinTileX, nMinTileY,
+                                            m_skipBlank, bUserAskedForAlpha,
+                                            m_auxXML, m_resume, m_metadata,
+                                            poColorTable.get(),
+                                            resources->dstBuffer, tmpBuffer))
+                                    {
+                                        oResourceManager.SetError();
+                                        bFailure = true;
+                                        --nQueuedJobs;
+                                        return;
+                                    }
+                                    ++nCurTile;
+                                    oThreadPool.WakeUpWaitEvent();
+                                }
+                            }
                             oResourceManager.ReleaseResources(
                                 std::move(resources));
                         }
@@ -2977,58 +5419,30 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                             oResourceManager.SetError();
                             bFailure = true;
                         }
-                        ++nCurTile;
+
+                        --nQueuedJobs;
                     };
-
-                    // Avoid queueing too many jobs at once
-                    while (bRet && nQueuedJobs / 10 > m_numThreads)
-                    {
-                        oThreadPool.WaitEvent();
-
-                        bRet &=
-                            !bFailure &&
-                            (!pfnProgress ||
-                             pfnProgress(static_cast<double>(nCurTile) /
-                                             static_cast<double>(nTotalTiles),
-                                         "", pProgressData));
-                    }
 
                     ++nQueuedJobs;
                     oThreadPool.SubmitJob(std::move(job));
                 }
-                else
-                {
-                    bRet = GenerateTile(
-                        poSrcDS, poDstDriver, pszExtension,
-                        aosCreationOptions.List(), oWO, oSRS_TMS,
-                        psWO->eWorkingDataType, tileMatrix, m_outputDirectory,
-                        nDstBands,
-                        psWO->padfDstNoDataReal ? &(psWO->padfDstNoDataReal[0])
-                                                : nullptr,
-                        m_maxZoomLevel, iX, iY, m_convention, nMinTileX,
-                        nMinTileY, m_skipBlank, bUserAskedForAlpha, m_auxXML,
-                        m_resume, m_metadata, poColorTable, dstBuffer);
-
-                    ++nCurTile;
-                    bRet &= (!pfnProgress ||
-                             pfnProgress(static_cast<double>(nCurTile) /
-                                             static_cast<double>(nTotalTiles),
-                                         "", pProgressData));
-                }
             }
-        }
 
-        if (m_numThreads > 1)
-        {
             // Wait for completion of all jobs
             while (bRet && nQueuedJobs > 0)
             {
                 oThreadPool.WaitEvent();
-                bRet &= !bFailure &&
-                        (!pfnProgress ||
-                         pfnProgress(static_cast<double>(nCurTile) /
-                                         static_cast<double>(nTotalTiles),
-                                     "", pProgressData));
+                bRet &= !bFailure;
+                if (bRet && pfnProgress &&
+                    !pfnProgress(static_cast<double>(nCurTile) /
+                                     static_cast<double>(nTotalTiles),
+                                 "", pProgressData))
+                {
+                    bParentAskedForStop = true;
+                    bRet = false;
+                    CPLError(CE_Failure, CPLE_UserInterrupt,
+                             "Process interrupted by user");
+                }
             }
             oThreadPool.WaitCompletion();
             bRet &=
@@ -3042,6 +5456,58 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                 // Re-emit error message from worker thread to main thread
                 ReportError(CE_Failure, CPLE_AppDefined, "%s",
                             oResourceManager.GetErrorMsg().c_str());
+            }
+        }
+        else
+        {
+            // Branch for single-thread max zoom level tile generation
+            std::vector<GByte> tmpBuffer;
+            for (int iY = nMinTileY;
+                 bRet && !bParentAskedForStop && iY <= nMaxTileY; ++iY)
+            {
+                for (int iX = nMinTileX;
+                     bRet && !bParentAskedForStop && iX <= nMaxTileX; ++iX)
+                {
+                    bRet = GenerateTile(
+                        m_poSrcDS, m_poDstDriver, pszExtension,
+                        aosCreationOptions.List(), oWO, oSRS_TMS,
+                        psWO->eWorkingDataType, tileMatrix, m_output, nDstBands,
+                        psWO->padfDstNoDataReal ? &(psWO->padfDstNoDataReal[0])
+                                                : nullptr,
+                        m_maxZoomLevel, iX, iY, m_convention, nMinTileX,
+                        nMinTileY, m_skipBlank, bUserAskedForAlpha, m_auxXML,
+                        m_resume, m_metadata, poColorTable.get(), dstBuffer,
+                        tmpBuffer);
+
+                    if (m_spawned)
+                    {
+                        if (bEmitSpuriousCharsOnStdout)
+                            fwrite(&PROGRESS_MARKER[0], 1, 1, stdout);
+                        fwrite(PROGRESS_MARKER, sizeof(PROGRESS_MARKER), 1,
+                               stdout);
+                        fflush(stdout);
+                    }
+#ifdef FORK_ALLOWED
+                    else if (m_forked)
+                    {
+                        CPLPipeWrite(pipeOut, PROGRESS_MARKER,
+                                     sizeof(PROGRESS_MARKER));
+                    }
+#endif
+                    else
+                    {
+                        ++nCurTile;
+                        if (bRet && pfnProgress &&
+                            !pfnProgress(static_cast<double>(nCurTile) /
+                                             static_cast<double>(nTotalTiles),
+                                         "", pProgressData))
+                        {
+                            bRet = false;
+                            CPLError(CE_Failure, CPLE_UserInterrupt,
+                                     "Process interrupted by user");
+                        }
+                    }
+                }
             }
         }
 
@@ -3055,8 +5521,8 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                         GetFileY(iY, poTMS->tileMatrixList()[m_maxZoomLevel],
                                  m_convention);
                     std::string osFilename = CPLFormFilenameSafe(
-                        m_outputDirectory.c_str(),
-                        CPLSPrintf("%d", m_maxZoomLevel), nullptr);
+                        m_output.c_str(), CPLSPrintf("%d", m_maxZoomLevel),
+                        nullptr);
                     osFilename = CPLFormFilenameSafe(
                         osFilename.c_str(), CPLSPrintf("%d", iX), nullptr);
                     osFilename = CPLFormFilenameSafe(
@@ -3064,51 +5530,57 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                         CPLSPrintf("%d.%s", nFileY, pszExtension), nullptr);
                     if (VSIStatL(osFilename.c_str(), &sStat) == 0)
                     {
-                        GenerateKML(m_outputDirectory, m_title, iX, iY,
-                                    m_maxZoomLevel, kmlTileSize, pszExtension,
-                                    m_url, poTMS.get(), bInvertAxisTMS,
-                                    m_convention, poCTToWGS84.get(), {});
+                        GenerateKML(m_output, m_title, iX, iY, m_maxZoomLevel,
+                                    kmlTileSize, pszExtension, m_url,
+                                    poTMS.get(), bInvertAxisTMS, m_convention,
+                                    poCTToWGS84.get(), {});
                     }
                 }
             }
         }
     }
 
+    // Close source dataset if we have opened it (in GDALAlgorithm core code),
+    // to free file descriptors, particularly if it is a VRT file.
+    std::vector<GDALColorInterp> aeColorInterp;
+    for (int i = 1; i <= m_poSrcDS->GetRasterCount(); ++i)
+        aeColorInterp.push_back(
+            m_poSrcDS->GetRasterBand(i)->GetColorInterpretation());
+    if (m_inputDataset[0].HasDatasetBeenOpenedByAlgorithm())
+    {
+        m_inputDataset[0].Close();
+        m_poSrcDS = nullptr;
+    }
+
     /* -------------------------------------------------------------------- */
     /*      Generate tiles at lower zoom levels                             */
     /* -------------------------------------------------------------------- */
-    for (int iZ = m_maxZoomLevel - 1; bRet && iZ >= m_minZoomLevel; --iZ)
+    const int iZStart =
+        m_ovrZoomLevel >= 0 ? m_ovrZoomLevel : m_maxZoomLevel - 1;
+    const int iZEnd = m_ovrZoomLevel >= 0 ? m_ovrZoomLevel : m_minZoomLevel;
+    for (int iZ = iZStart; bRet && iZ >= iZEnd; --iZ)
     {
-        auto srcTileMatrix = tileMatrixList[iZ + 1];
-        int nSrcMinTileX = 0;
-        int nSrcMinTileY = 0;
-        int nSrcMaxTileX = 0;
-        int nSrcMaxTileY = 0;
-
-        CPL_IGNORE_RET_VAL(
-            GetTileIndices(srcTileMatrix, bInvertAxisTMS, m_tileSize, adfExtent,
-                           nSrcMinTileX, nSrcMinTileY, nSrcMaxTileX,
-                           nSrcMaxTileY, m_noIntersectionIsOK, bIntersects));
-
-        MosaicDataset oSrcDS(
-            CPLFormFilenameSafe(m_outputDirectory.c_str(),
-                                CPLSPrintf("%d", iZ + 1), nullptr),
-            pszExtension, m_outputFormat, poSrcDS, srcTileMatrix, oSRS_TMS,
-            nSrcMinTileX, nSrcMinTileY, nSrcMaxTileX, nSrcMaxTileY,
-            m_convention, nDstBands, psWO->eWorkingDataType,
-            psWO->padfDstNoDataReal ? &(psWO->padfDstNoDataReal[0]) : nullptr,
-            m_metadata, poColorTable);
-
-        auto ovrTileMatrix = tileMatrixList[iZ];
         int nOvrMinTileX = 0;
         int nOvrMinTileY = 0;
         int nOvrMaxTileX = 0;
         int nOvrMaxTileY = 0;
+
+        auto ovrTileMatrix = tileMatrixList[iZ];
         CPL_IGNORE_RET_VAL(
             GetTileIndices(ovrTileMatrix, bInvertAxisTMS, m_tileSize, adfExtent,
                            nOvrMinTileX, nOvrMinTileY, nOvrMaxTileX,
                            nOvrMaxTileY, m_noIntersectionIsOK, bIntersects));
+
         bRet = bIntersects;
+
+        if (m_minOvrTileX >= 0)
+        {
+            bRet = true;
+            nOvrMinTileX = m_minOvrTileX;
+            nOvrMinTileY = m_minOvrTileY;
+            nOvrMaxTileX = m_maxOvrTileX;
+            nOvrMaxTileY = m_maxOvrTileY;
+        }
 
         if (bRet)
         {
@@ -3117,112 +5589,297 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                      nOvrMinTileY, nOvrMaxTileY, nOvrMinTileX, nOvrMaxTileX);
         }
 
-        const CPLStringList aosCreationOptions(
-            GetUpdatedCreationOptions(ovrTileMatrix));
+        const int nOvrTilesPerCol = nOvrMaxTileY - nOvrMinTileY + 1;
+        const int nOvrTilesPerRow = nOvrMaxTileX - nOvrMinTileX + 1;
+        const uint64_t nOvrTileCount =
+            static_cast<uint64_t>(nOvrTilesPerCol) * nOvrTilesPerRow;
 
-        PerThreadLowerZoomResourceManager oResourceManager(oSrcDS);
-        std::atomic<bool> bFailure = false;
-        std::atomic<int> nQueuedJobs = 0;
+        m_numThreads = std::max(
+            1,
+            static_cast<int>(std::min<uint64_t>(
+                m_numThreads, nOvrTileCount / GetThresholdMinTilesPerJob())));
 
-        const bool bUseThreads =
-            m_numThreads > 1 &&
-            (nOvrMaxTileY > nOvrMinTileY || nOvrMaxTileX > nOvrMinTileX);
-
-        for (int iY = nOvrMinTileY; bRet && iY <= nOvrMaxTileY; ++iY)
+        if (m_numThreads > 1 && nOvrTileCount > 1 &&
+            ((m_parallelMethod.empty() &&
+              m_numThreads >= GetThresholdMinThreadsForSpawn() &&
+              IsCompatibleOfSpawnSilent()) ||
+             (m_parallelMethod == "spawn" || m_parallelMethod == "fork")))
         {
-            for (int iX = nOvrMinTileX; bRet && iX <= nOvrMaxTileX; ++iX)
+            bRet &= GenerateOverviewTilesSpawnMethod(
+                iZ, nOvrMinTileX, nOvrMinTileY, nOvrMaxTileX, nOvrMaxTileY,
+                nCurTile, nTotalTiles, pfnProgress, pProgressData);
+        }
+        else
+        {
+            bRet &= InitThreadPool();
+
+            auto srcTileMatrix = tileMatrixList[iZ + 1];
+            int nSrcMinTileX = 0;
+            int nSrcMinTileY = 0;
+            int nSrcMaxTileX = 0;
+            int nSrcMaxTileY = 0;
+
+            CPL_IGNORE_RET_VAL(GetTileIndices(
+                srcTileMatrix, bInvertAxisTMS, m_tileSize, adfExtent,
+                nSrcMinTileX, nSrcMinTileY, nSrcMaxTileX, nSrcMaxTileY,
+                m_noIntersectionIsOK, bIntersects));
+
+            constexpr double EPSILON = 1e-3;
+            int maxCacheTileSizePerThread = static_cast<int>(
+                (1 + std::ceil(
+                         (ovrTileMatrix.mResY * ovrTileMatrix.mTileHeight) /
+                             (srcTileMatrix.mResY * srcTileMatrix.mTileHeight) -
+                         EPSILON)) *
+                (1 + std::ceil(
+                         (ovrTileMatrix.mResX * ovrTileMatrix.mTileWidth) /
+                             (srcTileMatrix.mResX * srcTileMatrix.mTileWidth) -
+                         EPSILON)));
+
+            CPLDebugOnly("gdal_raster_tile",
+                         "Ideal maxCacheTileSizePerThread = %d",
+                         maxCacheTileSizePerThread);
+
+#ifndef _WIN32
+            const int remainingFileDescriptorCount =
+                CPLGetRemainingFileDescriptorCount();
+            CPLDebugOnly("gdal_raster_tile",
+                         "remainingFileDescriptorCount = %d",
+                         remainingFileDescriptorCount);
+            if (remainingFileDescriptorCount >= 0 &&
+                remainingFileDescriptorCount <
+                    (1 + maxCacheTileSizePerThread) * m_numThreads)
             {
-                if (bUseThreads)
+                const int newNumThreads =
+                    std::max(1, remainingFileDescriptorCount /
+                                    (1 + maxCacheTileSizePerThread));
+                if (newNumThreads < m_numThreads)
                 {
-                    auto job = [this, &oResourceManager, poDstDriver, &bFailure,
-                                &nCurTile, &nQueuedJobs, pszExtension,
-                                &aosCreationOptions, &aosWarpOptions,
-                                &ovrTileMatrix, iZ, iX, iY,
-                                bUserAskedForAlpha]()
-                    {
-                        CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
-
-                        --nQueuedJobs;
-                        auto resources = oResourceManager.AcquireResources();
-                        if (resources &&
-                            GenerateOverviewTile(
-                                *(resources->poSrcDS.get()), poDstDriver,
-                                m_outputFormat, pszExtension,
-                                aosCreationOptions.List(),
-                                aosWarpOptions.List(), m_overviewResampling,
-                                ovrTileMatrix, m_outputDirectory, iZ, iX, iY,
-                                m_convention, m_skipBlank, bUserAskedForAlpha,
-                                m_auxXML, m_resume))
-                        {
-                            oResourceManager.ReleaseResources(
-                                std::move(resources));
-                        }
-                        else
-                        {
-                            oResourceManager.SetError();
-                            bFailure = true;
-                        }
-                        ++nCurTile;
-                    };
-
-                    // Avoid queueing too many jobs at once
-                    while (bRet && nQueuedJobs / 10 > m_numThreads)
-                    {
-                        oThreadPool.WaitEvent();
-
-                        bRet &=
-                            !bFailure &&
-                            (!pfnProgress ||
-                             pfnProgress(static_cast<double>(nCurTile) /
-                                             static_cast<double>(nTotalTiles),
-                                         "", pProgressData));
-                    }
-
-                    ++nQueuedJobs;
-                    oThreadPool.SubmitJob(std::move(job));
-                }
-                else
-                {
-                    bRet = GenerateOverviewTile(
-                        oSrcDS, poDstDriver, m_outputFormat, pszExtension,
-                        aosCreationOptions.List(), aosWarpOptions.List(),
-                        m_overviewResampling, ovrTileMatrix, m_outputDirectory,
-                        iZ, iX, iY, m_convention, m_skipBlank,
-                        bUserAskedForAlpha, m_auxXML, m_resume);
-
-                    ++nCurTile;
-                    bRet &= (!pfnProgress ||
-                             pfnProgress(static_cast<double>(nCurTile) /
-                                             static_cast<double>(nTotalTiles),
-                                         "", pProgressData));
+                    CPLError(CE_Warning, CPLE_AppDefined,
+                             "Not enough file descriptors available given the "
+                             "number of "
+                             "threads. Reducing the number of threads %d to %d",
+                             m_numThreads, newNumThreads);
+                    m_numThreads = newNumThreads;
                 }
             }
-        }
+#endif
 
-        if (bUseThreads)
-        {
-            // Wait for completion of all jobs
-            while (bRet && nQueuedJobs > 0)
+            MosaicDataset oSrcDS(
+                CPLFormFilenameSafe(m_output.c_str(), CPLSPrintf("%d", iZ + 1),
+                                    nullptr),
+                pszExtension, m_format, aeColorInterp, srcTileMatrix, oSRS_TMS,
+                nSrcMinTileX, nSrcMinTileY, nSrcMaxTileX, nSrcMaxTileY,
+                m_convention, nDstBands, psWO->eWorkingDataType,
+                psWO->padfDstNoDataReal ? &(psWO->padfDstNoDataReal[0])
+                                        : nullptr,
+                m_metadata, poColorTable.get(), maxCacheTileSizePerThread);
+
+            const CPLStringList aosCreationOptions(
+                GetUpdatedCreationOptions(ovrTileMatrix));
+
+            PerThreadLowerZoomResourceManager oResourceManager(oSrcDS);
+            std::atomic<bool> bFailure = false;
+            std::atomic<int> nQueuedJobs = 0;
+
+            const bool bUseThreads = m_numThreads > 1 && nOvrTileCount > 1;
+
+            if (bUseThreads)
             {
-                oThreadPool.WaitEvent();
+                double dfTilesYPerJob;
+                int nYOuterIterations;
+                double dfTilesXPerJob;
+                int nXOuterIterations;
+                ComputeJobChunkSize(m_numThreads, nOvrTilesPerCol,
+                                    nOvrTilesPerRow, dfTilesYPerJob,
+                                    nYOuterIterations, dfTilesXPerJob,
+                                    nXOuterIterations);
+
+                CPLDebugOnly("gdal_raster_tile",
+                             "z=%d, nYOuterIterations=%d, dfTilesYPerJob=%g, "
+                             "nXOuterIterations=%d, dfTilesXPerJob=%g",
+                             iZ, nYOuterIterations, dfTilesYPerJob,
+                             nXOuterIterations, dfTilesXPerJob);
+
+                int nLastYEndIncluded = nOvrMinTileY - 1;
+                for (int iYOuterIter = 0;
+                     bRet && iYOuterIter < nYOuterIterations &&
+                     nLastYEndIncluded < nOvrMaxTileY;
+                     ++iYOuterIter)
+                {
+                    const int iYStart = nLastYEndIncluded + 1;
+                    const int iYEndIncluded =
+                        iYOuterIter + 1 == nYOuterIterations
+                            ? nOvrMaxTileY
+                            : std::max(
+                                  iYStart,
+                                  static_cast<int>(std::floor(
+                                      nOvrMinTileY +
+                                      (iYOuterIter + 1) * dfTilesYPerJob - 1)));
+
+                    nLastYEndIncluded = iYEndIncluded;
+
+                    int nLastXEndIncluded = nOvrMinTileX - 1;
+                    for (int iXOuterIter = 0;
+                         bRet && iXOuterIter < nXOuterIterations &&
+                         nLastXEndIncluded < nOvrMaxTileX;
+                         ++iXOuterIter)
+                    {
+                        const int iXStart = nLastXEndIncluded + 1;
+                        const int iXEndIncluded =
+                            iXOuterIter + 1 == nXOuterIterations
+                                ? nOvrMaxTileX
+                                : std::max(iXStart, static_cast<int>(std::floor(
+                                                        nOvrMinTileX +
+                                                        (iXOuterIter + 1) *
+                                                            dfTilesXPerJob -
+                                                        1)));
+
+                        nLastXEndIncluded = iXEndIncluded;
+
+                        CPLDebugOnly(
+                            "gdal_raster_tile",
+                            "Job for z=%d, y in [%d,%d] and x in [%d,%d]", iZ,
+                            iYStart, iYEndIncluded, iXStart, iXEndIncluded);
+                        auto job =
+                            [this, &oThreadPool, &oResourceManager, &bFailure,
+                             &bParentAskedForStop, &nCurTile, &nQueuedJobs,
+                             pszExtension, &aosCreationOptions, &aosWarpOptions,
+                             &ovrTileMatrix, iZ, iXStart, iXEndIncluded,
+                             iYStart, iYEndIncluded, bUserAskedForAlpha]()
+                        {
+                            CPLErrorStateBackuper oBackuper(
+                                CPLQuietErrorHandler);
+
+                            auto resources =
+                                oResourceManager.AcquireResources();
+                            if (resources)
+                            {
+                                for (int iY = iYStart; iY <= iYEndIncluded &&
+                                                       !bParentAskedForStop;
+                                     ++iY)
+                                {
+                                    for (int iX = iXStart;
+                                         iX <= iXEndIncluded &&
+                                         !bParentAskedForStop;
+                                         ++iX)
+                                    {
+                                        if (!GenerateOverviewTile(
+                                                *(resources->poSrcDS.get()),
+                                                m_poDstDriver, m_format,
+                                                pszExtension,
+                                                aosCreationOptions.List(),
+                                                aosWarpOptions.List(),
+                                                m_overviewResampling,
+                                                ovrTileMatrix, m_output, iZ, iX,
+                                                iY, m_convention, m_skipBlank,
+                                                bUserAskedForAlpha, m_auxXML,
+                                                m_resume))
+                                        {
+                                            oResourceManager.SetError();
+                                            bFailure = true;
+                                            --nQueuedJobs;
+                                            return;
+                                        }
+
+                                        ++nCurTile;
+                                        oThreadPool.WakeUpWaitEvent();
+                                    }
+                                }
+                                oResourceManager.ReleaseResources(
+                                    std::move(resources));
+                            }
+                            else
+                            {
+                                oResourceManager.SetError();
+                                bFailure = true;
+                            }
+                            --nQueuedJobs;
+                        };
+
+                        ++nQueuedJobs;
+                        oThreadPool.SubmitJob(std::move(job));
+                    }
+                }
+
+                // Wait for completion of all jobs
+                while (bRet && nQueuedJobs > 0)
+                {
+                    oThreadPool.WaitEvent();
+                    bRet &= !bFailure;
+                    if (bRet && pfnProgress &&
+                        !pfnProgress(static_cast<double>(nCurTile) /
+                                         static_cast<double>(nTotalTiles),
+                                     "", pProgressData))
+                    {
+                        bParentAskedForStop = true;
+                        bRet = false;
+                        CPLError(CE_Failure, CPLE_UserInterrupt,
+                                 "Process interrupted by user");
+                    }
+                }
+                oThreadPool.WaitCompletion();
                 bRet &= !bFailure &&
                         (!pfnProgress ||
                          pfnProgress(static_cast<double>(nCurTile) /
                                          static_cast<double>(nTotalTiles),
                                      "", pProgressData));
-            }
-            oThreadPool.WaitCompletion();
-            bRet &=
-                !bFailure && (!pfnProgress ||
-                              pfnProgress(static_cast<double>(nCurTile) /
-                                              static_cast<double>(nTotalTiles),
-                                          "", pProgressData));
 
-            if (!oResourceManager.GetErrorMsg().empty())
+                if (!oResourceManager.GetErrorMsg().empty())
+                {
+                    // Re-emit error message from worker thread to main thread
+                    ReportError(CE_Failure, CPLE_AppDefined, "%s",
+                                oResourceManager.GetErrorMsg().c_str());
+                }
+            }
+            else
             {
-                // Re-emit error message from worker thread to main thread
-                ReportError(CE_Failure, CPLE_AppDefined, "%s",
-                            oResourceManager.GetErrorMsg().c_str());
+                // Branch for single-thread overview generation
+
+                for (int iY = nOvrMinTileY;
+                     bRet && !bParentAskedForStop && iY <= nOvrMaxTileY; ++iY)
+                {
+                    for (int iX = nOvrMinTileX;
+                         bRet && !bParentAskedForStop && iX <= nOvrMaxTileX;
+                         ++iX)
+                    {
+                        bRet = GenerateOverviewTile(
+                            oSrcDS, m_poDstDriver, m_format, pszExtension,
+                            aosCreationOptions.List(), aosWarpOptions.List(),
+                            m_overviewResampling, ovrTileMatrix, m_output, iZ,
+                            iX, iY, m_convention, m_skipBlank,
+                            bUserAskedForAlpha, m_auxXML, m_resume);
+
+                        if (m_spawned)
+                        {
+                            if (bEmitSpuriousCharsOnStdout)
+                                fwrite(&PROGRESS_MARKER[0], 1, 1, stdout);
+                            fwrite(PROGRESS_MARKER, sizeof(PROGRESS_MARKER), 1,
+                                   stdout);
+                            fflush(stdout);
+                        }
+#ifdef FORK_ALLOWED
+                        else if (m_forked)
+                        {
+                            CPLPipeWrite(pipeOut, PROGRESS_MARKER,
+                                         sizeof(PROGRESS_MARKER));
+                        }
+#endif
+                        else
+                        {
+                            ++nCurTile;
+                            if (bRet && pfnProgress &&
+                                !pfnProgress(
+                                    static_cast<double>(nCurTile) /
+                                        static_cast<double>(nTotalTiles),
+                                    "", pProgressData))
+                            {
+                                bRet = false;
+                                CPLError(CE_Failure, CPLE_UserInterrupt,
+                                         "Process interrupted by user");
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -3234,9 +5891,8 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                 {
                     int nFileY =
                         GetFileY(iY, poTMS->tileMatrixList()[iZ], m_convention);
-                    std::string osFilename =
-                        CPLFormFilenameSafe(m_outputDirectory.c_str(),
-                                            CPLSPrintf("%d", iZ), nullptr);
+                    std::string osFilename = CPLFormFilenameSafe(
+                        m_output.c_str(), CPLSPrintf("%d", iZ), nullptr);
                     osFilename = CPLFormFilenameSafe(
                         osFilename.c_str(), CPLSPrintf("%d", iX), nullptr);
                     osFilename = CPLFormFilenameSafe(
@@ -3255,8 +5911,8 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                                              poTMS->tileMatrixList()[iZ + 1],
                                              m_convention);
                                 osFilename = CPLFormFilenameSafe(
-                                    m_outputDirectory.c_str(),
-                                    CPLSPrintf("%d", iZ + 1), nullptr);
+                                    m_output.c_str(), CPLSPrintf("%d", iZ + 1),
+                                    nullptr);
                                 osFilename = CPLFormFilenameSafe(
                                     osFilename.c_str(),
                                     CPLSPrintf("%d", iX * 2 + iChildX),
@@ -3276,9 +5932,9 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                             }
                         }
 
-                        GenerateKML(m_outputDirectory, m_title, iX, iY, iZ,
-                                    kmlTileSize, pszExtension, m_url,
-                                    poTMS.get(), bInvertAxisTMS, m_convention,
+                        GenerateKML(m_output, m_title, iX, iY, iZ, kmlTileSize,
+                                    pszExtension, m_url, poTMS.get(),
+                                    bInvertAxisTMS, m_convention,
                                     poCTToWGS84.get(), children);
                     }
                 }
@@ -3294,7 +5950,8 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                             }) != m_webviewers.end();
     };
 
-    if (bRet && poTMS->identifier() == "GoogleMapsCompatible" &&
+    if (m_ovrZoomLevel < 0 && bRet &&
+        poTMS->identifier() == "GoogleMapsCompatible" &&
         IsWebViewerEnabled("leaflet"))
     {
         double dfSouthLat = -90;
@@ -3309,31 +5966,64 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                 &dfWestLon, &dfSouthLat, &dfEastLon, &dfNorthLat, 21);
         }
 
-        GenerateLeaflet(m_outputDirectory, m_title, dfSouthLat, dfWestLon,
-                        dfNorthLat, dfEastLon, m_minZoomLevel, m_maxZoomLevel,
+        GenerateLeaflet(m_output, m_title, dfSouthLat, dfWestLon, dfNorthLat,
+                        dfEastLon, m_minZoomLevel, m_maxZoomLevel,
                         tileMatrix.mTileWidth, pszExtension, m_url, m_copyright,
                         m_convention == "xyz");
     }
 
-    if (bRet && IsWebViewerEnabled("openlayers"))
+    if (m_ovrZoomLevel < 0 && bRet && IsWebViewerEnabled("openlayers"))
     {
-        GenerateOpenLayers(
-            m_outputDirectory, m_title, adfExtent[0], adfExtent[1],
-            adfExtent[2], adfExtent[3], m_minZoomLevel, m_maxZoomLevel,
-            tileMatrix.mTileWidth, pszExtension, m_url, m_copyright,
-            *(poTMS.get()), bInvertAxisTMS, oSRS_TMS, m_convention == "xyz");
+        GenerateOpenLayers(m_output, m_title, adfExtent[0], adfExtent[1],
+                           adfExtent[2], adfExtent[3], m_minZoomLevel,
+                           m_maxZoomLevel, tileMatrix.mTileWidth, pszExtension,
+                           m_url, m_copyright, *(poTMS.get()), bInvertAxisTMS,
+                           oSRS_TMS, m_convention == "xyz");
     }
 
-    if (bRet && IsWebViewerEnabled("mapml") &&
+    if (m_ovrZoomLevel < 0 && bRet && IsWebViewerEnabled("mapml") &&
         poTMS->identifier() != "raster" && m_convention == "xyz")
     {
-        GenerateMapML(m_outputDirectory, m_mapmlTemplate, m_title, nMinTileX,
-                      nMinTileY, nMaxTileX, nMaxTileY, m_minZoomLevel,
-                      m_maxZoomLevel, pszExtension, m_url, m_copyright,
-                      *(poTMS.get()));
+        GenerateMapML(m_output, m_mapmlTemplate, m_title, nMinTileX, nMinTileY,
+                      nMaxTileX, nMaxTileY, m_minZoomLevel, m_maxZoomLevel,
+                      pszExtension, m_url, m_copyright, *(poTMS.get()));
     }
 
-    if (bRet && m_kml)
+    if (m_ovrZoomLevel < 0 && bRet && IsWebViewerEnabled("stac") &&
+        m_convention == "xyz")
+    {
+        OGRCoordinateTransformation *poCT = poCTToWGS84.get();
+        std::unique_ptr<OGRCoordinateTransformation> poCTToLongLat;
+        if (!poCTToWGS84)
+        {
+            CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
+            OGRSpatialReference oLongLat;
+            oLongLat.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+            oLongLat.CopyGeogCSFrom(&oSRS_TMS);
+            poCTToLongLat.reset(
+                OGRCreateCoordinateTransformation(&oSRS_TMS, &oLongLat));
+            poCT = poCTToLongLat.get();
+        }
+
+        double dfSouthLat = -90;
+        double dfWestLon = -180;
+        double dfNorthLat = 90;
+        double dfEastLon = 180;
+        if (poCT)
+        {
+            poCT->TransformBounds(adfExtent[0], adfExtent[1], adfExtent[2],
+                                  adfExtent[3], &dfWestLon, &dfSouthLat,
+                                  &dfEastLon, &dfNorthLat, 21);
+        }
+
+        GenerateSTAC(m_output, m_title, dfWestLon, dfSouthLat, dfEastLon,
+                     dfNorthLat, m_metadata, aoBandMetadata, m_minZoomLevel,
+                     m_maxZoomLevel, pszExtension, m_format, m_url, m_copyright,
+                     oSRS_TMS, *(poTMS.get()), bInvertAxisTMS, m_tileSize,
+                     adfExtent, m_inputDataset[0]);
+    }
+
+    if (m_ovrZoomLevel < 0 && bRet && m_kml)
     {
         std::vector<TileCoordinates> children;
 
@@ -3354,7 +6044,7 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                 int nFileY = GetFileY(
                     iY, poTMS->tileMatrixList()[m_minZoomLevel], m_convention);
                 std::string osFilename = CPLFormFilenameSafe(
-                    m_outputDirectory.c_str(), CPLSPrintf("%d", m_minZoomLevel),
+                    m_output.c_str(), CPLSPrintf("%d", m_minZoomLevel),
                     nullptr);
                 osFilename = CPLFormFilenameSafe(osFilename.c_str(),
                                                  CPLSPrintf("%d", iX), nullptr);
@@ -3371,12 +6061,37 @@ bool GDALRasterTileAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                 }
             }
         }
-        GenerateKML(m_outputDirectory, m_title, -1, -1, -1, kmlTileSize,
-                    pszExtension, m_url, poTMS.get(), bInvertAxisTMS,
-                    m_convention, poCTToWGS84.get(), children);
+        GenerateKML(m_output, m_title, -1, -1, -1, kmlTileSize, pszExtension,
+                    m_url, poTMS.get(), bInvertAxisTMS, m_convention,
+                    poCTToWGS84.get(), children);
     }
+
+    if (!bRet && CPLGetLastErrorType() == CE_None)
+    {
+        // If that happens, this is a programming error
+        ReportError(CE_Failure, CPLE_AppDefined,
+                    "Bug: process failed without returning an error message");
+    }
+
+    if (m_spawned)
+    {
+        fwrite(END_MARKER, sizeof(END_MARKER), 1, stdout);
+        fflush(stdout);
+        fclose(stdout);
+        threadWaitForParentStop.join();
+    }
+#ifdef FORK_ALLOWED
+    else if (m_forked)
+    {
+        CPLPipeWrite(pipeOut, END_MARKER, sizeof(END_MARKER));
+        threadWaitForParentStop.join();
+    }
+#endif
 
     return bRet;
 }
+
+GDALRasterTileAlgorithmStandalone::~GDALRasterTileAlgorithmStandalone() =
+    default;
 
 //! @endcond

@@ -14,8 +14,9 @@
 #include "gdal_alg.h"
 #include "gdalgrid.h"
 #include "gdal_priv.h"
-#include "gdal_pam.h"
+#include "gdal_pam_multidim.h"
 #include "ogrsf_frmts.h"
+#include "memdataset.h"
 
 #include <algorithm>
 #include <cassert>
@@ -637,13 +638,6 @@ GDALMDArray::GetGridded(const std::string &osGridOptions,
         if (!poDrv)
         {
             pszExt = "mem";
-            poDrv = GetGDALDriverManager()->GetDriverByName("MEM");
-            if (!poDrv)
-            {
-                CPLError(CE_Failure, CPLE_AppDefined,
-                         "Cannot get driver FlatGeoBuf, GPKG or MEM");
-                return nullptr;
-            }
         }
     }
 
@@ -651,15 +645,18 @@ GDALMDArray::GetGridded(const std::string &osGridOptions,
     const std::string osTmpFilename(VSIMemGenerateHiddenFilename(
         std::string("tmp.").append(pszExt).c_str()));
     auto poDS = std::unique_ptr<GDALDataset>(
-        poDrv->Create(osTmpFilename.c_str(), 0, 0, 0, GDT_Unknown, nullptr));
+        poDrv ? poDrv->Create(osTmpFilename.c_str(), 0, 0, 0, GDT_Unknown,
+                              nullptr)
+              : MEMDataset::Create(osTmpFilename.c_str(), 0, 0, 0, GDT_Unknown,
+                                   nullptr));
     if (!poDS)
         return nullptr;
     auto poLyr = poDS->CreateLayer("layer", nullptr, wkbPoint);
     if (!poLyr)
         return nullptr;
     OGRFieldDefn oFieldDefn("IDX", OFTInteger64);
-    poLyr->CreateField(&oFieldDefn);
-    if (poLyr->StartTransaction() != OGRERR_NONE)
+    if (poLyr->CreateField(&oFieldDefn) != OGRERR_NONE ||
+        poLyr->StartTransaction() != OGRERR_NONE)
         return nullptr;
     OGRFeature oFeat(poLyr->GetLayerDefn());
     for (size_t i = 0; i < adfXVals.size(); ++i)

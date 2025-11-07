@@ -10,6 +10,8 @@
  * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
+#include "cpl_multiproc.h"  // CPLSleep()
+
 #include "ogr_amigocloud.h"
 #include "ogr_p.h"
 #include "ogr_pgdump.h"
@@ -431,7 +433,8 @@ OGRErr OGRAmigoCloudTableLayer::ICreateFeature(OGRFeature *poFeature)
             continue;
 
         OGRAmigoCloudGeomFieldDefn *poGeomFieldDefn =
-            (OGRAmigoCloudGeomFieldDefn *)poFeatureDefn->GetGeomFieldDefn(i);
+            cpl::down_cast<OGRAmigoCloudGeomFieldDefn *>(
+                poFeatureDefn->GetGeomFieldDefn(i));
         int nSRID = poGeomFieldDefn->nSRID;
         if (nSRID == 0)
             nSRID = 4326;
@@ -463,7 +466,7 @@ OGRErr OGRAmigoCloudTableLayer::ICreateFeature(OGRFeature *poFeature)
 
         if (name == "amigo_id")
         {
-            amigo_id_value = value;
+            amigo_id_value = std::move(value);
             continue;
         }
         if (!poFeature->IsFieldSet(i))
@@ -607,8 +610,8 @@ OGRErr OGRAmigoCloudTableLayer::ISetFeature(OGRFeature *poFeature)
             else
             {
                 OGRAmigoCloudGeomFieldDefn *poGeomFieldDefn =
-                    (OGRAmigoCloudGeomFieldDefn *)
-                        poFeatureDefn->GetGeomFieldDefn(i);
+                    cpl::down_cast<OGRAmigoCloudGeomFieldDefn *>(
+                        poFeatureDefn->GetGeomFieldDefn(i));
                 int nSRID = poGeomFieldDefn->nSRID;
                 if (nSRID == 0)
                     nSRID = 4326;
@@ -973,7 +976,7 @@ OGRErr OGRAmigoCloudTableLayer::IGetExtent(int iGeomField,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRAmigoCloudTableLayer::TestCapability(const char *pszCap)
+int OGRAmigoCloudTableLayer::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, OLCFastFeatureCount))
@@ -1129,7 +1132,8 @@ OGRErr OGRAmigoCloudTableLayer::RunDeferredCreationIfNecessary()
             osGeomType += "Z";
 
         OGRAmigoCloudGeomFieldDefn *poFieldDefn =
-            (OGRAmigoCloudGeomFieldDefn *)poFeatureDefn->GetGeomFieldDefn(0);
+            cpl::down_cast<OGRAmigoCloudGeomFieldDefn *>(
+                poFeatureDefn->GetGeomFieldDefn(0));
 
         json << "{\\\"name\\\":\\\"" << poFieldDefn->GetNameRef() << "\\\",";
         json << "\\\"type\\\":\\\"geometry\\\",";

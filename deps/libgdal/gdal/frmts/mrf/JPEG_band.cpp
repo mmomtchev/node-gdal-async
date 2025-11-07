@@ -276,7 +276,7 @@ CPLErr JPEG_Codec::CompressJPEG(buf_mgr &dst, buf_mgr &src)
     ILSize sz = img.pagesize;
 
     jpeg_destination_mgr jmgr;
-    jmgr.next_output_byte = (JOCTET *)dst.buffer;
+    jmgr.next_output_byte = reinterpret_cast<JOCTET *>(dst.buffer);
     jmgr.free_in_buffer = dst.size;
     jmgr.init_destination = init_or_terminate_destination;
     jmgr.empty_output_buffer = empty_output_buffer;
@@ -408,7 +408,7 @@ CPLErr JPEG_Codec::CompressJPEG(buf_mgr &dst, buf_mgr &src)
     if (nzeros != 0)
     {  // build the Zen chunk
         mbuffer.size = 2 * mask.size() + CHUNK_NAME_SIZE;
-        buffer = reinterpret_cast<char *>(CPLMalloc(mbuffer.size));
+        buffer = static_cast<char *>(CPLMalloc(mbuffer.size));
         if (!buffer)
         {
             jpeg_destroy_compress(&cinfo);
@@ -825,7 +825,7 @@ static size_t brunsli_fun_callback(void *out, const GByte *data, size_t size)
 }
 #endif
 
-// Type dependent dispachers
+// Type dependent dispatchers
 CPLErr JPEG_Band::Decompress(buf_mgr &dst, buf_mgr &src)
 {
 #if defined(JPEG12_SUPPORTED)

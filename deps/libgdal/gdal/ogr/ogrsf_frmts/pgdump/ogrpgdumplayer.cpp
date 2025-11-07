@@ -32,6 +32,8 @@ static CPLString OGRPGDumpEscapeStringWithUserData(
     return OGRPGDumpEscapeString(pszStrValue, nMaxLength, pszFieldName);
 }
 
+OGRPGDumpGeomFieldDefn::~OGRPGDumpGeomFieldDefn() = default;
+
 /************************************************************************/
 /*                        OGRPGDumpLayer()                              */
 /************************************************************************/
@@ -40,14 +42,15 @@ OGRPGDumpLayer::OGRPGDumpLayer(OGRPGDumpDataSource *poDSIn,
                                const char *pszSchemaNameIn,
                                const char *pszTableName,
                                const char *pszFIDColumnIn, int bWriteAsHexIn,
-                               int bCreateTableIn)
+                               int bCreateTableIn, bool bSkipConflictsIn)
     : m_pszSchemaName(CPLStrdup(pszSchemaNameIn)),
       m_pszSqlTableName(CPLStrdup(CPLString().Printf(
           "%s.%s", OGRPGDumpEscapeColumnName(m_pszSchemaName).c_str(),
           OGRPGDumpEscapeColumnName(pszTableName).c_str()))),
       m_pszFIDColumn(pszFIDColumnIn ? CPLStrdup(pszFIDColumnIn) : nullptr),
       m_poFeatureDefn(new OGRFeatureDefn(pszTableName)), m_poDS(poDSIn),
-      m_bWriteAsHex(CPL_TO_BOOL(bWriteAsHexIn)), m_bCreateTable(bCreateTableIn)
+      m_bWriteAsHex(CPL_TO_BOOL(bWriteAsHexIn)), m_bCreateTable(bCreateTableIn),
+      m_bSkipConflicts(bSkipConflictsIn)
 {
     SetDescription(m_poFeatureDefn->GetName());
     m_poFeatureDefn->SetGeomType(wkbNone);
@@ -88,7 +91,7 @@ OGRFeature *OGRPGDumpLayer::GetNextFeature()
 /*                           GetNextFeature()                           */
 /************************************************************************/
 
-int OGRPGDumpLayer::TestCapability(const char *pszCap)
+int OGRPGDumpLayer::TestCapability(const char *pszCap) const
 {
     if (EQUAL(pszCap, OLCSequentialWrite) || EQUAL(pszCap, OLCCreateField) ||
         EQUAL(pszCap, OLCCreateGeomField) ||
@@ -282,7 +285,7 @@ OGRErr OGRPGDumpLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
                 if (bNeedComma)
                     osCommand += ", ";
 
-                OGRGeomFieldDefn *poGFldDefn =
+                const OGRGeomFieldDefn *poGFldDefn =
                     poFeature->GetGeomFieldDefnRef(i);
                 osCommand +=
                     OGRPGDumpEscapeColumnName(poGFldDefn->GetNameRef());
@@ -329,8 +332,9 @@ OGRErr OGRPGDumpLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
             {
                 char *pszWKT = nullptr;
 
-                OGRPGDumpGeomFieldDefn *poGFldDefn =
-                    (OGRPGDumpGeomFieldDefn *)poFeature->GetGeomFieldDefnRef(i);
+                const OGRPGDumpGeomFieldDefn *poGFldDefn =
+                    cpl::down_cast<const OGRPGDumpGeomFieldDefn *>(
+                        poFeature->GetGeomFieldDefnRef(i));
 
                 poGeom->closeRings();
                 poGeom->set3D(poGFldDefn->m_nGeometryTypeFlags &
@@ -436,6 +440,9 @@ OGRErr OGRPGDumpLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
 
     osCommand += ")";
 
+    if (m_bSkipConflicts)
+        osCommand += " ON CONFLICT DO NOTHING";
+
     if (bEmptyInsert)
         osCommand.Printf("INSERT INTO %s DEFAULT VALUES", m_pszSqlTableName);
 
@@ -470,8 +477,8 @@ OGRErr OGRPGDumpLayer::CreateFeatureViaCopy(OGRFeature *poFeature)
             if (nullptr !=
                 poGeometry /* && (bHasWkb || bHasPostGISGeometry || bHasPostGISGeography) */)
             {
-                OGRPGDumpGeomFieldDefn *poGFldDefn =
-                    cpl::down_cast<OGRPGDumpGeomFieldDefn *>(
+                const OGRPGDumpGeomFieldDefn *poGFldDefn =
+                    cpl::down_cast<const OGRPGDumpGeomFieldDefn *>(
                         poFeature->GetGeomFieldDefnRef(i));
 
                 poGeometry->closeRings();
@@ -604,7 +611,7 @@ void OGRPGCommonAppendCopyRegularFields(
             const int *panItems = poFeature->GetFieldAsIntegerList(i, &nCount);
 
             const size_t nLen = nCount * 13 + 10;
-            pszNeedToFree = (char *)CPLMalloc(nLen);
+            pszNeedToFree = static_cast<char *>(CPLMalloc(nLen));
             strcpy(pszNeedToFree, "{");
             for (int j = 0; j < nCount; j++)
             {
@@ -625,7 +632,7 @@ void OGRPGCommonAppendCopyRegularFields(
                 poFeature->GetFieldAsInteger64List(i, &nCount);
 
             const size_t nLen = nCount * 26 + 10;
-            pszNeedToFree = (char *)CPLMalloc(nLen);
+            pszNeedToFree = static_cast<char *>(CPLMalloc(nLen));
             strcpy(pszNeedToFree, "{");
             for (int j = 0; j < nCount; j++)
             {
@@ -649,7 +656,7 @@ void OGRPGCommonAppendCopyRegularFields(
                 poFeature->GetFieldAsDoubleList(i, &nCount);
 
             const size_t nLen = nCount * 40 + 10;
-            pszNeedToFree = (char *)CPLMalloc(nLen);
+            pszNeedToFree = static_cast<char *>(CPLMalloc(nLen));
             strcpy(pszNeedToFree, "{");
             for (int j = 0; j < nCount; j++)
             {
@@ -759,7 +766,7 @@ OGRErr OGRPGDumpLayer::StartCopy(int bSetFID)
     CPLString osFields = BuildCopyFields(bSetFID);
 
     size_t size = osFields.size() + strlen(m_pszSqlTableName) + 100;
-    char *pszCommand = (char *)CPLMalloc(size);
+    char *pszCommand = static_cast<char *>(CPLMalloc(size));
 
     snprintf(pszCommand, size, "COPY %s (%s) FROM STDIN", m_pszSqlTableName,
              osFields.c_str());
@@ -1017,7 +1024,7 @@ void OGRPGCommonAppendFieldValue(CPLString &osCommand, OGRFeature *poFeature,
         return;
     }
 
-    OGRFeatureDefn *poFeatureDefn = poFeature->GetDefnRef();
+    const OGRFeatureDefn *poFeatureDefn = poFeature->GetDefnRef();
     OGRFieldType nOGRFieldType = poFeatureDefn->GetFieldDefn(i)->GetType();
     OGRFieldSubType eSubType = poFeatureDefn->GetFieldDefn(i)->GetSubType();
 
@@ -1028,7 +1035,7 @@ void OGRPGCommonAppendFieldValue(CPLString &osCommand, OGRFeature *poFeature,
         const int *panItems = poFeature->GetFieldAsIntegerList(i, &nCount);
 
         const size_t nLen = nCount * 13 + 10;
-        char *pszNeedToFree = (char *)CPLMalloc(nLen);
+        char *pszNeedToFree = static_cast<char *>(CPLMalloc(nLen));
         strcpy(pszNeedToFree, "'{");
         for (j = 0; j < nCount; j++)
         {
@@ -1053,7 +1060,7 @@ void OGRPGCommonAppendFieldValue(CPLString &osCommand, OGRFeature *poFeature,
             poFeature->GetFieldAsInteger64List(i, &nCount);
 
         const size_t nLen = nCount * 26 + 10;
-        char *pszNeedToFree = (char *)CPLMalloc(nLen);
+        char *pszNeedToFree = static_cast<char *>(CPLMalloc(nLen));
         strcpy(pszNeedToFree, "'{");
         for (j = 0; j < nCount; j++)
         {
@@ -1080,7 +1087,7 @@ void OGRPGCommonAppendFieldValue(CPLString &osCommand, OGRFeature *poFeature,
         const double *padfItems = poFeature->GetFieldAsDoubleList(i, &nCount);
 
         const size_t nLen = nCount * 40 + 10;
-        char *pszNeedToFree = (char *)CPLMalloc(nLen);
+        char *pszNeedToFree = static_cast<char *>(CPLMalloc(nLen));
         strcpy(pszNeedToFree, "'{");
         for (int j = 0; j < nCount; j++)
         {
@@ -1554,7 +1561,7 @@ void OGRPGCommonLayerNormalizeDefault(OGRFieldDefn *poFieldDefn,
                 if (osDefault.find('.') == std::string::npos)
                     osDefault = CPLSPrintf("'%04d/%02d/%02d %02d:%02d:%02d'",
                                            nYear, nMonth, nDay, nHour, nMinute,
-                                           (int)(fSecond + 0.5));
+                                           static_cast<int>(fSecond + 0.5f));
                 else
                     osDefault =
                         CPLSPrintf("'%04d/%02d/%02d %02d:%02d:%06.3f'", nYear,
@@ -1882,9 +1889,9 @@ OGRErr OGRPGDumpLayer::CreateGeomField(const OGRGeomFieldDefn *poGeomFieldIn,
     poGeomField->m_nSRSId = nSRSId;
 
     int nGeometryTypeFlags = 0;
-    if (OGR_GT_HasZ((OGRwkbGeometryType)eType))
+    if (OGR_GT_HasZ(static_cast<OGRwkbGeometryType>(eType)))
         nGeometryTypeFlags |= OGRGeometry::OGR_G_3D;
-    if (OGR_GT_HasM((OGRwkbGeometryType)eType))
+    if (OGR_GT_HasM(static_cast<OGRwkbGeometryType>(eType)))
         nGeometryTypeFlags |= OGRGeometry::OGR_G_MEASURED;
     if (m_nForcedGeometryTypeFlags >= 0)
     {
@@ -1954,7 +1961,7 @@ OGRErr OGRPGDumpLayer::CreateGeomField(const OGRGeomFieldDefn *poGeomFieldIn,
                 m_pszSqlTableName, m_osSpatialIndexType.c_str(),
                 OGRPGDumpEscapeColumnName(poGeomField->GetNameRef()).c_str());
 
-            m_aosSpatialIndexCreationCommands.push_back(osCommand);
+            m_aosSpatialIndexCreationCommands.push_back(std::move(osCommand));
         }
     }
 

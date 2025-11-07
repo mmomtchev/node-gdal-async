@@ -21,10 +21,6 @@
 // #include "kmlnode.h"
 #include "kmlutility.h"
 
-KMLVector::~KMLVector()
-{
-}
-
 bool KMLVector::isLeaf(std::string const &sIn) const
 {
     return sIn.compare("name") == 0 || sIn.compare("coordinates") == 0 ||
@@ -79,7 +75,7 @@ void KMLVector::findLayers(KMLNode *poNode, int bKeepEmptyContainers)
     }
     else if (isContainer(poNode->getName()))
     {
-        for (int z = 0; z < (int)poNode->countChildren(); z++)
+        for (std::size_t z = 0; z < poNode->countChildren(); z++)
         {
             if (isContainer(poNode->getChild(z)->getName()))
             {

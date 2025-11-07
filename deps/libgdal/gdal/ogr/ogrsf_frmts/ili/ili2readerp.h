@@ -39,7 +39,7 @@ class ILI2Reader;
 /************************************************************************/
 /*                            ILI2Handler                                */
 /************************************************************************/
-class ILI2Handler : public DefaultHandler
+class ILI2Handler final : public DefaultHandler
 {
     ILI2Reader *m_poReader;
 
@@ -52,7 +52,7 @@ class ILI2Handler : public DefaultHandler
 
   public:
     explicit ILI2Handler(ILI2Reader *poReader);
-    ~ILI2Handler();
+    ~ILI2Handler() override;
 
     void startDocument() override;
     void endDocument() override;
@@ -74,7 +74,7 @@ class ILI2Handler : public DefaultHandler
 /*                              ILI2Reader                               */
 /************************************************************************/
 
-class ILI2Reader : public IILI2Reader
+class ILI2Reader final : public IILI2Reader
 {
   private:
     int SetupParser();
@@ -88,7 +88,7 @@ class ILI2Reader : public IILI2Reader
     SAX2XMLReader *m_poSAXReader;
     int m_bReadStarted;
 
-    std::list<OGRLayer *> m_listLayer;
+    std::vector<std::unique_ptr<OGRLayer>> m_listLayer;
 
     bool m_bXercesInitialized;
 
@@ -99,15 +99,15 @@ class ILI2Reader : public IILI2Reader
 
   public:
     ILI2Reader();
-    ~ILI2Reader();
+    ~ILI2Reader() override;
 
     void SetSourceFile(const char *pszFilename) override;
     int ReadModel(OGRILI2DataSource *, ImdReader *poImdReader,
                   const char *modelFilename) override;
     int SaveClasses(const char *pszFile) override;
 
-    std::list<OGRLayer *> GetLayers() override;
-    int GetLayerCount() override;
+    std::vector<std::unique_ptr<OGRLayer>> &GetLayers() override;
+    int GetLayerCount() const override;
     OGRLayer *GetLayer(const char *pszName);
 
     int AddFeature(DOMElement *elem);

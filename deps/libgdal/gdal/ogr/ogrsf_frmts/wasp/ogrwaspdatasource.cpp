@@ -41,7 +41,7 @@ OGRWAsPDataSource::~OGRWAsPDataSource()
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRWAsPDataSource::TestCapability(const char *pszCap)
+int OGRWAsPDataSource::TestCapability(const char *pszCap) const
 
 {
     if (EQUAL(pszCap, ODsCCreateLayer) && oLayer.get() == nullptr)
@@ -160,7 +160,7 @@ OGRErr OGRWAsPDataSource::Load(bool bSilent)
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGRWAsPDataSource::GetLayer(int iLayer)
+const OGRLayer *OGRWAsPDataSource::GetLayer(int iLayer) const
 
 {
     return (iLayer == 0) ? oLayer.get() : nullptr;
@@ -210,7 +210,7 @@ OGRWAsPDataSource::ICreateLayer(const char *pszName,
     CPLString sFirstField, sSecondField, sGeomField;
 
     const char *pszFields = CSLFetchNameValue(papszOptions, "WASP_FIELDS");
-    const CPLString sFields(pszFields ? pszFields : "");
+    CPLString sFields(pszFields ? pszFields : "");
     if (!sFields.empty())
     {
         /* parse the comma separated list of fields */
@@ -222,7 +222,7 @@ OGRWAsPDataSource::ICreateLayer(const char *pszName,
         }
         else
         {
-            sFirstField = sFields;
+            sFirstField = std::move(sFields);
         }
     }
 

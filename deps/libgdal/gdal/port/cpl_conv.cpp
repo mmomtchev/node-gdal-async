@@ -13,7 +13,7 @@
 
 #include "cpl_config.h"
 
-#ifdef HAVE_USELOCALE
+#if defined(HAVE_USELOCALE) && !defined(__FreeBSD__)
 // For uselocale, define _XOPEN_SOURCE = 700
 // and OpenBSD with libcxx 19.1.7 requires 800 for vasprintf
 // (cf https://github.com/OSGeo/gdal/issues/12619)
@@ -66,13 +66,23 @@
 #endif
 
 #include <sys/types.h>  // open
-#include <sys/stat.h>   // open
-#include <fcntl.h>      // open
+
+#if defined(__FreeBSD__)
+#include <sys/user.h>  // must be after sys/types.h
+#include <sys/sysctl.h>
+#endif
+
+#include <sys/stat.h>  // open
+#include <fcntl.h>     // open, fcntl
 
 #ifdef _WIN32
 #include <io.h>  // _isatty, _wopen
 #else
-#include <unistd.h>  // isatty
+#include <unistd.h>  // isatty, fcntl
+#if HAVE_GETRLIMIT
+#include <sys/resource.h>  // getrlimit
+#include <sys/time.h>      // getrlimit
+#endif
 #endif
 
 #include <string>
@@ -665,7 +675,6 @@ const char *CPLReadLineL(VSILFILE *fp)
  * from the file or NULL if the end of file was encountered or the maximum
  * number of characters allowed reached.
  *
- * @since GDAL 1.7.0
  */
 
 const char *CPLReadLine2L(VSILFILE *fp, int nMaxCars,
@@ -694,7 +703,6 @@ const char *CPLReadLine2L(VSILFILE *fp, int nMaxCars,
  * from the file or NULL if the end of file was encountered or the maximum
  * number of characters allowed reached.
  *
- * @since GDAL 2.3.0
  */
 const char *CPLReadLine3L(VSILFILE *fp, int nMaxCars, int *pnBufLength,
                           CPL_UNUSED CSLConstList papszOptions)
@@ -1006,7 +1014,6 @@ GUIntBig CPLScanUIntBig(const char *pszString, int nMaxLength)
  *
  * @param pszString String containing 64 bit signed integer.
  * @return 64 bit signed integer.
- * @since GDAL 2.0
  */
 
 GIntBig CPLAtoGIntBig(const char *pszString)
@@ -1052,7 +1059,6 @@ static int CPLAtoGIntBigExHasOverflow(const char *pszString, GIntBig nVal)
  * @param pbOverflow Pointer to an integer to store if an overflow occurred, or
  *        NULL
  * @return 64 bit signed integer.
- * @since GDAL 2.0
  */
 
 GIntBig CPLAtoGIntBigEx(const char *pszString, int bWarn, int *pbOverflow)
@@ -1734,7 +1740,6 @@ const char *CPL_STDCALL CPLGetConfigOption(const char *pszKey,
  * CPLSetThreadLocalConfigOption() will *not* be listed.
  *
  * @return a copy of the list, to be freed with CSLDestroy().
- * @since GDAL 2.2
  */
 char **CPLGetConfigOptions(void)
 {
@@ -1760,7 +1765,6 @@ char **CPLGetConfigOptions(void)
  *
  * @param papszConfigOptions the new list (or NULL).
  *
- * @since GDAL 2.2
  */
 void CPLSetConfigOptions(const char *const *papszConfigOptions)
 {
@@ -2163,7 +2167,6 @@ void CPL_STDCALL CPLSetThreadLocalConfigOption(const char *pszKey,
  * CPLSetConfigOption() will *not* be listed.
  *
  * @return a copy of the list, to be freed with CSLDestroy().
- * @since GDAL 2.2
  */
 char **CPLGetThreadLocalConfigOptions(void)
 {
@@ -2193,7 +2196,6 @@ char **CPLGetThreadLocalConfigOptions(void)
  *
  * @param papszConfigOptions the new list (or NULL).
  *
- * @since GDAL 2.2
  */
 void CPLSetThreadLocalConfigOptions(const char *const *papszConfigOptions)
 {
@@ -3556,7 +3558,7 @@ int CPLIsPowerOfTwo(unsigned int i)
  * @return TRUE if a match is found, or FALSE if not.
  */
 
-int CPLCheckForFile(char *pszFilename, char **papszSiblingFiles)
+int CPLCheckForFile(char *pszFilename, CSLConstList papszSiblingFiles)
 
 {
     /* -------------------------------------------------------------------- */
@@ -3899,3 +3901,157 @@ void CPLUnlockFileEx(CPLLockFileHandle hLockFileHandle)
         delete hLockFileHandle;
     }
 }
+
+/************************************************************************/
+/*                       CPLFormatReadableFileSize()                    */
+/************************************************************************/
+
+template <class T>
+static std::string CPLFormatReadableFileSizeInternal(T nSizeInBytes)
+{
+    constexpr T ONE_MEGA_BYTE = 1000 * 1000;
+    constexpr T ONE_GIGA_BYTE = 1000 * ONE_MEGA_BYTE;
+    constexpr T ONE_TERA_BYTE = 1000 * ONE_GIGA_BYTE;
+    constexpr T ONE_PETA_BYTE = 1000 * ONE_TERA_BYTE;
+    constexpr T ONE_HEXA_BYTE = 1000 * ONE_PETA_BYTE;
+
+    if (nSizeInBytes > ONE_HEXA_BYTE)
+        return CPLSPrintf("%.02f HB", static_cast<double>(nSizeInBytes) /
+                                          static_cast<double>(ONE_HEXA_BYTE));
+
+    if (nSizeInBytes > ONE_PETA_BYTE)
+        return CPLSPrintf("%.02f PB", static_cast<double>(nSizeInBytes) /
+                                          static_cast<double>(ONE_PETA_BYTE));
+
+    if (nSizeInBytes > ONE_TERA_BYTE)
+        return CPLSPrintf("%.02f TB", static_cast<double>(nSizeInBytes) /
+                                          static_cast<double>(ONE_TERA_BYTE));
+
+    if (nSizeInBytes > ONE_GIGA_BYTE)
+        return CPLSPrintf("%.02f GB", static_cast<double>(nSizeInBytes) /
+                                          static_cast<double>(ONE_GIGA_BYTE));
+
+    if (nSizeInBytes > ONE_MEGA_BYTE)
+        return CPLSPrintf("%.02f MB", static_cast<double>(nSizeInBytes) /
+                                          static_cast<double>(ONE_MEGA_BYTE));
+
+    return CPLSPrintf("%03d,%03d bytes", static_cast<int>(nSizeInBytes) / 1000,
+                      static_cast<int>(nSizeInBytes) % 1000);
+}
+
+/** Return a file size in a human readable way.
+ *
+ * e.g 1200000 -> "1.20 MB"
+ *
+ * @since 3.12
+ */
+std::string CPLFormatReadableFileSize(uint64_t nSizeInBytes)
+{
+    return CPLFormatReadableFileSizeInternal(nSizeInBytes);
+}
+
+/** Return a file size in a human readable way.
+ *
+ * e.g 1200000 -> "1.20 MB"
+ *
+ * @since 3.12
+ */
+std::string CPLFormatReadableFileSize(double dfSizeInBytes)
+{
+    return CPLFormatReadableFileSizeInternal(dfSizeInBytes);
+}
+
+/************************************************************************/
+/*                 CPLGetRemainingFileDescriptorCount()                 */
+/************************************************************************/
+
+/** \fn CPLGetRemainingFileDescriptorCount()
+ *
+ * Return the number of file descriptors that can still be opened by the
+ * current process.
+ *
+ * Only implemented on non-Windows operating systems
+ *
+ * Return a negative value in case of error or not implemented.
+ *
+ * @since 3.12
+ */
+
+#if defined(__FreeBSD__)
+
+int CPLGetRemainingFileDescriptorCount()
+{
+    struct rlimit limitNumberOfFilesPerProcess;
+    if (getrlimit(RLIMIT_NOFILE, &limitNumberOfFilesPerProcess) != 0)
+    {
+        return -1;
+    }
+    const int maxNumberOfFilesPerProcess =
+        static_cast<int>(limitNumberOfFilesPerProcess.rlim_cur);
+
+    const pid_t pid = getpid();
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_FILEDESC,
+                  static_cast<int>(pid)};
+
+    size_t len = 0;
+
+    if (sysctl(mib, 4, nullptr, &len, nullptr, 0) == -1)
+    {
+        return -1;
+    }
+
+    return maxNumberOfFilesPerProcess -
+           static_cast<int>(len / sizeof(struct kinfo_file));
+}
+
+#else
+
+int CPLGetRemainingFileDescriptorCount()
+{
+#if !defined(_WIN32) && HAVE_GETRLIMIT
+    struct rlimit limitNumberOfFilesPerProcess;
+    if (getrlimit(RLIMIT_NOFILE, &limitNumberOfFilesPerProcess) != 0)
+    {
+        return -1;
+    }
+    const int maxNumberOfFilesPerProcess =
+        static_cast<int>(limitNumberOfFilesPerProcess.rlim_cur);
+
+    int countFilesInUse = 0;
+    {
+        const char *const apszOptions[] = {"NAME_AND_TYPE_ONLY=YES", nullptr};
+#ifdef __linux
+        VSIDIR *dir = VSIOpenDir("/proc/self/fd", 0, apszOptions);
+#else
+        // MacOSX
+        VSIDIR *dir = VSIOpenDir("/dev/fd", 0, apszOptions);
+#endif
+        if (dir)
+        {
+            while (VSIGetNextDirEntry(dir))
+                ++countFilesInUse;
+            countFilesInUse -= 2;  // do not count . and ..
+            VSICloseDir(dir);
+        }
+    }
+
+    if (countFilesInUse <= 0)
+    {
+        // Fallback if above method does not work
+        for (int fd = 0; fd < maxNumberOfFilesPerProcess; fd++)
+        {
+            errno = 0;
+            if (fcntl(fd, F_GETFD) != -1 || errno != EBADF)
+            {
+                countFilesInUse++;
+            }
+        }
+    }
+
+    return maxNumberOfFilesPerProcess - countFilesInUse;
+#else
+    return -1;
+#endif
+}
+
+#endif

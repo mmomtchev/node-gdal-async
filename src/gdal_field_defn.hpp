@@ -21,7 +21,7 @@ class FieldDefn : public Nan::ObjectWrap {
   static Nan::Persistent<FunctionTemplate> constructor;
   static void Initialize(Local<Object> target);
   static NAN_METHOD(New);
-  static Local<Value> New(OGRFieldDefn *def);
+  static Local<Value> New(const OGRFieldDefn *def);
   static Local<Value> New(OGRFieldDefn *def, bool owned);
   static NAN_METHOD(toString);
 

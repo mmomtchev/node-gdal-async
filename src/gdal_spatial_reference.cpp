@@ -135,9 +135,18 @@ NAN_METHOD(SpatialReference::New) {
   info.GetReturnValue().Set(info.This());
 }
 
-Local<Value> SpatialReference::New(OGRSpatialReference *srs) {
+// Currently read-only spatial references are copied.
+// Modifying a spatial reference that should have been
+// read-only modifies a shadow copy without any real effect.
+// TODO: Implement proper read-only objects that throw
+// Fixing this for srs obtained from a Layer is trivial
+// But fixing it for srs obtained from a Feature requires moving the Features to the ObjectStore
+
+Local<Value> SpatialReference::New(const OGRSpatialReference *srs) {
   Nan::EscapableHandleScope scope;
-  return scope.Escape(SpatialReference::New(srs, false));
+  // This const_cast is not a problem since the very first operation
+  // below is copying the SpatialReference
+  return scope.Escape(SpatialReference::New(const_cast<OGRSpatialReference *>(srs), false));
 }
 
 Local<Value> SpatialReference::New(OGRSpatialReference *raw, bool owned) {
@@ -145,14 +154,6 @@ Local<Value> SpatialReference::New(OGRSpatialReference *raw, bool owned) {
 
   if (!raw) { return scope.Escape(Nan::Null()); }
   if (object_store.has(raw)) { return scope.Escape(object_store.get(raw)); }
-
-  // make a copy of spatialreference owned by a layer, feature, etc
-  // + no need to track when a layer is destroyed
-  // + no need to throw errors when a method tries to modify an owned read-only srs
-  // - is slower
-
-  // Fixing this for srs obtained from a Layer is trivial
-  // But fixing it for srs obtained from a Feature required moving the Features to the ObjectStore
 
   OGRSpatialReference *cloned_srs = raw;
   if (!owned) cloned_srs = raw->Clone();

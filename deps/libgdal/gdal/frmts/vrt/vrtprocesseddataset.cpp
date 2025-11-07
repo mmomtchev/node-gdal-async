@@ -12,12 +12,14 @@
 
 #include "cpl_minixml.h"
 #include "cpl_string.h"
+#include "gdal_priv.h"
 #include "gdal_utils.h"
 #include "vrtdataset.h"
 
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <set>
 #include <vector>
 
 /************************************************************************/
@@ -268,7 +270,7 @@ CPLErr VRTProcessedDataset::Init(const CPLXMLNode *psTree,
         CPLXMLNode sVRTDatasetTmp = *psVRTDataset;
         sVRTDatasetTmp.psNext = nullptr;
         char *pszXML = CPLSerializeXMLTree(&sVRTDatasetTmp);
-        m_poSrcDS.reset(VRTDataset::OpenXML(pszXML, pszVRTPathIn, GA_ReadOnly));
+        m_poSrcDS = VRTDataset::OpenXML(pszXML, pszVRTPathIn, GA_ReadOnly);
         CPLFree(pszXML);
     }
     else
@@ -358,7 +360,7 @@ CPLErr VRTProcessedDataset::Init(const CPLXMLNode *psTree,
     // Inherit GeoTransform from source if not explicitly defined in VRT
     if (iOvrLevel < 0 && !CPLGetXMLNode(psTree, "GeoTransform"))
     {
-        if (m_poSrcDS->GetGeoTransform(m_adfGeoTransform) == CE_None)
+        if (m_poSrcDS->GetGeoTransform(m_gt) == CE_None)
             m_bGeoTransformSet = true;
     }
 
@@ -404,20 +406,14 @@ CPLErr VRTProcessedDataset::Init(const CPLXMLNode *psTree,
     if (iOvrLevel >= 0 && poParentDS->m_bGeoTransformSet)
     {
         m_bGeoTransformSet = true;
-        m_adfGeoTransform[0] = poParentDS->m_adfGeoTransform[0];
-        m_adfGeoTransform[1] = poParentDS->m_adfGeoTransform[1];
-        m_adfGeoTransform[2] = poParentDS->m_adfGeoTransform[2];
-        m_adfGeoTransform[3] = poParentDS->m_adfGeoTransform[3];
-        m_adfGeoTransform[4] = poParentDS->m_adfGeoTransform[4];
-        m_adfGeoTransform[5] = poParentDS->m_adfGeoTransform[5];
-
-        m_adfGeoTransform[1] *=
+        m_gt = poParentDS->m_gt;
+        m_gt[1] *=
             static_cast<double>(poParentDS->GetRasterXSize()) / nRasterXSize;
-        m_adfGeoTransform[2] *=
+        m_gt[2] *=
             static_cast<double>(poParentDS->GetRasterYSize()) / nRasterYSize;
-        m_adfGeoTransform[4] *=
+        m_gt[4] *=
             static_cast<double>(poParentDS->GetRasterXSize()) / nRasterXSize;
-        m_adfGeoTransform[5] *=
+        m_gt[5] *=
             static_cast<double>(poParentDS->GetRasterYSize()) / nRasterYSize;
     }
 
@@ -1329,15 +1325,10 @@ bool VRTProcessedDataset::ProcessRegion(int nXOff, int nYOff, int nBufXSize,
     const double dfSrcXSize = nBufXSize;
     const double dfSrcYSize = nBufYSize;
 
-    double adfSrcGT[6];
-    if (m_poSrcDS->GetGeoTransform(adfSrcGT) != CE_None)
+    GDALGeoTransform srcGT;
+    if (m_poSrcDS->GetGeoTransform(srcGT) != CE_None)
     {
-        adfSrcGT[0] = 0;
-        adfSrcGT[1] = 1;
-        adfSrcGT[2] = 0;
-        adfSrcGT[3] = 0;
-        adfSrcGT[4] = 0;
-        adfSrcGT[5] = 1;
+        srcGT = GDALGeoTransform();
     }
 
     GDALDataType eLastDT = eFirstDT;
@@ -1391,7 +1382,7 @@ bool VRTProcessedDataset::ProcessRegion(int nXOff, int nYOff, int nBufXSize,
                 abyInput.data(), abyInput.size(), oStep.eInDT, oStep.nInBands,
                 oStep.adfInNoData.data(), abyOutput.data(), abyOutput.size(),
                 oStep.eOutDT, oStep.nOutBands, oStep.adfOutNoData.data(),
-                dfSrcXOff, dfSrcYOff, dfSrcXSize, dfSrcYSize, adfSrcGT,
+                dfSrcXOff, dfSrcYOff, dfSrcXSize, dfSrcYSize, srcGT.data(),
                 m_osVRTPath.c_str(),
                 /*papszExtra=*/nullptr) != CE_None)
         {
@@ -1550,26 +1541,15 @@ CPLErr VRTProcessedDataset::IRasterIO(
     if (eRWFlag == GF_Read && nXSize == nBufXSize && nYSize == nBufYSize &&
         nBandCount == nBands)
     {
-        const auto IsSequentialBandMap = [panBandMap, nBandCount]()
-        {
-            for (int i = 0; i < nBandCount; ++i)
-            {
-                if (panBandMap[i] != i + 1)
-                {
-                    return false;
-                }
-            }
-            return true;
-        };
-
         const int nBufTypeSize = GDALGetDataTypeSizeBytes(eBufType);
-        const bool bIsBIPLike =
-            nBandSpace == nBufTypeSize && nPixelSpace == nBandSpace * nBands &&
-            nLineSpace >= nPixelSpace * nBufXSize && IsSequentialBandMap();
+        const bool bIsBIPLike = nBandSpace == nBufTypeSize &&
+                                nPixelSpace == nBandSpace * nBands &&
+                                nLineSpace >= nPixelSpace * nBufXSize &&
+                                IsAllBands(nBandCount, panBandMap);
         const bool bIsBSQLike = nPixelSpace == nBufTypeSize &&
                                 nLineSpace >= nPixelSpace * nBufXSize &&
                                 nBandSpace >= nLineSpace * nBufYSize &&
-                                IsSequentialBandMap();
+                                IsAllBands(nBandCount, panBandMap);
         if (bIsBIPLike || bIsBSQLike)
         {
             GByte *pabyData = static_cast<GByte *>(pData);

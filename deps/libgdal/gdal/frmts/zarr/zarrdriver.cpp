@@ -16,6 +16,8 @@
 
 #include "cpl_minixml.h"
 
+#include "gdal_frmts.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cinttypes>
@@ -30,7 +32,7 @@
 /*                            ZarrDataset()                             */
 /************************************************************************/
 
-ZarrDataset::ZarrDataset(const std::shared_ptr<GDALGroup> &poRootGroup)
+ZarrDataset::ZarrDataset(const std::shared_ptr<ZarrGroupBase> &poRootGroup)
     : m_poRootGroup(poRootGroup)
 {
 }
@@ -302,6 +304,10 @@ GDALDataset *ZarrDataset::Open(GDALOpenInfo *poOpenInfo)
     }
 
     CPLString osFilename(poOpenInfo->pszFilename);
+    if (!poOpenInfo->bIsDirectory)
+    {
+        osFilename = CPLGetPathSafe(osFilename);
+    }
     CPLString osArrayOfInterest;
     std::vector<uint64_t> anExtraDimIndices;
     if (STARTS_WITH(poOpenInfo->pszFilename, "ZARR:"))
@@ -750,24 +756,13 @@ static CPLErr ZarrDatasetCopyFiles(const char *pszNewName,
 
 class ZarrDriver final : public GDALDriver
 {
-    std::mutex m_oMutex{};
+    std::recursive_mutex m_oMutex{};
     bool m_bMetadataInitialized = false;
     void InitMetadata();
 
   public:
     const char *GetMetadataItem(const char *pszName,
-                                const char *pszDomain) override
-    {
-        std::lock_guard oLock(m_oMutex);
-        if (EQUAL(pszName, "COMPRESSORS") ||
-            EQUAL(pszName, "BLOSC_COMPRESSORS") ||
-            EQUAL(pszName, GDAL_DMD_CREATIONOPTIONLIST) ||
-            EQUAL(pszName, GDAL_DMD_MULTIDIM_ARRAY_CREATIONOPTIONLIST))
-        {
-            InitMetadata();
-        }
-        return GDALDriver::GetMetadataItem(pszName, pszDomain);
-    }
+                                const char *pszDomain) override;
 
     char **GetMetadata(const char *pszDomain) override
     {
@@ -776,6 +771,19 @@ class ZarrDriver final : public GDALDriver
         return GDALDriver::GetMetadata(pszDomain);
     }
 };
+
+const char *ZarrDriver::GetMetadataItem(const char *pszName,
+                                        const char *pszDomain)
+{
+    std::lock_guard oLock(m_oMutex);
+    if (EQUAL(pszName, "COMPRESSORS") || EQUAL(pszName, "BLOSC_COMPRESSORS") ||
+        EQUAL(pszName, GDAL_DMD_CREATIONOPTIONLIST) ||
+        EQUAL(pszName, GDAL_DMD_MULTIDIM_ARRAY_CREATIONOPTIONLIST))
+    {
+        InitMetadata();
+    }
+    return GDALDriver::GetMetadataItem(pszName, pszDomain);
+}
 
 void ZarrDriver::InitMetadata()
 {
@@ -1327,7 +1335,7 @@ GDALDataset *ZarrDataset::Create(const char *pszName, int nXSize, int nYSize,
         CPLTestBool(CSLFetchNameValueDef(papszOptions, "SINGLE_ARRAY", "YES"));
     const bool bBandInterleave =
         EQUAL(CSLFetchNameValueDef(papszOptions, "INTERLEAVE", "BAND"), "BAND");
-    const std::shared_ptr<GDALDimension> poBandDim(
+    std::shared_ptr<GDALDimension> poBandDim(
         (bSingleArray && nBandsIn > 1)
             ? poRG->CreateDimension("Band", std::string(), std::string(),
                                     nBandsIn)
@@ -1337,13 +1345,18 @@ GDALDataset *ZarrDataset::Create(const char *pszName, int nXSize, int nYSize,
         pszArrayName ? std::string(pszArrayName) : CPLGetBasenameSafe(pszName);
     if (poBandDim)
     {
-        const std::vector<std::shared_ptr<GDALDimension>> apoDims(
-            bBandInterleave
-                ? std::vector<std::shared_ptr<GDALDimension>>{poBandDim,
-                                                              poDS->m_poDimY,
-                                                              poDS->m_poDimX}
-                : std::vector<std::shared_ptr<GDALDimension>>{
-                      poDS->m_poDimY, poDS->m_poDimX, poBandDim});
+        std::vector<std::shared_ptr<GDALDimension>> apoDims;
+        if (bBandInterleave)
+        {
+            apoDims = std::vector<std::shared_ptr<GDALDimension>>{
+                poBandDim, poDS->m_poDimY, poDS->m_poDimX};
+        }
+        else
+        {
+            apoDims = std::vector<std::shared_ptr<GDALDimension>>{
+                poDS->m_poDimY, poDS->m_poDimX, poBandDim};
+        }
+        CPL_IGNORE_RET_VAL(poBandDim);
         poDS->m_poSingleArray = poRG->CreateMDArray(
             osNonNullArrayName.c_str(), apoDims,
             GDALExtendedDataType::Create(eType), papszOptions);
@@ -1400,6 +1413,11 @@ ZarrDataset::~ZarrDataset()
 CPLErr ZarrDataset::FlushCache(bool bAtClosing)
 {
     CPLErr eErr = GDALDataset::FlushCache(bAtClosing);
+    if (m_poRootGroup)
+    {
+        if (!m_poRootGroup->Close())
+            eErr = CE_Failure;
+    }
     if (m_poSingleArray)
     {
         bool bFound = false;
@@ -1439,6 +1457,15 @@ CPLErr ZarrDataset::FlushCache(bool bAtClosing)
 }
 
 /************************************************************************/
+/*                          GetRootGroup()                              */
+/************************************************************************/
+
+std::shared_ptr<GDALGroup> ZarrDataset::GetRootGroup() const
+{
+    return m_poRootGroup;
+}
+
+/************************************************************************/
 /*                          GetSpatialRef()                             */
 /************************************************************************/
 
@@ -1469,9 +1496,9 @@ CPLErr ZarrDataset::SetSpatialRef(const OGRSpatialReference *poSRS)
 /*                         GetGeoTransform()                            */
 /************************************************************************/
 
-CPLErr ZarrDataset::GetGeoTransform(double *padfTransform)
+CPLErr ZarrDataset::GetGeoTransform(GDALGeoTransform &gt) const
 {
-    memcpy(padfTransform, &m_adfGeoTransform[0], 6 * sizeof(double));
+    gt = m_gt;
     return m_bHasGT ? CE_None : CE_Failure;
 }
 
@@ -1479,9 +1506,9 @@ CPLErr ZarrDataset::GetGeoTransform(double *padfTransform)
 /*                         SetGeoTransform()                            */
 /************************************************************************/
 
-CPLErr ZarrDataset::SetGeoTransform(double *padfTransform)
+CPLErr ZarrDataset::SetGeoTransform(const GDALGeoTransform &gt)
 {
-    if (padfTransform[2] != 0 || padfTransform[4] != 0)
+    if (gt[2] != 0 || gt[4] != 0)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "Geotransform with rotated terms not supported");
@@ -1490,7 +1517,7 @@ CPLErr ZarrDataset::SetGeoTransform(double *padfTransform)
     if (m_poDimX == nullptr || m_poDimY == nullptr)
         return CE_Failure;
 
-    memcpy(&m_adfGeoTransform[0], padfTransform, 6 * sizeof(double));
+    m_gt = gt;
     m_bHasGT = true;
 
     const auto oDTFloat64 = GDALExtendedDataType::Create(GDT_Float64);
@@ -1507,8 +1534,7 @@ CPLErr ZarrDataset::SetGeoTransform(double *padfTransform)
         {
             adfX.reserve(nRasterXSize);
             for (int i = 0; i < nRasterXSize; ++i)
-                adfX.emplace_back(padfTransform[0] +
-                                  padfTransform[1] * (i + 0.5));
+                adfX.emplace_back(m_gt[0] + m_gt[1] * (i + 0.5));
         }
         catch (const std::exception &)
         {
@@ -1540,8 +1566,7 @@ CPLErr ZarrDataset::SetGeoTransform(double *padfTransform)
         {
             adfY.reserve(nRasterYSize);
             for (int i = 0; i < nRasterYSize; ++i)
-                adfY.emplace_back(padfTransform[3] +
-                                  padfTransform[5] * (i + 0.5));
+                adfY.emplace_back(m_gt[3] + m_gt[5] * (i + 0.5));
         }
         catch (const std::exception &)
         {

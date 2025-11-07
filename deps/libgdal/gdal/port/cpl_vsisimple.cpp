@@ -41,9 +41,7 @@
 #include <cstring>
 #include <ctime>
 #include <limits>
-#if HAVE_SYS_STAT_H
 #include <sys/stat.h>
-#endif
 #if HAVE_GETRLIMIT
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -894,7 +892,6 @@ void VSIFree(void *pData)
  *                   lesser than 256.
  * @param nSize Size of the buffer to allocate.
  * @return a buffer aligned on nAlignment and of size nSize, or NULL
- * @since GDAL 2.2
  */
 
 void *VSIMallocAligned(size_t nAlignment, size_t nSize)
@@ -944,7 +941,6 @@ void *VSIMallocAligned(size_t nAlignment, size_t nSize)
  *
  * @param nSize Size of the buffer to allocate.
  * @return an aligned buffer of size nSize, or NULL
- * @since GDAL 2.2
  */
 
 void *VSIMallocAlignedAuto(size_t nSize)
@@ -980,7 +976,6 @@ void *VSIMallocAlignedAutoVerbose(size_t nSize, const char *pszFile, int nLine)
 /** Free a buffer allocated with VSIMallocAligned().
  *
  * @param ptr Buffer to free.
- * @since GDAL 2.2
  */
 
 void VSIFreeAligned(void *ptr)
@@ -1381,13 +1376,11 @@ char *VSIStrerror(int nErrno)
 /** Return the total physical RAM in bytes.
  *
  * In the context of a container using cgroups (typically Docker), this
- * will take into account that limitation (starting with GDAL 2.4.0 and
- * with extra fixes in GDAL 3.6.3)
+ * will take into account that limitation (with extra fixes in GDAL 3.6.3)
  *
  * You should generally use CPLGetUsablePhysicalRAM() instead.
  *
  * @return the total physical RAM in bytes (or 0 in case of failure).
- * @since GDAL 2.0
  */
 GIntBig CPLGetPhysicalRAM(void)
 {
@@ -1621,7 +1614,6 @@ GIntBig CPLGetPhysicalRAM(void)
  *
  * @return the total physical RAM, usable by a process, in bytes (or 0
  * in case of failure).
- * @since GDAL 2.0
  */
 GIntBig CPLGetUsablePhysicalRAM(void)
 {

@@ -17,6 +17,7 @@
 
 #include "cpl_string.h"
 #include "gdal_frmts.h"
+#include "gdal_priv.h"
 #include "ogr_spatialref.h"
 #include "ogr_srs_api.h"
 
@@ -74,7 +75,7 @@ double BYNRasterBand::GetNoDataValue(int *pbSuccess)
         return dfNoData;
     }
     const double dfFactor =
-        reinterpret_cast<BYNDataset *>(poDS)->hHeader.dfFactor;
+        cpl::down_cast<BYNDataset *>(poDS)->hHeader.dfFactor;
     return eDataType == GDT_Int16 ? 32767.0 : 9999.0 * dfFactor;
 }
 
@@ -87,7 +88,7 @@ double BYNRasterBand::GetScale(int *pbSuccess)
     if (pbSuccess != nullptr)
         *pbSuccess = TRUE;
     const double dfFactor =
-        reinterpret_cast<BYNDataset *>(poDS)->hHeader.dfFactor;
+        cpl::down_cast<BYNDataset *>(poDS)->hHeader.dfFactor;
     return (dfFactor != 0.0) ? 1.0 / dfFactor : 0.0;
 }
 
@@ -102,12 +103,6 @@ BYNDataset::BYNDataset()
                                 0, 0, 0, 0, 0, 0.0, 0.0, 0, 0,   0.0, 0}
 {
     m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-    adfGeoTransform[0] = 0.0;
-    adfGeoTransform[1] = 1.0;
-    adfGeoTransform[2] = 0.0;
-    adfGeoTransform[3] = 0.0;
-    adfGeoTransform[4] = 0.0;
-    adfGeoTransform[5] = 1.0;
 }
 
 /************************************************************************/
@@ -311,12 +306,12 @@ GDALDataset *BYNDataset::Open(GDALOpenInfo *poOpenInfo)
     /* Build GeoTransform matrix */
     /*****************************/
 
-    poDS->adfGeoTransform[0] = (dfWest - (dfDLon / 2.0)) / 3600.0;
-    poDS->adfGeoTransform[1] = dfDLon / 3600.0;
-    poDS->adfGeoTransform[2] = 0.0;
-    poDS->adfGeoTransform[3] = (dfNorth + (dfDLat / 2.0)) / 3600.0;
-    poDS->adfGeoTransform[4] = 0.0;
-    poDS->adfGeoTransform[5] = -1 * dfDLat / 3600.0;
+    poDS->m_gt[0] = (dfWest - (dfDLon / 2.0)) / 3600.0;
+    poDS->m_gt[1] = dfDLon / 3600.0;
+    poDS->m_gt[2] = 0.0;
+    poDS->m_gt[3] = (dfNorth + (dfDLat / 2.0)) / 3600.0;
+    poDS->m_gt[4] = 0.0;
+    poDS->m_gt[5] = -1 * dfDLat / 3600.0;
 
     /*********************/
     /* Set data type     */
@@ -368,10 +363,9 @@ GDALDataset *BYNDataset::Open(GDALOpenInfo *poOpenInfo)
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr BYNDataset::GetGeoTransform(double *padfTransform)
-
+CPLErr BYNDataset::GetGeoTransform(GDALGeoTransform &gt) const
 {
-    memcpy(padfTransform, adfGeoTransform, sizeof(double) * 6);
+    gt = m_gt;
     return CE_None;
 }
 

@@ -15,28 +15,19 @@ jobs:
     strategy:
       matrix:
         linux-version:
-        - ubuntu:20.04
         - ubuntu:22.04
         - ubuntu:24.04
         - debian:bullseye
-        - centos:stream9
+        - centos:stream10
         - amazonlinux:2023
-        node-version: [ 18, 20, 22 ]
+        node-version: [ 20, 22, 24 ]
         include:
-          - linux-version: debian-archive:buster
-            node-version: 18
-          - linux-version: debian-archive:buster
-            node-version: 20
           - linux-version: ubuntu:24.04
-            node-version: 23
-          - linux-version: ubuntu:24.04
+            node-version: 25
+          - linux-version: fedora:42
             node-version: 24
-          - linux-version: fedora:36
-            node-version: 18
-          - linux-version: fedora:37
-            node-version: 18
-          - linux-version: fedora:38
-            node-version: 20
+          - linux-version: debian:bookworm
+            node-version: 24
 
     steps:
     - uses: actions/checkout@v5
@@ -55,8 +46,8 @@ jobs:
 
     strategy:
       matrix:
-        platforms: [ windows-2022, macos-13, macos-15 ]
-        node-version: [ 18, 20, 22, 23, 24 ]
+        platforms: [ windows-2022, macos-15-intel, macos-15 ]
+        node-version: [ 20, 22, 24, 25 ]
 
     steps:
     - uses: actions/checkout@v5

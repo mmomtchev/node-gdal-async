@@ -21,7 +21,7 @@ class FeatureDefn : public Nan::ObjectWrap {
   static Nan::Persistent<FunctionTemplate> constructor;
   static void Initialize(Local<Object> target);
   static NAN_METHOD(New);
-  static Local<Value> New(OGRFeatureDefn *def);
+  static Local<Value> New(const OGRFeatureDefn *def);
   static Local<Value> New(OGRFeatureDefn *def, bool owned);
   static NAN_METHOD(toString);
   static NAN_METHOD(clone);

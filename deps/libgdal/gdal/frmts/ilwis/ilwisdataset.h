@@ -125,13 +125,13 @@ class ILWISRasterBand final : public GDALPamRasterBand
     int nSizePerPixel;
 
     ILWISRasterBand(ILWISDataset *, int, const std::string &sBandNameIn);
-    virtual ~ILWISRasterBand();
+    ~ILWISRasterBand() override;
     CPLErr GetILWISInfo(const std::string &pszFileName);
     void ILWISOpen(const std::string &pszFilename);
 
-    virtual CPLErr IReadBlock(int, int, void *) override;
-    virtual CPLErr IWriteBlock(int, int, void *) override;
-    virtual double GetNoDataValue(int *pbSuccess) override;
+    CPLErr IReadBlock(int, int, void *) override;
+    CPLErr IWriteBlock(int, int, void *) override;
+    double GetNoDataValue(int *pbSuccess) override;
 
   private:
     void FillWithNoData(void *pImage);
@@ -149,7 +149,7 @@ class ILWISDataset final : public GDALPamDataset
     CPLString osFileName;
     std::string pszIlwFileName;
     OGRSpatialReference m_oSRS{};
-    double adfGeoTransform[6];
+    GDALGeoTransform m_gt{};
     int bGeoDirty;
     int bNewDataset;          /* product of Create() */
     std::string pszFileType;  // indicating the input dataset: Map/MapList
@@ -160,7 +160,7 @@ class ILWISDataset final : public GDALPamDataset
 
   public:
     ILWISDataset();
-    virtual ~ILWISDataset();
+    ~ILWISDataset() override;
 
     static GDALDataset *Open(GDALOpenInfo *);
 
@@ -174,13 +174,13 @@ class ILWISDataset final : public GDALPamDataset
                                int nBands, GDALDataType eType,
                                char **papszParamList);
 
-    virtual CPLErr GetGeoTransform(double *padfTransform) override;
-    virtual CPLErr SetGeoTransform(double *) override;
+    CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
+    CPLErr SetGeoTransform(const GDALGeoTransform &gt) override;
 
     const OGRSpatialReference *GetSpatialRef() const override;
     CPLErr SetSpatialRef(const OGRSpatialReference *poSRS) override;
 
-    virtual CPLErr FlushCache(bool bAtClosing) override;
+    CPLErr FlushCache(bool bAtClosing) override;
 };
 
 // IniFile.h: interface for the IniFile class.
@@ -196,11 +196,11 @@ class CompareAsNum
 typedef std::map<std::string, std::string> SectionEntries;
 typedef std::map<std::string, SectionEntries *> Sections;
 
-class IniFile
+class IniFile final
 {
   public:
     explicit IniFile(const std::string &filename);
-    virtual ~IniFile();
+    ~IniFile();
 
     void SetKeyValue(const std::string &section, const std::string &key,
                      const std::string &value);

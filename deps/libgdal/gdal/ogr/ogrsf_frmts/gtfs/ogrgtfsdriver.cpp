@@ -31,12 +31,12 @@ class OGRGTFSDataset final : public GDALDataset
   public:
     OGRGTFSDataset() = default;
 
-    int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return static_cast<int>(m_apoLayers.size());
     }
 
-    OGRLayer *GetLayer(int nIdx) override;
+    const OGRLayer *GetLayer(int nIdx) const override;
 
     static int Identify(GDALOpenInfo *poOpenInfo);
     static GDALDataset *Open(GDALOpenInfo *poOpenInfo);
@@ -46,7 +46,7 @@ class OGRGTFSDataset final : public GDALDataset
 /*                              GetLayer()                             */
 /***********************************************************************/
 
-OGRLayer *OGRGTFSDataset::GetLayer(int nIdx)
+const OGRLayer *OGRGTFSDataset::GetLayer(int nIdx) const
 {
     return nIdx >= 0 && nIdx < static_cast<int>(m_apoLayers.size())
                ? m_apoLayers[nIdx].get()
@@ -80,10 +80,10 @@ class OGRGTFSLayer final : public OGRLayer
 
     void ResetReading() override;
     OGRFeature *GetNextFeature() override;
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
     GIntBig GetFeatureCount(int bForce) override;
 
-    OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return m_poFeatureDefn;
     }
@@ -359,7 +359,7 @@ GIntBig OGRGTFSLayer::GetFeatureCount(int bForce)
 /*                          TestCapability()                           */
 /***********************************************************************/
 
-int OGRGTFSLayer::TestCapability(const char *pszCap)
+int OGRGTFSLayer::TestCapability(const char *pszCap) const
 {
     return EQUAL(pszCap, OLCStringsAsUTF8);
 }
@@ -386,9 +386,9 @@ class OGRGTFSShapesGeomLayer final : public OGRLayer
 
     void ResetReading() override;
     OGRFeature *GetNextFeature() override;
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 
-    OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return m_poFeatureDefn;
     }
@@ -511,7 +511,7 @@ OGRFeature *OGRGTFSShapesGeomLayer::GetNextFeature()
 /*                          TestCapability()                           */
 /***********************************************************************/
 
-int OGRGTFSShapesGeomLayer::TestCapability(const char *pszCap)
+int OGRGTFSShapesGeomLayer::TestCapability(const char *pszCap) const
 {
     return EQUAL(pszCap, OLCStringsAsUTF8);
 }
@@ -605,7 +605,7 @@ GDALDataset *OGRGTFSDataset::Open(GDALOpenInfo *poOpenInfo)
     if (STARTS_WITH(pszGTFSFilename, "GTFS:"))
         pszGTFSFilename += strlen("GTFS:");
 
-    const std::string osBaseDir(
+    std::string osBaseDir(
         (!STARTS_WITH(pszGTFSFilename, "/vsizip/") &&
          EQUAL(CPLGetExtensionSafe(pszGTFSFilename).c_str(), "zip"))
             ? std::string("/vsizip/{").append(pszGTFSFilename).append("}")
@@ -663,6 +663,7 @@ GDALDataset *OGRGTFSDataset::Open(GDALOpenInfo *poOpenInfo)
         auto poCSVDataset = std::unique_ptr<GDALDataset>(GDALDataset::Open(
             std::string(osBaseDir).append("/").append(osShapesFilename).c_str(),
             GDAL_OF_VERBOSE_ERROR | GDAL_OF_VECTOR, apszCSVDriver));
+        CPL_IGNORE_RET_VAL(osBaseDir);
         if (poCSVDataset)
         {
             auto poUnderlyingLayer = poCSVDataset->GetLayer(0);

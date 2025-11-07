@@ -134,16 +134,16 @@ class OGRMVTLayerBase CPL_NON_FINAL
                     const CPLJSONArray &oAttributesFromTileStats);
 
   public:
-    virtual ~OGRMVTLayerBase();
+    ~OGRMVTLayerBase() override;
 
-    virtual OGRFeatureDefn *GetLayerDefn() override
+    OGRFeatureDefn *GetLayerDefn() const override
     {
         return m_poFeatureDefn;
     }
 
     DEFINE_GET_NEXT_FEATURE_THROUGH_RAW(OGRMVTLayerBase)
 
-    virtual int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 };
 
 /************************************************************************/
@@ -190,7 +190,7 @@ class OGRMVTLayer final : public OGRMVTLayerBase
                                const GByte *pabyDataGeometryEnd);
     void SanitizeClippedGeometry(OGRGeometry *&poGeom);
 
-    virtual OGRFeature *GetNextRawFeature() override;
+    OGRFeature *GetNextRawFeature() override;
 
   public:
     OGRMVTLayer(OGRMVTDataset *poDS, const char *pszLayerName,
@@ -198,11 +198,11 @@ class OGRMVTLayer final : public OGRMVTLayerBase
                 const CPLJSONObject &oFields,
                 const CPLJSONArray &oAttributesFromTileStats,
                 OGRwkbGeometryType eGeomType);
-    virtual ~OGRMVTLayer();
+    ~OGRMVTLayer() override;
 
-    virtual void ResetReading() override;
+    void ResetReading() override;
 
-    virtual GIntBig GetFeatureCount(int bForce) override;
+    GIntBig GetFeatureCount(int bForce) override;
 
     GDALDataset *GetDataset() override;
 };
@@ -232,7 +232,7 @@ class OGRMVTDirectoryLayer final : public OGRMVTLayerBase
     int m_nFilterMaxX = 0;
     int m_nFilterMaxY = 0;
 
-    virtual OGRFeature *GetNextRawFeature() override;
+    OGRFeature *GetNextRawFeature() override;
     OGRFeature *CreateFeatureFrom(OGRFeature *poSrcFeature);
     void ReadNewSubDir();
     void OpenTile();
@@ -245,20 +245,20 @@ class OGRMVTDirectoryLayer final : public OGRMVTLayerBase
                          const CPLJSONArray &oAttributesFromTileStats,
                          bool bJsonField, OGRwkbGeometryType eGeomType,
                          const OGREnvelope *psExtent);
-    virtual ~OGRMVTDirectoryLayer();
+    ~OGRMVTDirectoryLayer() override;
 
-    virtual void ResetReading() override;
+    void ResetReading() override;
 
-    virtual GIntBig GetFeatureCount(int bForce) override;
+    GIntBig GetFeatureCount(int bForce) override;
     OGRErr IGetExtent(int iGeomField, OGREnvelope *psExtent,
                       bool bForce) override;
 
     OGRErr ISetSpatialFilter(int iGeomField,
                              const OGRGeometry *poGeom) override;
 
-    virtual OGRFeature *GetFeature(GIntBig nFID) override;
+    OGRFeature *GetFeature(GIntBig nFID) override;
 
-    virtual int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 
     GDALDataset *GetDataset() override;
 };
@@ -296,16 +296,16 @@ class OGRMVTDataset final : public GDALDataset
 
   public:
     explicit OGRMVTDataset(GByte *pabyData);
-    virtual ~OGRMVTDataset();
+    ~OGRMVTDataset() override;
 
-    virtual int GetLayerCount() override
+    int GetLayerCount() const override
     {
         return static_cast<int>(m_apoLayers.size());
     }
 
-    virtual OGRLayer *GetLayer(int) override;
+    const OGRLayer *GetLayer(int) const override;
 
-    virtual int TestCapability(const char *) override
+    int TestCapability(const char *) const override
     {
         return FALSE;
     }
@@ -367,7 +367,7 @@ void OGRMVTLayerBase::InitFields(const CPLJSONObject &oFields,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRMVTLayerBase::TestCapability(const char *pszCap)
+int OGRMVTLayerBase::TestCapability(const char *pszCap) const
 {
     if (EQUAL(pszCap, OLCStringsAsUTF8) || EQUAL(pszCap, OLCFastSpatialFilter))
     {
@@ -1802,7 +1802,7 @@ OGRErr OGRMVTDirectoryLayer::ISetSpatialFilter(int iGeomField,
 /*                           TestCapability()                           */
 /************************************************************************/
 
-int OGRMVTDirectoryLayer::TestCapability(const char *pszCap)
+int OGRMVTDirectoryLayer::TestCapability(const char *pszCap) const
 {
     if (EQUAL(pszCap, OLCFastGetExtent))
     {
@@ -1949,7 +1949,7 @@ OGRMVTDataset::~OGRMVTDataset()
 /*                              GetLayer()                              */
 /************************************************************************/
 
-OGRLayer *OGRMVTDataset::GetLayer(int iLayer)
+const OGRLayer *OGRMVTDataset::GetLayer(int iLayer) const
 
 {
     if (iLayer < 0 || iLayer >= GetLayerCount())
@@ -2600,8 +2600,8 @@ GDALDataset *OGRMVTDataset::OpenDirectory(GDALOpenInfo *poOpenInfo)
         osMetadataFile = pszMetadataFile;
     }
 
-    const CPLString osTileExtension(CSLFetchNameValueDef(
-        poOpenInfo->papszOpenOptions, "TILE_EXTENSION", "pbf"));
+    CPLString osTileExtension(CSLFetchNameValueDef(poOpenInfo->papszOpenOptions,
+                                                   "TILE_EXTENSION", "pbf"));
     bool bJsonField =
         CPLFetchBool(poOpenInfo->papszOpenOptions, "JSON_FIELD", false);
     VSIStatBufL sStat;
@@ -2842,7 +2842,7 @@ GDALDataset *OGRMVTDataset::OpenDirectory(GDALOpenInfo *poOpenInfo)
 
     OGRMVTDataset *poDS = new OGRMVTDataset(nullptr);
 
-    const CPLString osMetadataMemFilename =
+    CPLString osMetadataMemFilename =
         VSIMemGenerateHiddenFilename("mvt_metadata.json");
     if (!LoadMetadata(osMetadataFile, osMetadataContent, oVectorLayers,
                       oTileStatLayers, oBounds, poDS->m_poSRS,
@@ -2894,8 +2894,8 @@ GDALDataset *OGRMVTDataset::OpenDirectory(GDALOpenInfo *poOpenInfo)
     poDS->SetDescription(poOpenInfo->pszFilename);
     poDS->m_bClip =
         CPLFetchBool(poOpenInfo->papszOpenOptions, "CLIP", poDS->m_bClip);
-    poDS->m_osTileExtension = osTileExtension;
-    poDS->m_osMetadataMemFilename = osMetadataMemFilename;
+    poDS->m_osTileExtension = std::move(osTileExtension);
+    poDS->m_osMetadataMemFilename = std::move(osMetadataMemFilename);
     for (int i = 0; i < oVectorLayers.Size(); i++)
     {
         CPLJSONObject oId = oVectorLayers[i].GetObj("id");
@@ -3277,9 +3277,9 @@ GDALDataset *OGRMVTDataset::Open(GDALOpenInfo *poOpenInfo, bool bRecurseAllowed)
                                                              pszLayerName);
 
                         poDS->m_apoLayers.push_back(
-                            std::make_unique<OGRMVTLayer>(
+                            std::unique_ptr<OGRLayer>(new OGRMVTLayer(
                                 poDS, pszLayerName, pabyDataLayer, nLayerSize,
-                                oFields, oAttributesFromTileStats, eGeomType));
+                                oFields, oAttributesFromTileStats, eGeomType)));
                         CPLFree(pszLayerName);
                         break;
                     }
@@ -3292,12 +3292,6 @@ GDALDataset *OGRMVTDataset::Open(GDALOpenInfo *poOpenInfo, bool bRecurseAllowed)
             }
             else
             {
-                if (nKey == 0 && !poDS->m_apoLayers.empty())
-                {
-                    // File attached to https://github.com/OSGeo/gdal/issues/13268
-                    // has 0-byte padding after the layer definition.
-                    break;
-                }
                 SKIP_UNKNOWN_FIELD(pabyData, pabyDataLimit, FALSE);
             }
         }
@@ -3458,7 +3452,7 @@ class OGRMVTWriterDataset final : public GDALDataset
 
   public:
     OGRMVTWriterDataset();
-    ~OGRMVTWriterDataset();
+    ~OGRMVTWriterDataset() override;
 
     CPLErr Close() override;
 
@@ -3466,7 +3460,7 @@ class OGRMVTWriterDataset final : public GDALDataset
                            const OGRGeomFieldDefn *poGeomFieldDefn,
                            CSLConstList papszOptions) override;
 
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
 
     OGRErr WriteFeature(OGRMVTWriterLayer *poLayer, OGRFeature *poFeature,
                         GIntBig nSerial, OGRGeometry *poGeom);
@@ -3500,7 +3494,7 @@ class OGRMVTWriterLayer final : public OGRLayer
   public:
     OGRMVTWriterLayer(OGRMVTWriterDataset *poDS, const char *pszLayerName,
                       OGRSpatialReference *poSRS);
-    ~OGRMVTWriterLayer();
+    ~OGRMVTWriterLayer() override;
 
     void ResetReading() override
     {
@@ -3511,12 +3505,12 @@ class OGRMVTWriterLayer final : public OGRLayer
         return nullptr;
     }
 
-    OGRFeatureDefn *GetLayerDefn() override
+    const OGRFeatureDefn *GetLayerDefn() const override
     {
         return m_poFeatureDefn;
     }
 
-    int TestCapability(const char *) override;
+    int TestCapability(const char *) const override;
     OGRErr ICreateFeature(OGRFeature *) override;
     OGRErr CreateField(const OGRFieldDefn *, int) override;
 
@@ -3569,7 +3563,7 @@ OGRMVTWriterLayer::~OGRMVTWriterLayer()
 /*                            TestCapability()                          */
 /************************************************************************/
 
-int OGRMVTWriterLayer::TestCapability(const char *pszCap)
+int OGRMVTWriterLayer::TestCapability(const char *pszCap) const
 {
 
     if (EQUAL(pszCap, OLCSequentialWrite) || EQUAL(pszCap, OLCCreateField))
@@ -4479,10 +4473,8 @@ void OGRMVTWriterDataset::UpdateLayerProperties(
 
                 poLayerProperties->m_oMapFieldNameToIdx[osKey] =
                     poLayerProperties->m_aoFields.size();
-                poLayerProperties->m_aoFields.push_back(oFieldProps);
-                poFieldProps = &(
-                    poLayerProperties
-                        ->m_aoFields[poLayerProperties->m_aoFields.size() - 1]);
+                poLayerProperties->m_aoFields.push_back(std::move(oFieldProps));
+                poFieldProps = &(poLayerProperties->m_aoFields.back());
             }
         }
     }
@@ -5926,7 +5918,7 @@ OGRErr OGRMVTWriterDataset::WriteFeature(OGRMVTWriterLayer *poLayer,
 /*                            TestCapability()                          */
 /************************************************************************/
 
-int OGRMVTWriterDataset::TestCapability(const char *pszCap)
+int OGRMVTWriterDataset::TestCapability(const char *pszCap) const
 {
     if (EQUAL(pszCap, ODsCCreateLayer))
         return true;
