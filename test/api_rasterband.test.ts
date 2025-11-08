@@ -681,6 +681,23 @@ describe('gdal.RasterBand', () => {
             }, /Invalid GDAL data type/)
           }
         })
+        it('should support creating Float16 with GDAL >= 3.11 / Node.js 24 and fail graciously with GDAL < 3.11 or Node.js < 24', () => {
+          const ds = gdal.open(`${__dirname}/data/sample.tif`)
+          const band = ds.bands.get(1)
+          const w = 20
+          const h = 30
+          if (semver.gte(gdal.version, '3.11.0') && semver.gte(process.versions.node, '24.0.0')) {
+            const data = band.pixels.read(190, 290, w, h, undefined, { data_type: gdal.GDT_Float16 })
+            assert.instanceOf(data, gdal.Float16Array)
+            console.log((data))
+            assert.equal(data.length, w * h)
+            assert.equal(data[10 * 20 + 10], 10)
+          } else {
+            assert.throws(() => {
+              band.pixels.read(190, 290, w, h, undefined, { data_type: gdal.GDT_Float16 })
+            })
+          }
+        })
         it('should support setting GDAL_CACHEMAX to a percentage', () => {
           gdal.config.set('GDAL_CACHEMAX', '20%')
           const ds = gdal.open(`${__dirname}/data/sample.tif`)
