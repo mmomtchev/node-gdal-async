@@ -340,13 +340,17 @@ bool OGRParquetWriterLayer::SetOptions(
             return false;
         m_poTmpGPKG->MarkSuppressOnClose();
         m_poTmpGPKGLayer = m_poTmpGPKG->CreateLayer("tmp");
-        if (!m_poTmpGPKGLayer)
+        if (!m_poTmpGPKGLayer ||
+            // Serialized feature
+            m_poTmpGPKGLayer->CreateField(
+                std::make_unique<OGRFieldDefn>("serialized_feature", OFTBinary)
+                    .get()) != OGRERR_NONE ||
+            // FlushCache is needed to avoid SQLite3 errors on empty layers
+            m_poTmpGPKG->FlushCache() != CE_None ||
+            m_poTmpGPKGLayer->StartTransaction() != OGRERR_NONE)
+        {
             return false;
-        // Serialized feature
-        CPL_IGNORE_RET_VAL(m_poTmpGPKGLayer->CreateField(
-            std::make_unique<OGRFieldDefn>("serialized_feature", OFTBinary)
-                .get()));
-        CPL_IGNORE_RET_VAL(m_poTmpGPKGLayer->StartTransaction());
+        }
     }
 
     const char *pszGeomEncoding =
@@ -391,7 +395,7 @@ bool OGRParquetWriterLayer::SetOptions(
 
     const auto eGType =
         poSrcGeomFieldDefn ? poSrcGeomFieldDefn->GetType() : wkbNone;
-    if (eGType != wkbNone)
+    if (poSrcGeomFieldDefn && eGType != wkbNone)
     {
         if (!IsSupportedGeometryType(eGType))
         {
@@ -415,14 +419,13 @@ bool OGRParquetWriterLayer::SetOptions(
             CSLFetchNameValue(papszOptions, "GEOMETRY_NAME");
         if (pszGeometryName)
             osGeometryName = pszGeometryName;
-        else if (poSrcGeomFieldDefn && poSrcGeomFieldDefn->GetNameRef()[0])
+        else if (poSrcGeomFieldDefn->GetNameRef()[0])
             osGeometryName = poSrcGeomFieldDefn->GetNameRef();
         else
             osGeometryName = "geometry";
         m_poFeatureDefn->GetGeomFieldDefn(0)->SetName(osGeometryName.c_str());
 
-        const auto poSpatialRef =
-            poSrcGeomFieldDefn ? poSrcGeomFieldDefn->GetSpatialRef() : nullptr;
+        const auto poSpatialRef = poSrcGeomFieldDefn->GetSpatialRef();
         if (poSpatialRef)
         {
             auto poSRS = poSpatialRef->Clone();

@@ -773,7 +773,7 @@ void OGR_G_DestroyGeometry(OGRGeometryH hGeom)
  * for example when converting from a multi-part multipolygon.
  *
  * @param poGeom the input geometry - ownership is passed to the method.
- * @return new geometry.
+ * @return new geometry, or nullptr in case of error
  */
 
 OGRGeometry *OGRGeometryFactory::forceToPolygon(OGRGeometry *poGeom)
@@ -887,7 +887,7 @@ OGRGeometry *OGRGeometryFactory::forceToPolygon(OGRGeometry *poGeom)
  * OGRGeometryFactory::forceToPolygon().
  *
  * @param hGeom handle to the geometry to convert (ownership surrendered).
- * @return the converted geometry (ownership to caller).
+ * @return the converted geometry (ownership to caller), or NULL in case of error
  *
  * @since GDAL/OGR 1.8.0
  */
@@ -910,7 +910,7 @@ OGRGeometryH OGR_G_ForceToPolygon(OGRGeometryH hGeom)
  * this just effects a change on polygons.  The passed in geometry is
  * consumed and a new one returned (or potentially the same one).
  *
- * @return new geometry.
+ * @return new geometry, or nullptr in case of error
  */
 
 OGRGeometry *OGRGeometryFactory::forceToMultiPolygon(OGRGeometry *poGeom)
@@ -1055,7 +1055,7 @@ OGRGeometry *OGRGeometryFactory::forceToMultiPolygon(OGRGeometry *poGeom)
  * OGRGeometryFactory::forceToMultiPolygon().
  *
  * @param hGeom handle to the geometry to convert (ownership surrendered).
- * @return the converted geometry (ownership to caller).
+ * @return the converted geometry (ownership to caller), or NULL in case of error
  *
  * @since GDAL/OGR 1.8.0
  */
@@ -3106,6 +3106,7 @@ static void CutGeometryOnDateLineAndAddToMulti(OGRGeometryCollection *poMulti,
             {
                 const OGRGeometry *poWorkGeom =
                     poDupGeom ? poDupGeom.get() : poGeom;
+                assert(poWorkGeom);
                 OGRGeometry *poRectangle1 = nullptr;
                 OGRGeometry *poRectangle2 = nullptr;
                 const char *pszWKT1 =
@@ -3374,6 +3375,8 @@ static bool IsPolarToGeographic(OGRCoordinateTransformation *poCT,
     bool bIsSouthPolar = false;
     double x = 0.0;
     double y = 90.0;
+
+    CPLErrorStateBackuper oErrorBackuper(CPLQuietErrorHandler);
 
     const bool bBackupEmitErrors = poCT->GetEmitErrors();
     poRevCT->SetEmitErrors(false);
@@ -3969,17 +3972,10 @@ OGRGeometryFactory::TransformWithOptionsCache::~TransformWithOptionsCache()
 /*              isTransformWithOptionsRegularTransform()                */
 /************************************************************************/
 
-//! @cond Doxygen_Suppress
-/*static */
-bool OGRGeometryFactory::isTransformWithOptionsRegularTransform(
-    [[maybe_unused]] const OGRSpatialReference *poSourceCRS,
-    [[maybe_unused]] const OGRSpatialReference *poTargetCRS,
-    CSLConstList papszOptions)
-{
-    if (papszOptions)
-        return false;
-
 #ifdef HAVE_GEOS
+static bool MayBePolarToGeographic(const OGRSpatialReference *poSourceCRS,
+                                   const OGRSpatialReference *poTargetCRS)
+{
     if (poSourceCRS && poTargetCRS && poSourceCRS->IsProjected() &&
         poTargetCRS->IsGeographic() &&
         poTargetCRS->GetAxisMappingStrategy() == OAMS_TRADITIONAL_GIS_ORDER &&
@@ -3999,8 +3995,30 @@ bool OGRGeometryFactory::isTransformWithOptionsRegularTransform(
               dfWestLong > dfEastLong))
         {
             // Not a global geographic CRS
-            return true;
+            return false;
         }
+        return true;
+    }
+    return false;
+}
+#endif
+
+//! @cond Doxygen_Suppress
+/*static */
+bool OGRGeometryFactory::isTransformWithOptionsRegularTransform(
+    [[maybe_unused]] const OGRSpatialReference *poSourceCRS,
+    [[maybe_unused]] const OGRSpatialReference *poTargetCRS,
+    CSLConstList papszOptions)
+{
+    if (CPLTestBool(CSLFetchNameValueDef(papszOptions, "WRAPDATELINE", "NO")) &&
+        poTargetCRS && poTargetCRS->IsGeographic())
+    {
+        return false;
+    }
+
+#ifdef HAVE_GEOS
+    if (MayBePolarToGeographic(poSourceCRS, poTargetCRS))
+    {
         return false;
     }
 #endif
@@ -4066,9 +4084,7 @@ OGRGeometry *OGRGeometryFactory::transformWithOptions(
             cache.d->poSourceCRS = poSourceCRS;
             cache.d->poTargetCRS = poTargetCRS;
             cache.d->poCT = poCT;
-            if (poSourceCRS && poTargetCRS &&
-                !isTransformWithOptionsRegularTransform(
-                    poSourceCRS, poTargetCRS, papszOptions))
+            if (MayBePolarToGeographic(poSourceCRS, poTargetCRS))
             {
                 cache.d->poRevCT.reset(OGRCreateCoordinateTransformation(
                     poTargetCRS, poSourceCRS));
@@ -4115,13 +4131,12 @@ OGRGeometry *OGRGeometryFactory::transformWithOptions(
 
     if (CPLTestBool(CSLFetchNameValueDef(papszOptions, "WRAPDATELINE", "NO")))
     {
-        if (poDstGeom->getSpatialReference() &&
-            !poDstGeom->getSpatialReference()->IsGeographic())
+        const auto poDstGeomSRS = poDstGeom->getSpatialReference();
+        if (poDstGeomSRS && !poDstGeomSRS->IsGeographic())
         {
-            CPLErrorOnce(
-                CE_Warning, CPLE_AppDefined,
-                "WRAPDATELINE is without effect when reprojecting to a "
-                "non-geographic CRS");
+            CPLDebugOnce(
+                "OGR", "WRAPDATELINE is without effect when reprojecting to a "
+                       "non-geographic CRS");
             return poDstGeom.release();
         }
         // TODO and we should probably also test that the axis order + data axis
@@ -5192,8 +5207,11 @@ OGRGeometry *OGRGeometryFactory::forceTo(OGRGeometry *poGeom,
     else if (eTargetTypeFlat == wkbMultiPolygon)
     {
         poGeom = forceToMultiPolygon(poGeom);
-        poGeom->set3D(OGR_GT_HasZ(eTargetType));
-        poGeom->setMeasured(OGR_GT_HasM(eTargetType));
+        if (poGeom)
+        {
+            poGeom->set3D(OGR_GT_HasZ(eTargetType));
+            poGeom->setMeasured(OGR_GT_HasM(eTargetType));
+        }
     }
     else if (eTargetTypeFlat == wkbMultiLineString)
     {
