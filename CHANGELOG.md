@@ -19,9 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - `package-lock.json` is now fixed for each version in source control as per the `npm` official guidelines
  - The bindings code is now C++17
 
-### Changed
- - `package-lock.json` is now fixed for each version in source control as per the `npm` official guidelines
-
 ### Removed
  - Drop Node 18 and Node 23 support *(No longer supported by Node)*
  - Drop macOS 13 and macOS 14 support *(No longer supported by Github)*
