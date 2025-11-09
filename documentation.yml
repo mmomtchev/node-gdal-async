@@ -178,16 +178,20 @@ toc:
       - name: Pixel Types
         children:
           - GDT_Byte
+          - GDT_CFloat16
           - GDT_CFloat32
           - GDT_CFloat64
           - GDT_CInt16
           - GDT_CInt32
+          - GDT_Float16
           - GDT_Float32
           - GDT_Float64
           - GDT_Int16
           - GDT_Int32
+          - GDT_Int64
           - GDT_UInt16
           - GDT_UInt32
+          - GDT_UInt64
           - GDT_Unknown
           - GEDTC_Compound
           - GEDTC_String
@@ -320,6 +324,7 @@ toc:
 
   - name: Utilities
     children:
+      - Float16Array
       - addPixelFunc
       - buildVRT
       - buildVRTAsync
