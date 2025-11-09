@@ -19,7 +19,6 @@ jobs:
         - ubuntu:24.04
         - debian:bullseye
         - centos:stream10
-        - amazonlinux:2023
         node-version: [ 20, 22, 24 ]
         include:
           - linux-version: ubuntu:24.04
@@ -28,6 +27,8 @@ jobs:
             node-version: 24
           - linux-version: debian:bookworm
             node-version: 24
+          - linux-version: amazonlinux:2023
+            node-version: 22
 
     steps:
     - uses: actions/checkout@v5

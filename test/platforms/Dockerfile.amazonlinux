@@ -1,13 +1,13 @@
 ARG VERSION=latest
 FROM amazonlinux:${VERSION}
 
-ARG NODEJS=lts
+ARG NODEJS=20
 ARG GDAL=""
 ENV GDAL=${GDAL}
 
 RUN \
   yum install -y gcc-c++ make && \
-  yum install -y nodejs npm && \
+  yum install -y nodejs${NODEJS} npm && \
   yum install -y git rsync python3 byacc && \
   alternatives --install /usr/bin/python python /usr/bin/python3 60 && \
   mkdir -p /target && chmod 777 /target
