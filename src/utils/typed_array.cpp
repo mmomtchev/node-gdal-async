@@ -104,7 +104,7 @@ Local<Value> TypedArray::New(GDALDataType type, void *data, int64_t length) {
     case GDT_UInt64: name = "BigUint64Array"; break;
 #endif
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 11)
-    case GDT_Float16: throw "Float16Array cannot be created at the moment, pass an existing array"; break;
+    case GDT_Float16: name = "Float16Array"; break;
 #endif
     case GDT_Float32: name = "Float32Array"; break;
     case GDT_Float64: name = "Float64Array"; break;

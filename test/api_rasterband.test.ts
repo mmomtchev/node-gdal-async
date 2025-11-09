@@ -661,8 +661,7 @@ describe('gdal.RasterBand', () => {
             }, /Invalid GDAL data type/)
           }
         })
-        // Until https://tc39.es/proposal-float16array/#sec-float16array
-        // gets implemented we are relying on
+        // With Node.js <24, Float16 uses a polyfill
         // https://www.npmjs.com/package/@petamoriken/float16
         it('should support reading Float16 with GDAL >= 3.11 and fail graciously with GDAL < 3.11', () => {
           const ds = gdal.open(`${__dirname}/data/sample.tif`)
@@ -679,6 +678,29 @@ describe('gdal.RasterBand', () => {
             assert.throws(() => {
               band.pixels.read(190, 290, w, h, data)
             }, /Invalid GDAL data type/)
+          }
+        })
+        it('should support creating Float16 with GDAL >= 3.11 / Node.js 24+ and fail graciously with GDAL < 3.11 or Node.js < 24', () => {
+          const ds = gdal.open(`${__dirname}/data/sample.tif`)
+          const band = ds.bands.get(1)
+          const w = 20
+          const h = 30
+          if (semver.gte(gdal.version, '3.11.0') && semver.gte(process.versions.node, '24.0.0')) {
+            const data = band.pixels.read(190, 290, w, h, undefined, { data_type: gdal.GDT_Float16 })
+            assert.instanceOf(data, gdal.Float16Array)
+            assert.equal(data.length, w * h)
+            assert.equal(data[10 * 20 + 10], 10)
+          } else {
+            assert.throws(() => {
+              band.pixels.read(190, 290, w, h, undefined, { data_type: 'GDT_Float16' })
+            })
+          }
+        })
+        it('should have native Float16Array support with Node.js 24+', function () {
+          if (semver.gte(process.versions.node, '24.0.0')) {
+            assert.strictEqual(gdal.Float16Array, globalThis.Float16Array)
+          } else {
+            this.skip()
           }
         })
         it('should support setting GDAL_CACHEMAX to a percentage', () => {

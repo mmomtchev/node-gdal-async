@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - Add muparser and enable muparser expression support
  - Node 25 support
  - Miramon read-only driver
+ - Native `Float16Array` support on Node.js 24 and later
 
 ### Changed
  - `package-lock.json` is now fixed for each version in source control as per the `npm` official guidelines
