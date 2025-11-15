@@ -178,7 +178,7 @@ jobs:
       with:
         max-size: 1000M
         key: asan
-    - run: npm run container asan ubuntu:20.04 18 bundled
+    - run: npm run container asan ubuntu:22.04 24 bundled
       env:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
 
