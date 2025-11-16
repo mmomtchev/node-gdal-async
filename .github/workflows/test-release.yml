@@ -47,7 +47,7 @@ jobs:
 
     strategy:
       matrix:
-        platforms: [ windows-2022, macos-15-intel, macos-15 ]
+        platforms: [ windows-2022, macos-14, macos-15-intel, macos-15 ]
         node-version: [ 20, 22, 24, 25 ]
 
     steps:
