@@ -90,7 +90,7 @@
     "@mapbox/node-pre-gyp": "^2.0.0",
     "@petamoriken/float16": "^3.9.2",
     "nan": "^2.23.0",
-    "node-gyp": "^11.5.0",
+    "node-gyp": "^12.1.0",
     "xmlbuilder2": "^4.0.0",
     "yatag": "^1.2.0"
   },
