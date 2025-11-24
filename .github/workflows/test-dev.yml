@@ -68,6 +68,9 @@ jobs:
           - ubuntu:24.04
           - debian:bullseye
           - fedora:42
+          # CentOS is disabled because of
+          # https://bugzilla.redhat.com/show_bug.cgi?id=2376350
+          # - centos:stream10
 
     steps:
     - uses: actions/checkout@v5

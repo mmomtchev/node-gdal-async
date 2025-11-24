@@ -18,6 +18,9 @@ jobs:
         - ubuntu:22.04
         - ubuntu:24.04
         - debian:bullseye
+        # CentOS is disabled because of
+        # https://bugzilla.redhat.com/show_bug.cgi?id=2376350
+        # - centos:stream10
         node-version: [ 20, 22, 24 ]
         include:
           - linux-version: ubuntu:24.04
