@@ -8,8 +8,12 @@ describe('Open', () => {
   afterEach(() => void global.gc!())
 
   // System-installed versions do not always have the WCS driver
-  if (!gdal.bundled && gdal.drivers.get('WCS') === null) {
-    return
+  if (!gdal.bundled) {
+    try {
+      gdal.drivers.get('WCS')
+    } catch {
+      return
+    }
   }
   if (semver.lt(gdal.version, '2.3.0')) {
     return
