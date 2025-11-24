@@ -11,6 +11,7 @@ RUN \
   dnf config-manager --enable crb && \
   /usr/bin/crb enable && \
   dnf config-manager --save --setopt="epel*.priority=1" && \
+  dnf config-manager --save --setopt="crb*.priority=1" && \
   dnf install -y rsync && \
   curl -fsSL https://rpm.nodesource.com/setup_${NODEJS}.x | bash - && \
   dnf install -y nodejs && \
