@@ -34,6 +34,8 @@ else
   GDAL_NAME="bundled"
 fi
 
+export CPL_DEBUG=ON
+
 case ${1} in
   DEV)
     echo -e "${SEP}Testing current version against ${GDAL_NAME} GDAL${SEP}"
