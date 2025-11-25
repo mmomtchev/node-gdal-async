@@ -13,7 +13,7 @@ jobs:
         node-version: [ 20, 22, 24 ]
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Use Node.js 20.x
       uses: actions/setup-node@v6
       with:
@@ -32,7 +32,7 @@ jobs:
         node-version: [ 25 ]
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Use Node.js 24.x
       uses: actions/setup-node@v6
       with:
@@ -52,7 +52,7 @@ jobs:
         platforms: [ windows-2022, macos-15-intel, macos-15 ]
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Use Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@v6
       with:
