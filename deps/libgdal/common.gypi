@@ -58,7 +58,8 @@
 			"JPEG_SUPPORT=1",
 			"RENAME_INTERNAL_SHAPELIB_SYMBOLS=1",
 			"GDAL_USE_SHAPELIB_INTERNAL=1",
-			"flatbuffers=gdal_flatbuffers"
+			"flatbuffers=gdal_flatbuffers",
+			"OGR_P_WITH_SRS_CACHE=1"
 		],
 		"dependencies": [
 			"<(deps_dir)/libexpat/libexpat.gyp:libexpat",
