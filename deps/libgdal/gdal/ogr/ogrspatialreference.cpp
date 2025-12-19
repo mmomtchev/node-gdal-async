@@ -7314,7 +7314,7 @@ OGRErr OSRSetHOM2PNO(OGRSpatialReferenceH hSRS, double dfCenterLat,
  * @param dfCenterLong Longitude of the projection origin.
  * @param dfAzimuth Azimuth, measured clockwise from North, of the projection
  * centerline.
- * @param dfScale Scale factor on the initiali line
+ * @param dfScale Scale factor on the initial line
  * @param dfFalseEasting False easting.
  * @param dfFalseNorthing False northing.
  *
@@ -10350,31 +10350,38 @@ OGRSpatialReference::FindBestMatch(int nMinimumMatchConfidence,
 
         auto poBaseGeogCRS =
             std::unique_ptr<OGRSpatialReference>(poSRS->CloneGeogCS());
-
-        // If the base geographic SRS of the SRS is EPSG:4326
-        // with TOWGS84[0,0,0,0,0,0], then just use the official
-        // SRS code
-        // Same with EPSG:4258 (ETRS89), since it's the only known
-        // TOWGS84[] style transformation to WGS 84, and given the
-        // "fuzzy" nature of both ETRS89 and WGS 84, there's little
-        // chance that a non-NULL TOWGS84[] will emerge.
-        const char *pszAuthorityName = nullptr;
-        const char *pszAuthorityCode = nullptr;
-        const char *pszBaseAuthorityName = nullptr;
-        const char *pszBaseAuthorityCode = nullptr;
-        if (adfTOWGS84 == std::vector<double>(7) &&
-            (pszAuthorityName = poSRS->GetAuthorityName(nullptr)) != nullptr &&
-            EQUAL(pszAuthorityName, "EPSG") &&
-            (pszAuthorityCode = poSRS->GetAuthorityCode(nullptr)) != nullptr &&
-            (pszBaseAuthorityName = poBaseGeogCRS->GetAuthorityName(nullptr)) !=
-                nullptr &&
-            EQUAL(pszBaseAuthorityName, "EPSG") &&
-            (pszBaseAuthorityCode = poBaseGeogCRS->GetAuthorityCode(nullptr)) !=
-                nullptr &&
-            (EQUAL(pszBaseAuthorityCode, "4326") ||
-             EQUAL(pszBaseAuthorityCode, "4258")))
+        if (poBaseGeogCRS)
         {
-            poSRS->importFromEPSG(atoi(pszAuthorityCode));
+            // If the base geographic SRS of the SRS is EPSG:4326
+            // with TOWGS84[0,0,0,0,0,0], then just use the official
+            // SRS code
+            // Same with EPSG:4258 (ETRS89), since it's the only known
+            // TOWGS84[] style transformation to WGS 84, and given the
+            // "fuzzy" nature of both ETRS89 and WGS 84, there's little
+            // chance that a non-NULL TOWGS84[] will emerge.
+            const char *pszAuthorityName = nullptr;
+            const char *pszAuthorityCode = nullptr;
+            const char *pszBaseAuthorityName = nullptr;
+            const char *pszBaseAuthorityCode = nullptr;
+            const char *pszBaseName = poBaseGeogCRS->GetName();
+            if (adfTOWGS84 == std::vector<double>(7) &&
+                (pszAuthorityName = poSRS->GetAuthorityName(nullptr)) !=
+                    nullptr &&
+                EQUAL(pszAuthorityName, "EPSG") &&
+                (pszAuthorityCode = poSRS->GetAuthorityCode(nullptr)) !=
+                    nullptr &&
+                (pszBaseAuthorityName =
+                     poBaseGeogCRS->GetAuthorityName(nullptr)) != nullptr &&
+                EQUAL(pszBaseAuthorityName, "EPSG") &&
+                (pszBaseAuthorityCode =
+                     poBaseGeogCRS->GetAuthorityCode(nullptr)) != nullptr &&
+                (EQUAL(pszBaseAuthorityCode, "4326") ||
+                 EQUAL(pszBaseAuthorityCode, "4258") ||
+                 // For ETRS89-XXX [...] new CRS added in EPSG 12.033+
+                 (pszBaseName && STARTS_WITH(pszBaseName, "ETRS89"))))
+            {
+                poSRS->importFromEPSG(atoi(pszAuthorityCode));
+            }
         }
 
         CPLFree(pahSRS);
