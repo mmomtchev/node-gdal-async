@@ -8,9 +8,10 @@ updates:
       default-days: 15
     open-pull-requests-limit: 1
     groups:
-      eslint:
+      eslint_typescript:
         patterns:
         - "*eslint*"
+        - "*typescript*"
       chai:
         patterns:
         - "*chai*"
