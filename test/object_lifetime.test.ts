@@ -30,6 +30,8 @@ describe('object lifetimes', () => {
     // @ts-expect-error not a public API
     const band_uid = band._uid
 
+    // this allows to dereference the object for GC
+    // eslint-disable-next-line no-useless-assignment
     ds = null
       global.gc!()
 
@@ -38,6 +40,7 @@ describe('object lifetimes', () => {
       // @ts-expect-error not a public API
       assert.isTrue(gdal._isAlive(band_uid))
 
+      // eslint-disable-next-line no-useless-assignment
       band = null
       global.gc!()
 
@@ -55,6 +58,7 @@ describe('object lifetimes', () => {
     // @ts-expect-error not a public API
     const band_uid = band._uid
 
+    // eslint-disable-next-line no-useless-assignment
     band = null
       global.gc!()
 
@@ -72,6 +76,7 @@ describe('object lifetimes', () => {
     // @ts-expect-error not a public API
     const layer_uid = layer._uid
 
+    // eslint-disable-next-line no-useless-assignment
     ds = null
       global.gc!()
 
@@ -80,6 +85,7 @@ describe('object lifetimes', () => {
       // @ts-expect-error not a public API
       assert.isTrue(gdal._isAlive(layer_uid))
 
+      // eslint-disable-next-line no-useless-assignment
       layer = null
       global.gc!()
 
@@ -97,6 +103,7 @@ describe('object lifetimes', () => {
     // @ts-expect-error not a public API
     const layer_uid = layer._uid
 
+    // eslint-disable-next-line no-useless-assignment
     layer = null
       global.gc!()
 
