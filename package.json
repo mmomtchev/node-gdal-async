@@ -99,7 +99,7 @@
   ],
   "devDependencies": {
     "@eslint/eslintrc": "^3.1.0",
-    "@eslint/js": "^9.8.0",
+    "@eslint/js": "^10.0.1",
     "@mmomtchev/documentation": "^14.0.1",
     "@mmomtchev/node-pre-gyp-github": "^2.0.0",
     "@octokit/core": "^7.0.2",
@@ -119,7 +119,7 @@
     "chai-as-promised": "^7.1.1",
     "documentation-hipster": "^1.0.0",
     "documentation-polyglot": "^1.0.1",
-    "eslint": "^9.8.0",
+    "eslint": "^10.0.0",
     "eslint-plugin-array-func": "^4.0.0",
     "eslint-plugin-mocha": "^11.0.0",
     "eslint-plugin-prefer-arrow": "^1.1.3",
