@@ -93,6 +93,14 @@ elseif(NOT DEFINED GDAL_ENABLE_HDF5_GLOBAL_LOCK)
   target_compile_definitions(gdal_HDF5 PRIVATE -DENABLE_HDF5_GLOBAL_LOCK)
 endif()
 
+if (HDF5_ENABLE_PARALLEL)
+    find_package(MPI)
+    if (MPI_FOUND)
+        target_include_directories(gdal_HDF5 PRIVATE ${MPI_C_INCLUDE_DIRS})
+        target_link_libraries(gdal_HDF5 PRIVATE ${MPI_C_LIBRARIES})
+    endif ()
+endif ()
+
 # When build as plugin, initialize all drivers from Register_HDF5
 if (GDAL_ENABLE_DRIVER_HDF5_PLUGIN)
   target_compile_definitions(gdal_HDF5 PRIVATE -DHDF5_PLUGIN)

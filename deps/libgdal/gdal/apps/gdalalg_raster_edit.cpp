@@ -53,6 +53,7 @@ GDALRasterEditAlgorithm::GDALRasterEditAlgorithm(bool standaloneStep)
                &m_dataset, GDAL_OF_RASTER | GDAL_OF_UPDATE)
             .SetPositional()
             .SetRequired();
+        AddOpenOptionsArg(&m_openOptions);
         AddArg("auxiliary", 0,
                _("Ask for an auxiliary .aux.xml file to be edited"),
                &m_readOnly)

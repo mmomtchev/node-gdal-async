@@ -238,12 +238,21 @@ class GDALTileIndexDataset final : public GDALPamDataset
     //! SRS of the tile index.
     OGRSpatialReference m_oSRS{};
 
+    struct SharedDataset
+    {
+        //! Source dataset (possibly warped).
+        std::shared_ptr<GDALDataset> poDS{};
+
+        //! Source dataset, raw/unwarped
+        GDALDataset *poUnreprojectedDS = nullptr;
+    };
+
     //! Cache from dataset name to dataset handle.
     //! Note that the dataset objects are ultimately GDALProxyPoolDataset,
     //! and that the GDALProxyPoolDataset limits the number of simultaneously
     //! opened real datasets (controlled by GDAL_MAX_DATASET_POOL_SIZE). Hence 500 is not too big.
-    lru11::Cache<std::string, std::shared_ptr<GDALDataset>> m_oMapSharedSources{
-        500};
+    lru11::Cache<std::string, std::shared_ptr<SharedDataset>>
+        m_oMapSharedSources{500};
 
     //! Mask band (e.g. for JPEG compressed + mask band)
     std::unique_ptr<GDALTileIndexBand> m_poMaskBand{};
@@ -310,8 +319,11 @@ class GDALTileIndexDataset final : public GDALPamDataset
         //! Source dataset name.
         std::string osName{};
 
-        //! Source dataset handle.
+        //! Source dataset (possibly warped).
         std::shared_ptr<GDALDataset> poDS{};
+
+        //! Source dataset, raw/unwarped
+        GDALDataset *poUnreprojectedDS = nullptr;
 
         //! VRTSimpleSource or VRTComplexSource for the source.
         std::unique_ptr<VRTSimpleSource> poSource{};
@@ -349,6 +361,8 @@ class GDALTileIndexDataset final : public GDALPamDataset
 
     //! Whether the GTI file is a STAC collection
     bool m_bSTACCollection = false;
+
+    std::string m_osWarpMemory{};
 
     //! From a source dataset name, return its SourceDesc description structure.
     bool GetSourceDesc(const std::string &osTileName, SourceDesc &oSourceDesc,
@@ -2414,6 +2428,9 @@ bool GDALTileIndexDataset::Open(GDALOpenInfo *poOpenInfo)
     /* -------------------------------------------------------------------- */
     oOvManager.Initialize(this, poOpenInfo->pszFilename);
 
+    m_osWarpMemory = CSLFetchNameValueDef(poOpenInfo->papszOpenOptions,
+                                          "WARPING_MEMORY_SIZE", "");
+
     return true;
 }
 
@@ -3494,15 +3511,23 @@ bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
                                          SourceDesc &oSourceDesc,
                                          std::mutex *pMutex)
 {
-    std::shared_ptr<GDALDataset> poTileDS;
 
     if (pMutex)
         pMutex->lock();
-    const bool bTileKnown = m_oMapSharedSources.tryGet(osTileName, poTileDS);
+    std::shared_ptr<SharedDataset> sharedDS;
+    m_oMapSharedSources.tryGet(osTileName, sharedDS);
     if (pMutex)
         pMutex->unlock();
 
-    if (!bTileKnown)
+    std::shared_ptr<GDALDataset> poTileDS;
+    GDALDataset *poUnreprojectedDS = nullptr;
+
+    if (sharedDS)
+    {
+        poTileDS = sharedDS->poDS;
+        poUnreprojectedDS = sharedDS->poUnreprojectedDS;
+    }
+    else
     {
         poTileDS = std::shared_ptr<GDALDataset>(
             GDALProxyPoolDataset::Create(
@@ -3515,6 +3540,7 @@ bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
                      osTileName.c_str());
             return false;
         }
+        poUnreprojectedDS = poTileDS.get();
         if (poTileDS->GetRasterCount() == 0)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
@@ -3540,7 +3566,13 @@ bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
                      osTileName.c_str());
             bWarpVRT = true;
             bExportSRS = true;
-            bAddAlphaToVRT = true;
+            if (poTileDS->GetRasterBand(poTileDS->GetRasterCount())
+                        ->GetColorInterpretation() != GCI_AlphaBand &&
+                GetRasterBand(nBands)->GetColorInterpretation() ==
+                    GCI_AlphaBand)
+            {
+                bAddAlphaToVRT = true;
+            }
         }
         else if (poTileDS->GetGeoTransform(tileGT) == CE_None &&
                  tileGT[GT_NS_RES] > 0 &&
@@ -3654,6 +3686,12 @@ bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
             if (bAddAlphaToVRT)
                 aosOptions.AddString("-dstalpha");
 
+            if (!m_osWarpMemory.empty())
+            {
+                aosOptions.AddString("-wm");
+                aosOptions.AddString(m_osWarpMemory.c_str());
+            }
+
             psWarpOptions = GDALWarpAppOptionsNew(aosOptions.List(), nullptr);
             poWarpDS.reset(GDALDataset::FromHandle(GDALWarp(
                 "", nullptr, 1, ahSrcDS, psWarpOptions, &bUsageError)));
@@ -3666,9 +3704,13 @@ bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
             poTileDS.reset(poWarpDS.release());
         }
 
+        sharedDS = std::make_shared<SharedDataset>();
+        sharedDS->poDS = poTileDS;
+        sharedDS->poUnreprojectedDS = poUnreprojectedDS;
+
         if (pMutex)
             pMutex->lock();
-        m_oMapSharedSources.insert(osTileName, poTileDS);
+        m_oMapSharedSources.insert(osTileName, sharedDS);
         if (pMutex)
             pMutex->unlock();
     }
@@ -3733,6 +3775,7 @@ bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
 
     oSourceDesc.osName = osTileName;
     oSourceDesc.poDS = std::move(poTileDS);
+    oSourceDesc.poUnreprojectedDS = poUnreprojectedDS;
     oSourceDesc.poSource = std::move(poSource);
     oSourceDesc.bHasNoData = bHasNoData;
     oSourceDesc.bSameNoData = bSameNoData;
@@ -3978,8 +4021,9 @@ bool GDALTileIndexDataset::CollectSources(double dfXOff, double dfYOff,
                         CPLError(CE_Warning, CPLE_AppDefined,
                                  "Tile index is out of sync with actual "
                                  "extent of %s. Bounding box from tile index "
-                                 "is (%g, %g, %g, %g) does not intersect at "
-                                 "all bounding box from tile (%g, %g, %g, %g)",
+                                 "is (%.15g, %.15g, %.15g, %.15g) does not "
+                                 "intersect at all bounding box from tile "
+                                 "(%.15g, %.15g, %.15g, %.15g)",
                                  osTileName.c_str(), sGeomTileExtent.MinX,
                                  sGeomTileExtent.MinY, sGeomTileExtent.MaxX,
                                  sGeomTileExtent.MaxY, sActualTileExtent.MinX,
@@ -3987,11 +4031,77 @@ bool GDALTileIndexDataset::CollectSources(double dfXOff, double dfYOff,
                                  sActualTileExtent.MaxY);
                         continue;
                     }
+
+                    // The above test assumes, in the case of reprojection, that
+                    // the reprojected geometry in the index is computed the
+                    // same way as we do here, that is using GDALWarp()
+                    // Which wasn't the case for example before GDAL 3.12.3 when
+                    // using "gdal raster index", which uses a simple 4-corner
+                    // reprojection logic. So also test using that method,
+                    // before emitting any warning.
+                    if (oSourceDesc.poUnreprojectedDS != oSourceDesc.poDS.get())
+                    {
+                        const int nXSize =
+                            oSourceDesc.poUnreprojectedDS->GetRasterXSize();
+                        const int nYSize =
+                            oSourceDesc.poUnreprojectedDS->GetRasterYSize();
+                        GDALGeoTransform gt;
+                        const auto poSrcSRS =
+                            oSourceDesc.poUnreprojectedDS->GetSpatialRef();
+                        if (poSrcSRS && !m_oSRS.IsEmpty() &&
+                            oSourceDesc.poUnreprojectedDS->GetGeoTransform(
+                                gt) == CE_None)
+                        {
+                            double adfX[4] = {0.0, 0.0, 0.0, 0.0};
+                            double adfY[4] = {0.0, 0.0, 0.0, 0.0};
+                            adfX[0] = gt.xorig + 0 * gt.xscale + 0 * gt.xrot;
+                            adfY[0] = gt.yorig + 0 * gt.yrot + 0 * gt.yscale;
+
+                            adfX[1] =
+                                gt.xorig + nXSize * gt.xscale + 0 * gt.xrot;
+                            adfY[1] =
+                                gt.yorig + nXSize * gt.yrot + 0 * gt.yscale;
+
+                            adfX[2] = gt.xorig + nXSize * gt.xscale +
+                                      nYSize * gt.xrot;
+                            adfY[2] = gt.yorig + nXSize * gt.yrot +
+                                      nYSize * gt.yscale;
+
+                            adfX[3] =
+                                gt.xorig + 0 * gt.xscale + nYSize * gt.xrot;
+                            adfY[3] =
+                                gt.yorig + 0 * gt.yrot + nYSize * gt.yscale;
+
+                            auto poCT =
+                                std::unique_ptr<OGRCoordinateTransformation>(
+                                    OGRCreateCoordinateTransformation(poSrcSRS,
+                                                                      &m_oSRS));
+                            if (poCT && poCT->Transform(4, adfX, adfY, nullptr))
+                            {
+                                OGREnvelope sActualTileExtent2;
+                                sActualTileExtent2.MinX = std::min(
+                                    {adfX[0], adfX[1], adfX[2], adfX[3]});
+                                sActualTileExtent2.MinY = std::min(
+                                    {adfY[0], adfY[1], adfY[2], adfY[3]});
+                                sActualTileExtent2.MaxX = std::max(
+                                    {adfX[0], adfX[1], adfX[2], adfX[3]});
+                                sActualTileExtent2.MaxY = std::max(
+                                    {adfY[0], adfY[1], adfY[2], adfY[3]});
+                                if (sGeomTileExtent.Contains(
+                                        sActualTileExtent2))
+                                {
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
                     CPLError(CE_Warning, CPLE_AppDefined,
                              "Tile index is out of sync with actual extent "
-                             "of %s. Bounding box from tile index is (%g, %g, "
-                             "%g, %g) does not fully contain bounding box from "
-                             "tile (%g, %g, %g, %g)",
+                             "of %s. Bounding box from tile index is "
+                             "(%.15g, %.15g, %.15g, %.15g) does not fully "
+                             "contain bounding box from tile "
+                             "(%.15g, %.15g, %.15g, %.15g)",
                              osTileName.c_str(), sGeomTileExtent.MinX,
                              sGeomTileExtent.MinY, sGeomTileExtent.MaxX,
                              sGeomTileExtent.MaxY, sActualTileExtent.MinX,
@@ -5249,9 +5359,12 @@ void GDALRegister_GTI()
         "  <Option name='MINY' type='float'/>"
         "  <Option name='MAXX' type='float'/>"
         "  <Option name='MAXY' type='float'/>"
-        "<Option name='NUM_THREADS' type='string' description="
+        "  <Option name='NUM_THREADS' type='string' description="
         "'Number of worker threads for reading. Can be set to ALL_CPUS' "
         "default='ALL_CPUS'/>"
+        "  <Option name='WARPING_MEMORY_SIZE' type='string' description="
+        "'Set the amount of memory that the warp API is allowed to use for "
+        "caching' default='64MB'/>"
         "</OpenOptionList>");
 
 #ifdef GDAL_ENABLE_ALGORITHMS

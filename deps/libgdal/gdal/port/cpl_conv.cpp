@@ -3300,7 +3300,13 @@ int CPLMoveFile(const char *pszNewPath, const char *pszOldPath)
     const int nRet = CPLCopyFile(pszNewPath, pszOldPath);
 
     if (nRet == 0)
-        VSIUnlink(pszOldPath);
+    {
+        if (VSIUnlink(pszOldPath) != 0)
+        {
+            CPLError(CE_Warning, CPLE_AppDefined, "Cannot delete '%s'",
+                     pszOldPath);
+        }
+    }
     return nRet;
 }
 
