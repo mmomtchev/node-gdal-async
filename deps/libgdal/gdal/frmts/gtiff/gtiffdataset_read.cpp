@@ -3948,8 +3948,7 @@ GDALDataset *GTiffDataset::Open(GDALOpenInfo *poOpenInfo)
     }
 
     // In the case of GDAL_DISABLE_READDIR_ON_OPEN = NO / EMPTY_DIR
-    if (poOpenInfo->AreSiblingFilesLoaded() &&
-        CSLCount(poOpenInfo->GetSiblingFiles()) <= 1)
+    if (poOpenInfo->AreSiblingFilesLoaded())
     {
         poDS->oOvManager.TransferSiblingFiles(
             CSLDuplicate(poOpenInfo->GetSiblingFiles()));
@@ -4505,13 +4504,21 @@ void GTiffDataset::ApplyPamInfo()
          papszPamDomains && papszPamDomains[iDomain] != nullptr; ++iDomain)
     {
         const char *pszDomain = papszPamDomains[iDomain];
-        char **papszGT_MD = CSLDuplicate(m_oGTiffMDMD.GetMetadata(pszDomain));
-        char **papszPAM_MD = oMDMD.GetMetadata(pszDomain);
+        // We skip IMAGE_STRUCTURE as PAM content is not supposed to modify
+        // it and it could cause consistency issues if doing GetMetadata("IMAGE_STRUCTURE")
+        // which doesn't load PAM, then GetMetadata(other_domain) and
+        // GetMetadata("IMAGE_STRUCTURE")
+        if (!EQUAL(pszDomain, "IMAGE_STRUCTURE"))
+        {
+            char **papszGT_MD =
+                CSLDuplicate(m_oGTiffMDMD.GetMetadata(pszDomain));
+            char **papszPAM_MD = oMDMD.GetMetadata(pszDomain);
 
-        papszGT_MD = CSLMerge(papszGT_MD, papszPAM_MD);
+            papszGT_MD = CSLMerge(papszGT_MD, papszPAM_MD);
 
-        m_oGTiffMDMD.SetMetadata(papszGT_MD, pszDomain);
-        CSLDestroy(papszGT_MD);
+            m_oGTiffMDMD.SetMetadata(papszGT_MD, pszDomain);
+            CSLDestroy(papszGT_MD);
+        }
     }
 
     for (int i = 1; i <= GetRasterCount(); ++i)
@@ -5818,6 +5825,7 @@ CSLConstList GTiffDataset::GetSiblingFiles()
     const int nMaxFiles =
         atoi(CPLGetConfigOption("GDAL_READDIR_LIMIT_ON_OPEN", "1000"));
     const std::string osDirname = CPLGetDirnameSafe(m_osFilename.c_str());
+    CPLDebugOnly("GTiff", "Doing '%s' file listing", osDirname.c_str());
     CPLStringList aosSiblingFiles(VSIReadDirEx(osDirname.c_str(), nMaxFiles));
     if (nMaxFiles > 0 && aosSiblingFiles.size() > nMaxFiles)
     {
