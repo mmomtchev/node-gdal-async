@@ -3,18 +3,14 @@ updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "daily"
-    cooldown:
-      default-days: 15
+      interval: "cron"
+      # node -p 'require("crypto").createHash("md5").update("node-gdal-async").digest("buffer")[0] % 15'
+      cronjob: "0 5 4/15 * *"
     open-pull-requests-limit: 1
     groups:
-      eslint_typescript:
+      npm:
         patterns:
-        - "*eslint*"
-        - "*typescript*"
-      chai:
-        patterns:
-        - "*chai*"
+        - "*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
