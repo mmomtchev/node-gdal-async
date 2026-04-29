@@ -8,11 +8,25 @@ namespace node_gdal {
  * @namespace fs
  */
 
+/**
+ * Clears the /vsicurl/ and related network caches.
+ *
+ * @static
+ * @method clearCurlCache
+ * @memberof fs
+ */
+NAN_METHOD(VSI::clearCurlCache) {
+  Nan::HandleScope scope;
+  VSICurlClearCache();
+  info.GetReturnValue().Set(Nan::Undefined());
+}
+
 void VSI::Initialize(Local<Object> target) {
   Local<Object> fs = Nan::New<Object>();
   Nan::Set(target, Nan::New("fs").ToLocalChecked(), fs);
   Nan__SetAsyncableMethod(fs, "stat", stat);
   Nan__SetAsyncableMethod(fs, "readDir", readDir);
+  Nan::SetMethod(fs, "clearCurlCache", clearCurlCache);
 }
 
 /**
