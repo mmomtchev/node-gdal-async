@@ -28,7 +28,7 @@
 #if defined(JPEG_DIRECT_COPY) || defined(HAVE_LIBJPEG)
 
 /************************************************************************/
-/*                      GetUnderlyingDataset()                          */
+/*                        GetUnderlyingDataset()                        */
 /************************************************************************/
 
 static GDALDataset *GetUnderlyingDataset(GDALDataset *poSrcDS)
@@ -47,7 +47,7 @@ static GDALDataset *GetUnderlyingDataset(GDALDataset *poSrcDS)
 #ifdef JPEG_DIRECT_COPY
 
 /************************************************************************/
-/*                        IsBaselineDCTJPEG()                           */
+/*                         IsBaselineDCTJPEG()                          */
 /************************************************************************/
 
 static bool IsBaselineDCTJPEG(VSILFILE *fp)
@@ -143,7 +143,7 @@ int GTIFF_CanDirectCopyFromJPEG(GDALDataset *poSrcDS,
             papszCreateOptions =
                 CSLSetNameValue(papszCreateOptions, "PHOTOMETRIC", NULL);
 
-        if (poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_Byte)
+        if (poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_UInt8)
             papszCreateOptions =
                 CSLSetNameValue(papszCreateOptions, "NBITS", "12");
         else
@@ -163,7 +163,7 @@ int GTIFF_CanDirectCopyFromJPEG(GDALDataset *poSrcDS,
 }
 
 /************************************************************************/
-/*                     GTIFF_DirectCopyFromJPEG()                       */
+/*                      GTIFF_DirectCopyFromJPEG()                      */
 /************************************************************************/
 
 CPLErr GTIFF_DirectCopyFromJPEG(GDALDataset *poDS, GDALDataset *poSrcDS,
@@ -247,7 +247,7 @@ CPLErr GTIFF_DirectCopyFromJPEG(GDALDataset *poDS, GDALDataset *poSrcDS,
 #endif
 
 /************************************************************************/
-/*                      GTIFF_CanCopyFromJPEG()                         */
+/*                       GTIFF_CanCopyFromJPEG()                        */
 /************************************************************************/
 
 int GTIFF_CanCopyFromJPEG(GDALDataset *poSrcDS, char **&papszCreateOptions)
@@ -325,7 +325,7 @@ int GTIFF_CanCopyFromJPEG(GDALDataset *poSrcDS, char **&papszCreateOptions)
 
     if ((nBlockXSize == nXSize || (nBlockXSize % nMCUSize) == 0) &&
         (nBlockYSize == nYSize || (nBlockYSize % nMCUSize) == 0) &&
-        poSrcDS->GetRasterBand(1)->GetRasterDataType() == GDT_Byte &&
+        poSrcDS->GetRasterBand(1)->GetRasterDataType() == GDT_UInt8 &&
         CSLFetchNameValue(papszCreateOptions, "NBITS") == nullptr &&
         CSLFetchNameValue(papszCreateOptions, "JPEG_QUALITY") == nullptr)
     {
@@ -339,7 +339,7 @@ int GTIFF_CanCopyFromJPEG(GDALDataset *poSrcDS, char **&papszCreateOptions)
 }
 
 /************************************************************************/
-/*                      GTIFF_ErrorExitJPEG()                           */
+/*                        GTIFF_ErrorExitJPEG()                         */
 /************************************************************************/
 
 static void GTIFF_ErrorExitJPEG(j_common_ptr cinfo)
@@ -357,7 +357,7 @@ static void GTIFF_ErrorExitJPEG(j_common_ptr cinfo)
 }
 
 /************************************************************************/
-/*                      GTIFF_Set_TIFFTAG_JPEGTABLES()                  */
+/*                    GTIFF_Set_TIFFTAG_JPEGTABLES()                    */
 /************************************************************************/
 
 static void GTIFF_Set_TIFFTAG_JPEGTABLES(TIFF *hTIFF,
@@ -398,7 +398,7 @@ static void GTIFF_Set_TIFFTAG_JPEGTABLES(TIFF *hTIFF,
 }
 
 /************************************************************************/
-/*             GTIFF_CopyFromJPEG_WriteAdditionalTags()                 */
+/*               GTIFF_CopyFromJPEG_WriteAdditionalTags()               */
 /************************************************************************/
 
 CPLErr GTIFF_CopyFromJPEG_WriteAdditionalTags(TIFF *hTIFF, GDALDataset *poSrcDS)
@@ -538,7 +538,7 @@ CPLErr GTIFF_CopyFromJPEG_WriteAdditionalTags(TIFF *hTIFF, GDALDataset *poSrcDS)
 }
 
 /************************************************************************/
-/*                    GTIFF_CopyBlockFromJPEG()                         */
+/*                      GTIFF_CopyBlockFromJPEG()                       */
 /************************************************************************/
 
 typedef struct
@@ -781,7 +781,7 @@ static CPLErr GTIFF_CopyBlockFromJPEG(GTIFF_CopyBlockFromJPEGArgs *psArgs)
 }
 
 /************************************************************************/
-/*                      GTIFF_CopyFromJPEG()                            */
+/*                         GTIFF_CopyFromJPEG()                         */
 /************************************************************************/
 
 CPLErr GTIFF_CopyFromJPEG(GDALDataset *poDS, GDALDataset *poSrcDS,

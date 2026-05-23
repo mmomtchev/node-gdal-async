@@ -98,8 +98,6 @@ target_compile_options(ogr PRIVATE ${GDAL_CXX_WARNING_FLAGS} ${WFLAG_OLD_STYLE_C
 set_property(TARGET ogr PROPERTY POSITION_INDEPENDENT_CODE ${GDAL_OBJECT_LIBRARIES_POSITION_INDEPENDENT_CODE})
 target_sources(${GDAL_LIB_TARGET_NAME} PRIVATE $<TARGET_OBJECTS:ogr>)
 
-target_compile_definitions(ogr PRIVATE OGR_P_WITH_SRS_CACHE)
-
 if (HAVE_WFLAG_UNREACHABLE_CODE_AGGRESSIVE)
   target_compile_definitions(ogr PRIVATE HAVE_WFLAG_UNREACHABLE_CODE_AGGRESSIVE)
 endif()
@@ -148,6 +146,7 @@ configure_file(
   ${CMAKE_CURRENT_BINARY_DIR}/ogr_sfcgal.h
 )
 target_include_directories(ogr PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(ogr PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ogrsf_frmts/gmlutils)
 
 if (NOT GDAL_USE_ZLIB_INTERNAL)
   target_compile_definitions(ogr PRIVATE -DHAVE_ZLIB_H -DHAVE_ZLIB)
@@ -187,6 +186,7 @@ target_public_header(
   ogr_geomcoordinateprecision.h
   ogr_p.h
   ogr_spatialref.h
+  ogr_refcountedptr.h
   ogr_swq.h
   ogr_srs_api.h
   ogrsf_frmts/ogrsf_frmts.h)

@@ -22,7 +22,7 @@
 #endif
 
 /************************************************************************/
-/*                    GDALVectorBufferAlgorithm()                       */
+/*                     GDALVectorBufferAlgorithm()                      */
 /************************************************************************/
 
 GDALVectorBufferAlgorithm::GDALVectorBufferAlgorithm(bool standaloneStep)
@@ -62,7 +62,7 @@ namespace
 {
 
 /************************************************************************/
-/*                     GDALVectorBufferAlgorithmLayer                   */
+/*                    GDALVectorBufferAlgorithmLayer                    */
 /************************************************************************/
 
 class GDALVectorBufferAlgorithmLayer final
@@ -72,8 +72,17 @@ class GDALVectorBufferAlgorithmLayer final
     GDALVectorBufferAlgorithmLayer(
         OGRLayer &oSrcLayer, const GDALVectorBufferAlgorithm::Options &opts)
         : GDALVectorGeomOneToOneAlgorithmLayer<GDALVectorBufferAlgorithm>(
-              oSrcLayer, opts)
+              oSrcLayer, opts),
+          m_poFeatureDefn(oSrcLayer.GetLayerDefn()->Clone())
     {
+        for (int i = 0; i < m_poFeatureDefn->GetGeomFieldCount(); ++i)
+        {
+            if (IsSelectedGeomField(i))
+            {
+                m_poFeatureDefn->GetGeomFieldDefn(i)->SetType(wkbMultiPolygon);
+            }
+        }
+
         m_aosBufferOptions.SetNameValue("ENDCAP_STYLE",
                                         opts.m_endCapStyle.c_str());
         m_aosBufferOptions.SetNameValue("JOIN_STYLE", opts.m_joinStyle.c_str());
@@ -85,6 +94,11 @@ class GDALVectorBufferAlgorithmLayer final
                                         m_opts.m_side != "both" ? "YES" : "NO");
     }
 
+    const OGRFeatureDefn *GetLayerDefn() const override
+    {
+        return m_poFeatureDefn.get();
+    }
+
   protected:
     using GDALVectorGeomOneToOneAlgorithmLayer::TranslateFeature;
 
@@ -93,6 +107,9 @@ class GDALVectorBufferAlgorithmLayer final
 
   private:
     CPLStringList m_aosBufferOptions{};
+    const OGRFeatureDefnRefCountedPtr m_poFeatureDefn;
+
+    CPL_DISALLOW_COPY_ASSIGN(GDALVectorBufferAlgorithmLayer)
 };
 
 /************************************************************************/
@@ -102,7 +119,7 @@ class GDALVectorBufferAlgorithmLayer final
 std::unique_ptr<OGRFeature> GDALVectorBufferAlgorithmLayer::TranslateFeature(
     std::unique_ptr<OGRFeature> poSrcFeature) const
 {
-    const int nGeomFieldCount = poSrcFeature->GetGeomFieldCount();
+    const int nGeomFieldCount = m_poFeatureDefn->GetGeomFieldCount();
     for (int i = 0; i < nGeomFieldCount; ++i)
     {
         if (IsSelectedGeomField(i))
@@ -114,15 +131,22 @@ std::unique_ptr<OGRFeature> GDALVectorBufferAlgorithmLayer::TranslateFeature(
                                               m_aosBufferOptions.List()));
                 if (poGeom)
                 {
-                    poGeom->assignSpatialReference(m_srcLayer.GetLayerDefn()
-                                                       ->GetGeomFieldDefn(i)
-                                                       ->GetSpatialRef());
-                    poSrcFeature->SetGeomField(i, std::move(poGeom));
+                    const auto poGeomFieldDefn =
+                        m_poFeatureDefn->GetGeomFieldDefn(i);
+                    poGeom = OGRGeometryFactory::forceTo(
+                        std::move(poGeom), poGeomFieldDefn->GetType());
+                    if (poGeom)
+                    {
+                        poGeom->assignSpatialReference(
+                            poGeomFieldDefn->GetSpatialRef());
+                        poSrcFeature->SetGeomField(i, std::move(poGeom));
+                    }
                 }
             }
         }
     }
 
+    poSrcFeature->SetFDefnUnsafe(m_poFeatureDefn.get());
     return poSrcFeature;
 }
 
@@ -131,7 +155,7 @@ std::unique_ptr<OGRFeature> GDALVectorBufferAlgorithmLayer::TranslateFeature(
 #endif  // HAVE_GEOS
 
 /************************************************************************/
-/*              GDALVectorBufferAlgorithm::CreateAlgLayer()             */
+/*             GDALVectorBufferAlgorithm::CreateAlgLayer()              */
 /************************************************************************/
 
 std::unique_ptr<OGRLayerWithTranslateFeature>
@@ -146,7 +170,7 @@ GDALVectorBufferAlgorithm::CreateAlgLayer([[maybe_unused]] OGRLayer &srcLayer)
 }
 
 /************************************************************************/
-/*                  GDALVectorBufferAlgorithm::RunStep()                */
+/*                 GDALVectorBufferAlgorithm::RunStep()                 */
 /************************************************************************/
 
 bool GDALVectorBufferAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)

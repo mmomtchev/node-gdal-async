@@ -105,7 +105,7 @@ AIGRasterBand::AIGRasterBand(AIGDataset *poDSIn, int nBandIn)
     if (poDSIn->psInfo->nCellType == AIG_CELLTYPE_INT &&
         poDSIn->psInfo->dfMin >= 0.0 && poDSIn->psInfo->dfMax <= 254.0)
     {
-        eDataType = GDT_Byte;
+        eDataType = GDT_UInt8;
     }
     else if (poDSIn->psInfo->nCellType == AIG_CELLTYPE_INT &&
              poDSIn->psInfo->dfMin >= -32767 && poDSIn->psInfo->dfMax <= 32767)
@@ -143,7 +143,7 @@ CPLErr AIGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
             return CE_Failure;
         }
 
-        if (eDataType == GDT_Byte)
+        if (eDataType == GDT_UInt8)
         {
             for (int i = 0; i < nBlockXSize * nBlockYSize; i++)
             {
@@ -250,7 +250,7 @@ double AIGRasterBand::GetNoDataValue(int *pbSuccess)
     if (eDataType == GDT_Int16)
         return -32768;
 
-    if (eDataType == GDT_Byte)
+    if (eDataType == GDT_UInt8)
         return 255;
 
     return ESRI_GRID_NO_DATA;
@@ -293,7 +293,7 @@ GDALColorTable *AIGRasterBand::GetColorTable()
 /************************************************************************/
 
 /************************************************************************/
-/*                            AIGDataset()                            */
+/*                             AIGDataset()                             */
 /************************************************************************/
 
 AIGDataset::AIGDataset()
@@ -304,7 +304,7 @@ AIGDataset::AIGDataset()
 }
 
 /************************************************************************/
-/*                           ~AIGDataset()                            */
+/*                            ~AIGDataset()                             */
 /************************************************************************/
 
 AIGDataset::~AIGDataset()
@@ -351,7 +351,7 @@ char **AIGDataset::GetFileList()
 }
 
 /************************************************************************/
-/*                          AIGErrorHandlerVATOpen()                    */
+/*                       AIGErrorHandlerVATOpen()                       */
 /************************************************************************/
 
 class AIGErrorDescription
@@ -759,19 +759,19 @@ GDALDataset *AIGDataset::Open(GDALOpenInfo *poOpenInfo)
 CPLErr AIGDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
-    gt[0] = psInfo->dfLLX;
-    gt[1] = psInfo->dfCellSizeX;
-    gt[2] = 0;
+    gt.xorig = psInfo->dfLLX;
+    gt.xscale = psInfo->dfCellSizeX;
+    gt.xrot = 0;
 
-    gt[3] = psInfo->dfURY;
-    gt[4] = 0;
-    gt[5] = -psInfo->dfCellSizeY;
+    gt.yorig = psInfo->dfURY;
+    gt.yrot = 0;
+    gt.yscale = -psInfo->dfCellSizeY;
 
     return CE_None;
 }
 
 /************************************************************************/
-/*                          GetSpatialRef()                             */
+/*                           GetSpatialRef()                            */
 /************************************************************************/
 
 const OGRSpatialReference *AIGDataset::GetSpatialRef() const

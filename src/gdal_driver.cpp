@@ -403,7 +403,7 @@ NAN_METHOD(Driver::getMetadata) {
   NODE_ARG_OPT_STR(0, "domain", domain);
 
   GDALDriver *raw = driver->getGDALDriver();
-  char **md = raw->GetMetadata(domain.empty() ? NULL : domain.c_str());
+  CSLConstList md = raw->GetMetadata(domain.empty() ? NULL : domain.c_str());
   result = MajorObject::getMetadata(md);
   info.GetReturnValue().Set(result);
 }

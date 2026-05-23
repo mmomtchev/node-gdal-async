@@ -17,7 +17,7 @@
 #include <limits>
 
 /************************************************************************/
-/*                        GDALComputedDataset                           */
+/*                         GDALComputedDataset                          */
 /************************************************************************/
 
 class GDALComputedDataset final : public GDALDataset
@@ -68,7 +68,7 @@ class GDALComputedDataset final : public GDALDataset
         return m_oVRTDS.GetSpatialRef();
     }
 
-    char **GetMetadata(const char *pszDomain) override
+    CSLConstList GetMetadata(const char *pszDomain) override
     {
         return m_oVRTDS.GetMetadata(pszDomain);
     }
@@ -361,13 +361,13 @@ GDALComputedDataset::GDALComputedDataset(
 }
 
 /************************************************************************/
-/*                       ~GDALComputedDataset()                         */
+/*                        ~GDALComputedDataset()                        */
 /************************************************************************/
 
 GDALComputedDataset::~GDALComputedDataset() = default;
 
 /************************************************************************/
-/*                       HaveAllBandsSameNoDataValue()                  */
+/*                    HaveAllBandsSameNoDataValue()                     */
 /************************************************************************/
 
 static bool HaveAllBandsSameNoDataValue(GDALRasterBand **apoBands,
@@ -464,7 +464,7 @@ void GDALComputedDataset::AddSources(GDALComputedRasterBand *poBand)
 }
 
 /************************************************************************/
-/*                       OperationToFunctionName()                      */
+/*                      OperationToFunctionName()                       */
 /************************************************************************/
 
 /* static */ const char *GDALComputedDataset::OperationToFunctionName(
@@ -640,9 +640,9 @@ GDALComputedRasterBand::GDALComputedRasterBand(Operation op,
                         ? GDT_Float64
                         : GDT_Float32;
     else if (IsComparisonOperator(op))
-        eDataType = GDT_Byte;
-    else if (op == Operation::OP_ADD && firstDT == GDT_Byte &&
-             secondDT == GDT_Byte)
+        eDataType = GDT_UInt8;
+    else if (op == Operation::OP_ADD && firstDT == GDT_UInt8 &&
+             secondDT == GDT_UInt8)
         eDataType = GDT_UInt16;
     else if (firstDT == GDT_Float32 && secondDT == GDT_Float32)
         eDataType = GDT_Float32;
@@ -672,7 +672,7 @@ GDALComputedRasterBand::GDALComputedRasterBand(Operation op, double constant,
     nRasterYSize = band.GetYSize();
     const auto firstDT = band.GetRasterDataType();
     if (IsComparisonOperator(op))
-        eDataType = GDT_Byte;
+        eDataType = GDT_UInt8;
     else if (firstDT == GDT_Float32 &&
              static_cast<double>(static_cast<float>(constant)) == constant)
         eDataType = GDT_Float32;
@@ -697,11 +697,11 @@ GDALComputedRasterBand::GDALComputedRasterBand(Operation op,
     nRasterYSize = band.GetYSize();
     const auto firstDT = band.GetRasterDataType();
     if (IsComparisonOperator(op))
-        eDataType = GDT_Byte;
-    else if (op == Operation::OP_ADD && firstDT == GDT_Byte &&
+        eDataType = GDT_UInt8;
+    else if (op == Operation::OP_ADD && firstDT == GDT_UInt8 &&
              constant >= -128 && constant <= 127 &&
              std::floor(constant) == constant)
-        eDataType = GDT_Byte;
+        eDataType = GDT_UInt8;
     else if (firstDT == GDT_Float32 &&
              static_cast<double>(static_cast<float>(constant)) == constant)
         eDataType = GDT_Float32;
@@ -767,7 +767,7 @@ GDALComputedRasterBand::~GDALComputedRasterBand()
 }
 
 /************************************************************************/
-/*                  GDALComputedRasterBand::GetNoDataValue()            */
+/*               GDALComputedRasterBand::GetNoDataValue()               */
 /************************************************************************/
 
 double GDALComputedRasterBand::GetNoDataValue(int *pbHasNoData)
@@ -778,7 +778,7 @@ double GDALComputedRasterBand::GetNoDataValue(int *pbHasNoData)
 }
 
 /************************************************************************/
-/*                    GDALComputedRasterBandRelease()                   */
+/*                   GDALComputedRasterBandRelease()                    */
 /************************************************************************/
 
 /** Release a GDALComputedRasterBandH
@@ -791,7 +791,7 @@ void GDALComputedRasterBandRelease(GDALComputedRasterBandH hBand)
 }
 
 /************************************************************************/
-/*                           IReadBlock()                               */
+/*                             IReadBlock()                             */
 /************************************************************************/
 
 CPLErr GDALComputedRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
@@ -803,7 +803,7 @@ CPLErr GDALComputedRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
 }
 
 /************************************************************************/
-/*                           IRasterIO()                                */
+/*                             IRasterIO()                              */
 /************************************************************************/
 
 CPLErr GDALComputedRasterBand::IRasterIO(

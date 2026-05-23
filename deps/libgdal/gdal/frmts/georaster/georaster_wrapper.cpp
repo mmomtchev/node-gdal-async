@@ -11,6 +11,7 @@
  * SPDX-License-Identifier: MIT
  *****************************************************************************/
 
+#include <algorithm>
 #include <string.h>
 
 #include "georaster_priv.h"
@@ -289,7 +290,7 @@ GeoRasterWrapper *GeoRasterWrapper::Open(const char *pszStringId, bool bUpdate,
     else
     {
         /**
-         * Get the session from the OCI session pool or 
+         * Get the session from the OCI session pool or
          * create a new session
          */
         if (bPool)
@@ -1878,7 +1879,7 @@ bool GeoRasterWrapper::InitializeIO(void)
     // Allocate buffer for one raster block
     // --------------------------------------------------------------------
 
-    long nMaxBufferSize = MAX(nBlockBytes, nGDALBlockBytes);
+    long nMaxBufferSize = std::max(nBlockBytes, nGDALBlockBytes);
 
     pabyBlockBuf = (GByte *)VSI_MALLOC_VERBOSE(nMaxBufferSize);
 

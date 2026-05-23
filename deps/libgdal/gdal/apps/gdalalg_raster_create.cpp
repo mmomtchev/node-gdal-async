@@ -24,28 +24,31 @@
 #endif
 
 /************************************************************************/
-/*           GDALRasterCreateAlgorithm::GDALRasterCreateAlgorithm()     */
+/*        GDALRasterCreateAlgorithm::GDALRasterCreateAlgorithm()        */
 /************************************************************************/
 
-GDALRasterCreateAlgorithm::GDALRasterCreateAlgorithm()
-    : GDALAlgorithm(NAME, DESCRIPTION, HELP_URL)
+GDALRasterCreateAlgorithm::GDALRasterCreateAlgorithm(
+    bool standaloneStep) noexcept
+    : GDALRasterPipelineStepAlgorithm(
+          NAME, DESCRIPTION, HELP_URL,
+          ConstructorOptions()
+              .SetStandaloneStep(standaloneStep)
+              .SetAddDefaultArguments(false)
+              .SetAutoOpenInputDatasets(true)
+              .SetInputDatasetHelpMsg("Template raster dataset")
+              .SetInputDatasetAlias("like")
+              .SetInputDatasetMetaVar("TEMPLATE-DATASET")
+              .SetInputDatasetRequired(false)
+              .SetInputDatasetPositional(false)
+              .SetInputDatasetMaxCount(1))
 {
-    AddProgressArg();
-    AddOutputFormatArg(&m_outputFormat)
-        .AddMetadataItem(GAAMDI_REQUIRED_CAPABILITIES,
-                         {GDAL_DCAP_RASTER, GDAL_DCAP_CREATE});
-    AddOpenOptionsArg(&m_openOptions);
-    AddInputFormatsArg(&m_inputFormats)
-        .AddMetadataItem(GAAMDI_REQUIRED_CAPABILITIES, {GDAL_DCAP_RASTER});
-    AddInputDatasetArg(&m_inputDataset, GDAL_OF_RASTER, false).AddAlias("like");
-    AddOutputDatasetArg(&m_outputDataset, GDAL_OF_RASTER);
-    AddCreationOptionsArg(&m_creationOptions);
-    const char *exclusionGroup = "overwrite-append";
-    AddOverwriteArg(&m_overwrite).SetMutualExclusionGroup(exclusionGroup);
-    AddArg(GDAL_ARG_NAME_APPEND, 0,
-           _("Append as a subdataset to existing output"), &m_append)
-        .SetDefault(false)
-        .SetMutualExclusionGroup(exclusionGroup);
+    AddRasterInputArgs(false, false);
+    if (standaloneStep)
+    {
+        AddProgressArg();
+        AddRasterOutputArgs(false);
+    }
+
     AddArg("size", 0, _("Output size in pixels"), &m_size)
         .SetMinCount(2)
         .SetMaxCount(2)
@@ -74,36 +77,61 @@ GDALRasterCreateAlgorithm::GDALRasterCreateAlgorithm()
                                 { return ParseAndValidateKeyValue(arg); });
         arg.AddHiddenAlias("mo");
     }
+
+    const auto inputArg = GetArg(GDAL_ARG_NAME_INPUT);
+    CPLAssertNotNull(inputArg);
+
     AddArg("copy-metadata", 0, _("Copy metadata from input dataset"),
-           &m_copyMetadata);
+           &m_copyMetadata)
+        .AddDirectDependency(*inputArg);
     AddArg("copy-overviews", 0,
-           _("Create same overview levels as input dataset"), &m_copyOverviews);
+           _("Create same overview levels as input dataset"), &m_copyOverviews)
+        .AddDirectDependency(*inputArg);
 }
 
 /************************************************************************/
-/*                  GDALRasterCreateAlgorithm::RunImpl()                */
+/*                 GDALRasterCreateAlgorithm::RunImpl()                 */
 /************************************************************************/
 
-bool GDALRasterCreateAlgorithm::RunImpl(GDALProgressFunc /* pfnProgress */,
-                                        void * /*pProgressData */)
+bool GDALRasterCreateAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
+                                        void *pProgressData)
+{
+    GDALPipelineStepRunContext stepCtxt;
+    stepCtxt.m_pfnProgress = pfnProgress;
+    stepCtxt.m_pProgressData = pProgressData;
+    return RunPreStepPipelineValidations() && RunStep(stepCtxt);
+}
+
+/************************************************************************/
+/*                 GDALRasterCreateAlgorithm::RunStep()                 */
+/************************************************************************/
+
+bool GDALRasterCreateAlgorithm::RunStep(GDALPipelineStepRunContext &)
 {
     CPLAssert(!m_outputDataset.GetDatasetRef());
 
-    if (m_outputFormat.empty())
+    if (m_standaloneStep)
     {
-        const auto aosFormats =
-            CPLStringList(GDALGetOutputDriversForDatasetName(
-                m_outputDataset.GetName().c_str(), GDAL_OF_RASTER,
-                /* bSingleMatch = */ true,
-                /* bWarn = */ true));
-        if (aosFormats.size() != 1)
+        if (m_format.empty())
         {
-            ReportError(CE_Failure, CPLE_AppDefined,
-                        "Cannot guess driver for %s",
-                        m_outputDataset.GetName().c_str());
-            return false;
+            const auto aosFormats =
+                CPLStringList(GDALGetOutputDriversForDatasetName(
+                    m_outputDataset.GetName().c_str(), GDAL_OF_RASTER,
+                    /* bSingleMatch = */ true,
+                    /* bWarn = */ true));
+            if (aosFormats.size() != 1)
+            {
+                ReportError(CE_Failure, CPLE_AppDefined,
+                            "Cannot guess driver for %s",
+                            m_outputDataset.GetName().c_str());
+                return false;
+            }
+            m_format = aosFormats[0];
         }
-        m_outputFormat = aosFormats[0];
+    }
+    else
+    {
+        m_format = "MEM";
     }
 
     OGRSpatialReference oSRS;
@@ -111,7 +139,11 @@ bool GDALRasterCreateAlgorithm::RunImpl(GDALProgressFunc /* pfnProgress */,
     GDALGeoTransform gt;
     bool bGTValid = false;
 
-    auto poSrcDS = m_inputDataset.GetDatasetRef();
+    CPLStringList aosCreationOptions(m_creationOptions);
+
+    GDALDataset *poSrcDS = m_inputDataset.empty()
+                               ? nullptr
+                               : m_inputDataset.front().GetDatasetRef();
     if (poSrcDS)
     {
         if (m_size.empty())
@@ -153,6 +185,58 @@ bool GDALRasterCreateAlgorithm::RunImpl(GDALProgressFunc /* pfnProgress */,
             if (bNoData)
                 m_nodata = CPLSPrintf("%.17g", dfNoData);
         }
+
+        // Replicate tiling of input datasets for a few popular output formats,
+        // when compatible, and when the user hasn't specified creation options
+        // affecting tiling.
+        int nBlockXSize = 0, nBlockYSize = 0;
+        if (m_bandCount > 0)
+            poSrcDS->GetRasterBand(1)->GetBlockSize(&nBlockXSize, &nBlockYSize);
+
+        if (EQUAL(m_format.c_str(), "GTIFF") &&
+            aosCreationOptions.FetchNameValue("TILED") == nullptr &&
+            aosCreationOptions.FetchNameValue("BLOCKXSIZE") == nullptr &&
+            aosCreationOptions.FetchNameValue("BLOCKYSIZE") == nullptr &&
+            m_bandCount > 0)
+        {
+            if (nBlockXSize != poSrcDS->GetRasterXSize() &&
+                (nBlockXSize % 16) == 0 && (nBlockYSize % 16) == 0)
+            {
+                aosCreationOptions.SetNameValue("TILED", "YES");
+                aosCreationOptions.SetNameValue("BLOCKXSIZE",
+                                                CPLSPrintf("%d", nBlockXSize));
+                aosCreationOptions.SetNameValue("BLOCKYSIZE",
+                                                CPLSPrintf("%d", nBlockYSize));
+            }
+        }
+        else if (EQUAL(m_format.c_str(), "COG") &&
+                 aosCreationOptions.FetchNameValue("BLOCKSIZE") == nullptr &&
+                 m_bandCount > 0)
+        {
+            if (nBlockXSize != poSrcDS->GetRasterXSize() &&
+                nBlockXSize == nBlockYSize && nBlockXSize >= 128 &&
+                (nBlockXSize % 16) == 0)
+            {
+                aosCreationOptions.SetNameValue("BLOCKSIZE",
+                                                CPLSPrintf("%d", nBlockXSize));
+            }
+        }
+        else if (EQUAL(m_format.c_str(), "GPKG") &&
+                 aosCreationOptions.FetchNameValue("BLOCKSIZE") == nullptr &&
+                 aosCreationOptions.FetchNameValue("BLOCKXSIZE") == nullptr &&
+                 aosCreationOptions.FetchNameValue("BLOCKYSIZE") == nullptr &&
+                 m_bandCount > 0)
+        {
+            if (nBlockXSize != poSrcDS->GetRasterXSize() &&
+                nBlockXSize >= 256 && nBlockXSize <= 4096 &&
+                nBlockYSize >= 256 && nBlockYSize <= 4096)
+            {
+                aosCreationOptions.SetNameValue("BLOCKXSIZE",
+                                                CPLSPrintf("%d", nBlockXSize));
+                aosCreationOptions.SetNameValue("BLOCKYSIZE",
+                                                CPLSPrintf("%d", nBlockYSize));
+            }
+        }
     }
 
     if (m_size.empty())
@@ -182,17 +266,16 @@ bool GDALRasterCreateAlgorithm::RunImpl(GDALProgressFunc /* pfnProgress */,
         return false;
     }
 
-    auto poDriver =
-        GetGDALDriverManager()->GetDriverByName(m_outputFormat.c_str());
+    auto poDriver = GetGDALDriverManager()->GetDriverByName(m_format.c_str());
     if (!poDriver)
     {
         // shouldn't happen given checks done in GDALAlgorithm
         ReportError(CE_Failure, CPLE_AppDefined, "Cannot find driver %s",
-                    m_outputFormat.c_str());
+                    m_format.c_str());
         return false;
     }
 
-    if (m_append)
+    if (m_appendRaster)
     {
         if (poDriver->GetMetadataItem(GDAL_DCAP_CREATE_SUBDATASETS) == nullptr)
         {
@@ -201,13 +284,12 @@ bool GDALRasterCreateAlgorithm::RunImpl(GDALProgressFunc /* pfnProgress */,
                         poDriver->GetDescription());
             return false;
         }
-        m_creationOptions.push_back("APPEND_SUBDATASET=YES");
+        aosCreationOptions.SetNameValue("APPEND_SUBDATASET", "YES");
     }
 
     auto poRetDS = std::unique_ptr<GDALDataset>(poDriver->Create(
         m_outputDataset.GetName().c_str(), m_size[0], m_size[1], m_bandCount,
-        GDALGetDataTypeByName(m_type.c_str()),
-        CPLStringList(m_creationOptions).List()));
+        GDALGetDataTypeByName(m_type.c_str()), aosCreationOptions.List()));
     if (!poRetDS)
     {
         return false;
@@ -238,12 +320,12 @@ bool GDALRasterCreateAlgorithm::RunImpl(GDALProgressFunc /* pfnProgress */,
             return false;
         }
         bGTValid = true;
-        gt[0] = m_bbox[0];
-        gt[1] = (m_bbox[2] - m_bbox[0]) / poRetDS->GetRasterXSize();
-        gt[2] = 0;
-        gt[3] = m_bbox[3];
-        gt[4] = 0;
-        gt[5] = -(m_bbox[3] - m_bbox[1]) / poRetDS->GetRasterYSize();
+        gt.xorig = m_bbox[0];
+        gt.xscale = (m_bbox[2] - m_bbox[0]) / poRetDS->GetRasterXSize();
+        gt.xrot = 0;
+        gt.yorig = m_bbox[3];
+        gt.yrot = 0;
+        gt.yscale = -(m_bbox[3] - m_bbox[1]) / poRetDS->GetRasterYSize();
     }
     if (bGTValid)
     {
@@ -280,13 +362,10 @@ bool GDALRasterCreateAlgorithm::RunImpl(GDALProgressFunc /* pfnProgress */,
 
     if (m_copyMetadata)
     {
-        if (!poSrcDS)
-        {
-            ReportError(CE_Failure, CPLE_AppDefined,
-                        "Argument 'copy-metadata' can only be set when an "
-                        "input dataset is set");
-            return false;
-        }
+
+        // This should never happen because of the dependency set
+        CPLAssertNotNull(poSrcDS);
+
         {
             const CPLStringList aosDomains(poSrcDS->GetMetadataDomainList());
             for (const char *domain : aosDomains)
@@ -339,13 +418,9 @@ bool GDALRasterCreateAlgorithm::RunImpl(GDALProgressFunc /* pfnProgress */,
 
     if (m_copyOverviews && m_bandCount > 0)
     {
-        if (!poSrcDS)
-        {
-            ReportError(CE_Failure, CPLE_AppDefined,
-                        "Argument 'copy-overviews' can only be set when an "
-                        "input dataset is set");
-            return false;
-        }
+        // This should never happen because of the dependency set
+        CPLAssertNotNull(poSrcDS);
+
         if (poSrcDS->GetRasterXSize() != poRetDS->GetRasterXSize() ||
             poSrcDS->GetRasterYSize() != poRetDS->GetRasterYSize())
         {
@@ -403,5 +478,8 @@ bool GDALRasterCreateAlgorithm::RunImpl(GDALProgressFunc /* pfnProgress */,
 
     return true;
 }
+
+GDALRasterCreateAlgorithmStandalone::~GDALRasterCreateAlgorithmStandalone() =
+    default;
 
 //! @endcond

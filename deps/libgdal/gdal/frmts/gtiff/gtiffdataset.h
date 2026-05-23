@@ -27,8 +27,6 @@
 #include "gt_wkt_srs.h"  // GTIFFKeysFlavorEnum
 #include "tiffio.h"      // TIFF*
 
-class GTiffJPEGOverviewDS;
-
 enum class GTiffProfile : GByte
 {
     BASELINE,
@@ -124,18 +122,19 @@ class GTiffDataset final : public GDALPamDataset
     TIFF *m_hTIFF = nullptr;
     VSILFILE *m_fpL = nullptr;
     VSILFILE *m_fpToWrite = nullptr;
-    GTiffDataset **m_papoOverviewDS = nullptr;
-    GTiffDataset *m_poMaskDS = nullptr;  // For a non-mask dataset, points to
-                                         // the corresponding (internal) mask
-    GDALDataset *m_poExternalMaskDS =
-        nullptr;  // Points to a dataset within m_poMaskExtOvrDS
-    GTiffDataset *m_poImageryDS = nullptr;  // For a mask dataset, points to the
-                                            // corresponding imagery dataset
-    GTiffDataset *m_poBaseDS =
-        nullptr;  // For an overview or mask dataset, points to the root dataset
-    std::unique_ptr<GDALDataset>
-        m_poMaskExtOvrDS{};  // Used with MASK_OVERVIEW_DATASET open option
-    GTiffJPEGOverviewDS **m_papoJPEGOverviewDS = nullptr;
+    std::vector<std::shared_ptr<GTiffDataset>> m_apoOverviewDS{};
+    // For a non-mask dataset, points to the corresponding (internal) mask
+    std::shared_ptr<GTiffDataset> m_poMaskDS{};
+    // Points to a dataset within m_poMaskExtOvrDS
+    GDALDataset *m_poExternalMaskDS = nullptr;
+    // For a mask dataset, points to the corresponding imagery dataset
+    GTiffDataset *m_poImageryDS = nullptr;
+    // For an overview or mask dataset, points to the root dataset
+    GTiffDataset *m_poBaseDS = nullptr;
+    // Used with MASK_OVERVIEW_DATASET open option
+    std::unique_ptr<GDALDataset> m_poMaskExtOvrDS{};
+    std::vector<std::unique_ptr<GTiffJPEGOverviewDS>> m_apoJPEGOverviewDS{};
+    std::vector<std::unique_ptr<GTiffJPEGOverviewDS>> m_apoJPEGOverviewDSOld{};
     std::vector<gdal::GCP> m_aoGCPs{};
     std::unique_ptr<GDALColorTable> m_poColorTable{};
     char **m_papszMetadataFiles = nullptr;
@@ -190,6 +189,29 @@ class GTiffDataset final : public GDALPamDataset
     int m_nRefBaseMapping = 0;
     int m_nDisableMultiThreadedRead = 0;
 
+    struct JPEGOverviewVisibilitySetter
+    {
+        signed char &nCounter_;
+
+        explicit JPEGOverviewVisibilitySetter(signed char &nCounter)
+            : nCounter_(nCounter)
+        {
+            ++nCounter_;
+        }
+
+        ~JPEGOverviewVisibilitySetter()
+        {
+            --nCounter_;
+        }
+    };
+
+    std::unique_ptr<JPEGOverviewVisibilitySetter>
+    MakeJPEGOverviewVisible() CPL_WARN_UNUSED_RESULT
+    {
+        return std::make_unique<JPEGOverviewVisibilitySetter>(
+            m_nJPEGOverviewVisibilityCounter);
+    }
+
   public:
     static constexpr int DEFAULT_COLOR_TABLE_MULTIPLIER_257 = 257;
 
@@ -210,14 +232,9 @@ class GTiffDataset final : public GDALPamDataset
     uint16_t m_nSampleFormat = 0;
     uint16_t m_nCompression = 0;
 
-    signed char m_nOverviewCount = 0;
-
     // If > 0, the implicit JPEG overviews are visible through
     // GetOverviewCount().
     signed char m_nJPEGOverviewVisibilityCounter = 0;
-    // Currently visible overviews. Generally == nJPEGOverviewCountOri.
-    signed char m_nJPEGOverviewCount = -1;
-    signed char m_nJPEGOverviewCountOri = 0;  // Size of papoJPEGOverviewDS.
     signed char m_nPAMGeorefSrcIndex = -1;
     signed char m_nINTERNALGeorefSrcIndex = -1;
     signed char m_nTABFILEGeorefSrcIndex = -1;
@@ -298,6 +315,8 @@ class GTiffDataset final : public GDALPamDataset
     bool m_bDirectIO : 1;
     bool m_bReadGeoTransform : 1;
     bool m_bLoadPam : 1;
+    bool m_bENVIHdrTried : 1;
+    bool m_bENVIHdrFound : 1;
     bool m_bHasGotSiblingFiles : 1;
     bool m_bHasIdentifiedAuthorizedGeoreferencingSources : 1;
     bool m_bLayoutIFDSBeforeData : 1;
@@ -310,6 +329,7 @@ class GTiffDataset final : public GDALPamDataset
     bool m_bHasUsedReadEncodedAPI : 1;  // for debugging
     bool m_bWriteCOGLayout : 1;
     bool m_bTileInterleave : 1;
+    bool m_bLayoutChecked : 1;
 
     void ScanDirectories();
     bool ReadStrile(int nBlockId, void *pOutputBuffer,
@@ -369,7 +389,7 @@ class GTiffDataset final : public GDALPamDataset
     std::tuple<CPLErr, bool> Finalize();
 
     void DiscardLsb(GByte *pabyBuffer, GPtrDiff_t nBytes, int iBand) const;
-    void GetDiscardLsbOption(char **papszOptions);
+    void GetDiscardLsbOption(CSLConstList papszOptions);
     void InitCompressionThreads(bool bUpdateMode, CSLConstList papszOptions);
     void InitCreationOrOpenOptions(bool bUpdateMode, CSLConstList papszOptions);
     static void ThreadCompressionFunc(void *pData);
@@ -416,7 +436,11 @@ class GTiffDataset final : public GDALPamDataset
                                  const int *panBandMap, GSpacing nPixelSpace,
                                  GSpacing nLineSpace, GSpacing nBandSpace);
 
+    std::string GetSidecarFilenameWithReplacedExtension(const char *pszExt);
+
     void LoadGeoreferencingAndPamIfNeeded();
+
+    void LoadENVIHdrIfNeeded();
 
     CSLConstList GetSiblingFiles();
 
@@ -448,6 +472,8 @@ class GTiffDataset final : public GDALPamDataset
                           int nBufXSize, int nBufYSize, const int *panBandMap,
                           int nBandCount, GDALRasterIOExtraArg *psExtraArg);
 
+    bool CheckCOGLayout();
+
     static void ThreadDecompressionFunc(void *pData);
 
     static GTIF *GTIFNew(TIFF *hTIFF);
@@ -463,7 +489,7 @@ class GTiffDataset final : public GDALPamDataset
     GTiffDataset();
     ~GTiffDataset() override;
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
     const OGRSpatialReference *GetSpatialRef() const override;
     CPLErr SetSpatialRef(const OGRSpatialReference *poSRS) override;
@@ -521,17 +547,17 @@ class GTiffDataset final : public GDALPamDataset
     static int Identify(GDALOpenInfo *);
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
                                int nBands, GDALDataType eType,
-                               char **papszParamList);
+                               CSLConstList papszParamList);
     static GDALDataset *CreateCopy(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
-                                   char **papszOptions,
+                                   CSLConstList papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
     CPLErr FlushCache(bool bAtClosing) override;
 
     char **GetMetadataDomainList() override;
-    CPLErr SetMetadata(char **, const char * = "") override;
-    char **GetMetadata(const char *pszDomain = "") override;
+    CPLErr SetMetadata(CSLConstList, const char * = "") override;
+    CSLConstList GetMetadata(const char *pszDomain = "") override;
     CPLErr SetMetadataItem(const char *, const char *,
                            const char * = "") override;
     virtual const char *GetMetadataItem(const char *pszName,
@@ -557,15 +583,17 @@ class GTiffDataset final : public GDALPamDataset
     static TIFF *CreateLL(const char *pszFilename, int nXSize, int nYSize,
                           int nBands, GDALDataType eType,
                           double dfExtraSpaceForOverviews,
-                          int nColorTableMultiplier, char **papszParamList,
-                          VSILFILE **pfpL, CPLString &osTmpFilename,
-                          bool bCreateCopy, bool &bTileInterleavingOut);
+                          int nColorTableMultiplier,
+                          CSLConstList papszParamList, VSILFILE **pfpL,
+                          CPLString &osTmpFilename, bool bCreateCopy,
+                          bool &bTileInterleavingOut);
 
     CPLErr WriteEncodedTileOrStrip(uint32_t tile_or_strip, void *data,
                                    int bPreserveDataBuffer);
 
     static void SaveICCProfile(GTiffDataset *pDS, TIFF *hTIFF,
-                               char **papszParamList, uint32_t nBitsPerSample);
+                               CSLConstList papszParamList,
+                               uint32_t nBitsPerSample);
 
     static const GTIFFTag *GetTIFFTags();
 

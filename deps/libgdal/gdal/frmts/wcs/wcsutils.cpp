@@ -32,7 +32,7 @@ void Swap(double &a, double &b)
 std::string URLEncode(const std::string &str)
 {
     char *pszEncoded = CPLEscapeString(str.c_str(), -1, CPLES_URL);
-    std::string str2 = pszEncoded;
+    std::string str2(pszEncoded);
     CPLFree(pszEncoded);
     return str2;
 }
@@ -311,7 +311,7 @@ bool MakeDir(const std::string &dirname)
 }
 
 /************************************************************************/
-/*                       SearchChildWithValue()                         */
+/*                        SearchChildWithValue()                        */
 /************************************************************************/
 
 CPLXMLNode *SearchChildWithValue(CPLXMLNode *node, const char *path,
@@ -457,11 +457,6 @@ bool SetupCache(std::string &cache, bool clear)
     return true;
 }
 
-static bool CompareStrings(const std::string &a, const std::string &b)
-{
-    return a.compare(b) < 0;
-}
-
 std::vector<std::string> ReadCache(const std::string &cache)
 {
     std::vector<std::string> contents;
@@ -483,7 +478,8 @@ std::vector<std::string> ReadCache(const std::string &cache)
         }
         CSLDestroy(data);
     }
-    std::sort(contents.begin(), contents.end(), CompareStrings);
+    if (!contents.empty())
+        std::sort(contents.begin(), contents.end());
     return contents;
 }
 

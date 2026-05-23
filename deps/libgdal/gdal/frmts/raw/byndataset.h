@@ -120,7 +120,7 @@ Undefined values
  ****************************************************************************/
 
 /************************************************************************/
-/*           BYNHeader                                                  */
+/*                              BYNHeader                               */
 /************************************************************************/
 
 constexpr int BYN_HDR_SZ = 80; /* != sizeof(BYNHeader) */
@@ -198,7 +198,7 @@ class BYNDataset final : public RawDataset
 
     static void buffer2header(const GByte *pabyBuf, BYNHeader *pohHeader);
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
   public:
     BYNDataset();

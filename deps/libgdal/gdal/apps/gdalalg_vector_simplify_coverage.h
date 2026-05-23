@@ -21,7 +21,7 @@
 //! @cond Doxygen_Suppress
 
 /************************************************************************/
-/*                  GDALVectorSimplifyCoverageAlgorithm                 */
+/*                 GDALVectorSimplifyCoverageAlgorithm                  */
 /************************************************************************/
 
 class GDALVectorSimplifyCoverageAlgorithm
@@ -42,6 +42,11 @@ class GDALVectorSimplifyCoverageAlgorithm
         bool preserveBoundary = false;
     };
 
+    bool IsNativelyStreamingCompatible() const override
+    {
+        return false;
+    }
+
   private:
     bool RunStep(GDALPipelineStepRunContext &ctxt) override;
 
@@ -51,7 +56,7 @@ class GDALVectorSimplifyCoverageAlgorithm
 };
 
 /************************************************************************/
-/*              GDALVectorSimplifyCoverageAlgorithmStandalone           */
+/*            GDALVectorSimplifyCoverageAlgorithmStandalone             */
 /************************************************************************/
 
 class GDALVectorSimplifyCoverageAlgorithmStandalone final

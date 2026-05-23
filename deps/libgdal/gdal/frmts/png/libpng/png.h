@@ -462,7 +462,7 @@ typedef png_info * * png_infopp;
  * corresponding 'rp' type.  Different compilers have different rules with
  * regard to type matching in the presence of 'restrict'.  For backward
  * compatibility libpng callbacks never have 'restrict' in their parameters and,
- * consequentially, writing portable application code is extremely difficult if
+ * consequently, writing portable application code is extremely difficult if
  * an attempt is made to use 'restrict'.
  */
 typedef png_struct * PNG_RESTRICT png_structrp;

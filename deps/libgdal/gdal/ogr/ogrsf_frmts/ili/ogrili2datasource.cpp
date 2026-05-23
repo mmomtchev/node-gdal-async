@@ -21,7 +21,7 @@
 using namespace std;
 
 /************************************************************************/
-/*                         OGRILI2DataSource()                         */
+/*                         OGRILI2DataSource()                          */
 /************************************************************************/
 
 OGRILI2DataSource::OGRILI2DataSource()
@@ -31,7 +31,7 @@ OGRILI2DataSource::OGRILI2DataSource()
 }
 
 /************************************************************************/
-/*                        ~OGRILI2DataSource()                         */
+/*                         ~OGRILI2DataSource()                         */
 /************************************************************************/
 
 OGRILI2DataSource::~OGRILI2DataSource()
@@ -111,7 +111,8 @@ int OGRILI2DataSource::Open(const char *pszNewName, char **papszOpenOptionsIn,
             szHeader[nLen] = '\0';
 
         if (szHeader[0] != '<' ||
-            strstr(szHeader, "interlis.ch/INTERLIS2") == nullptr)
+            (strstr(szHeader, "interlis.ch/INTERLIS2") == nullptr &&
+             strstr(szHeader, "//www.interlis.ch/xtf/") == nullptr))
         {
             // "www.interlis.ch/INTERLIS2.3"
             VSIFCloseL(fp);

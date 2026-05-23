@@ -72,7 +72,7 @@ constexpr int knDEFAULT_BLOCK_SIZE = 256;
 class MBTilesBand;
 
 /************************************************************************/
-/*                         MBTILESOpenSQLiteDB()                        */
+/*                        MBTILESOpenSQLiteDB()                         */
 /************************************************************************/
 
 static GDALDatasetH MBTILESOpenSQLiteDB(const char *pszFilename,
@@ -108,7 +108,7 @@ class MBTilesDataset final : public GDALPamDataset,
     CPLErr SetSpatialRef(const OGRSpatialReference *poSRS) override;
 
     char **GetMetadataDomainList() override;
-    char **GetMetadata(const char *pszDomain = "") override;
+    CSLConstList GetMetadata(const char *pszDomain = "") override;
     virtual const char *GetMetadataItem(const char *pszName,
                                         const char *pszDomain = "") override;
 
@@ -129,10 +129,10 @@ class MBTilesDataset final : public GDALPamDataset,
     static int Identify(GDALOpenInfo *);
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
                                int nBandsIn, GDALDataType eDT,
-                               char **papszOptions);
+                               CSLConstList papszOptions);
     static GDALDataset *CreateCopy(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
-                                   char **papszOptions,
+                                   CSLConstList papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
 
@@ -170,7 +170,7 @@ class MBTilesDataset final : public GDALPamDataset,
     CPLString m_osClip;
     std::vector<std::unique_ptr<OGRLayer>> m_apoLayers;
 
-    void ParseCompressionOptions(char **papszOptions);
+    void ParseCompressionOptions(CSLConstList papszOptions);
     CPLErr FinalizeRasterRegistration();
     void ComputeTileAndPixelShifts();
     bool InitRaster(MBTilesDataset *poParentDS, int nZoomLevel, int nBandCount,
@@ -178,7 +178,8 @@ class MBTilesDataset final : public GDALPamDataset,
                     double dfGDALMaxX, double dfGDALMaxY);
 
     bool CreateInternal(const char *pszFilename, int nXSize, int nYSize,
-                        int nBandsIn, GDALDataType eDT, char **papszOptions);
+                        int nBandsIn, GDALDataType eDT,
+                        CSLConstList papszOptions);
     void InitVector(double dfMinX, double dfMinY, double dfMaxX, double dfMaxY,
                     bool bZoomLevelFromSpatialFilter, bool bJsonField);
 
@@ -312,7 +313,7 @@ MBTilesBand::MBTilesBand(MBTilesDataset *poDSIn, int nTileSize)
 }
 
 /************************************************************************/
-/*                           utf8decode()                               */
+/*                             utf8decode()                             */
 /************************************************************************/
 
 static unsigned utf8decode(const char *p, const char *end, int *len)
@@ -463,7 +464,7 @@ bool MBTilesDataset::HasNonEmptyGrids()
 }
 
 /************************************************************************/
-/*                             FindKey()                                */
+/*                              FindKey()                               */
 /************************************************************************/
 
 char *MBTilesDataset::FindKey(int iPixel, int iLine)
@@ -476,9 +477,9 @@ char *MBTilesDataset::FindKey(int iPixel, int iLine)
     // Caution this is in GeoPackage / WMTS convention ! That is upper-left
     // corner
     const int nShiftXPixels =
-        (int)floor(0.5 + (m_gt[0] - TMS_ORIGIN_X) / m_gt[1]);
+        (int)floor(0.5 + (m_gt.xorig - TMS_ORIGIN_X) / m_gt.xscale);
     const int nShiftYPixelsFromGPKGOrigin =
-        (int)floor(0.5 + (m_gt[3] - TMS_ORIGIN_Y) / m_gt[5]);
+        (int)floor(0.5 + (m_gt.yorig - TMS_ORIGIN_Y) / m_gt.yscale);
 
     const int iLineFromGPKGOrigin = iLine + nShiftYPixelsFromGPKGOrigin;
     const int iLineFromMBTilesOrigin =
@@ -673,7 +674,7 @@ end:
 }
 
 /************************************************************************/
-/*                      GetMetadataDomainList()                         */
+/*                       GetMetadataDomainList()                        */
 /************************************************************************/
 
 char **MBTilesBand::GetMetadataDomainList()
@@ -683,7 +684,7 @@ char **MBTilesBand::GetMetadataDomainList()
 }
 
 /************************************************************************/
-/*                         GetMetadataItem()                            */
+/*                          GetMetadataItem()                           */
 /************************************************************************/
 
 const char *MBTilesBand::GetMetadataItem(const char *pszName,
@@ -813,7 +814,7 @@ const char *MBTilesBand::GetMetadataItem(const char *pszName,
 }
 
 /************************************************************************/
-/*                         GetOverviewCount()                           */
+/*                          GetOverviewCount()                          */
 /************************************************************************/
 
 int MBTilesBand::GetOverviewCount()
@@ -827,7 +828,7 @@ int MBTilesBand::GetOverviewCount()
 }
 
 /************************************************************************/
-/*                              GetOverview()                           */
+/*                            GetOverview()                             */
 /************************************************************************/
 
 GDALRasterBand *MBTilesBand::GetOverview(int nLevel)
@@ -848,7 +849,7 @@ GDALRasterBand *MBTilesBand::GetOverview(int nLevel)
 }
 
 /************************************************************************/
-/*                         MBTilesDataset()                          */
+/*                           MBTilesDataset()                           */
 /************************************************************************/
 
 MBTilesDataset::MBTilesDataset()
@@ -875,7 +876,7 @@ MBTilesDataset::MBTilesDataset()
 }
 
 /************************************************************************/
-/*                        ~MBTilesDataset()                             */
+/*                          ~MBTilesDataset()                           */
 /************************************************************************/
 
 MBTilesDataset::~MBTilesDataset()
@@ -957,7 +958,7 @@ OGRErr MBTilesDataset::ICommitTransaction()
 }
 
 /************************************************************************/
-/*                         ICanIWriteBlock()                            */
+/*                          ICanIWriteBlock()                           */
 /************************************************************************/
 
 bool MBTilesDataset::ICanIWriteBlock()
@@ -980,7 +981,7 @@ bool MBTilesDataset::ICanIWriteBlock()
 }
 
 /************************************************************************/
-/*                         IFlushCacheWithErrCode()                     */
+/*                       IFlushCacheWithErrCode()                       */
 /************************************************************************/
 
 CPLErr MBTilesDataset::IFlushCacheWithErrCode(bool bAtClosing)
@@ -999,7 +1000,7 @@ CPLErr MBTilesDataset::IFlushCacheWithErrCode(bool bAtClosing)
 }
 
 /************************************************************************/
-/*                         ICanIWriteBlock()                            */
+/*                          ICanIWriteBlock()                           */
 /************************************************************************/
 
 int MBTilesDataset::GetRowFromIntoTopConvention(int nRow)
@@ -1059,7 +1060,7 @@ CPLErr MBTilesDataset::SetGeoTransform(const GDALGeoTransform &gt)
                  "Cannot modify geotransform once set");
         return CE_Failure;
     }
-    if (gt[2] != 0.0 || gt[4] != 0 || gt[5] > 0.0)
+    if (gt.xrot != 0.0 || gt.yrot != 0 || gt.yscale > 0.0)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "Only north-up non rotated geotransform supported");
@@ -1071,10 +1072,10 @@ CPLErr MBTilesDataset::SetGeoTransform(const GDALGeoTransform &gt)
         CPLString osBounds(m_osBounds);
         if (osBounds.empty())
         {
-            double minx = gt[0];
-            double miny = gt[3] + nRasterYSize * gt[5];
-            double maxx = gt[0] + nRasterXSize * gt[1];
-            double maxy = gt[3];
+            double minx = gt.xorig;
+            double miny = gt.yorig + nRasterYSize * gt.yscale;
+            double maxx = gt.xorig + nRasterXSize * gt.xscale;
+            double maxy = gt.yorig;
 
             SphericalMercatorToLongLat(&minx, &miny);
             SphericalMercatorToLongLat(&maxx, &maxy);
@@ -1127,8 +1128,9 @@ CPLErr MBTilesDataset::SetGeoTransform(const GDALGeoTransform &gt)
             dfPixelXSizeZoomLevel0 / (1 << m_nZoomLevel);
         double dfExpectedPixelYSize =
             dfPixelYSizeZoomLevel0 / (1 << m_nZoomLevel);
-        if (fabs(gt[1] - dfExpectedPixelXSize) < 1e-8 * dfExpectedPixelXSize &&
-            fabs(fabs(gt[5]) - dfExpectedPixelYSize) <
+        if (fabs(gt.xscale - dfExpectedPixelXSize) <
+                1e-8 * dfExpectedPixelXSize &&
+            fabs(fabs(gt.yscale) - dfExpectedPixelYSize) <
                 1e-8 * dfExpectedPixelYSize)
         {
             break;
@@ -1150,7 +1152,7 @@ CPLErr MBTilesDataset::SetGeoTransform(const GDALGeoTransform &gt)
 }
 
 /************************************************************************/
-/*                      ComputeTileAndPixelShifts()                     */
+/*                     ComputeTileAndPixelShifts()                      */
 /************************************************************************/
 
 void MBTilesDataset::ComputeTileAndPixelShifts()
@@ -1161,18 +1163,20 @@ void MBTilesDataset::ComputeTileAndPixelShifts()
     // Compute shift between GDAL origin and TileMatrixSet origin
     // Caution this is in GeoPackage / WMTS convention ! That is upper-left
     // corner
-    int nShiftXPixels = (int)floor(0.5 + (m_gt[0] - TMS_ORIGIN_X) / m_gt[1]);
+    int nShiftXPixels =
+        (int)floor(0.5 + (m_gt.xorig - TMS_ORIGIN_X) / m_gt.xscale);
     m_nShiftXTiles = (int)floor(1.0 * nShiftXPixels / nTileWidth);
     m_nShiftXPixelsMod =
         ((nShiftXPixels % nTileWidth) + nTileWidth) % nTileWidth;
-    int nShiftYPixels = (int)floor(0.5 + (m_gt[3] - TMS_ORIGIN_Y) / m_gt[5]);
+    int nShiftYPixels =
+        (int)floor(0.5 + (m_gt.yorig - TMS_ORIGIN_Y) / m_gt.yscale);
     m_nShiftYTiles = (int)floor(1.0 * nShiftYPixels / nTileHeight);
     m_nShiftYPixelsMod =
         ((nShiftYPixels % nTileHeight) + nTileHeight) % nTileHeight;
 }
 
 /************************************************************************/
-/*                      FinalizeRasterRegistration()                    */
+/*                     FinalizeRasterRegistration()                     */
 /************************************************************************/
 
 CPLErr MBTilesDataset::FinalizeRasterRegistration()
@@ -1182,10 +1186,10 @@ CPLErr MBTilesDataset::FinalizeRasterRegistration()
 
     ComputeTileAndPixelShifts();
 
-    double dfGDALMinX = m_gt[0];
-    double dfGDALMinY = m_gt[3] + nRasterYSize * m_gt[5];
-    double dfGDALMaxX = m_gt[0] + nRasterXSize * m_gt[1];
-    double dfGDALMaxY = m_gt[3];
+    double dfGDALMinX = m_gt.xorig;
+    double dfGDALMinY = m_gt.yorig + nRasterYSize * m_gt.yscale;
+    double dfGDALMaxX = m_gt.xorig + nRasterXSize * m_gt.xscale;
+    double dfGDALMaxY = m_gt.yorig;
 
     m_nOverviewCount = m_nZoomLevel;
     m_papoOverviewDS = (MBTilesDataset **)CPLCalloc(sizeof(MBTilesDataset *),
@@ -1221,7 +1225,7 @@ CPLErr MBTilesDataset::FinalizeRasterRegistration()
 }
 
 /************************************************************************/
-/*                         InitRaster()                                 */
+/*                             InitRaster()                             */
 /************************************************************************/
 
 bool MBTilesDataset::InitRaster(MBTilesDataset *poParentDS, int nZoomLevel,
@@ -1239,10 +1243,10 @@ bool MBTilesDataset::InitRaster(MBTilesDataset *poParentDS, int nZoomLevel,
     const double dfPixelYSize = 2 * MAX_GM / nTileHeight / (1 << nZoomLevel);
 
     m_bGeoTransformValid = true;
-    m_gt[0] = dfGDALMinX;
-    m_gt[1] = dfPixelXSize;
-    m_gt[3] = dfGDALMaxY;
-    m_gt[5] = -dfPixelYSize;
+    m_gt.xorig = dfGDALMinX;
+    m_gt.xscale = dfPixelXSize;
+    m_gt.yorig = dfGDALMaxY;
+    m_gt.yscale = -dfPixelYSize;
     double dfRasterXSize = 0.5 + (dfGDALMaxX - dfGDALMinX) / dfPixelXSize;
     double dfRasterYSize = 0.5 + (dfGDALMaxY - dfGDALMinY) / dfPixelYSize;
     if (dfRasterXSize > INT_MAX || dfRasterYSize > INT_MAX)
@@ -1289,7 +1293,7 @@ bool MBTilesDataset::InitRaster(MBTilesDataset *poParentDS, int nZoomLevel,
 }
 
 /************************************************************************/
-/*                         GetSpatialRef()                              */
+/*                           GetSpatialRef()                            */
 /************************************************************************/
 
 const OGRSpatialReference *MBTilesDataset::GetSpatialRef() const
@@ -1310,10 +1314,10 @@ CPLErr MBTilesDataset::SetSpatialRef(const OGRSpatialReference *poSRS)
         return CE_Failure;
     }
 
-    if (poSRS == nullptr || poSRS->GetAuthorityName(nullptr) == nullptr ||
-        !EQUAL(poSRS->GetAuthorityName(nullptr), "EPSG") ||
-        poSRS->GetAuthorityCode(nullptr) == nullptr ||
-        !EQUAL(poSRS->GetAuthorityCode(nullptr), "3857"))
+    if (poSRS == nullptr || poSRS->GetAuthorityName() == nullptr ||
+        !EQUAL(poSRS->GetAuthorityName(), "EPSG") ||
+        poSRS->GetAuthorityCode() == nullptr ||
+        !EQUAL(poSRS->GetAuthorityCode(), "3857"))
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "Only EPSG:3857 supported on MBTiles dataset");
@@ -1323,7 +1327,7 @@ CPLErr MBTilesDataset::SetSpatialRef(const OGRSpatialReference *poSRS)
 }
 
 /************************************************************************/
-/*                      GetMetadataDomainList()                         */
+/*                       GetMetadataDomainList()                        */
 /************************************************************************/
 
 char **MBTilesDataset::GetMetadataDomainList()
@@ -1336,7 +1340,7 @@ char **MBTilesDataset::GetMetadataDomainList()
 /*                            GetMetadata()                             */
 /************************************************************************/
 
-char **MBTilesDataset::GetMetadata(const char *pszDomain)
+CSLConstList MBTilesDataset::GetMetadata(const char *pszDomain)
 {
     if (hDS == nullptr || (pszDomain != nullptr && !EQUAL(pszDomain, "")))
         return GDALPamDataset::GetMetadata(pszDomain);
@@ -1345,7 +1349,7 @@ char **MBTilesDataset::GetMetadata(const char *pszDomain)
         return aosList.List();
 
     bFetchedMetadata = true;
-    aosList = CPLStringList(GDALPamDataset::GetMetadata(), FALSE);
+    aosList = CPLStringList(GDALPamDataset::GetMetadata());
 
     OGRLayerH hSQLLyr = GDALDatasetExecuteSQL(
         hDS, "SELECT name, value FROM metadata WHERE name != 'json' LIMIT 1000",
@@ -1384,7 +1388,7 @@ char **MBTilesDataset::GetMetadata(const char *pszDomain)
 }
 
 /************************************************************************/
-/*                         GetMetadataItem()                            */
+/*                          GetMetadataItem()                           */
 /************************************************************************/
 
 const char *MBTilesDataset::GetMetadataItem(const char *pszName,
@@ -1412,7 +1416,7 @@ const OGRLayer *MBTilesDataset::GetLayer(int iLayer) const
 }
 
 /************************************************************************/
-/*                        MBTilesVectorLayer()                          */
+/*                         MBTilesVectorLayer()                         */
 /************************************************************************/
 
 MBTilesVectorLayer::MBTilesVectorLayer(
@@ -1479,7 +1483,7 @@ MBTilesVectorLayer::MBTilesVectorLayer(
 }
 
 /************************************************************************/
-/*                       ~MBTilesVectorLayer()                          */
+/*                        ~MBTilesVectorLayer()                         */
 /************************************************************************/
 
 MBTilesVectorLayer::~MBTilesVectorLayer()
@@ -1510,7 +1514,7 @@ int MBTilesVectorLayer::TestCapability(const char *pszCap) const
 }
 
 /************************************************************************/
-/*                            IGetExtent()                              */
+/*                             IGetExtent()                             */
 /************************************************************************/
 
 OGRErr MBTilesVectorLayer::IGetExtent(int /* iGeomField */,
@@ -1521,7 +1525,7 @@ OGRErr MBTilesVectorLayer::IGetExtent(int /* iGeomField */,
 }
 
 /************************************************************************/
-/*                          ResetReading()                              */
+/*                            ResetReading()                            */
 /************************************************************************/
 
 void MBTilesVectorLayer::ResetReading()
@@ -1544,7 +1548,7 @@ void MBTilesVectorLayer::ResetReading()
 }
 
 /************************************************************************/
-/*                        ISetSpatialFilter()                           */
+/*                         ISetSpatialFilter()                          */
 /************************************************************************/
 
 OGRErr MBTilesVectorLayer::ISetSpatialFilter(int iGeomField,
@@ -1617,7 +1621,7 @@ OGRErr MBTilesVectorLayer::ISetSpatialFilter(int iGeomField,
 }
 
 /************************************************************************/
-/*                          GetNextFeature()                            */
+/*                           GetNextFeature()                           */
 /************************************************************************/
 
 OGRFeature *MBTilesVectorLayer::GetNextFeature()
@@ -1640,7 +1644,7 @@ OGRFeature *MBTilesVectorLayer::GetNextFeature()
 }
 
 /************************************************************************/
-/*                         GetFeatureCount()                            */
+/*                          GetFeatureCount()                           */
 /************************************************************************/
 
 GIntBig MBTilesVectorLayer::GetFeatureCount(int bForce)
@@ -1710,7 +1714,7 @@ GIntBig MBTilesVectorLayer::GetFeatureCount(int bForce)
 }
 
 /************************************************************************/
-/*                        GetNextSrcFeature()                           */
+/*                         GetNextSrcFeature()                          */
 /************************************************************************/
 
 OGRFeature *MBTilesVectorLayer::GetNextSrcFeature()
@@ -1816,7 +1820,7 @@ MBTilesVectorLayer::CreateFeatureFrom(OGRFeature *poSrcFeature) const
 }
 
 /************************************************************************/
-/*                        GetNextRawFeature()                           */
+/*                         GetNextRawFeature()                          */
 /************************************************************************/
 
 OGRFeature *MBTilesVectorLayer::GetNextRawFeature()
@@ -1835,7 +1839,7 @@ OGRFeature *MBTilesVectorLayer::GetNextRawFeature()
 }
 
 /************************************************************************/
-/*                           GetFeature()                               */
+/*                             GetFeature()                             */
 /************************************************************************/
 
 OGRFeature *MBTilesVectorLayer::GetFeature(GIntBig nFID)
@@ -1917,7 +1921,7 @@ OGRFeature *MBTilesVectorLayer::GetFeature(GIntBig nFID)
 }
 
 /************************************************************************/
-/*                           InitVector()                               */
+/*                             InitVector()                             */
 /************************************************************************/
 
 void MBTilesDataset::InitVector(double dfMinX, double dfMinY, double dfMaxX,
@@ -1973,17 +1977,16 @@ void MBTilesDataset::InitVector(double dfMinX, double dfMinY, double dfMaxX,
             CPLJSONArray oAttributesFromTileStats =
                 OGRMVTFindAttributesFromTileStat(oTileStatLayers,
                                                  oId.ToString().c_str());
-            m_apoLayers.push_back(
-                std::unique_ptr<OGRLayer>(new MBTilesVectorLayer(
-                    this, oId.ToString().c_str(), oFields,
-                    oAttributesFromTileStats, bJsonField, dfMinX, dfMinY,
-                    dfMaxX, dfMaxY, eGeomType, bZoomLevelFromSpatialFilter)));
+            m_apoLayers.push_back(std::make_unique<MBTilesVectorLayer>(
+                this, oId.ToString().c_str(), oFields, oAttributesFromTileStats,
+                bJsonField, dfMinX, dfMinY, dfMaxX, dfMaxY, eGeomType,
+                bZoomLevelFromSpatialFilter));
         }
     }
 }
 
 /************************************************************************/
-/*                             Identify()                               */
+/*                              Identify()                              */
 /************************************************************************/
 
 int MBTilesDataset::Identify(GDALOpenInfo *poOpenInfo)
@@ -2010,7 +2013,7 @@ int MBTilesDataset::Identify(GDALOpenInfo *poOpenInfo)
 }
 
 /************************************************************************/
-/*                        MBTilesGetMinMaxZoomLevel()                   */
+/*                     MBTilesGetMinMaxZoomLevel()                      */
 /************************************************************************/
 
 static int MBTilesGetMinMaxZoomLevel(GDALDatasetH hDS, int bHasMap,
@@ -2135,7 +2138,7 @@ static int MBTilesGetMinMaxZoomLevel(GDALDatasetH hDS, int bHasMap,
 }
 
 /************************************************************************/
-/*                   MBTilesTileCoordToWorldCoord()                     */
+/*                    MBTilesTileCoordToWorldCoord()                    */
 /************************************************************************/
 
 static double MBTilesTileCoordToWorldCoord(double dfTileCoord, int nZoomLevel)
@@ -2144,7 +2147,7 @@ static double MBTilesTileCoordToWorldCoord(double dfTileCoord, int nZoomLevel)
 }
 
 /************************************************************************/
-/*                   MBTilesWorldCoordToTileCoord()                     */
+/*                    MBTilesWorldCoordToTileCoord()                    */
 /************************************************************************/
 
 static double MBTilesWorldCoordToTileCoord(double dfWorldCoord, int nZoomLevel)
@@ -2153,7 +2156,7 @@ static double MBTilesWorldCoordToTileCoord(double dfWorldCoord, int nZoomLevel)
 }
 
 /************************************************************************/
-/*                           MBTilesGetBounds()                         */
+/*                          MBTilesGetBounds()                          */
 /************************************************************************/
 
 static bool MBTilesGetBounds(GDALDatasetH hDS, bool bUseBounds, int nMaxLevel,
@@ -2262,7 +2265,7 @@ static bool MBTilesGetBounds(GDALDatasetH hDS, bool bUseBounds, int nMaxLevel,
 }
 
 /************************************************************************/
-/*                        MBTilesCurlReadCbk()                          */
+/*                         MBTilesCurlReadCbk()                         */
 /************************************************************************/
 
 typedef struct
@@ -2404,7 +2407,7 @@ static int MBTilesCurlReadCbk(CPL_UNUSED VSILFILE *fp, void *pabyBuffer,
 }
 
 /************************************************************************/
-/*                  MBTilesGetBandCountAndTileSize()                    */
+/*                   MBTilesGetBandCountAndTileSize()                   */
 /************************************************************************/
 
 static int MBTilesGetBandCountAndTileSize(bool bIsVSICURL, GDALDatasetH &hDS,
@@ -2543,7 +2546,7 @@ static int MBTilesGetBandCountAndTileSize(bool bIsVSICURL, GDALDatasetH &hDS,
 
     if ((nBands != 1 && nBands != 2 && nBands != 3 && nBands != 4) ||
         GDALGetRasterXSize(hDSTile) != GDALGetRasterYSize(hDSTile) ||
-        GDALGetRasterDataType(GDALGetRasterBand(hDSTile, 1)) != GDT_Byte)
+        GDALGetRasterDataType(GDALGetRasterBand(hDSTile, 1)) != GDT_UInt8)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "Unsupported tile characteristics");
@@ -2928,12 +2931,12 @@ end:
 }
 
 /************************************************************************/
-/*                                Create()                              */
+/*                               Create()                               */
 /************************************************************************/
 
 GDALDataset *MBTilesDataset::Create(const char *pszFilename, int nXSize,
                                     int nYSize, int nBandsIn, GDALDataType eDT,
-                                    char **papszOptions)
+                                    CSLConstList papszOptions)
 {
 #ifdef HAVE_MVT_WRITE_SUPPORT
     if (nXSize == 0 && nYSize == 0 && nBandsIn == 0 && eDT == GDT_Unknown)
@@ -2958,14 +2961,14 @@ GDALDataset *MBTilesDataset::Create(const char *pszFilename, int nXSize,
 }
 
 /************************************************************************/
-/*                            CreateInternal()                          */
+/*                           CreateInternal()                           */
 /************************************************************************/
 
 bool MBTilesDataset::CreateInternal(const char *pszFilename, int nXSize,
                                     int nYSize, int nBandsIn, GDALDataType eDT,
-                                    char **papszOptions)
+                                    CSLConstList papszOptions)
 {
-    if (eDT != GDT_Byte)
+    if (eDT != GDT_UInt8)
     {
         CPLError(CE_Failure, CPLE_NotSupported, "Only Byte supported");
         return false;
@@ -3063,6 +3066,17 @@ bool MBTilesDataset::CreateInternal(const char *pszFilename, int nXSize,
     sqlite3_exec(hDB, pszSQL, nullptr, nullptr, nullptr);
     sqlite3_free(pszSQL);
 
+    const std::string osElevationType =
+        CSLFetchNameValueDef(papszOptions, "ELEVATION_TYPE", "");
+    if (!osElevationType.empty())
+    {
+        pszSQL = sqlite3_mprintf("INSERT INTO metadata (name, value) VALUES "
+                                 "('elevation_type', '%q')",
+                                 osElevationType.c_str());
+        sqlite3_exec(hDB, pszSQL, nullptr, nullptr, nullptr);
+        sqlite3_free(pszSQL);
+    }
+
     const char *pszTF = CSLFetchNameValue(papszOptions, "TILE_FORMAT");
     if (pszTF)
         m_eTF = GDALGPKGMBTilesGetTileFormat(pszTF);
@@ -3104,7 +3118,7 @@ bool MBTilesDataset::CreateInternal(const char *pszFilename, int nXSize,
 }
 
 /************************************************************************/
-/*                            CreateCopy()                              */
+/*                             CreateCopy()                             */
 /************************************************************************/
 
 typedef struct
@@ -3126,7 +3140,7 @@ static const WarpResamplingAlg asResamplingAlg[] = {
 
 GDALDataset *MBTilesDataset::CreateCopy(const char *pszFilename,
                                         GDALDataset *poSrcDS, int /*bStrict*/,
-                                        char **papszOptions,
+                                        CSLConstList papszOptions,
                                         GDALProgressFunc pfnProgress,
                                         void *pProgressData)
 {
@@ -3230,7 +3244,7 @@ GDALDataset *MBTilesDataset::CreateCopy(const char *pszFilename,
         if (bModifiedMaxLat)
         {
             const double maxNorthing = MAX_GM;
-            gt[3] = maxNorthing;
+            gt.yorig = maxNorthing;
             adfExtent[3] = maxNorthing;
         }
         if (bModifiedMinLat)
@@ -3249,7 +3263,7 @@ GDALDataset *MBTilesDataset::CreateCopy(const char *pszFilename,
     }
 
     int nZoomLevel;
-    double dfComputedRes = gt[1];
+    double dfComputedRes = gt.xscale;
     double dfPrevRes = 0.0;
     double dfRes = 0.0;
     int nBlockSize = std::max(
@@ -3301,8 +3315,8 @@ GDALDataset *MBTilesDataset::CreateCopy(const char *pszFilename,
 
     nXSize = (int)(0.5 + (dfMaxX - dfMinX) / dfRes);
     nYSize = (int)(0.5 + (dfMaxY - dfMinY) / dfRes);
-    gt[1] = dfRes;
-    gt[5] = -dfRes;
+    gt.xscale = dfRes;
+    gt.yscale = -dfRes;
 
     int nTargetBands = nBands;
     /* For grey level or RGB, if there's reprojection involved, add an alpha */
@@ -3314,8 +3328,8 @@ GDALDataset *MBTilesDataset::CreateCopy(const char *pszFilename,
         OGRSpatialReference oSrcSRS;
         oSrcSRS.SetFromUserInput(poSrcDS->GetProjectionRef());
         oSrcSRS.AutoIdentifyEPSG();
-        if (oSrcSRS.GetAuthorityCode(nullptr) == nullptr ||
-            atoi(oSrcSRS.GetAuthorityCode(nullptr)) != 3857)
+        if (oSrcSRS.GetAuthorityCode() == nullptr ||
+            atoi(oSrcSRS.GetAuthorityCode()) != 3857)
         {
             nTargetBands++;
         }
@@ -3349,7 +3363,7 @@ GDALDataset *MBTilesDataset::CreateCopy(const char *pszFilename,
     }
 
     GDALDataset *poDS = Create(pszFilename, nXSize, nYSize, nTargetBands,
-                               GDT_Byte, papszOptions);
+                               GDT_UInt8, papszOptions);
     if (poDS == nullptr)
     {
         CSLDestroy(papszTO);
@@ -3386,7 +3400,7 @@ GDALDataset *MBTilesDataset::CreateCopy(const char *pszFilename,
     GDALWarpOptions *psWO = GDALCreateWarpOptions();
 
     psWO->papszWarpOptions = CSLSetNameValue(nullptr, "OPTIMIZE_SIZE", "YES");
-    psWO->eWorkingDataType = GDT_Byte;
+    psWO->eWorkingDataType = GDT_UInt8;
 
     psWO->eResampleAlg = eResampleAlg;
 
@@ -3452,10 +3466,10 @@ GDALDataset *MBTilesDataset::CreateCopy(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                        ParseCompressionOptions()                     */
+/*                      ParseCompressionOptions()                       */
 /************************************************************************/
 
-void MBTilesDataset::ParseCompressionOptions(char **papszOptions)
+void MBTilesDataset::ParseCompressionOptions(CSLConstList papszOptions)
 {
     const char *pszZLevel = CSLFetchNameValue(papszOptions, "ZLEVEL");
     if (pszZLevel)
@@ -3666,7 +3680,7 @@ CPLErr MBTilesDataset::IBuildOverviews(
 }
 
 /************************************************************************/
-/*                       GDALRegister_MBTiles()                         */
+/*                        GDALRegister_MBTiles()                        */
 /************************************************************************/
 
 void GDALRegister_MBTiles()
@@ -3753,6 +3767,11 @@ void GDALRegister_MBTiles()
         "description='Layer type' default='overlay'>"
         "    <Value>overlay</Value>"
         "    <Value>baselayer</Value>"
+        "  </Option>"
+        "  <Option name='ELEVATION_TYPE' scope='raster' type='string-select' "
+        "description='Type of elevation encoding' default=''>"
+        "    <Value></Value>"
+        "    <Value>terrain-rgb</Value>"
         "  </Option>"
         "  <Option name='VERSION' scope='raster' type='string' "
         "description='The version of the tileset, as a plain number' "

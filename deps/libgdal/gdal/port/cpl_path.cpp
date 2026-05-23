@@ -85,7 +85,7 @@ static char *CPLGetStaticResult()
 }
 
 /************************************************************************/
-/*                        CPLPathReturnTLSString()                      */
+/*                       CPLPathReturnTLSString()                       */
 /************************************************************************/
 
 static const char *CPLPathReturnTLSString(const std::string &osRes,
@@ -124,7 +124,7 @@ static int CPLFindFilenameStart(const char *pszFilename, size_t nStart = 0)
 }
 
 /************************************************************************/
-/*                          CPLGetPathSafe()                            */
+/*                           CPLGetPathSafe()                           */
 /************************************************************************/
 
 /**
@@ -246,7 +246,7 @@ const char *CPLGetPath(const char *pszFilename)
 }
 
 /************************************************************************/
-/*                             CPLGetDirname()                          */
+/*                           CPLGetDirname()                            */
 /************************************************************************/
 
 /**
@@ -334,7 +334,7 @@ std::string CPLGetDirnameSafe(const char *pszFilename)
 }
 
 /************************************************************************/
-/*                             CPLGetDirname()                          */
+/*                           CPLGetDirname()                            */
 /************************************************************************/
 
 /**
@@ -397,7 +397,7 @@ const char *CPLGetFilename(const char *pszFullFilename)
 }
 
 /************************************************************************/
-/*                       CPLGetBasenameSafe()                           */
+/*                         CPLGetBasenameSafe()                         */
 /************************************************************************/
 
 /**
@@ -522,7 +522,7 @@ std::string CPLGetExtensionSafe(const char *pszFullFilename)
 }
 
 /************************************************************************/
-/*                           CPLGetExtension()                          */
+/*                          CPLGetExtension()                           */
 /************************************************************************/
 
 /**
@@ -554,7 +554,7 @@ const char *CPLGetExtension(const char *pszFullFilename)
 }
 
 /************************************************************************/
-/*                         CPLGetCurrentDir()                           */
+/*                          CPLGetCurrentDir()                          */
 /************************************************************************/
 
 /**
@@ -760,10 +760,7 @@ std::string CPLFormFilenameSafe(const char *pszPath, const char *pszBasename,
                     pszBasename = pszBasenameOri;
                     nLenPath = nLenPathOri;
                     if (pszAddedPathSep[0] == 0)
-                        pszAddedPathSep =
-                            pszPath[0] == '/'
-                                ? "/"
-                                : VSIGetDirectorySeparator(pszPath);
+                        pszAddedPathSep = "/";
                 }
                 break;
             }
@@ -966,7 +963,7 @@ std::string CPLFormCIFilenameSafe(const char *pszPath, const char *pszBasename,
 }
 
 /************************************************************************/
-/*                          CPLFormCIFilename()                         */
+/*                         CPLFormCIFilename()                          */
 /************************************************************************/
 
 /**
@@ -1221,7 +1218,7 @@ const char *CPLExtractRelativePath(const char *pszBaseDir,
 }
 
 /************************************************************************/
-/*                      CPLCleanTrailingSlashSafe()                     */
+/*                     CPLCleanTrailingSlashSafe()                      */
 /************************************************************************/
 
 /**
@@ -1256,7 +1253,7 @@ std::string CPLCleanTrailingSlashSafe(const char *pszPath)
 }
 
 /************************************************************************/
-/*                            CPLCleanTrailingSlash()                   */
+/*                       CPLCleanTrailingSlash()                        */
 /************************************************************************/
 
 /**
@@ -1387,8 +1384,9 @@ char **CPLCorrespondingPaths(const char *pszOldFilename,
                 !EQUAL(osFilePath.c_str(), osOldPath.c_str()) ||
                 osFileName[osOldBasename.size()] != '.')
             {
-                CPLError(CE_Failure, CPLE_AppDefined,
-                         "Unable to rename fileset due irregular basenames.");
+                CPLError(
+                    CE_Failure, CPLE_AppDefined,
+                    "Unable to copy/rename fileset due irregular basenames.");
                 return nullptr;
             }
         }
@@ -1408,7 +1406,7 @@ char **CPLCorrespondingPaths(const char *pszOldFilename,
         if (osOldExtra != osNewExtra)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
-                     "Unable to rename fileset due to irregular filename "
+                     "Unable to copy/rename fileset due to irregular filename "
                      "correspondence.");
             return nullptr;
         }
@@ -1439,7 +1437,7 @@ char **CPLCorrespondingPaths(const char *pszOldFilename,
 }
 
 /************************************************************************/
-/*                   CPLGenerateTempFilenameSafe()                      */
+/*                    CPLGenerateTempFilenameSafe()                     */
 /************************************************************************/
 
 /**
@@ -1507,7 +1505,7 @@ const char *CPLGenerateTempFilename(const char *pszStem)
 }
 
 /************************************************************************/
-/*                        CPLExpandTildeSafe()                          */
+/*                         CPLExpandTildeSafe()                         */
 /************************************************************************/
 
 /**
@@ -1536,7 +1534,7 @@ std::string CPLExpandTildeSafe(const char *pszFilename)
 }
 
 /************************************************************************/
-/*                         CPLExpandTilde()                             */
+/*                           CPLExpandTilde()                           */
 /************************************************************************/
 
 /**
@@ -1560,7 +1558,7 @@ const char *CPLExpandTilde(const char *pszFilename)
 }
 
 /************************************************************************/
-/*                         CPLGetHomeDir()                              */
+/*                           CPLGetHomeDir()                            */
 /************************************************************************/
 
 /**
@@ -1584,7 +1582,7 @@ const char *CPLGetHomeDir()
 }
 
 /************************************************************************/
-/*                      CPLLaunderForFilenameSafe()                     */
+/*                     CPLLaunderForFilenameSafe()                      */
 /************************************************************************/
 
 /**
@@ -1601,21 +1599,91 @@ const char *CPLGetHomeDir()
 std::string CPLLaunderForFilenameSafe(const char *pszName,
                                       CPL_UNUSED const char *pszOutputPath)
 {
-    std::string osRet(pszName);
-    for (char &ch : osRet)
-    {
-        // https://docs.microsoft.com/en-us/windows/desktop/fileio/naming-a-file
-        if (ch == '<' || ch == '>' || ch == ':' || ch == '"' || ch == '/' ||
-            ch == '\\' || ch == '?' || ch == '*')
-        {
-            ch = '_';
-        }
-    }
-    return osRet;
+    return CPLLaunderForFilenameSafe(pszName, '_', nullptr);
 }
 
 /************************************************************************/
-/*                        CPLLaunderForFilename()                       */
+/*                     CPLLaunderForFilenameSafe()                      */
+/************************************************************************/
+
+/** Return a string that is compatible with a filename on Linux, Windows and
+ * MacOS.
+ *
+ * Reserved characters '<', '>', ':', '"', '/', '\\', '|', '?', '*', '^', and
+ * ASCII control characters are replaced by the replacement character, or
+ * removed if it is NUL.
+ *
+ * Reserved names (".", "..", "CON", "PRN", etc.) are suffixed with the
+ * replacement character (or underscore).
+ *
+ * If the string ends with a final space or dot, the replacement character
+ * (or underscore) will be appended.
+ *
+ * @param osInput Input string.
+ * @param chReplacementChar Character to substitute to characters that are not
+ *                          compatible of a file name, or NUL character to
+ *                          remove them.
+ * @param pszExtraReservedCharacters String with extra reserved characters that
+ *                                   are replaced by the replacement character,
+ *                                   or removed if it is NUL. Or nullptr.
+ * @since GDAL 3.13
+ */
+std::string CPLLaunderForFilenameSafe(const std::string &osInput,
+                                      char chReplacementChar,
+                                      const char *pszExtraReservedCharacters)
+{
+    // Cf https://stackoverflow.com/questions/1976007/what-characters-are-forbidden-in-windows-and-linux-directory-names
+    std::string ret;
+    ret.reserve(osInput.size());
+    for (char c : osInput)
+    {
+        if (static_cast<unsigned>(c) < 32 || c == 127 || c == '<' || c == '>' ||
+            c == ':' || c == '"' || c == '/' || c == '\\' || c == '|' ||
+            c == '?' ||
+            c == '*'
+            // '^' invalid on FAT
+            || c == '^')
+        {
+            if (chReplacementChar)
+                ret += chReplacementChar;
+        }
+        else if (pszExtraReservedCharacters &&
+                 strchr(pszExtraReservedCharacters, c))
+        {
+            if (chReplacementChar)
+                ret += chReplacementChar;
+        }
+        else
+        {
+            ret += c;
+        }
+    }
+
+    // Windows reserved filenames (case-insensitive)
+    const char *const apszReservedNames[] = {
+        "CON",  "PRN",  "AUX",  "NUL",  "COM1", "COM2", "COM3",   "COM4",
+        "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2",   "LPT3",
+        "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "CONIN$", "CONOUT$",
+    };
+    for (const char *pszReservedName : apszReservedNames)
+    {
+        if (EQUAL(ret.c_str(), pszReservedName))
+        {
+            ret += chReplacementChar ? chReplacementChar : '_';
+            break;
+        }
+    }
+
+    // Windows rule: no filename ending with space or dot
+    // This also prevents "." and ".." which are invalid on POSIX
+    if (!ret.empty() && (ret.back() == ' ' || ret.back() == '.'))
+        ret += chReplacementChar ? chReplacementChar : '_';
+
+    return ret;
+}
+
+/************************************************************************/
+/*                       CPLLaunderForFilename()                        */
 /************************************************************************/
 
 /**
@@ -1639,7 +1707,7 @@ const char *CPLLaunderForFilename(const char *pszName,
 }
 
 /************************************************************************/
-/*                        CPLHasPathTraversal()                        */
+/*                        CPLHasPathTraversal()                         */
 /************************************************************************/
 
 /**
@@ -1684,7 +1752,7 @@ bool CPLHasPathTraversal(const char *pszFilename)
 }
 
 /************************************************************************/
-/*                    CPLHasUnbalancedPathTraversal()                   */
+/*                   CPLHasUnbalancedPathTraversal()                    */
 /************************************************************************/
 
 /**

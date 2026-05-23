@@ -23,7 +23,7 @@ namespace cpl
 {
 
 /************************************************************************/
-/*                        VSIChunkedWriteHandle()                       */
+/*                       VSIChunkedWriteHandle()                        */
 /************************************************************************/
 
 VSIChunkedWriteHandle::VSIChunkedWriteHandle(
@@ -37,7 +37,7 @@ VSIChunkedWriteHandle::VSIChunkedWriteHandle(
 }
 
 /************************************************************************/
-/*                      ~VSIChunkedWriteHandle()                        */
+/*                       ~VSIChunkedWriteHandle()                       */
 /************************************************************************/
 
 VSIChunkedWriteHandle::~VSIChunkedWriteHandle()
@@ -58,7 +58,7 @@ VSIChunkedWriteHandle::~VSIChunkedWriteHandle()
 }
 
 /************************************************************************/
-/*                                 Close()                              */
+/*                               Close()                                */
 /************************************************************************/
 
 int VSIChunkedWriteHandle::Close()
@@ -81,7 +81,7 @@ int VSIChunkedWriteHandle::Close()
 }
 
 /************************************************************************/
-/*                    InvalidateParentDirectory()                       */
+/*                     InvalidateParentDirectory()                      */
 /************************************************************************/
 
 void VSIChunkedWriteHandle::InvalidateParentDirectory()
@@ -96,7 +96,7 @@ void VSIChunkedWriteHandle::InvalidateParentDirectory()
 }
 
 /************************************************************************/
-/*                               Seek()                                 */
+/*                                Seek()                                */
 /************************************************************************/
 
 int VSIChunkedWriteHandle::Seek(vsi_l_offset nOffset, int nWhence)
@@ -115,7 +115,7 @@ int VSIChunkedWriteHandle::Seek(vsi_l_offset nOffset, int nWhence)
 }
 
 /************************************************************************/
-/*                               Tell()                                 */
+/*                                Tell()                                */
 /************************************************************************/
 
 vsi_l_offset VSIChunkedWriteHandle::Tell()
@@ -124,11 +124,10 @@ vsi_l_offset VSIChunkedWriteHandle::Tell()
 }
 
 /************************************************************************/
-/*                               Read()                                 */
+/*                                Read()                                */
 /************************************************************************/
 
-size_t VSIChunkedWriteHandle::Read(void * /* pBuffer */, size_t /* nSize */,
-                                   size_t /* nMemb */)
+size_t VSIChunkedWriteHandle::Read(void * /* pBuffer */, size_t /* nBytes */)
 {
     CPLError(CE_Failure, CPLE_NotSupported,
              "Read not supported on writable %s files",
@@ -138,7 +137,7 @@ size_t VSIChunkedWriteHandle::Read(void * /* pBuffer */, size_t /* nSize */,
 }
 
 /************************************************************************/
-/*                      ReadCallBackBufferChunked()                     */
+/*                     ReadCallBackBufferChunked()                      */
 /************************************************************************/
 
 size_t VSIChunkedWriteHandle::ReadCallBackBufferChunked(char *buffer,
@@ -172,15 +171,15 @@ size_t VSIChunkedWriteHandle::ReadCallBackBufferChunked(char *buffer,
 /*                               Write()                                */
 /************************************************************************/
 
-size_t VSIChunkedWriteHandle::Write(const void *pBuffer, size_t nSize,
-                                    size_t nMemb)
+size_t VSIChunkedWriteHandle::Write(const void *pBuffer, size_t nBytes)
 {
     if (m_bError)
         return 0;
 
-    const size_t nBytesToWrite = nSize * nMemb;
+    const size_t nBytesToWrite = nBytes;
     if (nBytesToWrite == 0)
         return 0;
+    size_t nRet = nBytes;
 
     if (m_hCurlMulti == nullptr)
     {
@@ -366,7 +365,7 @@ size_t VSIChunkedWriteHandle::Write(const void *pBuffer, size_t nSize,
                              static_cast<int>(response_code),
                              m_osCurlErrBuf.c_str());
                     bRetry = false;
-                    nMemb = 0;
+                    nRet = 0;
                 }
 
                 curl_multi_remove_handle(m_hCurlMulti, m_hCurl);
@@ -384,11 +383,11 @@ size_t VSIChunkedWriteHandle::Write(const void *pBuffer, size_t nSize,
 
     m_nCurOffset += nBytesToWrite;
 
-    return nMemb;
+    return nRet;
 }
 
 /************************************************************************/
-/*                        FinishChunkedTransfer()                       */
+/*                       FinishChunkedTransfer()                        */
 /************************************************************************/
 
 int VSIChunkedWriteHandle::FinishChunkedTransfer()
@@ -425,7 +424,7 @@ int VSIChunkedWriteHandle::FinishChunkedTransfer()
 }
 
 /************************************************************************/
-/*                            DoEmptyPUT()                              */
+/*                             DoEmptyPUT()                             */
 /************************************************************************/
 
 bool VSIChunkedWriteHandle::DoEmptyPUT()

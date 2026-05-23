@@ -74,14 +74,14 @@ class GDALECWCompressor final : public CNCSFile
 
     bool WriteCancel() override;
 
-    CPLErr Initialize(const char *pszFilename, char **papszOptions, int nXSize,
-                      int nYSize, int nBands,
+    CPLErr Initialize(const char *pszFilename, CSLConstList papszOptions,
+                      int nXSize, int nYSize, int nBands,
                       const char *const *papszBandDescriptions,
                       int bRGBColorSpace, GDALDataType eType,
                       const OGRSpatialReference *poSRS,
                       const GDALGeoTransform &gt, int nGCPCount,
                       const GDAL_GCP *pasGCPList, int bIsJPEG2000,
-                      int bPixelIsPoint, char **papszRPCMD,
+                      int bPixelIsPoint, CSLConstList papszRPCMD,
                       GDALDataset *poSrcDS = nullptr);
     CPLErr CloseDown();
 
@@ -338,7 +338,7 @@ CPLErr GDALECWCompressor::WriteJP2Box(GDALJP2Box *poBox)
 }
 
 /************************************************************************/
-/*                         WriteXMLBoxes()                              */
+/*                           WriteXMLBoxes()                            */
 /************************************************************************/
 
 void GDALECWCompressor::WriteXMLBoxes()
@@ -379,11 +379,12 @@ CPLErr GDALECWCompressor::ourWriteLineBIL(UINT16 nBands, void **ppOutputLine,
 /************************************************************************/
 
 CPLErr GDALECWCompressor::Initialize(
-    const char *pszFilename, char **papszOptions, int nXSize, int nYSize,
+    const char *pszFilename, CSLConstList papszOptions, int nXSize, int nYSize,
     int nBands, const char *const *papszBandDescriptions, int bRGBColorSpace,
     GDALDataType eType, const OGRSpatialReference *poSRS,
     const GDALGeoTransform &gt, int nGCPCount, const GDAL_GCP *pasGCPList,
-    int bIsJPEG2000, int bPixelIsPoint, char **papszRPCMD, GDALDataset *poSrcDS)
+    int bIsJPEG2000, int bPixelIsPoint, CSLConstList papszRPCMD,
+    GDALDataset *poSrcDS)
 
 {
 /* -------------------------------------------------------------------- */
@@ -510,7 +511,7 @@ CPLErr GDALECWCompressor::Initialize(
 
     switch (eWorkDT)
     {
-        case GDT_Byte:
+        case GDT_UInt8:
 #if ECWSDK_VERSION >= 50
             psClient->nCellBitDepth = 8;
 #endif
@@ -718,16 +719,16 @@ CPLErr GDALECWCompressor::Initialize(
     psClient->fCellIncrementY = -1.0;
     psClient->fCWRotationDegrees = 0.0;
 
-    if (gt[2] != 0.0 || gt[4] != 0.0)
+    if (gt.xrot != 0.0 || gt.yrot != 0.0)
         CPLError(CE_Warning, CPLE_NotSupported,
                  "Rotational coefficients ignored, georeferencing of\n"
-                 "output ECW file will be incorrect.\n");
+                 "output ECW file will be incorrect.");
     else
     {
-        psClient->fOriginX = gt[0];
-        psClient->fOriginY = gt[3];
-        psClient->fCellIncrementX = gt[1];
-        psClient->fCellIncrementY = gt[5];
+        psClient->fOriginX = gt.xorig;
+        psClient->fOriginY = gt.yorig;
+        psClient->fCellIncrementX = gt.xscale;
+        psClient->fCellIncrementY = gt.yscale;
     }
 
     /* -------------------------------------------------------------------- */
@@ -1083,7 +1084,7 @@ static int ECWIsInputRGBColorSpace(GDALDataset *poSrcDS)
 /************************************************************************/
 
 static GDALDataset *ECWCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
-                                  int bStrict, char **papszOptions,
+                                  int bStrict, CSLConstList papszOptions,
                                   GDALProgressFunc pfnProgress,
                                   void *pProgressData, int bIsJPEG2000)
 
@@ -1101,7 +1102,7 @@ static GDALDataset *ECWCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
     {
         CPLError(
             CE_Failure, CPLE_NotSupported,
-            "ECW driver does not support source dataset with zero band.\n");
+            "ECW driver does not support source datasets with zero bands.");
         return nullptr;
     }
 
@@ -1114,10 +1115,10 @@ static GDALDataset *ECWCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
     if (poSrcDS->GetGCPCount() > 0)
         poSRS = poSrcDS->GetGCPSpatialRef();
 
-        /* --------------------------------------------------------------------
+    /* --------------------------------------------------------------------
          */
-        /*      For ECW, confirm the datatype is 8bit (or uint16 for ECW v3) */
-        /* --------------------------------------------------------------------
+    /*      For ECW, confirm the datatype is 8bit (or uint16 for ECW v3) */
+    /* --------------------------------------------------------------------
          */
 #if ECWSDK_VERSION >= 50
     bool bECWV3 = false;
@@ -1131,7 +1132,7 @@ static GDALDataset *ECWCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
         }
     }
 #endif
-    if (!(eType == GDT_Byte ||
+    if (!(eType == GDT_UInt8 ||
 #if ECWSDK_VERSION >= 50
           (bECWV3 && eType == GDT_UInt16) ||
 #endif
@@ -1162,7 +1163,7 @@ static GDALDataset *ECWCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
                          "ECW version 2 does not support UInt16 data type, "
                          "truncating to Byte."
                          " Consider specifying ECW_FORMAT_VERSION=3 for full "
-                         "UInt16 support available in ECW version 3. \n");
+                         "UInt16 support available in ECW version 3. ");
             }
             else
 #endif
@@ -1171,7 +1172,7 @@ static GDALDataset *ECWCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
                          "for %s. \n",
                          GDALGetDataTypeName(eType));
 
-            eType = GDT_Byte;
+            eType = GDT_UInt8;
         }
     }
 
@@ -1289,7 +1290,7 @@ static GDALDataset *ECWCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
 /************************************************************************/
 
 GDALDataset *ECWCreateCopyECW(const char *pszFilename, GDALDataset *poSrcDS,
-                              int bStrict, char **papszOptions,
+                              int bStrict, CSLConstList papszOptions,
                               GDALProgressFunc pfnProgress, void *pProgressData)
 
 {
@@ -1298,7 +1299,7 @@ GDALDataset *ECWCreateCopyECW(const char *pszFilename, GDALDataset *poSrcDS,
     {
         CPLError(
             CE_Failure, CPLE_NotSupported,
-            "ECW driver does not support source dataset with zero band.\n");
+            "ECW driver does not support source datasets with zero bands.");
         return nullptr;
     }
 
@@ -1322,7 +1323,7 @@ GDALDataset *ECWCreateCopyECW(const char *pszFilename, GDALDataset *poSrcDS,
 #endif
 
     GDALDataType eDataType = poSrcDS->GetRasterBand(1)->GetRasterDataType();
-    if (eDataType != GDT_Byte
+    if (eDataType != GDT_UInt8
 #if ECWSDK_VERSION >= 50
         && !(bECWV3 && (eDataType == GDT_UInt16))
 #endif
@@ -1334,7 +1335,7 @@ GDALDataset *ECWCreateCopyECW(const char *pszFilename, GDALDataset *poSrcDS,
             CPLError(CE_Failure, CPLE_NotSupported,
                      "ECW v2 does not support UInt16 data type. Consider "
                      " specifying ECW_FORMAT_VERSION=3 for full UInt16 support "
-                     "available in ECW v3. \n");
+                     "available in ECW v3. ");
         }
         else
 #endif
@@ -1368,7 +1369,7 @@ GDALDataset *ECWCreateCopyECW(const char *pszFilename, GDALDataset *poSrcDS,
                  "ECW driver ignores color table. "
                  "The source raster band will be considered as grey level.\n"
                  "Consider using color table expansion (-expand option in "
-                 "gdal_translate)\n");
+                 "gdal_translate)");
         if (bStrict)
             return nullptr;
     }
@@ -1383,7 +1384,7 @@ GDALDataset *ECWCreateCopyECW(const char *pszFilename, GDALDataset *poSrcDS,
 
 GDALDataset *ECWCreateCopyJPEG2000(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
-                                   char **papszOptions,
+                                   CSLConstList papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData)
 
@@ -1393,7 +1394,7 @@ GDALDataset *ECWCreateCopyJPEG2000(const char *pszFilename,
     {
         CPLError(
             CE_Failure, CPLE_NotSupported,
-            "JP2ECW driver does not support source dataset with zero band.\n");
+            "JP2ECW driver does not support source datasets with zero bands.");
         return nullptr;
     }
 
@@ -1406,7 +1407,7 @@ GDALDataset *ECWCreateCopyJPEG2000(const char *pszFilename,
     }
 
     GDALDataType eDataType = poSrcDS->GetRasterBand(1)->GetRasterDataType();
-    if (eDataType != GDT_Byte && eDataType != GDT_Int16 &&
+    if (eDataType != GDT_UInt8 && eDataType != GDT_Int16 &&
         eDataType != GDT_UInt16 && eDataType != GDT_Int32 &&
         eDataType != GDT_UInt32 && eDataType != GDT_Float32
 #if ECWSDK_VERSION >= 40
@@ -1427,7 +1428,7 @@ GDALDataset *ECWCreateCopyJPEG2000(const char *pszFilename,
                  "JP2ECW driver ignores color table. "
                  "The source raster band will be considered as grey level.\n"
                  "Consider using color table expansion (-expand option in "
-                 "gdal_translate)\n");
+                 "gdal_translate)");
         if (bStrict)
             return nullptr;
     }
@@ -1535,7 +1536,7 @@ class ECWWriteDataset final : public GDALDataset
 
   public:
     ECWWriteDataset(const char *, int, int, int, GDALDataType,
-                    char **papszOptions, int);
+                    CSLConstList papszOptions, int);
     ~ECWWriteDataset() override;
 
     CPLErr FlushCache(bool bAtClosing) override;
@@ -1609,7 +1610,7 @@ class ECWWriteRasterBand final : public GDALRasterBand
 
 ECWWriteDataset::ECWWriteDataset(const char *pszFilenameIn, int nXSize,
                                  int nYSize, int nBandCount, GDALDataType eType,
-                                 char **papszOptionsIn, int bIsJPEG2000In)
+                                 CSLConstList papszOptionsIn, int bIsJPEG2000In)
 
 {
     bCrystalized = FALSE;
@@ -1677,7 +1678,7 @@ CPLErr ECWWriteDataset::FlushCache(bool bAtClosing)
 }
 
 /************************************************************************/
-/*                         GetSpatialRef()                              */
+/*                           GetSpatialRef()                            */
 /************************************************************************/
 
 const OGRSpatialReference *ECWWriteDataset::GetSpatialRef() const
@@ -2032,7 +2033,7 @@ CPLErr ECWWriteRasterBand::IWriteBlock(CPL_UNUSED int nBlockX, int nBlockY,
 
 GDALDataset *ECWCreateJPEG2000(const char *pszFilename, int nXSize, int nYSize,
                                int nBands, GDALDataType eType,
-                               char **papszOptions)
+                               CSLConstList papszOptions)
 
 {
     if (nBands == 0)
@@ -2051,7 +2052,8 @@ GDALDataset *ECWCreateJPEG2000(const char *pszFilename, int nXSize, int nYSize,
 /************************************************************************/
 
 GDALDataset *ECWCreateECW(const char *pszFilename, int nXSize, int nYSize,
-                          int nBands, GDALDataType eType, char **papszOptions)
+                          int nBands, GDALDataType eType,
+                          CSLConstList papszOptions)
 
 {
     if (nBands == 0)

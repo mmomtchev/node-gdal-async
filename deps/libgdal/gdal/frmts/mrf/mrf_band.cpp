@@ -129,7 +129,7 @@ static int isAllVal(GDALDataType gt, void *b, size_t bytecount, double ndv)
 
     switch (gt)
     {
-        TEST_T(GDT_Byte, GByte);
+        TEST_T(GDT_UInt8, GByte);
         TEST_T(GDT_Int8, GInt8);
         TEST_T(GDT_UInt16, GUInt16);
         TEST_T(GDT_Int16, GInt16);
@@ -577,7 +577,7 @@ CPLErr MRFRasterBand::FillBlock(void *buffer)
     size_t bsb = blockSizeBytes();
 
     // use memset for speed for bytes, or if nodata is zeros
-    if (0.0 == ndv || eDataType == GDT_Byte || eDataType == GDT_Int8)
+    if (0.0 == ndv || eDataType == GDT_UInt8 || eDataType == GDT_Int8)
     {
         memset(buffer, int(ndv), bsb);
         return CE_None;
@@ -898,7 +898,16 @@ CPLErr MRFRasterBand::FetchClonedBlock(int xblk, int yblk, void *buffer)
     MRFDataset *poSrc = static_cast<MRFDataset *>(poMRFDS->GetSrcDS());
     if (nullptr == poSrc)
     {
-        CPLError(CE_Failure, CPLE_AppDefined, "MRF: Can't open source file %s",
+        CPLError(CE_Failure, CPLE_AppDefined, "MRF: Can't open source %s",
+                 poMRFDS->source.c_str());
+        return CE_Failure;
+    }
+    // Check that the source is an MRF
+    auto srcDriver = poSrc->GetDriver();
+    if (srcDriver == nullptr || !EQUAL(srcDriver->GetDescription(), "MRF"))
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "MRF: Cloned source %s is not an MRF",
                  poMRFDS->source.c_str());
         return CE_Failure;
     }
@@ -908,11 +917,35 @@ CPLErr MRFRasterBand::FetchClonedBlock(int xblk, int yblk, void *buffer)
         // Can't store, so just fetch from source, which is an MRF with
         // identical structure
         MRFRasterBand *b =
-            static_cast<MRFRasterBand *>(poSrc->GetRasterBand(nBand));
+            reinterpret_cast<MRFRasterBand *>(poSrc->GetRasterBand(nBand));
+
+        // Check the datatype and structure of the bands
+        // This is a sanity check, the source is lazy opened
+        if (b == nullptr || poSrc->GetRasterCount() != poMRFDS->nBands ||
+            poSrc->GetRasterXSize() != poMRFDS->full.size.x ||
+            poSrc->GetRasterYSize() != poMRFDS->full.size.y)
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "MRF: Cloned source %s doesn't have the same structure",
+                     poMRFDS->source.c_str());
+            return CE_Failure;
+        }
+
+        // Switch to overview if needed
         if (b->GetOverviewCount() && m_l)
             b = static_cast<MRFRasterBand *>(b->GetOverview(m_l - 1));
         if (b == nullptr)
             return CE_Failure;
+
+        // One last check, blocksize and type matches
+        int bsx, bsy;
+        b->GetBlockSize(&bsx, &bsy);
+        if (bsx != img.pagesize.x || bsy != img.pagesize.y ||
+            b->GetRasterDataType() != eDataType)
+        {
+            return CE_Failure;
+        }
+
         return b->IReadBlock(xblk, yblk, buffer);
     }
 
@@ -964,7 +997,7 @@ CPLErr MRFRasterBand::FetchClonedBlock(int xblk, int yblk, void *buffer)
         return CE_Failure;
     }
 
-    VSIFSeekL(srcfd, tinfo.offset, SEEK_SET);
+    VSIFSeekL(srcfd, static_cast<vsi_l_offset>(tinfo.offset), SEEK_SET);
     if (tinfo.size !=
         GIntBig(VSIFReadL(buf, 1, static_cast<size_t>(tinfo.size), srcfd)))
     {
@@ -1077,7 +1110,7 @@ CPLErr MRFRasterBand::IReadBlock(int xblk, int yblk, void *buffer)
     }
 
     // This part is not thread safe, but it is what GDAL expects
-    VSIFSeekL(dfp, tinfo.offset, SEEK_SET);
+    VSIFSeekL(dfp, static_cast<vsi_l_offset>(tinfo.offset), SEEK_SET);
     if (1 != VSIFReadL(data, static_cast<size_t>(tinfo.size), 1, dfp))
     {
         CPLFree(data);
@@ -1356,8 +1389,10 @@ CPLErr MRFRasterBand::IWriteBlock(int xblk, int yblk, void *buffer)
             // Pick the right overview
             if (m_l)
                 band = band->GetOverview(m_l - 1);
-            poBlock = (reinterpret_cast<MRFRasterBand *>(band))
-                          ->TryGetLockedBlockRef(xblk, yblk);
+            auto poMRFBand = cpl::down_cast<MRFRasterBand *>(band);
+            if (!poMRFBand)
+                continue;
+            poBlock = poMRFBand->TryGetLockedBlockRef(xblk, yblk);
             if (nullptr == poBlock)
                 continue;
             // This is where the image data is for this band
@@ -1375,8 +1410,8 @@ CPLErr MRFRasterBand::IWriteBlock(int xblk, int yblk, void *buffer)
         if (isAllVal(eDataType, pabyThisImage, blockSizeBytes(), val))
             empties |= bandbit(iBand);
 
-            // Copy the data into the dataset buffer here
-            // Just the right mix of templates and macros make this real tidy
+        // Copy the data into the dataset buffer here
+        // Just the right mix of templates and macros make this real tidy
 #define CpySO(T)                                                               \
     cpy_stride_out<T>((reinterpret_cast<T *>(tbuffer)) + iBand, pabyThisImage, \
                       blockSizeBytes() / sizeof(T), cstride)

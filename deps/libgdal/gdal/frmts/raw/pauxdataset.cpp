@@ -45,7 +45,7 @@ class PAuxDataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(PAuxDataset)
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
   public:
     PAuxDataset();
@@ -243,10 +243,10 @@ PAuxDataset::~PAuxDataset()
 }
 
 /************************************************************************/
-/*                              Close()                                 */
+/*                               Close()                                */
 /************************************************************************/
 
-CPLErr PAuxDataset::Close()
+CPLErr PAuxDataset::Close(GDALProgressFunc, void *)
 {
     CPLErr eErr = CE_None;
     if (nOpenFlags != OPEN_FLAGS_CLOSED)
@@ -450,12 +450,12 @@ CPLErr PAuxDataset::GetGeoTransform(GDALGeoTransform &gt) const
     const double dfLoRightY =
         CPLAtof(CSLFetchNameValue(papszAuxLines, "LoRightY"));
 
-    gt[0] = dfUpLeftX;
-    gt[1] = (dfLoRightX - dfUpLeftX) / GetRasterXSize();
-    gt[2] = 0.0;
-    gt[3] = dfUpLeftY;
-    gt[4] = 0.0;
-    gt[5] = (dfLoRightY - dfUpLeftY) / GetRasterYSize();
+    gt.xorig = dfUpLeftX;
+    gt.xscale = (dfLoRightX - dfUpLeftX) / GetRasterXSize();
+    gt.xrot = 0.0;
+    gt.yorig = dfUpLeftY;
+    gt.yrot = 0.0;
+    gt.yscale = (dfLoRightY - dfUpLeftY) / GetRasterYSize();
 
     return CE_None;
 }
@@ -655,7 +655,7 @@ GDALDataset *PAuxDataset::Open(GDALOpenInfo *poOpenInfo)
         else if (EQUAL(aosTokensBand[0], "32R"))
             eType = GDT_Float32;
         else
-            eType = GDT_Byte;
+            eType = GDT_UInt8;
 
         bool bNative = true;
         if (CSLCount(aosTokensBand) > 4)

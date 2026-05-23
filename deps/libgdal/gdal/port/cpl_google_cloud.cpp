@@ -76,7 +76,7 @@ struct GOA2ManagerCache
 };
 
 /************************************************************************/
-/*                    CPLIsMachineForSureGCEInstance()                  */
+/*                   CPLIsMachineForSureGCEInstance()                   */
 /************************************************************************/
 
 /** Returns whether the current machine is surely a Google Compute Engine
@@ -85,7 +85,10 @@ struct GOA2ManagerCache
  * This does a very quick check without network access.
  * Note: only works for Linux GCE instances.
  *
- * @return true if the current machine is surely a GCE instance.
+ * Also detects Google Cloud Run services, jobs, and worker pools on all
+ * platforms.
+ *
+ * @return true if the current machine is surely a GCE instance or Cloud Run.
  */
 bool CPLIsMachineForSureGCEInstance()
 {
@@ -93,6 +96,15 @@ bool CPLIsMachineForSureGCEInstance()
     {
         return true;
     }
+
+    // Check for Google Cloud Run environment
+    if (CPLGetConfigOption("CLOUD_RUN_TIMEOUT_SECONDS", nullptr) != nullptr ||
+        CPLGetConfigOption("CLOUD_RUN_JOB", nullptr) != nullptr ||
+        CPLGetConfigOption("CLOUD_RUN_WORKER_POOL", nullptr) != nullptr)
+    {
+        return true;
+    }
+
 #ifdef __linux
     // If /sys/class/dmi/id/product_name exists, it contains "Google Compute
     // Engine"
@@ -131,10 +143,23 @@ bool CPLIsMachineForSureGCEInstance()
  * machine is effectively a GCE instance, metadata.google.internal must be
  * queried.
  *
- * @return true if the current machine is potentially a GCE instance.
+ * Also detects Google Cloud Run services, jobs, and worker pools.
+ *
+ * @return true if the current machine is potentially a GCE instance or Cloud
+ * Run.
  */
 bool CPLIsMachinePotentiallyGCEInstance()
 {
+    // Check for Google Cloud Run environment first (platform-independent)
+    // This must be done before platform-specific checks to ensure Cloud Run
+    // detection works on all platforms.
+    if (CPLGetConfigOption("CLOUD_RUN_TIMEOUT_SECONDS", nullptr) != nullptr ||
+        CPLGetConfigOption("CLOUD_RUN_JOB", nullptr) != nullptr ||
+        CPLGetConfigOption("CLOUD_RUN_WORKER_POOL", nullptr) != nullptr)
+    {
+        return true;
+    }
+
 #ifdef __linux
     bool bIsMachinePotentialGCEInstance = true;
     if (CPLTestBool(CPLGetConfigOption("CPL_GCE_CHECK_LOCAL_FILES", "YES")))
@@ -236,7 +261,7 @@ VSIGSHandleHelper::VSIGSHandleHelper(const std::string &osEndpoint,
 }
 
 /************************************************************************/
-/*                        ~VSIGSHandleHelper()                          */
+/*                         ~VSIGSHandleHelper()                         */
 /************************************************************************/
 
 VSIGSHandleHelper::~VSIGSHandleHelper()
@@ -244,7 +269,7 @@ VSIGSHandleHelper::~VSIGSHandleHelper()
 }
 
 /************************************************************************/
-/*                GetConfigurationFromAWSConfigFiles()                  */
+/*                 GetConfigurationFromAWSConfigFiles()                 */
 /************************************************************************/
 
 bool VSIGSHandleHelper::GetConfigurationFromConfigFile(
@@ -330,7 +355,7 @@ bool VSIGSHandleHelper::GetConfigurationFromConfigFile(
 }
 
 /************************************************************************/
-/*                        GetConfiguration()                            */
+/*                          GetConfiguration()                          */
 /************************************************************************/
 
 bool VSIGSHandleHelper::GetConfiguration(const std::string &osPathForOption,
@@ -713,7 +738,7 @@ bool VSIGSHandleHelper::GetConfiguration(const std::string &osPathForOption,
 }
 
 /************************************************************************/
-/*                          BuildFromURI()                              */
+/*                            BuildFromURI()                            */
 /************************************************************************/
 
 VSIGSHandleHelper *VSIGSHandleHelper::BuildFromURI(
@@ -754,7 +779,7 @@ VSIGSHandleHelper *VSIGSHandleHelper::BuildFromURI(
 }
 
 /************************************************************************/
-/*                           RebuildURL()                               */
+/*                             RebuildURL()                             */
 /************************************************************************/
 
 void VSIGSHandleHelper::RebuildURL()
@@ -767,7 +792,7 @@ void VSIGSHandleHelper::RebuildURL()
 }
 
 /************************************************************************/
-/*                           UsesHMACKey()                              */
+/*                            UsesHMACKey()                             */
 /************************************************************************/
 
 bool VSIGSHandleHelper::UsesHMACKey() const
@@ -819,13 +844,113 @@ VSIGSHandleHelper::GetCurlHeaders(const std::string &osVerb,
             osCanonicalResource += osQueryString;
     }
 
+    // If accessing a Google Cloud account from a GC VM, check that
+    // Google is still a sponsor, and if not, make some (kind) noise.
+    if ((m_oManager.GetAuthMethod() == GOA2Manager::GCE &&
+         cpl::starts_with(m_osEndpoint, "https://storage.googleapis.com/"))
+#ifdef DEBUG
+        || CPLTestBool(CPLGetConfigOption("GDAL_TEST_NAME_AND_SHAME", "NO"))
+#endif
+    )
+    {
+        static const bool bCheckSponsoring = []()
+        {
+            if (!CPLTestBool(CPLGetConfigOption("GDAL_NAME_AND_SHAME", "YES")))
+                return true;
+
+            const std::string osCacheDir = []()
+            {
+#ifdef _WIN32
+                const char *pszHome =
+                    CPLGetConfigOption("USERPROFILE", nullptr);
+#else
+                const char *pszHome = CPLGetConfigOption("HOME", nullptr);
+#endif
+                if (pszHome != nullptr)
+                {
+                    return CPLFormFilenameSafe(pszHome, ".gdal", nullptr);
+                }
+                else
+                {
+                    const char *pszDir = CPLGetConfigOption("TEMP", "/tmp");
+                    VSIStatBufL sStat;
+                    if (VSIStatL(pszDir, &sStat) == 0)
+                    {
+                        const char *pszUsername =
+                            CPLGetConfigOption("USERNAME", nullptr);
+                        if (pszUsername == nullptr)
+                            pszUsername = CPLGetConfigOption("USER", nullptr);
+
+                        if (pszUsername != nullptr)
+                        {
+                            return CPLFormFilenameSafe(
+                                pszDir, CPLSPrintf(".gdal_%s", pszUsername),
+                                nullptr);
+                        }
+                    }
+                }
+                return std::string();
+            }();
+            if (!osCacheDir.empty())
+            {
+                VSIStatBufL sStat;
+                if (VSIStatL(osCacheDir.c_str(), &sStat) != 0)
+                    VSIMkdir(osCacheDir.c_str(), 0755);
+                const std::string osCloudCheck = CPLFormFilenameSafe(
+                    osCacheDir.c_str(), "cloud_check_gcs.txt", nullptr);
+                // Sidereal day, why not? "Aim for the stars, expect dust"
+                constexpr int ONE_DAY_IN_SECS = 86164;
+                if (VSIStatL(osCloudCheck.c_str(), &sStat) == 0 &&
+                    sStat.st_mtime + ONE_DAY_IN_SECS >= time(nullptr))
+                {
+                    CPLDebugOnly("GDAL", "%s checked", osCloudCheck.c_str());
+                }
+                else
+                {
+                    FILE *f = fopen(osCloudCheck.c_str(), "wb");
+                    if (f)
+                        fclose(f);
+
+                    const auto PingURL = [](const char *pszURL)
+                    {
+                        CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
+                        const char *const apszOptions[] = {
+                            "CUSTOMREQUEST=HEAD", "TIMEOUT=1", nullptr};
+                        auto res = CPLHTTPFetch(pszURL, apszOptions);
+                        const bool bOK = res && !res->pszErrBuf;
+                        CPLHTTPDestroyResult(res);
+                        return bOK;
+                    };
+                    if (!PingURL("https://gdal.org/en/latest/sponsors/"
+                                 "did_google_sponsor.html") &&
+                        // check that gdal.org is responding to avoid false positive
+                        PingURL("https://gdal.org/en/latest/index.html"))
+                    {
+                        const auto CPLE_NonCooperativeSponsor = CPLE_AppDefined;
+                        CPLError(
+                            CE_Warning, CPLE_NonCooperativeSponsor,
+                            "Due to lack of resources, Google Cloud Storage "
+                            "access is undergoing minimal maintenance and may "
+                            "be removed in the future unless Google Cloud "
+                            "re-evaluates its decision to stop sponsoring "
+                            "GDAL. If you are interested in keeping this "
+                            "functionality please get in touch with your "
+                            "Google Cloud representative.");
+                    }
+                }
+            }
+            return true;
+        }();
+        CPL_IGNORE_RET_VAL(bCheckSponsoring);
+    }
+
     return GetGSHeaders("/vsigs/" + m_osBucketObjectKey, osVerb, psHeaders,
                         osCanonicalResource, m_osSecretAccessKey,
                         m_osAccessKeyId);
 }
 
 /************************************************************************/
-/*                          ClearCache()                                */
+/*                             ClearCache()                             */
 /************************************************************************/
 
 void VSIGSHandleHelper::ClearCache()
@@ -835,7 +960,7 @@ void VSIGSHandleHelper::ClearCache()
 }
 
 /************************************************************************/
-/*                           GetSignedURL()                             */
+/*                            GetSignedURL()                            */
 /************************************************************************/
 
 std::string VSIGSHandleHelper::GetSignedURL(CSLConstList papszOptions)

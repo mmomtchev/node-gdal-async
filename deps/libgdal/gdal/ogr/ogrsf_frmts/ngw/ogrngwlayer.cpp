@@ -1245,7 +1245,8 @@ OGRErr OGRNGWLayer::AlterFieldDefn(int iField, OGRFieldDefn *poNewFieldDefn,
 /*
  * SetMetadata()
  */
-CPLErr OGRNGWLayer::SetMetadata(char **papszMetadata, const char *pszDomain)
+CPLErr OGRNGWLayer::SetMetadata(CSLConstList papszMetadata,
+                                const char *pszDomain)
 {
     bNeedSyncStructure = true;
     return OGRLayer::SetMetadata(papszMetadata, pszDomain);
@@ -1295,7 +1296,7 @@ std::string OGRNGWLayer::CreateNGWResourceJson()
     {
         OGRSpatialReference oSRS(*poSRSConst);
         oSRS.AutoIdentifyEPSG();
-        const char *pszEPSG = oSRS.GetAuthorityCode(nullptr);
+        const char *pszEPSG = oSRS.GetAuthorityCode();
         if (pszEPSG != nullptr)
         {
             nEPSG = atoi(pszEPSG);

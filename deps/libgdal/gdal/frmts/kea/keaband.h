@@ -35,7 +35,7 @@ class KEARasterBand CPL_NON_FINAL : public GDALRasterBand
         nullptr;  // pointer to the attribute table
                   // created on first call to GetDefaultRAT()
     GDALColorTable *m_pColorTable = nullptr;  // pointer to the color table
-        // created on first call to GetColorTable()
+    // created on first call to GetColorTable()
 
     int m_nAttributeChunkSize = 0;  // for reporting via the metadata
   public:
@@ -56,8 +56,8 @@ class KEARasterBand CPL_NON_FINAL : public GDALRasterBand
                            const char *pszDomain = "") override;
     const char *GetMetadataItem(const char *pszName,
                                 const char *pszDomain = "") override;
-    char **GetMetadata(const char *pszDomain = "") override;
-    CPLErr SetMetadata(char **papszMetadata,
+    CSLConstList GetMetadata(const char *pszDomain = "") override;
+    CPLErr SetMetadata(CSLConstList papszMetadata,
                        const char *pszDomain = "") override;
 
     // virtual methods for the no data value

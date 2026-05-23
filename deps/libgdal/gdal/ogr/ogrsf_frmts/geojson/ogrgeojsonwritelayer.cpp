@@ -19,7 +19,7 @@
 #include <algorithm>
 
 /************************************************************************/
-/*                         OGRGeoJSONWriteLayer()                       */
+/*                        OGRGeoJSONWriteLayer()                        */
 /************************************************************************/
 
 OGRGeoJSONWriteLayer::OGRGeoJSONWriteLayer(const char *pszName,
@@ -81,7 +81,7 @@ OGRGeoJSONWriteLayer::OGRGeoJSONWriteLayer(const char *pszName,
 }
 
 /************************************************************************/
-/*                        ~OGRGeoJSONWriteLayer()                       */
+/*                       ~OGRGeoJSONWriteLayer()                        */
 /************************************************************************/
 
 OGRGeoJSONWriteLayer::~OGRGeoJSONWriteLayer()
@@ -158,7 +158,7 @@ void OGRGeoJSONWriteLayer::FinishWriting()
 }
 
 /************************************************************************/
-/*                           SyncToDisk()                               */
+/*                             SyncToDisk()                             */
 /************************************************************************/
 
 OGRErr OGRGeoJSONWriteLayer::SyncToDisk()
@@ -172,7 +172,7 @@ OGRErr OGRGeoJSONWriteLayer::SyncToDisk()
 }
 
 /************************************************************************/
-/*                           ICreateFeature()                            */
+/*                           ICreateFeature()                           */
 /************************************************************************/
 
 OGRErr OGRGeoJSONWriteLayer::ICreateFeature(OGRFeature *poFeature)
@@ -219,12 +219,6 @@ OGRErr OGRGeoJSONWriteLayer::ICreateFeature(OGRFeature *poFeature)
         poFeatureToWrite = poFeature;
     }
 
-    const auto IsValid = [](const OGRGeometry *poGeom)
-    {
-        CPLErrorHandlerPusher oErrorHandler(CPLQuietErrorHandler);
-        return poGeom->IsValid();
-    };
-
     // Special processing to detect and repair invalid geometries due to
     // coordinate precision.
     // Normally drivers shouldn't do that as similar code is triggered by
@@ -232,11 +226,12 @@ OGRErr OGRGeoJSONWriteLayer::ICreateFeature(OGRFeature *poFeature)
     // the generic OGRLayer::CreateFeature() code path. But this code predates
     // its introduction and RFC99, and can be useful in RFC7946 mode due to
     // coordinate reprojection.
+    std::string osReason;
     OGRGeometry *poOrigGeom = poFeature->GetGeometryRef();
     if (OGRGeometryFactory::haveGEOS() &&
         oWriteOptions_.nXYCoordPrecision >= 0 && poOrigGeom &&
         wkbFlatten(poOrigGeom->getGeometryType()) != wkbPoint &&
-        IsValid(poOrigGeom))
+        poOrigGeom->IsValid(&osReason))
     {
         const double dfXYResolution =
             std::pow(10.0, double(-oWriteOptions_.nXYCoordPrecision));
@@ -245,7 +240,7 @@ OGRErr OGRGeoJSONWriteLayer::ICreateFeature(OGRFeature *poFeature)
         OGRGeomCoordinatePrecision sPrecision;
         sPrecision.dfXYResolution = dfXYResolution;
         poNewGeom->roundCoordinates(sPrecision);
-        if (!IsValid(poNewGeom.get()))
+        if (!poNewGeom->IsValid(&osReason))
         {
             std::unique_ptr<OGRGeometry> poValidGeom;
             if (poFeature == poFeatureToWrite)
@@ -266,7 +261,7 @@ OGRErr OGRGeoJSONWriteLayer::ICreateFeature(OGRFeature *poFeature)
                     auto poValidGeomRoundCoordinates =
                         std::unique_ptr<OGRGeometry>(poValidGeom->clone());
                     poValidGeomRoundCoordinates->roundCoordinates(sPrecision);
-                    if (!IsValid(poValidGeomRoundCoordinates.get()))
+                    if (!poValidGeomRoundCoordinates->IsValid(&osReason))
                     {
                         CPLDebug("GeoJSON",
                                  "Running SetPrecision() to correct an invalid "
@@ -277,6 +272,13 @@ OGRErr OGRGeoJSONWriteLayer::ICreateFeature(OGRFeature *poFeature)
                         if (poValidGeom2)
                             poValidGeom = std::move(poValidGeom2);
                     }
+                }
+                else
+                {
+                    CPLError(CE_Warning, CPLE_AppDefined,
+                             "Geometry %s is not valid: %s",
+                             poNewGeom->exportToWkt().c_str(),
+                             osReason.c_str());
                 }
             }
             if (poValidGeom)
@@ -313,7 +315,7 @@ OGRErr OGRGeoJSONWriteLayer::ICreateFeature(OGRFeature *poFeature)
         VSIFPrintfL(fp, ",\n");
     }
     const char *pszJson = json_object_to_json_string_ext(
-        poObj, JSON_C_TO_STRING_SPACED
+        poObj, JSON_C_TO_STRING_PLAIN
 #ifdef JSON_C_TO_STRING_NOSLASHESCAPE
                    | JSON_C_TO_STRING_NOSLASHESCAPE
 #endif
@@ -323,9 +325,9 @@ OGRErr OGRGeoJSONWriteLayer::ICreateFeature(OGRFeature *poFeature)
     size_t nLen = strlen(pszJson);
     if (!osForeignMembers_.empty())
     {
-        if (nLen > 2 && pszJson[nLen - 2] == ' ' && pszJson[nLen - 1] == '}')
+        if (nLen > 1 && pszJson[nLen - 1] == '}')
         {
-            nLen -= 2;
+            nLen -= 1;
         }
         else
         {
@@ -342,7 +344,7 @@ OGRErr OGRGeoJSONWriteLayer::ICreateFeature(OGRFeature *poFeature)
         eErr = OGRERR_FAILURE;
     }
     else if (!osForeignMembers_.empty() &&
-             (VSIFWriteL(", ", 2, 1, fp) != 1 ||
+             (VSIFWriteL(",", 1, 1, fp) != 1 ||
               VSIFWriteL(osForeignMembers_.c_str(), osForeignMembers_.size(), 1,
                          fp) != 1 ||
               VSIFWriteL("}", 1, 1, fp) != 1))
@@ -443,7 +445,7 @@ OGRErr OGRGeoJSONWriteLayer::ICreateFeature(OGRFeature *poFeature)
 }
 
 /************************************************************************/
-/*                           CreateField()                              */
+/*                            CreateField()                             */
 /************************************************************************/
 
 OGRErr OGRGeoJSONWriteLayer::CreateField(const OGRFieldDefn *poField,
@@ -479,7 +481,7 @@ int OGRGeoJSONWriteLayer::TestCapability(const char *pszCap) const
 }
 
 /************************************************************************/
-/*                           IGetExtent()                               */
+/*                             IGetExtent()                             */
 /************************************************************************/
 
 OGRErr OGRGeoJSONWriteLayer::IGetExtent(int /*iGeomField*/,

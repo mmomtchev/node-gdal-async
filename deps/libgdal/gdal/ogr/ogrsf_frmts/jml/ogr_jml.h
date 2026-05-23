@@ -27,7 +27,7 @@ class OGRJMLDataset;
 #ifdef HAVE_EXPAT
 
 /************************************************************************/
-/*                            OGRJMLColumn                              */
+/*                             OGRJMLColumn                             */
 /************************************************************************/
 
 class OGRJMLColumn
@@ -220,7 +220,7 @@ class OGRJMLDataset final : public GDALDataset
     static GDALDataset *Open(GDALOpenInfo *poOpenInfo);
     static GDALDataset *Create(const char *pszFilename, int nBands, int nXSize,
                                int nYSize, GDALDataType eDT,
-                               char **papszOptions);
+                               CSLConstList papszOptions);
 };
 
 #endif /* ndef OGR_JML_H_INCLUDED */

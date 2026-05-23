@@ -128,12 +128,12 @@ class PNGDataset final : public GDALPamDataset
     PNGDataset();
     ~PNGDataset() override;
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
     static GDALDataset *Open(GDALOpenInfo *);
     static GDALDataset *CreateCopy(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
-                                   char **papszOptions,
+                                   CSLConstList papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
 
@@ -144,7 +144,7 @@ class PNGDataset final : public GDALPamDataset
 
     char **GetMetadataDomainList() override;
 
-    char **GetMetadata(const char *pszDomain = "") override;
+    CSLConstList GetMetadata(const char *pszDomain = "") override;
     virtual const char *
     GetMetadataItem(const char *pszName,
                     const char *pszDomain = nullptr) override;
@@ -161,28 +161,6 @@ class PNGDataset final : public GDALPamDataset
 #endif
 
     jmp_buf sSetJmpContext{};  // Semi-private.
-
-#ifdef SUPPORT_CREATE
-    int m_nBitDepth;
-    GByte *m_pabyBuffer;
-    png_byte *m_pabyAlpha;
-    png_structp m_hPNG;
-    png_infop m_psPNGInfo;
-    png_color *m_pasPNGColors;
-    VSILFILE *m_fpImage;
-    int m_bGeoTransformValid;
-    double m_adfGeoTransform[6];
-    char *m_pszFilename;
-    int m_nColorType;  // PNG_COLOR_TYPE_*
-
-    virtual CPLErr SetGeoTransform(double *);
-    static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
-                               int nBands, GDALDataType, char **papszParamList);
-
-  protected:
-    CPLErr write_png_header();
-
-#endif
 };
 
 #ifdef _MSC_VER

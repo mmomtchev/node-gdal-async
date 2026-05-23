@@ -73,10 +73,10 @@ class HFADataset final : public GDALPamDataset
     static GDALDataset *Open(GDALOpenInfo *);
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
                                int nBands, GDALDataType eType,
-                               char **papszParamList);
+                               CSLConstList papszParamList);
     static GDALDataset *CreateCopy(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
-                                   char **papszOptions,
+                                   CSLConstList papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
     static CPLErr Delete(const char *pszFilename);
@@ -93,7 +93,7 @@ class HFADataset final : public GDALPamDataset
     const OGRSpatialReference *GetGCPSpatialRef() const override;
     const GDAL_GCP *GetGCPs() override;
 
-    CPLErr SetMetadata(char **, const char * = "") override;
+    CPLErr SetMetadata(CSLConstList, const char * = "") override;
     CPLErr SetMetadataItem(const char *, const char *,
                            const char * = "") override;
 
@@ -159,7 +159,7 @@ class HFARasterBand final : public GDALPamRasterBand
     double GetNoDataValue(int *pbSuccess = nullptr) override;
     CPLErr SetNoDataValue(double dfValue) override;
 
-    CPLErr SetMetadata(char **, const char * = "") override;
+    CPLErr SetMetadata(CSLConstList, const char * = "") override;
     CPLErr SetMetadataItem(const char *, const char *,
                            const char * = "") override;
     virtual CPLErr BuildOverviews(const char *, int, const int *,

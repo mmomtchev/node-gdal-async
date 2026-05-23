@@ -25,7 +25,7 @@
 #endif
 
 /************************************************************************/
-/*     GDALRasterPolygonizeAlgorithm::GDALRasterPolygonizeAlgorithm()   */
+/*    GDALRasterPolygonizeAlgorithm::GDALRasterPolygonizeAlgorithm()    */
 /************************************************************************/
 
 GDALRasterPolygonizeAlgorithm::GDALRasterPolygonizeAlgorithm(
@@ -48,6 +48,7 @@ GDALRasterPolygonizeAlgorithm::GDALRasterPolygonizeAlgorithm(
     }
     else
     {
+        AddRasterHiddenInputDatasetArg();
         AddOutputLayerNameArg(/* hiddenForCLI = */ false,
                               /* shortNameOutputLayerAllowed = */ false);
     }
@@ -74,7 +75,7 @@ bool GDALRasterPolygonizeAlgorithm::CanHandleNextStep(
 }
 
 /************************************************************************/
-/*                GDALRasterPolygonizeAlgorithm::RunImpl()              */
+/*               GDALRasterPolygonizeAlgorithm::RunImpl()               */
 /************************************************************************/
 
 bool GDALRasterPolygonizeAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
@@ -87,7 +88,7 @@ bool GDALRasterPolygonizeAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
 }
 
 /************************************************************************/
-/*                GDALRasterPolygonizeAlgorithm::RunStep()              */
+/*               GDALRasterPolygonizeAlgorithm::RunStep()               */
 /************************************************************************/
 
 bool GDALRasterPolygonizeAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)

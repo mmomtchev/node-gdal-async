@@ -113,7 +113,7 @@ class DOQ1Dataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(DOQ1Dataset)
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
   public:
     DOQ1Dataset();
@@ -149,10 +149,10 @@ DOQ1Dataset::~DOQ1Dataset()
 }
 
 /************************************************************************/
-/*                              Close()                                 */
+/*                               Close()                                */
 /************************************************************************/
 
-CPLErr DOQ1Dataset::Close()
+CPLErr DOQ1Dataset::Close(GDALProgressFunc, void *)
 {
     CPLErr eErr = CE_None;
     if (nOpenFlags != OPEN_FLAGS_CLOSED)
@@ -182,12 +182,12 @@ CPLErr DOQ1Dataset::Close()
 CPLErr DOQ1Dataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
-    gt[0] = dfULX;
-    gt[1] = dfXPixelSize;
-    gt[2] = 0.0;
-    gt[3] = dfULY;
-    gt[4] = 0.0;
-    gt[5] = -1 * dfYPixelSize;
+    gt.xorig = dfULX;
+    gt.xscale = dfXPixelSize;
+    gt.xrot = 0.0;
+    gt.yorig = dfULY;
+    gt.yrot = 0.0;
+    gt.yscale = -1 * dfYPixelSize;
 
     return CE_None;
 }
@@ -282,7 +282,7 @@ GDALDataset *DOQ1Dataset::Open(GDALOpenInfo *poOpenInfo)
     {
         auto poBand = RawRasterBand::Create(
             poDS.get(), i + 1, poDS->fpImage, nSkipBytes + i, nBytesPerPixel,
-            nBytesPerLine, GDT_Byte,
+            nBytesPerLine, GDT_UInt8,
             RawRasterBand::ByteOrder::ORDER_LITTLE_ENDIAN,
             RawRasterBand::OwnFP::NO);
         if (!poBand)

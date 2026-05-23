@@ -356,7 +356,8 @@ int TABMAPFile::Open(const char *pszFname, TABAccess eAccess,
             {
                 GUInt16 nBlockType = 0;
                 int nNextGarbBlockPtr = 0;
-                if (VSIFSeekL(fp, nCurGarbBlock, SEEK_SET) != 0 ||
+                if (VSIFSeekL(fp, static_cast<vsi_l_offset>(nCurGarbBlock),
+                              SEEK_SET) != 0 ||
                     VSIFReadL(&nBlockType, sizeof(nBlockType), 1, fp) != 1 ||
                     VSIFReadL(&nNextGarbBlockPtr, sizeof(nNextGarbBlockPtr), 1,
                               fp) != 1)
@@ -467,7 +468,7 @@ int TABMAPFile::Close()
 }
 
 /************************************************************************/
-/*                         GetFileSize()                                */
+/*                            GetFileSize()                             */
 /************************************************************************/
 
 GUInt32 TABMAPFile::GetFileSize()
@@ -482,7 +483,7 @@ GUInt32 TABMAPFile::GetFileSize()
 }
 
 /************************************************************************/
-/*                            SyncToDisk()                             */
+/*                             SyncToDisk()                             */
 /************************************************************************/
 
 int TABMAPFile::SyncToDisk()
@@ -2483,7 +2484,8 @@ TABRawBinBlock *TABMAPFile::GetIndexObjectBlock(int nFileOffset)
     GByte *pabyData =
         static_cast<GByte *>(CPLMalloc(m_poHeader->m_nRegularBlockSize));
 
-    if (VSIFSeekL(m_fp, nFileOffset, SEEK_SET) != 0 ||
+    if (VSIFSeekL(m_fp, static_cast<vsi_l_offset>(nFileOffset), SEEK_SET) !=
+            0 ||
         static_cast<int>(VSIFReadL(pabyData, sizeof(GByte),
                                    m_poHeader->m_nRegularBlockSize, m_fp)) !=
             m_poHeader->m_nRegularBlockSize)

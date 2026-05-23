@@ -22,31 +22,27 @@
 #include <algorithm>
 #include <limits>
 
-#ifdef CPL_IS_LSB
-#define SWAP_SIGDEM_HEADER(abyHeader)                                          \
-    {                                                                          \
-        CPL_SWAP16PTR(abyHeader + 6);                                          \
-        CPL_SWAP32PTR(abyHeader + 8);                                          \
-        CPL_SWAP64PTR(abyHeader + 12);                                         \
-        CPL_SWAP64PTR(abyHeader + 20);                                         \
-        CPL_SWAP64PTR(abyHeader + 28);                                         \
-        CPL_SWAP64PTR(abyHeader + 36);                                         \
-        CPL_SWAP64PTR(abyHeader + 44);                                         \
-        CPL_SWAP64PTR(abyHeader + 52);                                         \
-        CPL_SWAP64PTR(abyHeader + 60);                                         \
-        CPL_SWAP64PTR(abyHeader + 68);                                         \
-        CPL_SWAP64PTR(abyHeader + 76);                                         \
-        CPL_SWAP64PTR(abyHeader + 84);                                         \
-        CPL_SWAP64PTR(abyHeader + 92);                                         \
-        CPL_SWAP64PTR(abyHeader + 100);                                        \
-        CPL_SWAP32PTR(abyHeader + 108);                                        \
-        CPL_SWAP32PTR(abyHeader + 112);                                        \
-        CPL_SWAP64PTR(abyHeader + 116);                                        \
-        CPL_SWAP64PTR(abyHeader + 124);                                        \
-    }
-#else
-#define SWAP_SIGDEM_HEADER(abyHeader)
-#endif
+static void SWAP_SIGDEM_HEADER(GByte *abyHeader)
+{
+    CPL_MSBPTR16(abyHeader + 6);
+    CPL_MSBPTR32(abyHeader + 8);
+    CPL_MSBPTR64(abyHeader + 12);
+    CPL_MSBPTR64(abyHeader + 20);
+    CPL_MSBPTR64(abyHeader + 28);
+    CPL_MSBPTR64(abyHeader + 36);
+    CPL_MSBPTR64(abyHeader + 44);
+    CPL_MSBPTR64(abyHeader + 52);
+    CPL_MSBPTR64(abyHeader + 60);
+    CPL_MSBPTR64(abyHeader + 68);
+    CPL_MSBPTR64(abyHeader + 76);
+    CPL_MSBPTR64(abyHeader + 84);
+    CPL_MSBPTR64(abyHeader + 92);
+    CPL_MSBPTR64(abyHeader + 100);
+    CPL_MSBPTR32(abyHeader + 108);
+    CPL_MSBPTR32(abyHeader + 112);
+    CPL_MSBPTR64(abyHeader + 116);
+    CPL_MSBPTR64(abyHeader + 124);
+}
 
 constexpr int CELL_SIZE_FILE = 4;
 
@@ -139,12 +135,12 @@ SIGDEMDataset::SIGDEMDataset(const SIGDEMHeader &sHeaderIn)
     this->nRasterXSize = sHeader.nCols;
     this->nRasterYSize = sHeader.nRows;
 
-    m_gt[0] = sHeader.dfMinX;
-    m_gt[1] = sHeader.dfXDim;
-    m_gt[2] = 0.0;
-    m_gt[3] = sHeader.dfMaxY;
-    m_gt[4] = 0.0;
-    m_gt[5] = -sHeader.dfYDim;
+    m_gt.xorig = sHeader.dfMinX;
+    m_gt.xscale = sHeader.dfXDim;
+    m_gt.xrot = 0.0;
+    m_gt.yorig = sHeader.dfMaxY;
+    m_gt.yrot = 0.0;
+    m_gt.yscale = -sHeader.dfYDim;
 }
 
 SIGDEMDataset::~SIGDEMDataset()
@@ -162,7 +158,7 @@ SIGDEMDataset::~SIGDEMDataset()
 
 GDALDataset *SIGDEMDataset::CreateCopy(const char *pszFilename,
                                        GDALDataset *poSrcDS, int /*bStrict*/,
-                                       char ** /*papszOptions*/,
+                                       CSLConstList /*papszOptions*/,
                                        GDALProgressFunc pfnProgress,
                                        void *pProgressData)
 {
@@ -200,7 +196,7 @@ GDALDataset *SIGDEMDataset::CreateCopy(const char *pszFilename,
 
     SIGDEMHeader sHeader;
     sHeader.nCoordinateSystemId = nCoordinateSystemId;
-    sHeader.dfMinX = gt[0];
+    sHeader.dfMinX = gt.xorig;
     const char *pszMin = band->GetMetadataItem("STATISTICS_MINIMUM");
     if (pszMin == nullptr)
     {
@@ -210,7 +206,7 @@ GDALDataset *SIGDEMDataset::CreateCopy(const char *pszFilename,
     {
         sHeader.dfMinZ = CPLAtof(pszMin);
     }
-    sHeader.dfMaxY = gt[3];
+    sHeader.dfMaxY = gt.yorig;
     const char *pszMax = band->GetMetadataItem("STATISTICS_MAXIMUM");
     if (pszMax == nullptr)
     {
@@ -222,8 +218,8 @@ GDALDataset *SIGDEMDataset::CreateCopy(const char *pszFilename,
     }
     sHeader.nCols = poSrcDS->GetRasterXSize();
     sHeader.nRows = poSrcDS->GetRasterYSize();
-    sHeader.dfXDim = gt[1];
-    sHeader.dfYDim = -gt[5];
+    sHeader.dfXDim = gt.xscale;
+    sHeader.dfYDim = -gt.yscale;
     sHeader.dfMaxX = sHeader.dfMinX + sHeader.nCols * sHeader.dfXDim;
     sHeader.dfMinY = sHeader.dfMaxY - sHeader.nRows * sHeader.dfYDim;
     sHeader.dfOffsetX = sHeader.dfMinX;

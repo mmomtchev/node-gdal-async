@@ -68,7 +68,7 @@ class VSICachedFile final : public VSIVirtualHandle
 
     int Seek(vsi_l_offset nOffset, int nWhence) override;
     vsi_l_offset Tell() override;
-    size_t Read(void *pBuffer, size_t nSize, size_t nMemb) override;
+    size_t Read(void *pBuffer, size_t nBytes) override;
     int ReadMultiRange(int nRanges, void **ppData,
                        const vsi_l_offset *panOffsets,
                        const size_t *panSizes) override;
@@ -79,7 +79,7 @@ class VSICachedFile final : public VSIVirtualHandle
         m_poBase->AdviseRead(nRanges, panOffsets, panSizes);
     }
 
-    size_t Write(const void *pBuffer, size_t nSize, size_t nMemb) override;
+    size_t Write(const void *pBuffer, size_t nBytes) override;
     void ClearErr() override;
     int Eof() override;
     int Error() override;
@@ -104,7 +104,7 @@ class VSICachedFile final : public VSIVirtualHandle
 };
 
 /************************************************************************/
-/*                           GetCacheMax()                              */
+/*                            GetCacheMax()                             */
 /************************************************************************/
 
 static size_t GetCacheMax(size_t nCacheSize)
@@ -337,12 +337,12 @@ bool VSICachedFile::LoadBlocks(vsi_l_offset nStartBlock, size_t nBlockCount,
 /*                                Read()                                */
 /************************************************************************/
 
-size_t VSICachedFile::Read(void *pBuffer, size_t nSize, size_t nCount)
+size_t VSICachedFile::Read(void *pBuffer, size_t nBytes)
 
 {
-    if (nSize == 0 || nCount == 0)
+    if (nBytes == 0)
         return 0;
-    const size_t nRequestedBytes = nSize * nCount;
+    const size_t nRequestedBytes = nBytes;
 
     // nFileSize might be set wrongly to 0 by underlying layers, such as
     // /vsicurl_streaming/https://query.data.world/s/jgsghstpphjhicstradhy5kpjwrnfy
@@ -424,8 +424,8 @@ size_t VSICachedFile::Read(void *pBuffer, size_t nSize, size_t nCount)
 
     m_nOffset += nAmountCopied;
 
-    const size_t nRet = nAmountCopied / nSize;
-    if (nRet != nCount && !m_bError)
+    const size_t nRet = nAmountCopied;
+    if (nRet != nBytes && !m_bError)
         m_bEOF = true;
     return nRet;
 }
@@ -446,14 +446,13 @@ int VSICachedFile::ReadMultiRange(int const nRanges, void **const ppData,
 /*                               Write()                                */
 /************************************************************************/
 
-size_t VSICachedFile::Write(const void * /* pBuffer */, size_t /*nSize */,
-                            size_t /* nCount */)
+size_t VSICachedFile::Write(const void * /* pBuffer */, size_t /*nBytes */)
 {
     return 0;
 }
 
 /************************************************************************/
-/*                             ClearErr()                               */
+/*                              ClearErr()                              */
 /************************************************************************/
 
 void VSICachedFile::ClearErr()
@@ -465,7 +464,7 @@ void VSICachedFile::ClearErr()
 }
 
 /************************************************************************/
-/*                              Error()                                 */
+/*                               Error()                                */
 /************************************************************************/
 
 int VSICachedFile::Error()
@@ -514,7 +513,7 @@ class VSICachedFilesystemHandler final : public VSIFilesystemHandler
 };
 
 /************************************************************************/
-/*                               ParseSize()                            */
+/*                             ParseSize()                              */
 /************************************************************************/
 
 static bool ParseSize(const char *pszKey, const char *pszValue, size_t nMaxVal,
@@ -636,7 +635,7 @@ bool VSICachedFilesystemHandler::AnalyzeFilename(
 }
 
 /************************************************************************/
-/*                               Open()                                 */
+/*                                Open()                                */
 /************************************************************************/
 
 VSIVirtualHandleUniquePtr
@@ -668,7 +667,7 @@ VSICachedFilesystemHandler::Open(const char *pszFilename, const char *pszAccess,
 }
 
 /************************************************************************/
-/*                               Stat()                                 */
+/*                                Stat()                                */
 /************************************************************************/
 
 int VSICachedFilesystemHandler::Stat(const char *pszFilename,
@@ -684,7 +683,7 @@ int VSICachedFilesystemHandler::Stat(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                          ReadDirEx()                                 */
+/*                             ReadDirEx()                              */
 /************************************************************************/
 
 char **VSICachedFilesystemHandler::ReadDirEx(const char *pszDirname,
@@ -727,7 +726,7 @@ VSIVirtualHandle *VSICreateCachedFile(VSIVirtualHandle *poBaseHandle,
 }
 
 /************************************************************************/
-/*                   VSIInstallCachedFileHandler()                      */
+/*                    VSIInstallCachedFileHandler()                     */
 /************************************************************************/
 
 /*!
@@ -741,6 +740,6 @@ VSIVirtualHandle *VSICreateCachedFile(VSIVirtualHandle *poBaseHandle,
  */
 void VSIInstallCachedFileHandler(void)
 {
-    VSIFilesystemHandler *poHandler = new VSICachedFilesystemHandler;
-    VSIFileManager::InstallHandler("/vsicached?", poHandler);
+    VSIFileManager::InstallHandler(
+        "/vsicached?", std::make_shared<VSICachedFilesystemHandler>());
 }

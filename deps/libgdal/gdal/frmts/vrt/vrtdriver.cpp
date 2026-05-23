@@ -56,7 +56,7 @@ VRTDriver::~VRTDriver()
 }
 
 /************************************************************************/
-/*                      GetMetadataDomainList()                         */
+/*                       GetMetadataDomainList()                        */
 /************************************************************************/
 
 char **VRTDriver::GetMetadataDomainList()
@@ -69,7 +69,7 @@ char **VRTDriver::GetMetadataDomainList()
 /*                            GetMetadata()                             */
 /************************************************************************/
 
-char **VRTDriver::GetMetadata(const char *pszDomain)
+CSLConstList VRTDriver::GetMetadata(const char *pszDomain)
 
 {
     std::lock_guard oLock(m_oMutex);
@@ -83,7 +83,7 @@ char **VRTDriver::GetMetadata(const char *pszDomain)
 /*                            SetMetadata()                             */
 /************************************************************************/
 
-CPLErr VRTDriver::SetMetadata(char **papszMetadata, const char *pszDomain)
+CPLErr VRTDriver::SetMetadata(CSLConstList papszMetadata, const char *pszDomain)
 
 {
     std::lock_guard oLock(m_oMutex);
@@ -172,7 +172,7 @@ VRTSource *VRTDriver::ParseSource(const CPLXMLNode *psSrc,
 /************************************************************************/
 
 static GDALDataset *VRTCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
-                                  int /* bStrict */, char **papszOptions,
+                                  int /* bStrict */, CSLConstList papszOptions,
                                   GDALProgressFunc pfnProgress,
                                   void *pProgressData)
 {
@@ -280,7 +280,7 @@ static GDALDataset *VRTCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
     /* -------------------------------------------------------------------- */
     auto poVRTDS = VRTDataset::CreateVRTDataset(
         pszFilename, poSrcDS->GetRasterXSize(), poSrcDS->GetRasterYSize(), 0,
-        GDT_Byte, papszOptions);
+        GDT_UInt8, papszOptions);
     if (poVRTDS == nullptr)
         return nullptr;
 
@@ -322,7 +322,7 @@ static GDALDataset *VRTCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
         {
             if (!papszSrcMDD || CSLFindString(papszSrcMDD, pszDomain) >= 0)
             {
-                char **papszMD = poSrcDS->GetMetadata(pszDomain);
+                CSLConstList papszMD = poSrcDS->GetMetadata(pszDomain);
                 if (papszMD)
                     poVRTDS->SetMetadata(papszMD, pszDomain);
             }

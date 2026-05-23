@@ -24,7 +24,7 @@
 #endif
 
 /************************************************************************/
-/*          GDALRasterIndexAlgorithm::GDALRasterIndexAlgorithm()        */
+/*         GDALRasterIndexAlgorithm::GDALRasterIndexAlgorithm()         */
 /************************************************************************/
 
 GDALRasterIndexAlgorithm::GDALRasterIndexAlgorithm()
@@ -51,7 +51,7 @@ GDALRasterIndexAlgorithm::GDALRasterIndexAlgorithm()
 }
 
 /************************************************************************/
-/*          GDALRasterIndexAlgorithm::GDALRasterIndexAlgorithm()        */
+/*         GDALRasterIndexAlgorithm::GDALRasterIndexAlgorithm()         */
 /************************************************************************/
 
 GDALRasterIndexAlgorithm::GDALRasterIndexAlgorithm(
@@ -62,7 +62,7 @@ GDALRasterIndexAlgorithm::GDALRasterIndexAlgorithm(
 }
 
 /************************************************************************/
-/*              GDALRasterIndexAlgorithm::AddCommonOptions()            */
+/*             GDALRasterIndexAlgorithm::AddCommonOptions()             */
 /************************************************************************/
 
 void GDALRasterIndexAlgorithm::AddCommonOptions()
@@ -92,8 +92,9 @@ void GDALRasterIndexAlgorithm::AddCommonOptions()
         &m_writeAbsolutePaths,
         _("Whether the path to the input datasets should be stored as an "
           "absolute path"));
-    AddArg("dst-crs", 0, _("Destination CRS"), &m_crs)
+    AddArg(GDAL_ARG_NAME_OUTPUT_CRS, 0, _("Output CRS"), &m_crs)
         .SetIsCRSArg()
+        .AddHiddenAlias("dst-crs")
         .AddHiddenAlias("t_srs");
 
     {
@@ -108,10 +109,78 @@ void GDALRasterIndexAlgorithm::AddCommonOptions()
 
     AddArg("skip-errors", 0, _("Skip errors related to input datasets"),
            &m_skipErrors);
+    AddArg("profile", 0, _("Profile of output dataset"), &m_profile)
+        .SetDefault(m_profile)
+        .SetChoices(PROFILE_NONE, PROFILE_STAC_GEOPARQUET);
+    AddArg("base-url", 0, _("Base URL for STAC-GeoParquet href"), &m_baseUrl);
+    AddArg("id-method", 0, _("How to derive STAC-GeoParquet 'id'"), &m_idMethod)
+        .SetDefault(m_idMethod)
+        .SetChoices(ID_METHOD_FILENAME, ID_METHOD_MD5, ID_METHOD_METADATA_ITEM);
+    AddArg("id-metadata-item", 0,
+           _("Name of metadata item used to set STAC-GeoParquet 'id'"),
+           &m_idMetadataItem)
+        .SetDefault(m_idMetadataItem)
+        .AddValidationAction(
+            [this]()
+            {
+                m_idMethod = ID_METHOD_METADATA_ITEM;
+                return true;
+            });
+
+    AddValidationAction(
+        [this]()
+        {
+            if (m_profile == PROFILE_STAC_GEOPARQUET)
+            {
+                if (!m_outputFormat.empty() &&
+                    !EQUAL(m_outputFormat.c_str(), "Parquet"))
+                {
+                    ReportError(CE_Failure, CPLE_NotSupported,
+                                "STAC-GeoParquet profile is only compatible "
+                                "with Parquet output format");
+                    return false;
+                }
+                else if (m_outputFormat.empty() &&
+                         !EQUAL(CPLGetExtensionSafe(
+                                    m_outputDataset.GetName().c_str())
+                                    .c_str(),
+                                "parquet"))
+                {
+                    ReportError(CE_Failure, CPLE_NotSupported,
+                                "STAC-GeoParquet profile is only compatible "
+                                "with Parquet output format");
+                    return false;
+                }
+                m_outputFormat = "Parquet";
+
+                if (!m_crs.empty() && m_crs != "EPSG:4326")
+                {
+                    OGRSpatialReference oSRS;
+                    CPL_IGNORE_RET_VAL(oSRS.SetFromUserInput(m_crs.c_str()));
+                    const char *pszCelestialBodyName =
+                        oSRS.GetCelestialBodyName();
+                    // STAC-GeoParquet requires EPSG:4326, but let be nice
+                    // with planetary use cases and allow a non-Earth geographic CRS...
+                    if (!(pszCelestialBodyName &&
+                          !EQUAL(pszCelestialBodyName, "Earth") &&
+                          oSRS.IsGeographic()))
+                    {
+                        ReportError(
+                            CE_Failure, CPLE_NotSupported,
+                            "STAC-GeoParquet profile is only compatible "
+                            "with --output-crs=EPSG:4326");
+                        return false;
+                    }
+                }
+                if (m_crs.empty())
+                    m_crs = "EPSG:4326";
+            }
+            return true;
+        });
 }
 
 /************************************************************************/
-/*                   GDALRasterIndexAlgorithm::RunImpl()                */
+/*                 GDALRasterIndexAlgorithm::RunImpl()                  */
 /************************************************************************/
 
 bool GDALRasterIndexAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
@@ -120,13 +189,7 @@ bool GDALRasterIndexAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
     CPLStringList aosSources;
     for (auto &srcDS : m_inputDatasets)
     {
-        if (srcDS.GetDatasetRef())
-        {
-            ReportError(
-                CE_Failure, CPLE_IllegalArg,
-                "Input datasets must be provided by name, not as object");
-            return false;
-        }
+        CPLAssert(!srcDS.GetDatasetRef());
         aosSources.push_back(srcDS.GetName());
     }
 
@@ -139,6 +202,24 @@ bool GDALRasterIndexAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
 
     CPLStringList aosOptions;
     aosOptions.push_back("--invoked-from-gdal-raster-index");
+
+    if (m_profile != PROFILE_NONE)
+    {
+        aosOptions.push_back("-profile");
+        aosOptions.push_back(m_profile);
+
+        if (!m_baseUrl.empty())
+        {
+            aosOptions.push_back("--base-url");
+            aosOptions.push_back(m_baseUrl);
+        }
+
+        aosOptions.push_back("--id-metadata-item");
+        aosOptions.push_back(m_idMetadataItem);
+
+        aosOptions.push_back("--id-method");
+        aosOptions.push_back(m_idMethod);
+    }
 
     if (m_skipErrors)
     {

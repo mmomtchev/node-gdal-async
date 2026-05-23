@@ -97,7 +97,7 @@ static GDALDataset *OGRNGWDriverOpen(GDALOpenInfo *poOpenInfo)
 static GDALDataset *
 OGRNGWDriverCreate(const char *pszName, CPL_UNUSED int nBands,
                    CPL_UNUSED int nXSize, CPL_UNUSED int nYSize,
-                   CPL_UNUSED GDALDataType eDT, char **papszOptions)
+                   CPL_UNUSED GDALDataType eDT, CSLConstList papszOptions)
 
 {
     NGWAPI::Uri stUri = NGWAPI::ParseUri(pszName);
@@ -238,7 +238,7 @@ static CPLErr OGRNGWDriverRename(const char *pszNewName, const char *pszOldName)
  */
 static GDALDataset *OGRNGWDriverCreateCopy(const char *pszFilename,
                                            GDALDataset *poSrcDS, int bStrict,
-                                           char **papszOptions,
+                                           CSLConstList papszOptions,
                                            GDALProgressFunc pfnProgress,
                                            void *pProgressData)
 {
@@ -398,7 +398,7 @@ static GDALDataset *OGRNGWDriverCreateCopy(const char *pszFilename,
     bool bCreateStyle = true;
     if (osQMLPath.empty())
     {
-        if ((nBands == 3 || nBands == 4) && nDataType == GDT_Byte)
+        if ((nBands == 3 || nBands == 4) && nDataType == GDT_UInt8)
         {
             oResourceStyle.Add("cls", "raster_style");
         }

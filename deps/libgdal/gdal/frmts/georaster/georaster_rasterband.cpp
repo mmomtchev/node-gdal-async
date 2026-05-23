@@ -13,6 +13,7 @@
 
 #include "gdal_priv.h"
 
+#include <algorithm>
 #include <string.h>
 
 #include "georaster_priv.h"
@@ -276,7 +277,7 @@ GDALColorInterp GeoRasterRasterBand::GetColorInterpretation()
 {
     GeoRasterDataset *poGDS = cpl::down_cast<GeoRasterDataset *>(poDS);
 
-    if (eDataType == GDT_Byte && poGDS->nBands > 2)
+    if (eDataType == GDT_UInt8 && poGDS->nBands > 2)
     {
         if (nBand == poGeoRaster->iDefaultRedBand)
         {
@@ -830,7 +831,7 @@ GDALRasterAttributeTable *GeoRasterRasterBand::GetDefaultRAT()
                 continue;
         }
         osColumnList +=
-            CPLSPrintf("substr(%s,1,%d),", szField, MIN(nSize, OWNAME));
+            CPLSPrintf("substr(%s,1,%d),", szField, std::min(nSize, OWNAME));
 
         iCol++;
     }
@@ -964,7 +965,7 @@ void GeoRasterRasterBand::ApplyNoDataArray(void *pBuffer) const
 
     switch (eDataType)
     {
-        case GDT_Byte:
+        case GDT_UInt8:
         {
             GByte *pbBuffer = (GByte *)pBuffer;
 

@@ -26,7 +26,7 @@ OGRAbstractProxiedLayer::OGRAbstractProxiedLayer(OGRLayerPool *poPoolIn)
 }
 
 /************************************************************************/
-/*                     ~OGRAbstractProxiedLayer()                       */
+/*                      ~OGRAbstractProxiedLayer()                      */
 /************************************************************************/
 
 OGRAbstractProxiedLayer::~OGRAbstractProxiedLayer()
@@ -100,7 +100,7 @@ void OGRLayerPool::SetLastUsedLayer(OGRAbstractProxiedLayer *poLayer)
 }
 
 /************************************************************************/
-/*                           UnchainLayer()                             */
+/*                            UnchainLayer()                            */
 /************************************************************************/
 
 void OGRLayerPool::UnchainLayer(OGRAbstractProxiedLayer *poLayer)
@@ -166,7 +166,7 @@ OGRProxiedLayer::OGRProxiedLayer(OGRLayerPool *poPoolIn,
 }
 
 /************************************************************************/
-/*                         ~OGRProxiedLayer()                           */
+/*                          ~OGRProxiedLayer()                          */
 /************************************************************************/
 
 OGRProxiedLayer::~OGRProxiedLayer()
@@ -184,7 +184,7 @@ OGRProxiedLayer::~OGRProxiedLayer()
 }
 
 /************************************************************************/
-/*                       OpenUnderlyingLayer()                          */
+/*                        OpenUnderlyingLayer()                         */
 /************************************************************************/
 
 int OGRProxiedLayer::OpenUnderlyingLayer() const
@@ -204,7 +204,7 @@ int OGRProxiedLayer::OpenUnderlyingLayer() const
 }
 
 /************************************************************************/
-/*                         CloseUnderlyingLayer()                       */
+/*                        CloseUnderlyingLayer()                        */
 /************************************************************************/
 
 void OGRProxiedLayer::CloseUnderlyingLayer()
@@ -218,7 +218,7 @@ void OGRProxiedLayer::CloseUnderlyingLayer()
 }
 
 /************************************************************************/
-/*                          GetUnderlyingLayer()                        */
+/*                         GetUnderlyingLayer()                         */
 /************************************************************************/
 
 OGRLayer *OGRProxiedLayer::GetUnderlyingLayer()
@@ -256,7 +256,7 @@ OGRErr OGRProxiedLayer::ISetSpatialFilter(int iGeomField,
 }
 
 /************************************************************************/
-/*                          SetAttributeFilter()                        */
+/*                         SetAttributeFilter()                         */
 /************************************************************************/
 
 OGRErr OGRProxiedLayer::SetAttributeFilter(const char *poAttrFilter)
@@ -300,7 +300,7 @@ GDALDataset *OGRProxiedLayer::GetDataset()
 }
 
 /************************************************************************/
-/*                          GetArrowStream()                            */
+/*                           GetArrowStream()                           */
 /************************************************************************/
 
 bool OGRProxiedLayer::GetArrowStream(struct ArrowArrayStream *out_stream,
@@ -337,7 +337,7 @@ OGRFeature *OGRProxiedLayer::GetFeature(GIntBig nFID)
 }
 
 /************************************************************************/
-/*                             ISetFeature()                             */
+/*                            ISetFeature()                             */
 /************************************************************************/
 
 OGRErr OGRProxiedLayer::ISetFeature(OGRFeature *poFeature)
@@ -348,7 +348,19 @@ OGRErr OGRProxiedLayer::ISetFeature(OGRFeature *poFeature)
 }
 
 /************************************************************************/
-/*                            ICreateFeature()                           */
+/*                         ISetFeatureUniqPtr()                         */
+/************************************************************************/
+
+OGRErr
+OGRProxiedLayer::ISetFeatureUniqPtr(std::unique_ptr<OGRFeature> poFeature)
+{
+    if (poUnderlyingLayer == nullptr && !OpenUnderlyingLayer())
+        return OGRERR_FAILURE;
+    return poUnderlyingLayer->SetFeature(std::move(poFeature));
+}
+
+/************************************************************************/
+/*                           ICreateFeature()                           */
 /************************************************************************/
 
 OGRErr OGRProxiedLayer::ICreateFeature(OGRFeature *poFeature)
@@ -359,7 +371,20 @@ OGRErr OGRProxiedLayer::ICreateFeature(OGRFeature *poFeature)
 }
 
 /************************************************************************/
-/*                            IUpsertFeature()                          */
+/*                       ICreateFeatureUniqPtr()                        */
+/************************************************************************/
+
+OGRErr
+OGRProxiedLayer::ICreateFeatureUniqPtr(std::unique_ptr<OGRFeature> poFeature,
+                                       GIntBig *pnFID)
+{
+    if (poUnderlyingLayer == nullptr && !OpenUnderlyingLayer())
+        return OGRERR_FAILURE;
+    return poUnderlyingLayer->CreateFeature(std::move(poFeature), pnFID);
+}
+
+/************************************************************************/
+/*                           IUpsertFeature()                           */
 /************************************************************************/
 
 OGRErr OGRProxiedLayer::IUpsertFeature(OGRFeature *poFeature)
@@ -370,7 +395,7 @@ OGRErr OGRProxiedLayer::IUpsertFeature(OGRFeature *poFeature)
 }
 
 /************************************************************************/
-/*                            IUpdateFeature()                          */
+/*                           IUpdateFeature()                           */
 /************************************************************************/
 
 OGRErr OGRProxiedLayer::IUpdateFeature(OGRFeature *poFeature,
@@ -399,7 +424,7 @@ OGRErr OGRProxiedLayer::DeleteFeature(GIntBig nFID)
 }
 
 /************************************************************************/
-/*                             GetName()                                */
+/*                              GetName()                               */
 /************************************************************************/
 
 const char *OGRProxiedLayer::GetName() const
@@ -445,7 +470,7 @@ const OGRFeatureDefn *OGRProxiedLayer::GetLayerDefn() const
 }
 
 /************************************************************************/
-/*                            GetSpatialRef()                           */
+/*                           GetSpatialRef()                            */
 /************************************************************************/
 
 const OGRSpatialReference *OGRProxiedLayer::GetSpatialRef() const
@@ -477,7 +502,7 @@ GIntBig OGRProxiedLayer::GetFeatureCount(int bForce)
 }
 
 /************************************************************************/
-/*                            IGetExtent()                              */
+/*                             IGetExtent()                             */
 /************************************************************************/
 
 OGRErr OGRProxiedLayer::IGetExtent(int iGeomField, OGREnvelope *psExtent,
@@ -522,7 +547,7 @@ OGRErr OGRProxiedLayer::DeleteField(int iField)
 }
 
 /************************************************************************/
-/*                            ReorderFields()                           */
+/*                           ReorderFields()                            */
 /************************************************************************/
 
 OGRErr OGRProxiedLayer::ReorderFields(int *panMap)
@@ -558,7 +583,7 @@ OGRErr OGRProxiedLayer::AlterGeomFieldDefn(
 }
 
 /************************************************************************/
-/*                            SyncToDisk()                              */
+/*                             SyncToDisk()                             */
 /************************************************************************/
 
 OGRErr OGRProxiedLayer::SyncToDisk()
@@ -613,7 +638,7 @@ OGRErr OGRProxiedLayer::StartTransaction()
 }
 
 /************************************************************************/
-/*                          CommitTransaction()                         */
+/*                         CommitTransaction()                          */
 /************************************************************************/
 
 OGRErr OGRProxiedLayer::CommitTransaction()
@@ -646,7 +671,7 @@ const char *OGRProxiedLayer::GetFIDColumn() const
 }
 
 /************************************************************************/
-/*                          GetGeometryColumn()                         */
+/*                         GetGeometryColumn()                          */
 /************************************************************************/
 
 const char *OGRProxiedLayer::GetGeometryColumn() const
@@ -668,7 +693,7 @@ OGRErr OGRProxiedLayer::SetIgnoredFields(CSLConstList papszFields)
 }
 
 /************************************************************************/
-/*                              Rename()                                */
+/*                               Rename()                               */
 /************************************************************************/
 
 OGRErr OGRProxiedLayer::Rename(const char *pszNewName)

@@ -496,7 +496,7 @@ static void SetAlphaMax(GDALWarpOptions *psOptions, GDALRasterBandH hBand,
 }
 
 /************************************************************************/
-/*                            SetTieStrategy()                          */
+/*                           SetTieStrategy()                           */
 /************************************************************************/
 
 static void SetTieStrategy(GDALWarpOptions *psOptions, CPLErr *peErr)
@@ -723,6 +723,21 @@ GDALWarpOperation::Initialize(const GDALWarpOptions *psNewOptions,
         }
     }
 
+    if (eErr == CE_None && psOptions->hDstDS &&
+        CPLTestBool(CSLFetchNameValueDef(psOptions->papszWarpOptions,
+                                         "RESET_DEST_PIXELS", "NO")))
+    {
+        for (int i = 0; eErr == CE_None && i < psOptions->nBandCount; ++i)
+        {
+            eErr = GDALFillRaster(
+                GDALGetRasterBand(psOptions->hDstDS, psOptions->panDstBands[i]),
+                psOptions->padfDstNoDataReal ? psOptions->padfDstNoDataReal[i]
+                                             : 0.0,
+                psOptions->padfDstNoDataImag ? psOptions->padfDstNoDataImag[i]
+                                             : 0.0);
+        }
+    }
+
     return eErr;
 }
 
@@ -830,12 +845,9 @@ CPLErr GDALWarpOperation::InitializeDestinationBuffer(void *pDstBuffer,
         {
             if (psOptions->padfDstNoDataReal == nullptr)
             {
-                // TODO: Change to CE_Failure and error out for GDAL 3.13
-                // See https://github.com/OSGeo/gdal/pull/12189
-                CPLError(CE_Warning, CPLE_AppDefined,
+                CPLError(CE_Failure, CPLE_AppDefined,
                          "INIT_DEST was set to NO_DATA, but a NoData value was "
-                         "not defined. This warning will become a failure in a "
-                         "future GDAL release.");
+                         "not defined.");
             }
             else
             {
@@ -859,7 +871,7 @@ CPLErr GDALWarpOperation::InitializeDestinationBuffer(void *pDstBuffer,
 
         GByte *pBandData = static_cast<GByte *>(pDstBuffer) + iBand * nBandSize;
 
-        if (psOptions->eWorkingDataType == GDT_Byte)
+        if (psOptions->eWorkingDataType == GDT_UInt8)
         {
             memset(pBandData,
                    std::max(
@@ -903,7 +915,7 @@ void GDALWarpOperation::DestroyDestinationBuffer(void *pDstBuffer)
 }
 
 /************************************************************************/
-/*                         GDALCreateWarpOperation()                    */
+/*                      GDALCreateWarpOperation()                       */
 /************************************************************************/
 
 /**
@@ -923,7 +935,7 @@ GDALWarpOperationH GDALCreateWarpOperation(const GDALWarpOptions *psNewOptions)
 }
 
 /************************************************************************/
-/*                         GDALDestroyWarpOperation()                   */
+/*                      GDALDestroyWarpOperation()                      */
 /************************************************************************/
 
 /**
@@ -1089,7 +1101,7 @@ CPLErr GDALWarpOperation::ChunkAndWarpImage(int nDstXOff, int nDstYOff,
 }
 
 /************************************************************************/
-/*                         GDALChunkAndWarpImage()                      */
+/*                       GDALChunkAndWarpImage()                        */
 /************************************************************************/
 
 /**
@@ -1339,7 +1351,7 @@ CPLErr GDALWarpOperation::ChunkAndWarpMulti(int nDstXOff, int nDstYOff,
 }
 
 /************************************************************************/
-/*                         GDALChunkAndWarpMulti()                      */
+/*                       GDALChunkAndWarpMulti()                        */
 /************************************************************************/
 
 /**
@@ -1369,7 +1381,7 @@ void GDALWarpOperation::WipeChunkList()
 }
 
 /************************************************************************/
-/*                       GetWorkingMemoryForWindow()                    */
+/*                     GetWorkingMemoryForWindow()                      */
 /************************************************************************/
 
 /** Returns the amount of working memory, in bytes, required to process
@@ -1435,7 +1447,7 @@ double GDALWarpOperation::GetWorkingMemoryForWindow(int nSrcXSize,
 }
 
 /************************************************************************/
-/*                       CollectChunkListInternal()                     */
+/*                      CollectChunkListInternal()                      */
 /************************************************************************/
 
 CPLErr GDALWarpOperation::CollectChunkListInternal(int nDstXOff, int nDstYOff,
@@ -1821,7 +1833,7 @@ CPLErr GDALWarpOperation::WarpRegion(
 }
 
 /************************************************************************/
-/*                             GDALWarpRegion()                         */
+/*                           GDALWarpRegion()                           */
 /************************************************************************/
 
 /**
@@ -1841,7 +1853,7 @@ CPLErr GDALWarpRegion(GDALWarpOperationH hOperation, int nDstXOff, int nDstYOff,
 }
 
 /************************************************************************/
-/*                            WarpRegionToBuffer()                      */
+/*                         WarpRegionToBuffer()                         */
 /************************************************************************/
 
 /**
@@ -2459,7 +2471,7 @@ CPLErr GDALWarpOperation::WarpRegionToBuffer(
 }
 
 /************************************************************************/
-/*                            GDALWarpRegionToBuffer()                  */
+/*                       GDALWarpRegionToBuffer()                       */
 /************************************************************************/
 
 /**
@@ -2733,7 +2745,7 @@ void GDALWarpOperation::ComputeSourceWindowStartingFromSource(
 }
 
 /************************************************************************/
-/*                    ComputeSourceWindowTransformPoints()              */
+/*                 ComputeSourceWindowTransformPoints()                 */
 /************************************************************************/
 
 bool GDALWarpOperation::ComputeSourceWindowTransformPoints(

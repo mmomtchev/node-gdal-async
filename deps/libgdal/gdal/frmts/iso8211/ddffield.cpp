@@ -28,7 +28,7 @@
 /*                             Initialize()                             */
 /************************************************************************/
 
-void DDFField::Initialize(DDFFieldDefn *poDefnIn, const char *pachDataIn,
+void DDFField::Initialize(const DDFFieldDefn *poDefnIn, const char *pachDataIn,
                           int nDataSizeIn)
 
 {
@@ -51,7 +51,7 @@ void DDFField::Initialize(DDFFieldDefn *poDefnIn, const char *pachDataIn,
  * @param fp The standard IO file handle to write to.  i.e. stderr
  */
 
-void DDFField::Dump(FILE *fp)
+void DDFField::Dump(FILE *fp) const
 
 {
     int nMaxRepeat = 8;
@@ -68,7 +68,8 @@ void DDFField::Dump(FILE *fp)
     for (int i = 0; i < std::min(nDataSize, 40); i++)
     {
         if (pachData[i] < 32 || pachData[i] > 126)
-            fprintf(fp, "\\%02X", ((unsigned char *)pachData)[i]);
+            fprintf(fp, "\\%02X",
+                    reinterpret_cast<const unsigned char *>(pachData)[i]);
         else
             fprintf(fp, "%c", pachData[i]);
     }
@@ -90,14 +91,13 @@ void DDFField::Dump(FILE *fp)
             break;
         }
 
-        for (int i = 0; i < poDefn->GetSubfieldCount(); i++)
+        for (const auto &poThisSFDefn : poDefn->GetSubfields())
         {
-            poDefn->GetSubfield(i)->DumpData(pachData + iOffset,
-                                             nDataSize - iOffset, fp);
+            poThisSFDefn->DumpData(pachData + iOffset, nDataSize - iOffset, fp);
 
             int nBytesConsumed = 0;
-            poDefn->GetSubfield(i)->GetDataLength(
-                pachData + iOffset, nDataSize - iOffset, &nBytesConsumed);
+            poThisSFDefn->GetDataLength(pachData + iOffset, nDataSize - iOffset,
+                                        &nBytesConsumed);
 
             iOffset += nBytesConsumed;
         }
@@ -147,10 +147,8 @@ const char *DDFField::GetSubfieldData(const DDFSubfieldDefn *poSFDefn,
 
     while (iSubfieldIndex >= 0)
     {
-        for (int iSF = 0; iSF < poDefn->GetSubfieldCount(); iSF++)
+        for (const auto &poThisSFDefn : poDefn->GetSubfields())
         {
-            const DDFSubfieldDefn *poThisSFDefn = poDefn->GetSubfield(iSF);
-
             if (nDataSize <= iOffset)
             {
                 CPLError(CE_Failure, CPLE_AppDefined,
@@ -159,7 +157,7 @@ const char *DDFField::GetSubfieldData(const DDFSubfieldDefn *poSFDefn,
                 return nullptr;
             }
 
-            if (poThisSFDefn == poSFDefn && iSubfieldIndex == 0)
+            if (poThisSFDefn.get() == poSFDefn && iSubfieldIndex == 0)
             {
                 if (pnMaxBytes != nullptr)
                     *pnMaxBytes = nDataSize - iOffset;
@@ -225,10 +223,8 @@ int DDFField::GetRepeatCount() const
     while (true)
     {
         const int iOffsetBefore = iOffset;
-        for (int iSF = 0; iSF < poDefn->GetSubfieldCount(); iSF++)
+        for (const auto &poThisSFDefn : poDefn->GetSubfields())
         {
-            const DDFSubfieldDefn *poThisSFDefn = poDefn->GetSubfield(iSF);
-
             int nBytesConsumed = 0;
             if (poThisSFDefn->GetWidth() > nDataSize - iOffset)
                 nBytesConsumed = poThisSFDefn->GetWidth();
@@ -298,7 +294,8 @@ const char *DDFField::GetInstanceData(int nInstance, int *pnInstanceSize)
     /* -------------------------------------------------------------------- */
     int nBytesRemaining1 = 0;
     int nBytesRemaining2 = 0;
-    const DDFSubfieldDefn *poFirstSubfield = poDefn->GetSubfield(0);
+    const DDFSubfieldDefn *poFirstSubfield =
+        poDefn->GetSubfields().front().get();
 
     const char *pachWrkData =
         GetSubfieldData(poFirstSubfield, &nBytesRemaining1, nInstance);
@@ -312,7 +309,7 @@ const char *DDFField::GetInstanceData(int nInstance, int *pnInstanceSize)
     if (pnInstanceSize != nullptr)
     {
         const DDFSubfieldDefn *poLastSubfield =
-            poDefn->GetSubfield(poDefn->GetSubfieldCount() - 1);
+            poDefn->GetSubfields().back().get();
 
         const char *pachLastData =
             GetSubfieldData(poLastSubfield, &nBytesRemaining2, nInstance);

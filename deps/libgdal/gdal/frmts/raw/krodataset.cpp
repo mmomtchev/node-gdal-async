@@ -32,7 +32,7 @@ class KRODataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(KRODataset)
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
   public:
     KRODataset() = default;
@@ -41,7 +41,7 @@ class KRODataset final : public RawDataset
     static GDALDataset *Open(GDALOpenInfo *);
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
                                int nBandsIn, GDALDataType eType,
-                               char **papszOptions);
+                               CSLConstList papszOptions);
     static int Identify(GDALOpenInfo *);
 };
 
@@ -52,7 +52,7 @@ class KRODataset final : public RawDataset
 /************************************************************************/
 
 /************************************************************************/
-/*                             ~KRODataset()                            */
+/*                            ~KRODataset()                             */
 /************************************************************************/
 
 KRODataset::~KRODataset()
@@ -62,10 +62,10 @@ KRODataset::~KRODataset()
 }
 
 /************************************************************************/
-/*                              Close()                                 */
+/*                               Close()                                */
 /************************************************************************/
 
-CPLErr KRODataset::Close()
+CPLErr KRODataset::Close(GDALProgressFunc, void *)
 {
     CPLErr eErr = CE_None;
     if (nOpenFlags != OPEN_FLAGS_CLOSED)
@@ -156,7 +156,7 @@ GDALDataset *KRODataset::Open(GDALOpenInfo *poOpenInfo)
     GDALDataType eDT = GDT_Unknown;
     if (nDepth == 8)
     {
-        eDT = GDT_Byte;
+        eDT = GDT_UInt8;
     }
     else if (nDepth == 16)
     {
@@ -236,9 +236,9 @@ GDALDataset *KRODataset::Open(GDALOpenInfo *poOpenInfo)
 
 GDALDataset *KRODataset::Create(const char *pszFilename, int nXSize, int nYSize,
                                 int nBandsIn, GDALDataType eType,
-                                char ** /* papszOptions */)
+                                CSLConstList /* papszOptions */)
 {
-    if (eType != GDT_Byte && eType != GDT_UInt16 && eType != GDT_Float32)
+    if (eType != GDT_UInt8 && eType != GDT_UInt16 && eType != GDT_Float32)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Attempt to create KRO file with unsupported data type '%s'.",
@@ -307,7 +307,7 @@ GDALDataset *KRODataset::Create(const char *pszFilename, int nXSize, int nYSize,
 }
 
 /************************************************************************/
-/*                         GDALRegister_KRO()                           */
+/*                          GDALRegister_KRO()                          */
 /************************************************************************/
 
 void GDALRegister_KRO()

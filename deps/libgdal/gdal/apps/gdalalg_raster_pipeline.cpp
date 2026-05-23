@@ -11,6 +11,7 @@
  ****************************************************************************/
 
 #include "gdalalg_raster_pipeline.h"
+#include "gdalalg_external.h"
 #include "gdalalg_materialize.h"
 #include "gdalalg_raster_read.h"
 #include "gdalalg_raster_calc.h"
@@ -19,6 +20,7 @@
 #include "gdalalg_raster_clip.h"
 #include "gdalalg_raster_color_map.h"
 #include "gdalalg_raster_compare.h"
+#include "gdalalg_raster_create.h"
 #include "gdalalg_raster_edit.h"
 #include "gdalalg_raster_fill_nodata.h"
 #include "gdalalg_raster_hillshade.h"
@@ -45,6 +47,7 @@
 #include "gdalalg_raster_tpi.h"
 #include "gdalalg_raster_tri.h"
 #include "gdalalg_raster_unscale.h"
+#include "gdalalg_raster_update.h"
 #include "gdalalg_raster_viewshed.h"
 #include "gdalalg_tee.h"
 
@@ -109,7 +112,7 @@ GDALRasterPipelineStepAlgorithm::GDALRasterPipelineStepAlgorithm(
 GDALRasterPipelineStepAlgorithm::~GDALRasterPipelineStepAlgorithm() = default;
 
 /************************************************************************/
-/*        GDALRasterPipelineStepAlgorithm::SetOutputVRTCompatible()     */
+/*      GDALRasterPipelineStepAlgorithm::SetOutputVRTCompatible()       */
 /************************************************************************/
 
 void GDALRasterPipelineStepAlgorithm::SetOutputVRTCompatible(bool b)
@@ -123,7 +126,7 @@ void GDALRasterPipelineStepAlgorithm::SetOutputVRTCompatible(bool b)
 }
 
 /************************************************************************/
-/*        GDALRasterPipelineAlgorithm::GDALRasterPipelineAlgorithm()    */
+/*      GDALRasterPipelineAlgorithm::GDALRasterPipelineAlgorithm()      */
 /************************************************************************/
 
 GDALRasterPipelineAlgorithm::GDALRasterPipelineAlgorithm(
@@ -131,6 +134,8 @@ GDALRasterPipelineAlgorithm::GDALRasterPipelineAlgorithm(
     : GDALAbstractPipelineAlgorithm(NAME, DESCRIPTION, HELP_URL,
                                     ConstructorOptions()
                                         .SetAddDefaultArguments(false)
+                                        .SetInputDatasetRequired(false)
+                                        .SetInputDatasetPositional(false)
                                         .SetInputDatasetMaxCount(INT_MAX))
 {
     m_supportsStreamedOutput = true;
@@ -149,7 +154,7 @@ GDALRasterPipelineAlgorithm::GDALRasterPipelineAlgorithm(
 }
 
 /************************************************************************/
-/*       GDALRasterPipelineAlgorithm::RegisterAlgorithms()              */
+/*          GDALRasterPipelineAlgorithm::RegisterAlgorithms()           */
 /************************************************************************/
 
 /* static */
@@ -169,6 +174,7 @@ void GDALRasterPipelineAlgorithm::RegisterAlgorithms(
         addSuffixIfNeeded(GDALRasterReadAlgorithm::NAME));
 
     registry.Register<GDALRasterCalcAlgorithm>();
+    registry.Register<GDALRasterCreateAlgorithm>();
 
     registry.Register<GDALRasterNeighborsAlgorithm>();
 
@@ -222,9 +228,16 @@ void GDALRasterPipelineAlgorithm::RegisterAlgorithms(
     registry.Register<GDALRasterTPIAlgorithm>();
     registry.Register<GDALRasterTRIAlgorithm>();
     registry.Register<GDALRasterUnscaleAlgorithm>();
+    registry.Register<GDALRasterUpdateAlgorithm>(
+        addSuffixIfNeeded(GDALRasterUpdateAlgorithm::NAME));
     registry.Register<GDALRasterViewshedAlgorithm>();
     registry.Register<GDALTeeRasterAlgorithm>(
         addSuffixIfNeeded(GDALTeeRasterAlgorithm::NAME));
+
+    if (!forMixedPipeline)
+    {
+        registry.Register<GDALExternalRasterAlgorithm>();
+    }
 }
 
 /************************************************************************/
@@ -341,7 +354,7 @@ std::string GDALRasterPipelineAlgorithm::GetUsageForCLI(
 }
 
 /************************************************************************/
-/*           GDALRasterPipelineNonNativelyStreamingAlgorithm()          */
+/*          GDALRasterPipelineNonNativelyStreamingAlgorithm()           */
 /************************************************************************/
 
 GDALRasterPipelineNonNativelyStreamingAlgorithm::
@@ -354,7 +367,7 @@ GDALRasterPipelineNonNativelyStreamingAlgorithm::
 }
 
 /************************************************************************/
-/*                    IsNativelyStreamingCompatible()                   */
+/*                   IsNativelyStreamingCompatible()                    */
 /************************************************************************/
 
 bool GDALRasterPipelineNonNativelyStreamingAlgorithm::
@@ -364,7 +377,7 @@ bool GDALRasterPipelineNonNativelyStreamingAlgorithm::
 }
 
 /************************************************************************/
-/*                     MustCreateOnDiskTempDataset()                    */
+/*                    MustCreateOnDiskTempDataset()                     */
 /************************************************************************/
 
 static bool MustCreateOnDiskTempDataset(int nWidth, int nHeight, int nBands,
@@ -385,7 +398,7 @@ static bool MustCreateOnDiskTempDataset(int nWidth, int nHeight, int nBands,
 }
 
 /************************************************************************/
-/*                      CreateTemporaryDataset()                        */
+/*                       CreateTemporaryDataset()                       */
 /************************************************************************/
 
 std::unique_ptr<GDALDataset>
@@ -459,7 +472,7 @@ GDALRasterPipelineNonNativelyStreamingAlgorithm::CreateTemporaryDataset(
 }
 
 /************************************************************************/
-/*                       CreateTemporaryCopy()                          */
+/*                        CreateTemporaryCopy()                         */
 /************************************************************************/
 
 std::unique_ptr<GDALDataset>

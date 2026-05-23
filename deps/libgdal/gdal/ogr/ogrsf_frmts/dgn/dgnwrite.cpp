@@ -88,24 +88,26 @@ int DGNResizeElement(DGNHandle hDGN, DGNElemCore *psElement, int nNewSize)
         vsi_l_offset nOldFLoc = VSIFTellL(psDGN->fp);
         unsigned char abyLeader[2];
 
-        if (VSIFSeekL(psDGN->fp, psElement->offset, SEEK_SET) != 0 ||
+        if (VSIFSeekL(psDGN->fp, vsi_l_offset(psElement->offset), SEEK_SET) !=
+                0 ||
             VSIFReadL(abyLeader, sizeof(abyLeader), 1, psDGN->fp) != 1)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
                      "Failed seek or read when trying to mark existing\n"
-                     "element as deleted in DGNResizeElement()\n");
+                     "element as deleted in DGNResizeElement()");
             return FALSE;
         }
 
         abyLeader[1] |= 0x80;
 
-        if (VSIFSeekL(psDGN->fp, psElement->offset, SEEK_SET) != 0 ||
+        if (VSIFSeekL(psDGN->fp, vsi_l_offset(psElement->offset), SEEK_SET) !=
+                0 ||
             VSIFWriteL(abyLeader, sizeof(abyLeader), 1, psDGN->fp) != 1 ||
             VSIFSeekL(psDGN->fp, nOldFLoc, SEEK_SET) != 0)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
                      "Failed seek or write when trying to mark existing\n"
-                     "element as deleted in DGNResizeElement()\n");
+                     "element as deleted in DGNResizeElement()");
             return FALSE;
         }
 
@@ -219,7 +221,7 @@ int DGNWriteElement(DGNHandle hDGN, DGNElemCore *psElement)
     /* -------------------------------------------------------------------- */
     /*      Write out the element.                                          */
     /* -------------------------------------------------------------------- */
-    if (VSIFSeekL(psDGN->fp, psElement->offset, SEEK_SET) != 0 ||
+    if (VSIFSeekL(psDGN->fp, vsi_l_offset(psElement->offset), SEEK_SET) != 0 ||
         VSIFWriteL(psElement->raw_data, psElement->raw_bytes, 1, psDGN->fp) !=
             1)
     {
@@ -763,7 +765,7 @@ int DGNUpdateElemCoreExtended(CPL_UNUSED DGNHandle hDGN, DGNElemCore *psElement)
 }
 
 /************************************************************************/
-/*                         DGNInitializeElemCore()                      */
+/*                       DGNInitializeElemCore()                        */
 /************************************************************************/
 
 static void DGNInitializeElemCore(CPL_UNUSED DGNHandle hDGN,
@@ -1162,7 +1164,7 @@ DGNElemCore *DGNCreateArcElem(DGNHandle hDGN, int nType, double dfOriginX,
 }
 
 /************************************************************************/
-/*                          DGNCreateConeElem()                         */
+/*                         DGNCreateConeElem()                          */
 /************************************************************************/
 
 /**
@@ -1719,7 +1721,7 @@ DGNElemCore *DGNCreateComplexHeaderFromGroup(DGNHandle hDGN, int nType,
 }
 
 /************************************************************************/
-/*                     DGNCreateSolidHeaderElem()                       */
+/*                      DGNCreateSolidHeaderElem()                      */
 /************************************************************************/
 
 /**
@@ -1801,7 +1803,7 @@ DGNElemCore *DGNCreateSolidHeaderElem(DGNHandle hDGN, int nType, int nSurfType,
 }
 
 /************************************************************************/
-/*                  DGNCreateSolidHeaderFromGroup()                     */
+/*                   DGNCreateSolidHeaderFromGroup()                    */
 /************************************************************************/
 
 /**

@@ -85,7 +85,7 @@ void VSICurlStreamingClearCache(void)
     CPL_IGNORE_RET_VAL(curl_easy_setopt(handle, opt, param))
 
 /************************************************************************/
-/*                               RingBuffer                             */
+/*                              RingBuffer                              */
 /************************************************************************/
 
 class RingBuffer
@@ -184,7 +184,7 @@ namespace cpl
 {
 
 /************************************************************************/
-/*                       VSICurlStreamingFSHandler                      */
+/*                      VSICurlStreamingFSHandler                       */
 /************************************************************************/
 
 class VSICurlStreamingHandle;
@@ -339,8 +339,8 @@ class VSICurlStreamingHandle : public VSIVirtualHandle
 
     int Seek(vsi_l_offset nOffset, int nWhence) override;
     vsi_l_offset Tell() override;
-    size_t Read(void *pBuffer, size_t nSize, size_t nMemb) override;
-    size_t Write(const void *pBuffer, size_t nSize, size_t nMemb) override;
+    size_t Read(void *pBuffer, size_t nBytes) override;
+    size_t Write(const void *pBuffer, size_t nBytes) override;
     void ClearErr() override;
     int Error() override;
     int Eof() override;
@@ -397,7 +397,7 @@ VSICurlStreamingHandle::VSICurlStreamingHandle(VSICurlStreamingFSHandler *poFS,
 }
 
 /************************************************************************/
-/*                       ~VSICurlStreamingHandle()                      */
+/*                      ~VSICurlStreamingHandle()                       */
 /************************************************************************/
 
 VSICurlStreamingHandle::~VSICurlStreamingHandle()
@@ -416,7 +416,7 @@ VSICurlStreamingHandle::~VSICurlStreamingHandle()
 }
 
 /************************************************************************/
-/*                            SetURL()                                  */
+/*                               SetURL()                               */
 /************************************************************************/
 
 void VSICurlStreamingHandle::SetURL(const char *pszURLIn)
@@ -426,7 +426,7 @@ void VSICurlStreamingHandle::SetURL(const char *pszURLIn)
 }
 
 /************************************************************************/
-/*                         AcquireMutex()                               */
+/*                            AcquireMutex()                            */
 /************************************************************************/
 
 void VSICurlStreamingHandle::AcquireMutex()
@@ -435,7 +435,7 @@ void VSICurlStreamingHandle::AcquireMutex()
 }
 
 /************************************************************************/
-/*                          ReleaseMutex()                              */
+/*                            ReleaseMutex()                            */
 /************************************************************************/
 
 void VSICurlStreamingHandle::ReleaseMutex()
@@ -481,7 +481,7 @@ int VSICurlStreamingHandle::Seek(vsi_l_offset nOffset, int nWhence)
 }
 
 /************************************************************************/
-/*                  VSICURLStreamingInitWriteFuncStructStreaming() */
+/*            VSICURLStreamingInitWriteFuncStructStreaming()            */
 /************************************************************************/
 
 static void
@@ -496,7 +496,7 @@ VSICURLStreamingInitWriteFuncStructStreaming(WriteFuncStructStreaming *psStruct)
 }
 
 /************************************************************************/
-/*                 VSICurlStreamingHandleWriteFuncForHeader()           */
+/*              VSICurlStreamingHandleWriteFuncForHeader()              */
 /************************************************************************/
 
 static size_t VSICurlStreamingHandleWriteFuncForHeader(void *buffer,
@@ -552,7 +552,7 @@ static size_t VSICurlStreamingHandleWriteFuncForHeader(void *buffer,
 }
 
 /************************************************************************/
-/*                           GetFileSize()                              */
+/*                            GetFileSize()                             */
 /************************************************************************/
 
 vsi_l_offset VSICurlStreamingHandle::GetFileSize()
@@ -719,7 +719,7 @@ vsi_l_offset VSICurlStreamingHandle::GetFileSize()
 }
 
 /************************************************************************/
-/*                                 Exists()                             */
+/*                               Exists()                               */
 /************************************************************************/
 
 bool VSICurlStreamingHandle::Exists(const char *pszFilename,
@@ -750,7 +750,7 @@ bool VSICurlStreamingHandle::Exists(const char *pszFilename,
         }
 
         char chFirstByte = '\0';
-        int bExists = (Read(&chFirstByte, 1, 1) == 1);
+        int bExists = (Read(&chFirstByte, 1) == 1);
 
         FileProp cachedFileProp;
         m_poFS->GetCachedFileProp(m_pszURL, cachedFileProp);
@@ -764,7 +764,7 @@ bool VSICurlStreamingHandle::Exists(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                                  Tell()                              */
+/*                                Tell()                                */
 /************************************************************************/
 
 vsi_l_offset VSICurlStreamingHandle::Tell()
@@ -773,7 +773,7 @@ vsi_l_offset VSICurlStreamingHandle::Tell()
 }
 
 /************************************************************************/
-/*                         ReceivedBytes()                              */
+/*                           ReceivedBytes()                            */
 /************************************************************************/
 
 size_t VSICurlStreamingHandle::ReceivedBytes(GByte *buffer, size_t count,
@@ -868,7 +868,7 @@ size_t VSICurlStreamingHandle::ReceivedBytes(GByte *buffer, size_t count,
 }
 
 /************************************************************************/
-/*                 VSICurlStreamingHandleReceivedBytes()                */
+/*                VSICurlStreamingHandleReceivedBytes()                 */
 /************************************************************************/
 
 static size_t VSICurlStreamingHandleReceivedBytes(void *buffer, size_t count,
@@ -879,7 +879,7 @@ static size_t VSICurlStreamingHandleReceivedBytes(void *buffer, size_t count,
 }
 
 /************************************************************************/
-/*              VSICurlStreamingHandleReceivedBytesHeader()             */
+/*             VSICurlStreamingHandleReceivedBytesHeader()              */
 /************************************************************************/
 
 #define HEADER_SIZE 32768
@@ -990,7 +990,7 @@ size_t VSICurlStreamingHandle::ReceivedBytesHeader(GByte *buffer, size_t count,
 }
 
 /************************************************************************/
-/*                 VSICurlStreamingHandleReceivedBytesHeader()          */
+/*             VSICurlStreamingHandleReceivedBytesHeader()              */
 /************************************************************************/
 
 static size_t VSICurlStreamingHandleReceivedBytesHeader(void *buffer,
@@ -1002,7 +1002,7 @@ static size_t VSICurlStreamingHandleReceivedBytesHeader(void *buffer,
 }
 
 /************************************************************************/
-/*                       DownloadInThread()                             */
+/*                          DownloadInThread()                          */
 /************************************************************************/
 
 void VSICurlStreamingHandle::DownloadInThread()
@@ -1096,7 +1096,7 @@ static void VSICurlDownloadInThread(void *pArg)
 }
 
 /************************************************************************/
-/*                            StartDownload()                            */
+/*                           StartDownload()                            */
 /************************************************************************/
 
 void VSICurlStreamingHandle::StartDownload()
@@ -1183,10 +1183,9 @@ void VSICurlStreamingHandle::PutRingBufferInCache()
 /*                                Read()                                */
 /************************************************************************/
 
-size_t VSICurlStreamingHandle::Read(void *const pBuffer, size_t const nSize,
-                                    size_t const nMemb)
+size_t VSICurlStreamingHandle::Read(void *const pBuffer, size_t const nBytes)
 {
-    const size_t nBufferRequestSize = nSize * nMemb;
+    const size_t nBufferRequestSize = nBytes;
     const vsi_l_offset curOffsetOri = curOffset;
     const vsi_l_offset nRingBufferFileOffsetOri = nRingBufferFileOffset;
     if (nBufferRequestSize == 0)
@@ -1369,8 +1368,8 @@ retry:
         CPLDebug("VSICURL", "Read(%d) = %d",
                  static_cast<int>(nBufferRequestSize),
                  static_cast<int>(nBufferRequestSize - nRemaining));
-    size_t nRet = (nBufferRequestSize - nRemaining) / nSize;
-    if (nRet < nMemb)
+    size_t nRet = nBufferRequestSize - nRemaining;
+    if (nRet < nBytes)
         bEOF = true;
 
     // Give a chance to specialized filesystem to deal with errors to redirect
@@ -1386,7 +1385,7 @@ retry:
         size_t nErrorBufferSize = std::min(nErrorBufferMaxSize, nRead);
         memcpy(pabyErrorBuffer.get(), pBuffer, nErrorBufferSize);
         if (nRead < nErrorBufferMaxSize)
-            nErrorBufferSize += Read(pabyErrorBuffer.get() + nRead, 1,
+            nErrorBufferSize += Read(pabyErrorBuffer.get() + nRead,
                                      nErrorBufferMaxSize - nRead);
         (pabyErrorBuffer.get())[nErrorBufferSize] = 0;
         StopDownload();
@@ -1448,7 +1447,7 @@ retry:
 }
 
 /************************************************************************/
-/*                          AddRegion()                                 */
+/*                             AddRegion()                              */
 /************************************************************************/
 
 void VSICurlStreamingHandle::AddRegion(vsi_l_offset nFileOffsetStart,
@@ -1479,13 +1478,13 @@ void VSICurlStreamingHandle::AddRegion(vsi_l_offset nFileOffsetStart,
 /************************************************************************/
 
 size_t VSICurlStreamingHandle::Write(const void * /* pBuffer */,
-                                     size_t /* nSize */, size_t /* nMemb */)
+                                     size_t /* nBytes */)
 {
     return 0;
 }
 
 /************************************************************************/
-/*                                 Eof()                                */
+/*                                Eof()                                 */
 /************************************************************************/
 
 int VSICurlStreamingHandle::Eof()
@@ -1504,7 +1503,7 @@ int VSICurlStreamingHandle::Error()
 }
 
 /************************************************************************/
-/*                             ClearErr()                               */
+/*                              ClearErr()                              */
 /************************************************************************/
 
 void VSICurlStreamingHandle::ClearErr()
@@ -1514,7 +1513,7 @@ void VSICurlStreamingHandle::ClearErr()
 }
 
 /************************************************************************/
-/*                                 Flush()                              */
+/*                               Flush()                                */
 /************************************************************************/
 
 int VSICurlStreamingHandle::Flush()
@@ -1523,7 +1522,7 @@ int VSICurlStreamingHandle::Flush()
 }
 
 /************************************************************************/
-/*                                  Close()                             */
+/*                               Close()                                */
 /************************************************************************/
 
 int VSICurlStreamingHandle::Close()
@@ -1532,7 +1531,7 @@ int VSICurlStreamingHandle::Close()
 }
 
 /************************************************************************/
-/*                      VSICurlStreamingFSHandler()                     */
+/*                     VSICurlStreamingFSHandler()                      */
 /************************************************************************/
 
 VSICurlStreamingFSHandler::VSICurlStreamingFSHandler()
@@ -1543,7 +1542,7 @@ VSICurlStreamingFSHandler::VSICurlStreamingFSHandler()
 }
 
 /************************************************************************/
-/*                      ~VSICurlStreamingFSHandler()                    */
+/*                     ~VSICurlStreamingFSHandler()                     */
 /************************************************************************/
 
 VSICurlStreamingFSHandler::~VSICurlStreamingFSHandler()
@@ -1555,7 +1554,7 @@ VSICurlStreamingFSHandler::~VSICurlStreamingFSHandler()
 }
 
 /************************************************************************/
-/*                            ClearCache()                              */
+/*                             ClearCache()                             */
 /************************************************************************/
 
 void VSICurlStreamingFSHandler::ClearCache()
@@ -1571,7 +1570,7 @@ void VSICurlStreamingFSHandler::ClearCache()
 }
 
 /************************************************************************/
-/*                         AcquireMutex()                               */
+/*                            AcquireMutex()                            */
 /************************************************************************/
 
 void VSICurlStreamingFSHandler::AcquireMutex()
@@ -1580,7 +1579,7 @@ void VSICurlStreamingFSHandler::AcquireMutex()
 }
 
 /************************************************************************/
-/*                         ReleaseMutex()                               */
+/*                            ReleaseMutex()                            */
 /************************************************************************/
 
 void VSICurlStreamingFSHandler::ReleaseMutex()
@@ -1705,7 +1704,7 @@ int VSICurlStreamingFSHandler::Stat(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                          GetActualURL()                              */
+/*                            GetActualURL()                            */
 /************************************************************************/
 
 const char *VSICurlStreamingFSHandler::GetActualURL(const char *pszFilename)
@@ -1720,7 +1719,7 @@ const char *VSICurlStreamingFSHandler::GetActualURL(const char *pszFilename)
 }
 
 /************************************************************************/
-/*                       GetNonStreamingFilename()                      */
+/*                      GetNonStreamingFilename()                       */
 /************************************************************************/
 
 std::string VSICurlStreamingFSHandler::GetNonStreamingFilename(
@@ -1733,7 +1732,7 @@ std::string VSICurlStreamingFSHandler::GetNonStreamingFilename(
 }
 
 /************************************************************************/
-/*                      IVSIS3LikeStreamingFSHandler                    */
+/*                     IVSIS3LikeStreamingFSHandler                     */
 /************************************************************************/
 
 class IVSIS3LikeStreamingFSHandler : public VSICurlStreamingFSHandler
@@ -1798,7 +1797,7 @@ class VSIS3StreamingFSHandler final : public IVSIS3LikeStreamingFSHandler
 };
 
 /************************************************************************/
-/*                          VSIS3LikeStreamingHandle                    */
+/*                       VSIS3LikeStreamingHandle                       */
 /************************************************************************/
 
 class VSIS3LikeStreamingHandle final : public VSICurlStreamingHandle
@@ -1850,7 +1849,7 @@ VSIS3StreamingFSHandler::CreateFileHandle(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                     VSIS3LikeStreamingHandle()                       */
+/*                      VSIS3LikeStreamingHandle()                      */
 /************************************************************************/
 
 VSIS3LikeStreamingHandle::VSIS3LikeStreamingHandle(
@@ -1883,7 +1882,7 @@ VSIS3LikeStreamingHandle::GetCurlHeaders(const CPLString &osVerb,
 }
 
 /************************************************************************/
-/*                          CanRestartOnError()                         */
+/*                         CanRestartOnError()                          */
 /************************************************************************/
 
 bool VSIS3LikeStreamingHandle::CanRestartOnError(const char *pszErrorMsg,
@@ -1995,7 +1994,7 @@ VSIAzureStreamingFSHandler::CreateFileHandle(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                       VSIOSSStreamingFSHandler                        */
+/*                       VSIOSSStreamingFSHandler                       */
 /************************************************************************/
 
 class VSIOSSStreamingFSHandler final : public IVSIS3LikeStreamingFSHandler
@@ -2111,12 +2110,13 @@ VSISwiftStreamingFSHandler::CreateFileHandle(const char *pszFilename,
  */
 void VSIInstallCurlStreamingFileHandler(void)
 {
-    VSIFileManager::InstallHandler("/vsicurl_streaming/",
-                                   new cpl::VSICurlStreamingFSHandler);
+    VSIFileManager::InstallHandler(
+        "/vsicurl_streaming/",
+        std::make_shared<cpl::VSICurlStreamingFSHandler>());
 }
 
 /************************************************************************/
-/*                   VSIInstallS3StreamingFileHandler()                 */
+/*                  VSIInstallS3StreamingFileHandler()                  */
 /************************************************************************/
 
 /*!
@@ -2130,12 +2130,12 @@ void VSIInstallCurlStreamingFileHandler(void)
  */
 void VSIInstallS3StreamingFileHandler(void)
 {
-    VSIFileManager::InstallHandler("/vsis3_streaming/",
-                                   new cpl::VSIS3StreamingFSHandler);
+    VSIFileManager::InstallHandler(
+        "/vsis3_streaming/", std::make_shared<cpl::VSIS3StreamingFSHandler>());
 }
 
 /************************************************************************/
-/*                      VSIInstallGSStreamingFileHandler()              */
+/*                  VSIInstallGSStreamingFileHandler()                  */
 /************************************************************************/
 
 /*!
@@ -2150,12 +2150,12 @@ void VSIInstallS3StreamingFileHandler(void)
 
 void VSIInstallGSStreamingFileHandler(void)
 {
-    VSIFileManager::InstallHandler("/vsigs_streaming/",
-                                   new cpl::VSIGSStreamingFSHandler);
+    VSIFileManager::InstallHandler(
+        "/vsigs_streaming/", std::make_shared<cpl::VSIGSStreamingFSHandler>());
 }
 
 /************************************************************************/
-/*                   VSIInstallAzureStreamingFileHandler()              */
+/*                VSIInstallAzureStreamingFileHandler()                 */
 /************************************************************************/
 
 /*!
@@ -2170,12 +2170,13 @@ void VSIInstallGSStreamingFileHandler(void)
 
 void VSIInstallAzureStreamingFileHandler(void)
 {
-    VSIFileManager::InstallHandler("/vsiaz_streaming/",
-                                   new cpl::VSIAzureStreamingFSHandler);
+    VSIFileManager::InstallHandler(
+        "/vsiaz_streaming/",
+        std::make_shared<cpl::VSIAzureStreamingFSHandler>());
 }
 
 /************************************************************************/
-/*                    VSIInstallOSSStreamingFileHandler()               */
+/*                 VSIInstallOSSStreamingFileHandler()                  */
 /************************************************************************/
 
 /*!
@@ -2190,12 +2191,13 @@ void VSIInstallAzureStreamingFileHandler(void)
 
 void VSIInstallOSSStreamingFileHandler(void)
 {
-    VSIFileManager::InstallHandler("/vsioss_streaming/",
-                                   new cpl::VSIOSSStreamingFSHandler);
+    VSIFileManager::InstallHandler(
+        "/vsioss_streaming/",
+        std::make_shared<cpl::VSIOSSStreamingFSHandler>());
 }
 
 /************************************************************************/
-/*                  VSIInstallSwiftStreamingFileHandler()               */
+/*                VSIInstallSwiftStreamingFileHandler()                 */
 /************************************************************************/
 
 /*!
@@ -2210,14 +2212,15 @@ void VSIInstallOSSStreamingFileHandler(void)
 
 void VSIInstallSwiftStreamingFileHandler(void)
 {
-    VSIFileManager::InstallHandler("/vsiswift_streaming/",
-                                   new cpl::VSISwiftStreamingFSHandler);
+    VSIFileManager::InstallHandler(
+        "/vsiswift_streaming/",
+        std::make_shared<cpl::VSISwiftStreamingFSHandler>());
 }
 
 //! @cond Doxygen_Suppress
 
 /************************************************************************/
-/*                      VSICurlStreamingClearCache()                    */
+/*                     VSICurlStreamingClearCache()                     */
 /************************************************************************/
 
 void VSICurlStreamingClearCache(void)
@@ -2225,16 +2228,15 @@ void VSICurlStreamingClearCache(void)
     // FIXME ? Currently we have different filesystem instances for
     // vsicurl/, /vsis3/, /vsigs/ . So each one has its own cache of regions.
     // File properties cache are now shared
-    char **papszPrefix = VSIFileManager::GetPrefixes();
-    for (size_t i = 0; papszPrefix && papszPrefix[i]; ++i)
+    const CPLStringList aosPrefixes(VSIFileManager::GetPrefixes());
+    for (const char *pszPrefix : aosPrefixes)
     {
         auto poFSHandler = dynamic_cast<cpl::VSICurlStreamingFSHandler *>(
-            VSIFileManager::GetHandler(papszPrefix[i]));
+            VSIFileManager::GetHandler(pszPrefix));
 
         if (poFSHandler)
             poFSHandler->ClearCache();
     }
-    CSLDestroy(papszPrefix);
 }
 
 //! @endcond

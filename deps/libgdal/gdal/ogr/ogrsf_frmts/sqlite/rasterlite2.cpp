@@ -40,7 +40,7 @@ static CPLString EscapeNameAndQuoteIfNeeded(const char *pszName)
 #endif
 
 /************************************************************************/
-/*                            OpenRaster()                              */
+/*                             OpenRaster()                             */
 /************************************************************************/
 
 bool OGRSQLiteDataSource::OpenRaster()
@@ -358,19 +358,19 @@ bool OGRSQLiteDataSource::OpenRasterSubDataset(
                     CPLFetchBool(papszOpenOptions, "1BIT_AS_8BIT", true);
             }
             nBits = 1;
-            eDT = GDT_Byte;
+            eDT = GDT_UInt8;
             break;
         }
         case RL2_SAMPLE_2_BIT:
         {
             nBits = 2;
-            eDT = GDT_Byte;
+            eDT = GDT_UInt8;
             break;
         }
         case RL2_SAMPLE_4_BIT:
         {
             nBits = 4;
-            eDT = GDT_Byte;
+            eDT = GDT_UInt8;
             break;
         }
         case RL2_SAMPLE_INT8:
@@ -382,7 +382,7 @@ bool OGRSQLiteDataSource::OpenRasterSubDataset(
         case RL2_SAMPLE_UINT8:
         {
             nBits = 8;
-            eDT = GDT_Byte;
+            eDT = GDT_UInt8;
             break;
         }
         case RL2_SAMPLE_INT16:
@@ -748,7 +748,7 @@ bool OGRSQLiteDataSource::OpenRasterSubDataset(
 #ifdef HAVE_RASTERLITE2
 
 /************************************************************************/
-/*                          ListOverviews()                             */
+/*                           ListOverviews()                            */
 /************************************************************************/
 
 void OGRSQLiteDataSource::ListOverviews()
@@ -830,7 +830,7 @@ void OGRSQLiteDataSource::ListOverviews()
 }
 
 /************************************************************************/
-/*                    CreateRL2OverviewDatasetIfNeeded()                   */
+/*                  CreateRL2OverviewDatasetIfNeeded()                  */
 /************************************************************************/
 
 void OGRSQLiteDataSource::CreateRL2OverviewDatasetIfNeeded(double dfXRes,
@@ -882,7 +882,7 @@ void OGRSQLiteDataSource::CreateRL2OverviewDatasetIfNeeded(double dfXRes,
 }
 
 /************************************************************************/
-/*                            RL2RasterBand()                           */
+/*                           RL2RasterBand()                            */
 /************************************************************************/
 
 RL2RasterBand::RL2RasterBand(int nBandIn, int nPixelType, GDALDataType eDT,
@@ -918,7 +918,7 @@ RL2RasterBand::RL2RasterBand(int nBandIn, int nPixelType, GDALDataType eDT,
 }
 
 /************************************************************************/
-/*                            RL2RasterBand()                           */
+/*                           RL2RasterBand()                            */
 /************************************************************************/
 
 RL2RasterBand::RL2RasterBand(const RL2RasterBand *poOther)
@@ -947,7 +947,7 @@ RL2RasterBand::~RL2RasterBand()
 }
 
 /************************************************************************/
-/*                          GetColorTable()                             */
+/*                           GetColorTable()                            */
 /************************************************************************/
 
 GDALColorTable *RL2RasterBand::GetColorTable()
@@ -1002,7 +1002,7 @@ int RL2RasterBand::GetOverviewCount()
 }
 
 /************************************************************************/
-/*                           GetOverview()                              */
+/*                            GetOverview()                             */
 /************************************************************************/
 
 GDALRasterBand *RL2RasterBand::GetOverview(int nIdx)
@@ -1019,7 +1019,7 @@ GDALRasterBand *RL2RasterBand::GetOverview(int nIdx)
 }
 
 /************************************************************************/
-/*                          GetNoDataValue()                            */
+/*                           GetNoDataValue()                           */
 /************************************************************************/
 
 double RL2RasterBand::GetNoDataValue(int *pbSuccess)
@@ -1156,7 +1156,7 @@ CPLErr RL2RasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pData)
 }
 
 /************************************************************************/
-/*                          GetNoDataValue()                            */
+/*                           GetNoDataValue()                           */
 /************************************************************************/
 
 template <class T>
@@ -1171,7 +1171,7 @@ static T GetNoDataValue(GDALDataset *poSrcDS, int nBand, T nDefault)
 }
 
 /************************************************************************/
-/*                          CreateNoData()                              */
+/*                            CreateNoData()                            */
 /************************************************************************/
 
 static rl2PixelPtr CreateNoData(unsigned char nSampleType,
@@ -1332,7 +1332,7 @@ static rl2PixelPtr CreateNoData(unsigned char nSampleType,
 }
 
 /************************************************************************/
-/*                       RasterLite2Callback()                          */
+/*                        RasterLite2Callback()                         */
 /************************************************************************/
 
 struct RasterLite2CallbackData
@@ -1455,12 +1455,12 @@ static int RasterLite2Callback(void *data, double dfTileMinX, double dfTileMinY,
 }
 
 /************************************************************************/
-/*                    OGRSQLiteDriverCreateCopy()                       */
+/*                     OGRSQLiteDriverCreateCopy()                      */
 /************************************************************************/
 
 GDALDataset *OGRSQLiteDriverCreateCopy(const char *pszName,
                                        GDALDataset *poSrcDS, int /* bStrict */,
-                                       char **papszOptions,
+                                       CSLConstList papszOptions,
                                        GDALProgressFunc pfnProgress,
                                        void *pProgressData)
 {
@@ -1519,7 +1519,7 @@ GDALDataset *OGRSQLiteDriverCreateCopy(const char *pszName,
         {
             nPixelType = RL2_PIXEL_PALETTE;
         }
-        else if (nBandCount == 3 && (eDT == GDT_Byte || eDT == GDT_UInt16) &&
+        else if (nBandCount == 3 && (eDT == GDT_UInt8 || eDT == GDT_UInt16) &&
                  poSrcDS->GetRasterBand(1)->GetColorInterpretation() ==
                      GCI_RedBand &&
                  poSrcDS->GetRasterBand(2)->GetColorInterpretation() ==
@@ -1529,11 +1529,11 @@ GDALDataset *OGRSQLiteDriverCreateCopy(const char *pszName,
         {
             nPixelType = RL2_PIXEL_RGB;
         }
-        else if (nBandCount > 1 && (eDT == GDT_Byte || eDT == GDT_UInt16))
+        else if (nBandCount > 1 && (eDT == GDT_UInt8 || eDT == GDT_UInt16))
         {
             nPixelType = RL2_PIXEL_MULTIBAND;
         }
-        else if (nBandCount == 1 && eDT != GDT_Byte)
+        else if (nBandCount == 1 && eDT != GDT_UInt8)
         {
             nPixelType = RL2_PIXEL_DATAGRID;
         }
@@ -1561,7 +1561,7 @@ GDALDataset *OGRSQLiteDriverCreateCopy(const char *pszName,
         }
     }
 
-    if (nBITS > 0 && nBITS <= 8 && eDT != GDT_Byte)
+    if (nBITS > 0 && nBITS <= 8 && eDT != GDT_UInt8)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "NBITS <= 8 only compatible with Byte data type");
@@ -1589,7 +1589,7 @@ GDALDataset *OGRSQLiteDriverCreateCopy(const char *pszName,
 
     if (nPixelType == RL2_PIXEL_MONOCHROME)
     {
-        if (eDT != GDT_Byte)
+        if (eDT != GDT_UInt8)
         {
             CPLError(CE_Failure, CPLE_NotSupported,
                      "Incompatible data type for MONOCHROME");
@@ -1614,7 +1614,7 @@ GDALDataset *OGRSQLiteDriverCreateCopy(const char *pszName,
         nSampleType = RL2_SAMPLE_FLOAT;
     else if (eDT == GDT_Float64)
         nSampleType = RL2_SAMPLE_DOUBLE;
-    else if (eDT != GDT_Byte)
+    else if (eDT != GDT_UInt8)
     {
         CPLError(CE_Failure, CPLE_NotSupported, "Unsupported data type");
         return nullptr;
@@ -2243,10 +2243,10 @@ CPLErr OGRSQLiteDataSource::IBuildOverviews(
 #endif  // HAVE_RASTERLITE2
 
 /************************************************************************/
-/*                             GetMetadata()                            */
+/*                            GetMetadata()                             */
 /************************************************************************/
 
-char **OGRSQLiteDataSource::GetMetadata(const char *pszDomain)
+CSLConstList OGRSQLiteDataSource::GetMetadata(const char *pszDomain)
 {
     if (pszDomain != nullptr && EQUAL(pszDomain, "SUBDATASETS") &&
         m_aosSubDatasets.size() > 2)
@@ -2257,7 +2257,7 @@ char **OGRSQLiteDataSource::GetMetadata(const char *pszDomain)
 }
 
 /************************************************************************/
-/*                           GetGeoTransform()                          */
+/*                          GetGeoTransform()                           */
 /************************************************************************/
 
 CPLErr OGRSQLiteDataSource::GetGeoTransform(GDALGeoTransform &gt) const
@@ -2271,7 +2271,7 @@ CPLErr OGRSQLiteDataSource::GetGeoTransform(GDALGeoTransform &gt) const
 }
 
 /************************************************************************/
-/*                            GetSpatialRef()                           */
+/*                           GetSpatialRef()                            */
 /************************************************************************/
 
 const OGRSpatialReference *OGRSQLiteDataSource::GetSpatialRef() const

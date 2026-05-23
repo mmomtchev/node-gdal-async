@@ -83,7 +83,7 @@ class OGRPGDumpGeomFieldDefn final : public OGRGeomFieldDefn
 };
 
 /************************************************************************/
-/*                          OGRPGDumpLayer                              */
+/*                            OGRPGDumpLayer                            */
 /************************************************************************/
 
 class OGRPGDumpDataSource;
@@ -174,7 +174,8 @@ class OGRPGDumpLayer final : public OGRLayer
 
     OGRFeature *GetNextFeature() override;
 
-    CPLErr SetMetadata(char **papszMD, const char *pszDomain = "") override;
+    CPLErr SetMetadata(CSLConstList papszMD,
+                       const char *pszDomain = "") override;
     CPLErr SetMetadataItem(const char *pszName, const char *pszValue,
                            const char *pszDomain = "") override;
 
@@ -254,7 +255,7 @@ class OGRPGDumpLayer final : public OGRLayer
 };
 
 /************************************************************************/
-/*                       OGRPGDumpDataSource                            */
+/*                         OGRPGDumpDataSource                          */
 /************************************************************************/
 class OGRPGDumpDataSource final : public GDALDataset
 {
@@ -268,7 +269,7 @@ class OGRPGDumpDataSource final : public GDALDataset
     const char *m_pszEOL = "\n";
 
   public:
-    OGRPGDumpDataSource(const char *pszName, char **papszOptions);
+    OGRPGDumpDataSource(const char *pszName, CSLConstList papszOptions);
     ~OGRPGDumpDataSource() override;
 
     bool Log(const char *pszStr, bool bAddSemiColumn = true);

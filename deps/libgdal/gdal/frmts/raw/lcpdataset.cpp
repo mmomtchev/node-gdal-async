@@ -47,7 +47,7 @@ class LCPDataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(LCPDataset)
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
   public:
     LCPDataset();
@@ -61,7 +61,7 @@ class LCPDataset final : public RawDataset
     static GDALDataset *Open(GDALOpenInfo *);
     static GDALDataset *CreateCopy(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
-                                   char **papszOptions,
+                                   CSLConstList papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
 
@@ -72,7 +72,7 @@ class LCPDataset final : public RawDataset
 };
 
 /************************************************************************/
-/*                            LCPDataset()                              */
+/*                             LCPDataset()                             */
 /************************************************************************/
 
 LCPDataset::LCPDataset() : fpImage(nullptr)
@@ -91,10 +91,10 @@ LCPDataset::~LCPDataset()
 }
 
 /************************************************************************/
-/*                              Close()                                 */
+/*                               Close()                                */
 /************************************************************************/
 
-CPLErr LCPDataset::Close()
+CPLErr LCPDataset::Close(GDALProgressFunc, void *)
 {
     CPLErr eErr = CE_None;
     if (nOpenFlags != OPEN_FLAGS_CLOSED)
@@ -143,13 +143,13 @@ CPLErr LCPDataset::GetGeoTransform(GDALGeoTransform &gt) const
     CPL_LSBPTR64(&dfCellX);
     CPL_LSBPTR64(&dfCellY);
 
-    gt[0] = dfWest;
-    gt[3] = dfNorth;
-    gt[1] = dfCellX;
-    gt[2] = 0.0;
+    gt.xorig = dfWest;
+    gt.yorig = dfNorth;
+    gt.xscale = dfCellX;
+    gt.xrot = 0.0;
 
-    gt[4] = 0.0;
-    gt[5] = -1 * dfCellY;
+    gt.yrot = 0.0;
+    gt.yscale = -1 * dfCellY;
 
     return CE_None;
 }
@@ -871,12 +871,12 @@ CPLErr LCPDataset::ClassifyBandData(GDALRasterBand *poBand, GInt32 &nNumClasses,
 }
 
 /************************************************************************/
-/*                          CreateCopy()                                */
+/*                             CreateCopy()                             */
 /************************************************************************/
 
 GDALDataset *LCPDataset::CreateCopy(const char *pszFilename,
                                     GDALDataset *poSrcDS, int bStrict,
-                                    char **papszOptions,
+                                    CSLConstList papszOptions,
                                     GDALProgressFunc pfnProgress,
                                     void *pProgressData)
 
@@ -1631,7 +1631,7 @@ GDALDataset *LCPDataset::CreateCopy(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                         GDALRegister_LCP()                           */
+/*                          GDALRegister_LCP()                          */
 /************************************************************************/
 
 void GDALRegister_LCP()

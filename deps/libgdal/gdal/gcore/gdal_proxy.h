@@ -51,9 +51,13 @@ class CPL_DLL GDALProxyDataset : public GDALDataset
                               GDALRasterIOExtraArg *psExtraArg) override;
 
   public:
+    CPLErr Close(GDALProgressFunc, void *) override;
+    bool GetCloseReportsProgress() const override;
+
     char **GetMetadataDomainList() override;
-    char **GetMetadata(const char *pszDomain) override;
-    CPLErr SetMetadata(char **papszMetadata, const char *pszDomain) override;
+    CSLConstList GetMetadata(const char *pszDomain) override;
+    CPLErr SetMetadata(CSLConstList papszMetadata,
+                       const char *pszDomain) override;
     const char *GetMetadataItem(const char *pszName,
                                 const char *pszDomain) override;
     CPLErr SetMetadataItem(const char *pszName, const char *pszValue,
@@ -68,7 +72,7 @@ class CPL_DLL GDALProxyDataset : public GDALDataset
     CPLErr SetGeoTransform(const GDALGeoTransform &) override;
 
     void *GetInternalHandle(const char *) override;
-    GDALDriver *GetDriver() override;
+    GDALDriver *GetDriver() const override;
     char **GetFileList() override;
 
     int GetGCPCount() override;
@@ -80,7 +84,7 @@ class CPL_DLL GDALProxyDataset : public GDALDataset
     CPLErr AdviseRead(int nXOff, int nYOff, int nXSize, int nYSize,
                       int nBufXSize, int nBufYSize, GDALDataType eDT,
                       int nBandCount, int *panBandList,
-                      char **papszOptions) override;
+                      CSLConstList papszOptions) override;
 
     CPLErr CreateMaskBand(int nFlags) override;
 
@@ -124,8 +128,9 @@ class CPL_DLL GDALProxyRasterBand : public GDALRasterBand
 
   public:
     char **GetMetadataDomainList() override;
-    char **GetMetadata(const char *pszDomain) override;
-    CPLErr SetMetadata(char **papszMetadata, const char *pszDomain) override;
+    CSLConstList GetMetadata(const char *pszDomain) override;
+    CPLErr SetMetadata(CSLConstList papszMetadata,
+                       const char *pszDomain) override;
     const char *GetMetadataItem(const char *pszName,
                                 const char *pszDomain) override;
     CPLErr SetMetadataItem(const char *pszName, const char *pszValue,
@@ -180,7 +185,7 @@ class CPL_DLL GDALProxyRasterBand : public GDALRasterBand
 
     CPLErr AdviseRead(int nXOff, int nYOff, int nXSize, int nYSize,
                       int nBufXSize, int nBufYSize, GDALDataType eDT,
-                      char **papszOptions) override;
+                      CSLConstList papszOptions) override;
 
     CPLErr GetHistogram(double dfMin, double dfMax, int nBuckets,
                         GUIntBig *panHistogram, int bIncludeOutOfRange,
@@ -204,7 +209,7 @@ class CPL_DLL GDALProxyRasterBand : public GDALRasterBand
 
     CPLVirtualMem *GetVirtualMemAuto(GDALRWFlag eRWFlag, int *pnPixelSpace,
                                      GIntBig *pnLineSpace,
-                                     char **papszOptions) override;
+                                     CSLConstList papszOptions) override;
 
     CPLErr InterpolateAtPoint(double dfPixel, double dfLine,
                               GDALRIOResampleAlg eInterpolation,
@@ -298,7 +303,7 @@ class CPL_DLL GDALProxyPoolDataset /* non final */ : public GDALProxyDataset
     // Special behavior for the following methods : they return a pointer
     // data type, that must be cached by the proxy, so it doesn't become invalid
     // when the underlying object get closed.
-    char **GetMetadata(const char *pszDomain) override;
+    CSLConstList GetMetadata(const char *pszDomain) override;
     const char *GetMetadataItem(const char *pszName,
                                 const char *pszDomain) override;
 
@@ -357,7 +362,7 @@ class CPL_DLL
     // Special behavior for the following methods : they return a pointer
     // data type, that must be cached by the proxy, so it doesn't become invalid
     // when the underlying object get closed.
-    char **GetMetadata(const char *pszDomain) override;
+    CSLConstList GetMetadata(const char *pszDomain) override;
     const char *GetMetadataItem(const char *pszName,
                                 const char *pszDomain) override;
     char **GetCategoryNames() override;

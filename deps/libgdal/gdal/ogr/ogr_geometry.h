@@ -291,7 +291,7 @@ class CPL_DLL OGRDefaultConstGeometryVisitor : public IOGRConstGeometryVisitor
 };
 
 /************************************************************************/
-/*                  OGRGeomCoordinateBinaryPrecision                    */
+/*                   OGRGeomCoordinateBinaryPrecision                   */
 /************************************************************************/
 
 /** Geometry coordinate precision for a binary representation.
@@ -315,7 +315,7 @@ class CPL_DLL OGRGeomCoordinateBinaryPrecision
 };
 
 /************************************************************************/
-/*                           OGRwkbExportOptions                        */
+/*                         OGRwkbExportOptions                          */
 /************************************************************************/
 
 /** WKB export options.
@@ -426,7 +426,7 @@ class CPL_DLL OGRGeometry
     virtual int getCoordinateDimension() const;
     int CoordinateDimension() const;
     virtual OGRBoolean IsEmpty() const = 0;
-    virtual OGRBoolean IsValid() const;
+    virtual OGRBoolean IsValid(std::string *posReason = nullptr) const;
     virtual OGRGeometry *MakeValid(CSLConstList papszOptions = nullptr) const;
     virtual OGRGeometry *Normalize() const;
     virtual OGRBoolean IsSimple() const;
@@ -506,8 +506,8 @@ class CPL_DLL OGRGeometry
     static GEOSContextHandle_t createGEOSContext();
     static void freeGEOSContext(GEOSContextHandle_t hGEOSCtxt);
     GEOSGeom
-    exportToGEOS(GEOSContextHandle_t hGEOSCtxt,
-                 bool bRemoveEmptyParts = false) const CPL_WARN_UNUSED_RESULT;
+    exportToGEOS(GEOSContextHandle_t hGEOSCtxt, bool bRemoveEmptyParts = false,
+                 bool bAddPointsIfNeeded = false) const CPL_WARN_UNUSED_RESULT;
     virtual OGRBoolean hasCurveGeometry(int bLookForNonLinear = FALSE) const;
     virtual OGRGeometry *getCurveGeometry(
         const char *const *papszOptions = nullptr) const CPL_WARN_UNUSED_RESULT;
@@ -545,52 +545,65 @@ class CPL_DLL OGRGeometry
     // ISpatialRelation
     virtual OGRBoolean Intersects(const OGRGeometry *) const;
     virtual OGRBoolean Equals(const OGRGeometry *) const = 0;
-    virtual OGRBoolean Disjoint(const OGRGeometry *) const;
-    virtual OGRBoolean Touches(const OGRGeometry *) const;
-    virtual OGRBoolean Crosses(const OGRGeometry *) const;
+    OGRBoolean Disjoint(const OGRGeometry *) const;
+    OGRBoolean Touches(const OGRGeometry *) const;
+    OGRBoolean Crosses(const OGRGeometry *) const;
     virtual OGRBoolean Within(const OGRGeometry *) const;
     virtual OGRBoolean Contains(const OGRGeometry *) const;
-    virtual OGRBoolean Overlaps(const OGRGeometry *) const;
-    //    virtual OGRBoolean  Relate( const OGRGeometry *, const char * ) const;
-    //    virtual OGRGeometry *LocateAlong( double mValue ) const;
-    //    virtual OGRGeometry *LocateBetween( double mStart, double mEnd )
-    //    const;
+    OGRBoolean Overlaps(const OGRGeometry *) const;
 
-    virtual OGRGeometry *Boundary() const CPL_WARN_UNUSED_RESULT;
-    virtual double Distance(const OGRGeometry *) const;
-    virtual OGRGeometry *ConvexHull() const CPL_WARN_UNUSED_RESULT;
-    virtual OGRGeometry *
-    ConcaveHull(double dfRatio, bool bAllowHoles) const CPL_WARN_UNUSED_RESULT;
-    virtual OGRGeometry *
-    Buffer(double dfDist, int nQuadSegs = 30) const CPL_WARN_UNUSED_RESULT;
-    virtual OGRGeometry *
+    OGRGeometry *Boundary() const CPL_WARN_UNUSED_RESULT;
+
+    double Distance(const OGRGeometry *) const;
+
+    OGRGeometry *ConvexHull() const CPL_WARN_UNUSED_RESULT;
+
+    OGRGeometry *ConcaveHull(double dfRatio,
+                             bool bAllowHoles) const CPL_WARN_UNUSED_RESULT;
+
+    OGRGeometry *
+    ConcaveHullOfPolygons(double dfLengthRatio, bool bIsTight,
+                          bool bAllowHoles) const CPL_WARN_UNUSED_RESULT;
+
+    OGRGeometry *Buffer(double dfDist,
+                        int nQuadSegs = 30) const CPL_WARN_UNUSED_RESULT;
+
+    OGRGeometry *
     BufferEx(double dfDist,
              CSLConstList papszOptions) const CPL_WARN_UNUSED_RESULT;
-    virtual OGRGeometry *
-    Intersection(const OGRGeometry *) const CPL_WARN_UNUSED_RESULT;
-    virtual OGRGeometry *
-    Union(const OGRGeometry *) const CPL_WARN_UNUSED_RESULT;
-    virtual OGRGeometry *UnionCascaded() const CPL_WARN_UNUSED_RESULT;
+
+    OGRGeometry *Intersection(const OGRGeometry *) const CPL_WARN_UNUSED_RESULT;
+
+    OGRGeometry *Union(const OGRGeometry *) const CPL_WARN_UNUSED_RESULT;
+
+    OGRGeometry *UnionCascaded() const CPL_WARN_UNUSED_RESULT;
+
     OGRGeometry *UnaryUnion() const CPL_WARN_UNUSED_RESULT;
-    virtual OGRGeometry *
-    Difference(const OGRGeometry *) const CPL_WARN_UNUSED_RESULT;
-    virtual OGRGeometry *
+
+    OGRGeometry *Difference(const OGRGeometry *) const CPL_WARN_UNUSED_RESULT;
+
+    OGRGeometry *
     SymDifference(const OGRGeometry *) const CPL_WARN_UNUSED_RESULT;
-    virtual OGRErr Centroid(OGRPoint *poPoint) const;
-    virtual OGRGeometry *
-    Simplify(double dTolerance) const CPL_WARN_UNUSED_RESULT;
+
+    OGRErr Centroid(OGRPoint *poPoint) const;
+
+    OGRGeometry *Simplify(double dTolerance) const CPL_WARN_UNUSED_RESULT;
+
     OGRGeometry *
     SimplifyPreserveTopology(double dTolerance) const CPL_WARN_UNUSED_RESULT;
-    virtual OGRGeometry *
+
+    OGRGeometry *
     DelaunayTriangulation(double dfTolerance,
                           int bOnlyEdges) const CPL_WARN_UNUSED_RESULT;
-    virtual OGRGeometry *
+
+    OGRGeometry *
     ConstrainedDelaunayTriangulation() const CPL_WARN_UNUSED_RESULT;
 
-    virtual OGRGeometry *Polygonize() const CPL_WARN_UNUSED_RESULT;
-    virtual OGRGeometry *BuildArea() const CPL_WARN_UNUSED_RESULT;
+    OGRGeometry *Polygonize() const CPL_WARN_UNUSED_RESULT;
 
-    virtual double Distance3D(const OGRGeometry *poOtherGeom) const;
+    OGRGeometry *BuildArea() const CPL_WARN_UNUSED_RESULT;
+
+    double Distance3D(const OGRGeometry *poOtherGeom) const;
 
     OGRGeometry *SetPrecision(double dfGridSize, int nFlags) const;
 
@@ -1248,7 +1261,7 @@ class CPL_DLL OGRPoint : public OGRGeometry
 };
 
 /************************************************************************/
-/*                            OGRPointIterator                          */
+/*                           OGRPointIterator                           */
 /************************************************************************/
 
 /**
@@ -1406,7 +1419,7 @@ inline OGRCurve::ConstIterator end(const OGRCurve *poCurve)
  Implementation detail of OGRSimpleCurve::Iterator.
 
  This class is a simple wrapper over OGRPoint, which shouldn't be directly
- referenced by the user other than trough auto&& in an iteator
+ referenced by the user other than through auto&& in an iterator
  over a OGRSimpleCurve.
 
  Typical usage pattern is:
@@ -1458,7 +1471,7 @@ class CPL_DLL OGRIteratedPoint : public OGRPoint
 };
 
 /************************************************************************/
-/*                             OGRSimpleCurve                           */
+/*                            OGRSimpleCurve                            */
 /************************************************************************/
 
 /**
@@ -1903,7 +1916,7 @@ class CPL_DLL OGRLinearRing : public OGRLineString
 };
 
 /************************************************************************/
-/*                         OGRCircularString                            */
+/*                          OGRCircularString                           */
 /************************************************************************/
 
 /**
@@ -1921,7 +1934,7 @@ class CPL_DLL OGRCircularString : public OGRSimpleCurve
 {
   private:
     void ExtendEnvelopeWithCircular(OGREnvelope *psEnvelope) const;
-    OGRBoolean IsValidFast() const;
+    OGRBoolean IsValidFast(std::string *posReason = nullptr) const;
     int IsFullCircle(double &cx, double &cy, double &square_R) const;
 
   protected:
@@ -1969,7 +1982,7 @@ class CPL_DLL OGRCircularString : public OGRSimpleCurve
                                     OGRErr *err = nullptr) const override;
 
     // IGeometry interface.
-    OGRBoolean IsValid() const override;
+    OGRBoolean IsValid(std::string *posReason = nullptr) const override;
     void getEnvelope(OGREnvelope *psEnvelope) const override;
     void getEnvelope(OGREnvelope3D *psEnvelope) const override;
     OGRCircularString *clone() const override;
@@ -2023,7 +2036,7 @@ class CPL_DLL OGRCircularString : public OGRSimpleCurve
 };
 
 /************************************************************************/
-/*                           OGRCurveCollection                         */
+/*                          OGRCurveCollection                          */
 /************************************************************************/
 
 /**
@@ -2137,7 +2150,7 @@ class CPL_DLL OGRCurveCollection
 //! @endcond
 
 /************************************************************************/
-/*                            OGRCompoundCurve                          */
+/*                           OGRCompoundCurve                           */
 /************************************************************************/
 
 /**
@@ -2398,7 +2411,7 @@ class CPL_DLL OGRSurface : public OGRGeometry
 };
 
 /************************************************************************/
-/*                          OGRCurvePolygon                             */
+/*                           OGRCurvePolygon                            */
 /************************************************************************/
 
 /**
@@ -2807,7 +2820,7 @@ inline OGRPolygon::ChildType **end(OGRPolygon *poGeom)
 //! @endcond
 
 /************************************************************************/
-/*                              OGRTriangle                             */
+/*                             OGRTriangle                              */
 /************************************************************************/
 
 /**
@@ -3025,6 +3038,7 @@ class CPL_DLL OGRGeometryCollection : public OGRGeometry
     virtual OGRErr addGeometry(const OGRGeometry *);
     virtual OGRErr addGeometryDirectly(OGRGeometry *);
     OGRErr addGeometry(std::unique_ptr<OGRGeometry> geom);
+    OGRErr addGeometryComponents(std::unique_ptr<OGRGeometryCollection> geom);
     virtual OGRErr removeGeometry(int iIndex, int bDelete = TRUE);
     std::unique_ptr<OGRGeometry> stealGeometry(int iIndex);
 
@@ -3087,7 +3101,7 @@ inline OGRGeometryCollection::ChildType **end(OGRGeometryCollection *poGeom)
 //! @endcond
 
 /************************************************************************/
-/*                          OGRMultiSurface                             */
+/*                           OGRMultiSurface                            */
 /************************************************************************/
 
 /**
@@ -3891,7 +3905,7 @@ inline OGRMultiPoint::ChildType **end(OGRMultiPoint *poGeom)
 //! @endcond
 
 /************************************************************************/
-/*                          OGRMultiCurve                               */
+/*                            OGRMultiCurve                             */
 /************************************************************************/
 
 /**
@@ -4263,7 +4277,16 @@ class CPL_DLL OGRGeometryFactory
 
     static OGRGeometry *forceTo(OGRGeometry *poGeom,
                                 OGRwkbGeometryType eTargetType,
-                                const char *const *papszOptions = nullptr);
+                                const char *const *papszOptions = nullptr)
+#ifndef DOXYGEN_SKIP
+        CPL_WARN_DEPRECATED("Use variant that accepts and returns a "
+                            "std::unique_ptr<OGRGeometry")
+#endif
+            ;
+
+    static std::unique_ptr<OGRGeometry>
+    forceTo(std::unique_ptr<OGRGeometry> poGeom, OGRwkbGeometryType eTargetType,
+            const char *const *papszOptions = nullptr);
 
     static std::unique_ptr<OGRGeometry>
     makeCompatibleWith(std::unique_ptr<OGRGeometry>,
@@ -4271,10 +4294,21 @@ class CPL_DLL OGRGeometryFactory
 
     static OGRGeometry *removeLowerDimensionSubGeoms(const OGRGeometry *poGeom);
 
+    static std::unique_ptr<OGRGeometry>
+    organizePolygons(std::vector<std::unique_ptr<OGRGeometry>> &apoPolygons,
+                     bool *pbResultValidGeometry = nullptr,
+                     CSLConstList papszOptions = nullptr);
+
     static OGRGeometry *organizePolygons(OGRGeometry **papoPolygons,
                                          int nPolygonCount,
                                          int *pbResultValidGeometry,
-                                         const char **papszOptions = nullptr);
+                                         CSLConstList papszOptions = nullptr)
+#ifndef DOXYGEN_SKIP
+        CPL_WARN_DEPRECATED("Use variant that accepts a "
+                            "std::vector<std::unique_ptr<OGRGeometry>>&")
+#endif
+            ;
+
     static bool haveGEOS();
 
     /** Opaque class used as argument to transformWithOptions() */
@@ -4297,7 +4331,7 @@ class CPL_DLL OGRGeometryFactory
 
     static OGRGeometry *transformWithOptions(
         const OGRGeometry *poSrcGeom, OGRCoordinateTransformation *poCT,
-        char **papszOptions,
+        CSLConstList papszOptions,
         const TransformWithOptionsCache &cache = TransformWithOptionsCache());
 
     static double GetDefaultArcStepSize();

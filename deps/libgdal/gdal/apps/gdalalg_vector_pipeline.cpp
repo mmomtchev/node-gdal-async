@@ -11,6 +11,7 @@
  ****************************************************************************/
 
 #include "gdalalg_vector_pipeline.h"
+#include "gdalalg_external.h"
 #include "gdalalg_materialize.h"
 #include "gdalalg_vector_read.h"
 #include "gdalalg_vector_buffer.h"
@@ -18,16 +19,22 @@
 #include "gdalalg_vector_check_geometry.h"
 #include "gdalalg_vector_clean_coverage.h"
 #include "gdalalg_vector_clip.h"
+#include "gdalalg_vector_combine.h"
 #include "gdalalg_vector_concat.h"
+#include "gdalalg_vector_concave_hull.h"
+#include "gdalalg_vector_convex_hull.h"
+#include "gdalalg_vector_create.h"
+#include "gdalalg_vector_dissolve.h"
 #include "gdalalg_vector_edit.h"
 #include "gdalalg_vector_explode_collections.h"
+#include "gdalalg_vector_export_schema.h"
 #include "gdalalg_vector_filter.h"
-#include "gdalalg_vector_geom.h"
 #include "gdalalg_vector_info.h"
 #include "gdalalg_vector_limit.h"
 #include "gdalalg_vector_make_point.h"
 #include "gdalalg_vector_make_valid.h"
 #include "gdalalg_vector_partition.h"
+#include "gdalalg_vector_rename_layer.h"
 #include "gdalalg_vector_reproject.h"
 #include "gdalalg_vector_segmentize.h"
 #include "gdalalg_vector_select.h"
@@ -35,8 +42,10 @@
 #include "gdalalg_vector_set_geom_type.h"
 #include "gdalalg_vector_simplify.h"
 #include "gdalalg_vector_simplify_coverage.h"
+#include "gdalalg_vector_sort.h"
 #include "gdalalg_vector_sql.h"
 #include "gdalalg_vector_swap_xy.h"
+#include "gdalalg_vector_update.h"
 #include "gdalalg_vector_write.h"
 #include "gdalalg_tee.h"
 
@@ -89,12 +98,19 @@ GDALVectorPipelineStepAlgorithm::GDALVectorPipelineStepAlgorithm(
             AddVectorOutputArgs(false, false);
         }
     }
+    else
+    {
+        if (m_constructorOptions.addDefaultArguments)
+        {
+            AddVectorHiddenInputDatasetArg();
+        }
+    }
 }
 
 GDALVectorPipelineStepAlgorithm::~GDALVectorPipelineStepAlgorithm() = default;
 
 /************************************************************************/
-/*        GDALVectorPipelineAlgorithm::GDALVectorPipelineAlgorithm()    */
+/*      GDALVectorPipelineAlgorithm::GDALVectorPipelineAlgorithm()      */
 /************************************************************************/
 
 GDALVectorPipelineAlgorithm::GDALVectorPipelineAlgorithm()
@@ -119,7 +135,7 @@ GDALVectorPipelineAlgorithm::GDALVectorPipelineAlgorithm()
 }
 
 /************************************************************************/
-/*       GDALVectorPipelineAlgorithm::RegisterAlgorithms()              */
+/*          GDALVectorPipelineAlgorithm::RegisterAlgorithms()           */
 /************************************************************************/
 
 /* static */
@@ -147,16 +163,24 @@ void GDALVectorPipelineAlgorithm::RegisterAlgorithms(
     registry.Register<GDALVectorBufferAlgorithm>();
     registry.Register<GDALVectorCheckCoverageAlgorithm>();
     registry.Register<GDALVectorCheckGeometryAlgorithm>();
+    registry.Register<GDALVectorCombineAlgorithm>();
     registry.Register<GDALVectorConcatAlgorithm>();
+    registry.Register<GDALVectorConcaveHullAlgorithm>();
+    registry.Register<GDALVectorConvexHullAlgorithm>();
     registry.Register<GDALVectorCleanCoverageAlgorithm>();
 
     registry.Register<GDALVectorClipAlgorithm>(
         addSuffixIfNeeded(GDALVectorClipAlgorithm::NAME));
+    registry.Register<GDALVectorDissolveAlgorithm>();
+
+    registry.Register<GDALVectorCreateAlgorithm>(
+        addSuffixIfNeeded(GDALVectorCreateAlgorithm::NAME));
 
     registry.Register<GDALVectorEditAlgorithm>(
         addSuffixIfNeeded(GDALVectorEditAlgorithm::NAME));
 
     registry.Register<GDALVectorExplodeCollectionsAlgorithm>();
+    registry.Register<GDALVectorExportSchemaAlgorithm>();
 
     registry.Register<GDALMaterializeVectorAlgorithm>(
         addSuffixIfNeeded(GDALMaterializeVectorAlgorithm::NAME));
@@ -165,11 +189,11 @@ void GDALVectorPipelineAlgorithm::RegisterAlgorithms(
         addSuffixIfNeeded(GDALVectorReprojectAlgorithm::NAME));
 
     registry.Register<GDALVectorFilterAlgorithm>();
-    registry.Register<GDALVectorGeomAlgorithm>();
     registry.Register<GDALVectorLimitAlgorithm>();
     registry.Register<GDALVectorMakePointAlgorithm>();
     registry.Register<GDALVectorMakeValidAlgorithm>();
     registry.Register<GDALVectorPartitionAlgorithm>();
+    registry.Register<GDALVectorRenameLayerAlgorithm>();
     registry.Register<GDALVectorSegmentizeAlgorithm>();
 
     registry.Register<GDALVectorSelectAlgorithm>(
@@ -179,11 +203,19 @@ void GDALVectorPipelineAlgorithm::RegisterAlgorithms(
     registry.Register<GDALVectorSetGeomTypeAlgorithm>();
     registry.Register<GDALVectorSimplifyAlgorithm>();
     registry.Register<GDALVectorSimplifyCoverageAlgorithm>();
+    registry.Register<GDALVectorSortAlgorithm>();
     registry.Register<GDALVectorSQLAlgorithm>();
+    registry.Register<GDALVectorUpdateAlgorithm>(
+        addSuffixIfNeeded(GDALVectorUpdateAlgorithm::NAME));
     registry.Register<GDALVectorSwapXYAlgorithm>();
 
     registry.Register<GDALTeeVectorAlgorithm>(
         addSuffixIfNeeded(GDALTeeVectorAlgorithm::NAME));
+
+    if (!forMixedPipeline)
+    {
+        registry.Register<GDALExternalVectorAlgorithm>();
+    }
 }
 
 /************************************************************************/
@@ -301,11 +333,45 @@ std::string GDALVectorPipelineAlgorithm::GetUsageForCLI(
 }
 
 /************************************************************************/
-/*                  GDALVectorPipelineOutputLayer                       */
+/*                      GDALVectorDecoratedDataset                      */
+/************************************************************************/
+
+namespace
+{
+class DummyDataset final : public GDALDataset
+{
+  public:
+    DummyDataset() = default;
+};
+}  // namespace
+
+/************************************************************************/
+/*                     GDALVectorDecoratedDataset()                     */
+/************************************************************************/
+
+GDALVectorDecoratedDataset::GDALVectorDecoratedDataset(GDALDataset *poSrcDS)
+    : m_dummySrcDS(poSrcDS ? nullptr : std::make_unique<DummyDataset>()),
+      m_srcDS(poSrcDS ? *poSrcDS : *(m_dummySrcDS.get()))
+{
+    m_srcDS.Reference();
+    SetDescription(m_srcDS.GetDescription());
+}
+
+/************************************************************************/
+/*                    ~GDALVectorDecoratedDataset()                     */
+/************************************************************************/
+
+GDALVectorDecoratedDataset::~GDALVectorDecoratedDataset()
+{
+    m_srcDS.ReleaseRef();
+}
+
+/************************************************************************/
+/*                    GDALVectorPipelineOutputLayer                     */
 /************************************************************************/
 
 /************************************************************************/
-/*                  GDALVectorPipelineOutputLayer()                     */
+/*                   GDALVectorPipelineOutputLayer()                    */
 /************************************************************************/
 
 GDALVectorPipelineOutputLayer::GDALVectorPipelineOutputLayer(OGRLayer &srcLayer)
@@ -314,13 +380,13 @@ GDALVectorPipelineOutputLayer::GDALVectorPipelineOutputLayer(OGRLayer &srcLayer)
 }
 
 /************************************************************************/
-/*                 ~GDALVectorPipelineOutputLayer()                     */
+/*                   ~GDALVectorPipelineOutputLayer()                   */
 /************************************************************************/
 
 GDALVectorPipelineOutputLayer::~GDALVectorPipelineOutputLayer() = default;
 
 /************************************************************************/
-/*             GDALVectorPipelineOutputLayer::ResetReading()            */
+/*            GDALVectorPipelineOutputLayer::ResetReading()             */
 /************************************************************************/
 
 void GDALVectorPipelineOutputLayer::ResetReading()
@@ -331,7 +397,7 @@ void GDALVectorPipelineOutputLayer::ResetReading()
 }
 
 /************************************************************************/
-/*           GDALVectorPipelineOutputLayer::GetNextRawFeature()         */
+/*          GDALVectorPipelineOutputLayer::GetNextRawFeature()          */
 /************************************************************************/
 
 OGRFeature *GDALVectorPipelineOutputLayer::GetNextRawFeature()
@@ -365,7 +431,20 @@ OGRFeature *GDALVectorPipelineOutputLayer::GetNextRawFeature()
 }
 
 /************************************************************************/
-/*                         GDALVectorOutputDataset                      */
+/*                       GDALVectorOutputDataset                        */
+/************************************************************************/
+
+/************************************************************************/
+/*                      GDALVectorOutputDataset()                       */
+/************************************************************************/
+
+GDALVectorOutputDataset::GDALVectorOutputDataset(GDALDataset *poSrcDS)
+    : GDALVectorDecoratedDataset(poSrcDS)
+{
+}
+
+/************************************************************************/
+/*                           TestCapability()                           */
 /************************************************************************/
 
 int GDALVectorOutputDataset::TestCapability(const char *) const
@@ -374,23 +453,21 @@ int GDALVectorOutputDataset::TestCapability(const char *) const
 }
 
 /************************************************************************/
-/*                 GDALVectorPipelineOutputDataset                      */
+/*                   GDALVectorPipelineOutputDataset                    */
 /************************************************************************/
 
 /************************************************************************/
-/*                 GDALVectorPipelineOutputDataset()                    */
+/*                  GDALVectorPipelineOutputDataset()                   */
 /************************************************************************/
 
 GDALVectorPipelineOutputDataset::GDALVectorPipelineOutputDataset(
     GDALDataset &srcDS)
-    : m_srcDS(srcDS)
+    : GDALVectorDecoratedDataset(&srcDS)
 {
-    SetDescription(m_srcDS.GetDescription());
-    SetMetadata(m_srcDS.GetMetadata());
 }
 
 /************************************************************************/
-/*            GDALVectorPipelineOutputDataset::AddLayer()               */
+/*             GDALVectorPipelineOutputDataset::AddLayer()              */
 /************************************************************************/
 
 void GDALVectorPipelineOutputDataset::AddLayer(
@@ -405,7 +482,7 @@ void GDALVectorPipelineOutputDataset::AddLayer(
 }
 
 /************************************************************************/
-/*          GDALVectorPipelineOutputDataset::GetLayerCount()            */
+/*           GDALVectorPipelineOutputDataset::GetLayerCount()           */
 /************************************************************************/
 
 int GDALVectorPipelineOutputDataset::GetLayerCount() const
@@ -423,7 +500,7 @@ OGRLayer *GDALVectorPipelineOutputDataset::GetLayer(int idx) const
 }
 
 /************************************************************************/
-/*           GDALVectorPipelineOutputDataset::TestCapability()          */
+/*          GDALVectorPipelineOutputDataset::TestCapability()           */
 /************************************************************************/
 
 int GDALVectorPipelineOutputDataset::TestCapability(const char *pszCap) const
@@ -437,7 +514,7 @@ int GDALVectorPipelineOutputDataset::TestCapability(const char *pszCap) const
 }
 
 /************************************************************************/
-/*             GDALVectorPipelineOutputDataset::ResetReading()          */
+/*           GDALVectorPipelineOutputDataset::ResetReading()            */
 /************************************************************************/
 
 void GDALVectorPipelineOutputDataset::ResetReading()
@@ -448,7 +525,7 @@ void GDALVectorPipelineOutputDataset::ResetReading()
 }
 
 /************************************************************************/
-/*            GDALVectorPipelineOutputDataset::GetNextFeature()         */
+/*          GDALVectorPipelineOutputDataset::GetNextFeature()           */
 /************************************************************************/
 
 OGRFeature *GDALVectorPipelineOutputDataset::GetNextFeature(
@@ -494,7 +571,7 @@ OGRFeature *GDALVectorPipelineOutputDataset::GetNextFeature(
 }
 
 /************************************************************************/
-/*            GDALVectorPipelinePassthroughLayer::GetLayerDefn()        */
+/*          GDALVectorPipelinePassthroughLayer::GetLayerDefn()          */
 /************************************************************************/
 
 const OGRFeatureDefn *GDALVectorPipelinePassthroughLayer::GetLayerDefn() const
@@ -503,46 +580,54 @@ const OGRFeatureDefn *GDALVectorPipelinePassthroughLayer::GetLayerDefn() const
 }
 
 /************************************************************************/
-/*                 GDALVectorNonStreamingAlgorithmDataset()             */
+/*          GDALVectorPipelinePassthroughLayer::GetLayerDefn()          */
 /************************************************************************/
 
-GDALVectorNonStreamingAlgorithmDataset::GDALVectorNonStreamingAlgorithmDataset()
-    : m_ds(MEMDataset::Create("", 0, 0, 0, GDT_Unknown, nullptr))
+void GDALVectorPipelinePassthroughLayer::TranslateFeature(
+    std::unique_ptr<OGRFeature> poSrcFeature,
+    std::vector<std::unique_ptr<OGRFeature>> &apoOutFeatures)
+{
+    if ((!m_poFilterGeom || FilterGeometry(poSrcFeature->GetGeometryRef())) &&
+        (!m_poAttrQuery || m_poAttrQuery->Evaluate(poSrcFeature.get())))
+    {
+        apoOutFeatures.push_back(std::move(poSrcFeature));
+    }
+}
+
+/************************************************************************/
+/*               GDALVectorNonStreamingAlgorithmDataset()               */
+/************************************************************************/
+
+GDALVectorNonStreamingAlgorithmDataset::GDALVectorNonStreamingAlgorithmDataset(
+    GDALDataset &oSrcDS)
+    : GDALVectorDecoratedDataset(&oSrcDS)
 {
 }
 
 /************************************************************************/
-/*                ~GDALVectorNonStreamingAlgorithmDataset()             */
+/*              ~GDALVectorNonStreamingAlgorithmDataset()               */
 /************************************************************************/
 
 GDALVectorNonStreamingAlgorithmDataset::
     ~GDALVectorNonStreamingAlgorithmDataset() = default;
 
 /************************************************************************/
-/*    GDALVectorNonStreamingAlgorithmDataset::AddProcessedLayer()       */
+/*     GDALVectorNonStreamingAlgorithmDataset::AddProcessedLayer()      */
 /************************************************************************/
 
 bool GDALVectorNonStreamingAlgorithmDataset::AddProcessedLayer(
-    OGRLayer &srcLayer, OGRFeatureDefn &dstDefn)
+    std::unique_ptr<GDALVectorNonStreamingAlgorithmLayer> layer,
+    GDALProgressFunc progressFn, void *progressData)
 {
-    CPLStringList aosOptions;
-    if (srcLayer.TestCapability(OLCStringsAsUTF8))
+    if (!layer->Process(progressFn, progressData))
     {
-        aosOptions.AddNameValue("ADVERTIZE_UTF8", "TRUE");
+        return false;
     }
 
-    OGRMemLayer *poDstLayer = m_ds->CreateLayer(dstDefn, aosOptions.List());
-    m_layers.push_back(poDstLayer);
+    m_owned_layers.emplace_back(std::move(layer));
+    m_layers.push_back(m_owned_layers.back().get());
 
-    const bool bRet = Process(srcLayer, *poDstLayer);
-    poDstLayer->SetUpdatable(false);
-    return bRet;
-}
-
-bool GDALVectorNonStreamingAlgorithmDataset::AddProcessedLayer(
-    OGRLayer &srcLayer)
-{
-    return AddProcessedLayer(srcLayer, *srcLayer.GetLayerDefn());
+    return true;
 }
 
 /************************************************************************/
@@ -552,9 +637,9 @@ bool GDALVectorNonStreamingAlgorithmDataset::AddProcessedLayer(
 void GDALVectorNonStreamingAlgorithmDataset::AddPassThroughLayer(
     OGRLayer &oLayer)
 {
-    m_passthrough_layers.push_back(
+    m_owned_layers.push_back(
         std::make_unique<GDALVectorPipelinePassthroughLayer>(oLayer));
-    m_layers.push_back(m_passthrough_layers.back().get());
+    m_layers.push_back(m_owned_layers.back().get());
 }
 
 /************************************************************************/
@@ -567,7 +652,7 @@ int GDALVectorNonStreamingAlgorithmDataset::GetLayerCount() const
 }
 
 /************************************************************************/
-/*       GDALVectorNonStreamingAlgorithmDataset::GetLayer()             */
+/*          GDALVectorNonStreamingAlgorithmDataset::GetLayer()          */
 /************************************************************************/
 
 OGRLayer *GDALVectorNonStreamingAlgorithmDataset::GetLayer(int idx) const
@@ -580,18 +665,141 @@ OGRLayer *GDALVectorNonStreamingAlgorithmDataset::GetLayer(int idx) const
 }
 
 /************************************************************************/
-/*    GDALVectorNonStreamingAlgorithmDataset::TestCapability()          */
+/*       GDALVectorNonStreamingAlgorithmDataset::TestCapability()       */
 /************************************************************************/
 
 int GDALVectorNonStreamingAlgorithmDataset::TestCapability(
     const char *pszCap) const
 {
-    if (EQUAL(pszCap, ODsCCreateLayer) || EQUAL(pszCap, ODsCDeleteLayer))
+    if (EQUAL(pszCap, ODsCCurveGeometries) ||
+        EQUAL(pszCap, ODsCMeasuredGeometries) || EQUAL(pszCap, ODsCZGeometries))
     {
-        return false;
+        return true;
     }
 
-    return m_ds->TestCapability(pszCap);
+    return false;
+}
+
+/************************************************************************/
+/*               GDALVectorAlgorithmLayerProgressHelper()               */
+/************************************************************************/
+
+GDALVectorAlgorithmLayerProgressHelper::GDALVectorAlgorithmLayerProgressHelper(
+    GDALProgressFunc pfnProgress, void *pProgressData)
+    : m_pfnProgress(pfnProgress), m_pProgressData(pProgressData)
+{
+}
+
+/************************************************************************/
+/*               GDALVectorAlgorithmLayerProgressHelper()               */
+/************************************************************************/
+
+GDALVectorAlgorithmLayerProgressHelper::GDALVectorAlgorithmLayerProgressHelper(
+    const GDALPipelineStepRunContext &ctxt)
+    : GDALVectorAlgorithmLayerProgressHelper(ctxt.m_pfnProgress,
+                                             ctxt.m_pProgressData)
+{
+}
+
+/************************************************************************/
+/*     GDALVectorAlgorithmLayerProgressHelper::AddProcessedLayer()      */
+/************************************************************************/
+
+void GDALVectorAlgorithmLayerProgressHelper::AddProcessedLayer(
+    OGRLayer &srcLayer)
+{
+    m_apoSrcLayers.emplace_back(&srcLayer, true);
+    if (m_pfnProgress && m_nTotalFeatures >= 0 &&
+        srcLayer.TestCapability(OLCFastFeatureCount))
+    {
+        const auto nLayerFeatures = srcLayer.GetFeatureCount(false);
+        if (nLayerFeatures < 0)
+            m_nTotalFeatures = -1;
+        else
+            m_nTotalFeatures += nLayerFeatures;
+        m_anFeatures.push_back(nLayerFeatures);
+    }
+    else
+    {
+        m_anFeatures.push_back(-1);
+        m_nTotalFeatures = -1;
+    }
+}
+
+/************************************************************************/
+/*    GDALVectorAlgorithmLayerProgressHelper::AddPassThroughLayer()     */
+/************************************************************************/
+
+void GDALVectorAlgorithmLayerProgressHelper::AddPassThroughLayer(
+    OGRLayer &srcLayer)
+{
+    m_apoSrcLayers.emplace_back(&srcLayer, false);
+}
+
+/************************************************************************/
+/*                GDALVectorNonStreamingAlgorithmLayer()                */
+/************************************************************************/
+
+GDALVectorNonStreamingAlgorithmLayer::GDALVectorNonStreamingAlgorithmLayer(
+    OGRLayer &srcLayer, int geomFieldIndex)
+    : m_srcLayer(srcLayer), m_geomFieldIndex(geomFieldIndex)
+{
+}
+
+/************************************************************************/
+/*               ~GDALVectorNonStreamingAlgorithmLayer()                */
+/************************************************************************/
+
+GDALVectorNonStreamingAlgorithmLayer::~GDALVectorNonStreamingAlgorithmLayer() =
+    default;
+
+/************************************************************************/
+/*      GDALVectorNonStreamingAlgorithmLayer::GetNextRawFeature()       */
+/************************************************************************/
+
+OGRFeature *GDALVectorNonStreamingAlgorithmLayer::GetNextRawFeature()
+{
+    return GetNextProcessedFeature().release();
+}
+
+/************************************************************************/
+/*    GDALVectorAlgorithmLayerProgressHelper::iterator::operator*()     */
+/************************************************************************/
+
+GDALVectorAlgorithmLayerProgressHelper::iterator::value_type
+GDALVectorAlgorithmLayerProgressHelper::iterator::operator*() const
+{
+    const double dfProgressStart =
+        m_helper.m_anFeatures.empty() ? 0
+        : m_helper.m_nTotalFeatures > 0
+            ? static_cast<double>(m_nFeatureIdx) /
+                  static_cast<double>(m_helper.m_nTotalFeatures)
+            : static_cast<double>(m_nProcessedLayerIdx) /
+                  std::max(1.0,
+                           static_cast<double>(m_helper.m_anFeatures.size()));
+    const double dfProgressEnd =
+        m_helper.m_anFeatures.empty() ? 0
+        : m_helper.m_nTotalFeatures > 0
+            ? static_cast<double>(m_nFeatureIdx +
+                                  m_helper.m_anFeatures[m_nProcessedLayerIdx]) /
+                  static_cast<double>(m_helper.m_nTotalFeatures)
+            : static_cast<double>(m_nProcessedLayerIdx + 1) /
+                  std::max(1.0,
+                           static_cast<double>(m_helper.m_anFeatures.size()));
+
+    progress_data_unique_ptr pScaledProgressData(nullptr,
+                                                 GDALDestroyScaledProgress);
+    if (m_helper.m_pfnProgress && m_helper.m_apoSrcLayers[m_nLayerIdx].second)
+    {
+        pScaledProgressData.reset(GDALCreateScaledProgress(
+            dfProgressStart, dfProgressEnd, m_helper.m_pfnProgress,
+            m_helper.m_pProgressData));
+    }
+
+    return value_type(m_helper.m_apoSrcLayers[m_nLayerIdx].first,
+                      m_helper.m_apoSrcLayers[m_nLayerIdx].second,
+                      m_helper.m_pfnProgress ? GDALScaledProgress : nullptr,
+                      std::move(pScaledProgressData));
 }
 
 //! @endcond

@@ -243,7 +243,7 @@ const OGRLayer *OGRNGWDataset::GetLayer(int iLayer) const
  */
 bool OGRNGWDataset::Open(const std::string &osUrlIn,
                          const std::string &osResourceIdIn,
-                         char **papszOpenOptionsIn, bool bUpdateIn,
+                         CSLConstList papszOpenOptionsIn, bool bUpdateIn,
                          int nOpenFlagsIn)
 {
     osUrl = osUrlIn;
@@ -330,8 +330,9 @@ bool OGRNGWDataset::Open(const std::string &osUrlIn,
  *      - NGW:http://some.nextgis.com/resource/0
  *      - NGW:http://some.nextgis.com:8000/test/resource/0
  */
-bool OGRNGWDataset::Open(const char *pszFilename, char **papszOpenOptionsIn,
-                         bool bUpdateIn, int nOpenFlagsIn)
+bool OGRNGWDataset::Open(const char *pszFilename,
+                         CSLConstList papszOpenOptionsIn, bool bUpdateIn,
+                         int nOpenFlagsIn)
 {
     NGWAPI::Uri stUri = NGWAPI::ParseUri(pszFilename);
 
@@ -791,7 +792,7 @@ OGRLayer *OGRNGWDataset::ICreateLayer(const char *pszNameIn,
 
     OGRSpatialReference *poSRSClone = poSpatialRef->Clone();
     poSRSClone->AutoIdentifyEPSG();
-    const char *pszEPSG = poSRSClone->GetAuthorityCode(nullptr);
+    const char *pszEPSG = poSRSClone->GetAuthorityCode();
     int nEPSG = -1;
     if (pszEPSG != nullptr)
     {
@@ -930,7 +931,7 @@ void OGRNGWDataset::FillMetadata(const CPLJSONObject &oRootObject)
 /*
  * FlushMetadata()
  */
-bool OGRNGWDataset::FlushMetadata(char **papszMetadata)
+bool OGRNGWDataset::FlushMetadata(CSLConstList papszMetadata)
 {
     if (!bMetadataDerty)
     {
@@ -950,7 +951,8 @@ bool OGRNGWDataset::FlushMetadata(char **papszMetadata)
 /*
  * SetMetadata()
  */
-CPLErr OGRNGWDataset::SetMetadata(char **papszMetadata, const char *pszDomain)
+CPLErr OGRNGWDataset::SetMetadata(CSLConstList papszMetadata,
+                                  const char *pszDomain)
 {
     FetchPermissions();
     if (!stPermissions.bMetadataCanWrite)

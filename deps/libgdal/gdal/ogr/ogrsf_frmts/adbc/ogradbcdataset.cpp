@@ -90,7 +90,7 @@ AdbcStatusCode OGRADBCLoadDriver(const char *driver_name,
 #define ADBC_CALL(func, ...) m_driver.func(__VA_ARGS__)
 
 /************************************************************************/
-/*                           ~OGRADBCDataset()                          */
+/*                          ~OGRADBCDataset()                           */
 /************************************************************************/
 
 OGRADBCDataset::~OGRADBCDataset()
@@ -111,7 +111,7 @@ OGRADBCDataset::~OGRADBCDataset()
 }
 
 /************************************************************************/
-/*                           FlushCache()                               */
+/*                             FlushCache()                             */
 /************************************************************************/
 
 CPLErr OGRADBCDataset::FlushCache(bool /* bAtClosing */)
@@ -131,7 +131,7 @@ CPLErr OGRADBCDataset::FlushCache(bool /* bAtClosing */)
 }
 
 /************************************************************************/
-/*                           CreateLayer()                              */
+/*                            CreateLayer()                             */
 /************************************************************************/
 
 std::unique_ptr<OGRADBCLayer>
@@ -270,7 +270,7 @@ OGRLayer *OGRADBCDataset::ExecuteSQL(const char *pszStatement,
 }
 
 /************************************************************************/
-/*                       IsParquetExtension()                           */
+/*                         IsParquetExtension()                         */
 /************************************************************************/
 
 static bool IsParquetExtension(const char *pszStr)
@@ -841,7 +841,7 @@ bool OGRADBCDataset::Open(const GDALOpenInfo *poOpenInfo)
 }
 
 /************************************************************************/
-/*                          ICreateLayer()                              */
+/*                            ICreateLayer()                            */
 /************************************************************************/
 
 OGRLayer *OGRADBCDataset::ICreateLayer(const char *pszName,
@@ -903,7 +903,7 @@ OGRLayer *OGRADBCDataset::ICreateLayer(const char *pszName,
 }
 
 /************************************************************************/
-/*                           DeleteLayer()                              */
+/*                            DeleteLayer()                             */
 /************************************************************************/
 
 OGRErr OGRADBCDataset::DeleteLayer(int iLayer)
@@ -957,7 +957,7 @@ OGRErr OGRADBCDataset::DeleteLayer(int iLayer)
 }
 
 /************************************************************************/
-/*                         TestCapability()                             */
+/*                           TestCapability()                           */
 /************************************************************************/
 
 int OGRADBCDataset::TestCapability(const char *pszCap) const
@@ -968,7 +968,7 @@ int OGRADBCDataset::TestCapability(const char *pszCap) const
 }
 
 /************************************************************************/
-/*                         GetLayerByName()                             */
+/*                           GetLayerByName()                           */
 /************************************************************************/
 
 OGRLayer *OGRADBCDataset::GetLayerByName(const char *pszName)
@@ -1059,27 +1059,30 @@ OGRLayer *OGRADBCDataset::GetLayerByName(const char *pszName)
                                             osTableType != "index" &&
                                             osTableType != "trigger")
                                         {
-                                            OGRFeature oFeat(
-                                                poTableListLayer
-                                                    ->GetLayerDefn());
+                                            auto poFeat =
+                                                std::make_unique<OGRFeature>(
+                                                    poTableListLayer
+                                                        ->GetLayerDefn());
                                             if (pszCatalogName)
-                                                oFeat.SetField("catalog_name",
-                                                               pszCatalogName);
+                                                poFeat->SetField(
+                                                    "catalog_name",
+                                                    pszCatalogName);
                                             if (oSchema.GetObj("schema_name")
                                                     .IsValid())
-                                                oFeat.SetField(
+                                                poFeat->SetField(
                                                     "schema_name",
                                                     osSchemaName.c_str());
-                                            oFeat.SetField("table_name",
-                                                           osTableName.c_str());
+                                            poFeat->SetField(
+                                                "table_name",
+                                                osTableName.c_str());
                                             if (oTable.GetObj("table_type")
                                                     .IsValid())
-                                                oFeat.SetField(
+                                                poFeat->SetField(
                                                     "table_type",
                                                     osTableType.c_str());
                                             CPL_IGNORE_RET_VAL(
                                                 poTableListLayer->CreateFeature(
-                                                    &oFeat));
+                                                    std::move(poFeat)));
                                         }
                                     }
                                 }

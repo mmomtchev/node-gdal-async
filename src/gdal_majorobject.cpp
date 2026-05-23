@@ -6,7 +6,7 @@
 
 namespace node_gdal {
 
-Local<Object> MajorObject::getMetadata(char **metadata) {
+Local<Object> MajorObject::getMetadata(CSLConstList metadata) {
   Nan::EscapableHandleScope scope;
 
   Local<Object> result = Nan::New<Object>();

@@ -94,7 +94,7 @@ int comunpack(unsigned char *cpack,g2int cpack_length,g2int lensec,g2int idrsnum
           return -1;
       }
 
-      /* Early test in particular case for more general test belows */
+      /* Early test in particular case for more general test below */
       /* "Test to see if the group widths and lengths are consistent with number of */
       /*  values, and length of section 7. */
       if( idrstmpl[12] < 0 || idrstmpl[14] < 0 || idrstmpl[14] > ndpts )

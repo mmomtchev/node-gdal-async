@@ -22,14 +22,14 @@ namespace OGRPDS
 {
 
 /************************************************************************/
-/*                           OGRPDSLayer()                              */
+/*                            OGRPDSLayer()                             */
 /************************************************************************/
 
 OGRPDSLayer::OGRPDSLayer(const std::string &osTableIDIn,
                          const char *pszLayerName, VSILFILE *fp,
                          const std::string &osLabelFilename,
                          const std::string &osStructureFilename, int nRecordsIn,
-                         int nStartBytesIn, int nRecordSizeIn,
+                         vsi_l_offset nStartBytesIn, int nRecordSizeIn,
                          GByte *pabyRecordIn, bool bIsASCII)
     : poFeatureDefn(new OGRFeatureDefn(pszLayerName)), osTableID(osTableIDIn),
       fpPDS(fp), nRecords(nRecordsIn), nStartBytes(nStartBytesIn),
@@ -96,7 +96,7 @@ OGRPDSLayer::OGRPDSLayer(const std::string &osTableIDIn,
 }
 
 /************************************************************************/
-/*                             ~OGRPDSLayer()                           */
+/*                            ~OGRPDSLayer()                            */
 /************************************************************************/
 
 OGRPDSLayer::~OGRPDSLayer()
@@ -790,7 +790,7 @@ OGRFeature *OGRPDSLayer::GetFeature(GIntBig nFID)
 }
 
 /************************************************************************/
-/*                         SetNextByIndex()                             */
+/*                           SetNextByIndex()                           */
 /************************************************************************/
 
 OGRErr OGRPDSLayer::SetNextByIndex(GIntBig nIndex)

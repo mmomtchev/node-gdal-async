@@ -47,25 +47,27 @@ CPL_C_START
 typedef enum
 {
     /*! Unknown or unspecified type */ GDT_Unknown = 0,
-    /*! Eight bit unsigned integer */ GDT_Byte = 1,
+    /*! 8-bit unsigned integer (GDT_Byte in GDAL < 3.13) */ GDT_UInt8 = 1,
     /*! 8-bit signed integer (GDAL >= 3.7) */ GDT_Int8 = 14,
-    /*! Sixteen bit unsigned integer */ GDT_UInt16 = 2,
-    /*! Sixteen bit signed integer */ GDT_Int16 = 3,
-    /*! Thirty two bit unsigned integer */ GDT_UInt32 = 4,
-    /*! Thirty two bit signed integer */ GDT_Int32 = 5,
+    /*! 16-bit unsigned integer */ GDT_UInt16 = 2,
+    /*! 16-bit signed integer */ GDT_Int16 = 3,
+    /*! 32-bit unsigned integer */ GDT_UInt32 = 4,
+    /*! 32-bit signed integer */ GDT_Int32 = 5,
     /*! 64 bit unsigned integer (GDAL >= 3.5)*/ GDT_UInt64 = 12,
     /*! 64 bit signed integer  (GDAL >= 3.5)*/ GDT_Int64 = 13,
-    /*! Sixteen bit floating point */ GDT_Float16 = 15,
-    /*! Thirty two bit floating point */ GDT_Float32 = 6,
-    /*! Sixty four bit floating point */ GDT_Float64 = 7,
+    /*! 16-bit floating point */ GDT_Float16 = 15,
+    /*! 32-bit floating point */ GDT_Float32 = 6,
+    /*! 64-bit floating point */ GDT_Float64 = 7,
     /*! Complex Int16 */ GDT_CInt16 = 8,
     /*! Complex Int32 */ GDT_CInt32 = 9,
-    /* TODO?(#6879): GDT_CInt64 */
     /*! Complex Float16 */ GDT_CFloat16 = 16,
     /*! Complex Float32 */ GDT_CFloat32 = 10,
     /*! Complex Float64 */ GDT_CFloat64 = 11,
     GDT_TypeCount = 17 /* maximum type # + 1 */
 } GDALDataType;
+
+/** GDT_Byte is the name used before GDAL 3.13 for GDT_UInt8 */
+#define GDT_Byte GDT_UInt8
 
 int CPL_DLL CPL_STDCALL GDALGetDataTypeSize(GDALDataType)
     /*! @cond Doxygen_Suppress */
@@ -159,8 +161,12 @@ typedef enum
 } GDALRIOResampleAlg;
 
 /* NOTE to developers: if required, only add members at the end of the
- * structure, and when doing so increase RASTERIO_EXTRA_ARG_CURRENT_VERSION
+ * structure, and when doing so increase RASTERIO_EXTRA_ARG_CURRENT_VERSION.
+ *
+ * Also make sure to use GDALCopyRasterIOExtraArg() when creating a copy
+ * from user input.
  */
+
 /** Structure to pass extra arguments to RasterIO() method,
  * must be initialized with INIT_RASTERIO_EXTRA_ARG
  */
@@ -201,10 +207,20 @@ typedef struct
         Only available if RASTERIO_EXTRA_ARG_CURRENT_VERSION >= 2
     */
     int bUseOnlyThisScale;
+
+    /** Indicate if operations (typically non-nearest resampling)
+     * should be done in the eBufType data type of the RasterIO() request
+     * rather than the band data type.
+     * Only available if RASTERIO_EXTRA_ARG_CURRENT_VERSION >= 3 (GDAL >= 3.13)
+     * Defaults to TRUE in GDAL >= 3.13 (behavior in previous version was
+     * mostly, but not always corresponding to setting it to FALSE)
+    */
+    int bOperateInBufType;
+
 } GDALRasterIOExtraArg;
 
 #ifndef DOXYGEN_SKIP
-#define RASTERIO_EXTRA_ARG_CURRENT_VERSION 2
+#define RASTERIO_EXTRA_ARG_CURRENT_VERSION 3
 #endif
 
 /** Macro to initialize an instance of GDALRasterIOExtraArg structure.
@@ -218,7 +234,15 @@ typedef struct
         (s).pProgressData = CPL_NULLPTR;                                       \
         (s).bFloatingPointWindowValidity = FALSE;                              \
         (s).bUseOnlyThisScale = FALSE;                                         \
+        (s).bOperateInBufType = TRUE;                                          \
     } while (0)
+
+/** Macro to return whether GDALRasterIOExtraArg::bOperateInBufType is set.
+ *
+ * @since 3.13
+ */
+#define GDAL_GET_OPERATE_IN_BUF_TYPE(s)                                        \
+    ((s).nVersion < 3 || (s).bOperateInBufType)
 
 /** Value indicating the start of the range for color interpretations belonging
  * to the InfraRed (IR) domain. All constants of the GDALColorInterp enumeration
@@ -345,6 +369,8 @@ typedef enum
 
 const char CPL_DLL *GDALGetColorInterpretationName(GDALColorInterp);
 GDALColorInterp CPL_DLL GDALGetColorInterpretationByName(const char *pszName);
+
+const GDALColorInterp CPL_DLL *GDALGetColorInterpretationList(int *pnCount);
 
 /*! Types of color interpretations for a GDALColorTable. */
 typedef enum
@@ -792,15 +818,28 @@ typedef enum
  */
 #define GDAL_DCAP_COORDINATE_EPOCH "DCAP_COORDINATE_EPOCH"
 
-/** Capability set by drivers for formats which support multiple vector layers.
+/** Capability set by drivers for formats which natively support multiple vector layers.
+ *
+ * GDAL_DCAP_MULTIPLE_VECTOR_LAYERS is only set for drivers of formats
+ * which have a native concept of multiple vector layers (such as GeoPackage).
  *
  * Note: some GDAL drivers expose "virtual" layer support while the underlying
- * formats themselves do not. This capability is only set for drivers of formats
- * which have a native concept of multiple vector layers (such as GeoPackage).
+ * formats themselves do not (see GDAL_DCAP_MULTIPLE_VECTOR_LAYERS_IN_DIRECTORY).
  *
  * @since GDAL 3.4
  */
 #define GDAL_DCAP_MULTIPLE_VECTOR_LAYERS "DCAP_MULTIPLE_VECTOR_LAYERS"
+
+/** Capability set by drivers for formats which support multiple vector layers,
+ * as individual files in a directory.
+ *
+ * For example "ESRI Shapefile", "MapInfo File", "CSV", "FlatGeoBuf" or
+ * "MiraMonVector"
+ *
+ * @since GDAL 3.13
+ */
+#define GDAL_DCAP_MULTIPLE_VECTOR_LAYERS_IN_DIRECTORY                          \
+    "GDAL_DCAP_MULTIPLE_VECTOR_LAYERS_IN_DIRECTORY"
 
 /** Capability set by drivers for formats which support reading field domains.
  *
@@ -1188,6 +1227,7 @@ void CPL_DLL CPL_STDCALL GDALDestroyDriver(GDALDriverH);
 int CPL_DLL CPL_STDCALL GDALRegisterDriver(GDALDriverH);
 void CPL_DLL CPL_STDCALL GDALDeregisterDriver(GDALDriverH);
 void CPL_DLL CPL_STDCALL GDALDestroyDriverManager(void);
+void CPL_DLL GDALClearMemoryCaches(void);
 void CPL_DLL GDALDestroy(void);
 CPLErr CPL_DLL CPL_STDCALL GDALDeleteDataset(GDALDriverH, const char *);
 CPLErr CPL_DLL CPL_STDCALL GDALRenameDataset(GDALDriverH,
@@ -1271,7 +1311,8 @@ void CPL_DLL GDALComposeHomographies(const double *padfHomography1,
 /* ==================================================================== */
 
 char CPL_DLL **CPL_STDCALL GDALGetMetadataDomainList(GDALMajorObjectH hObject);
-char CPL_DLL **CPL_STDCALL GDALGetMetadata(GDALMajorObjectH, const char *);
+CSLConstList CPL_DLL CPL_STDCALL GDALGetMetadata(GDALMajorObjectH,
+                                                 const char *);
 CPLErr CPL_DLL CPL_STDCALL GDALSetMetadata(GDALMajorObjectH, CSLConstList,
                                            const char *);
 const char CPL_DLL *CPL_STDCALL GDALGetMetadataItem(GDALMajorObjectH,
@@ -1292,7 +1333,12 @@ GDALDriverH CPL_DLL CPL_STDCALL GDALGetDatasetDriver(GDALDatasetH);
 char CPL_DLL **CPL_STDCALL GDALGetFileList(GDALDatasetH);
 void CPL_DLL GDALDatasetMarkSuppressOnClose(GDALDatasetH);
 CPLErr CPL_DLL CPL_STDCALL GDALClose(GDALDatasetH);
+CPLErr CPL_DLL GDALCloseEx(GDALDatasetH hDS, GDALProgressFunc pfnProgress,
+                           void *pProgressData);
+bool CPL_DLL GDALDatasetGetCloseReportsProgress(GDALDatasetH hDS);
 CPLErr CPL_DLL GDALDatasetRunCloseWithoutDestroying(GDALDatasetH hDS);
+CPLErr CPL_DLL GDALDatasetRunCloseWithoutDestroyingEx(
+    GDALDatasetH hDS, GDALProgressFunc pfnProgress, void *pProgressData);
 int CPL_DLL CPL_STDCALL GDALGetRasterXSize(GDALDatasetH);
 int CPL_DLL CPL_STDCALL GDALGetRasterYSize(GDALDatasetH);
 int CPL_DLL CPL_STDCALL GDALGetRasterCount(GDALDatasetH);
@@ -1356,6 +1402,18 @@ CPLErr CPL_DLL GDALGetExtentWGS84LongLat(GDALDatasetH, OGREnvelope *);
 CPLErr CPL_DLL GDALDatasetGeolocationToPixelLine(
     GDALDatasetH, double dfGeolocX, double dfGeolocY, OGRSpatialReferenceH hSRS,
     double *pdfPixel, double *pdfLine, CSLConstList papszTransformerOptions);
+
+CPLErr CPL_DLL GDALDatasetGetInterBandCovarianceMatrix(
+    GDALDatasetH hDS, double *padfCovMatrix, size_t nSize, int nBandCount,
+    const int *panBandList, bool bApproxOK, bool bForce,
+    bool bWriteIntoMetadata, int nDeltaDegreeOfFreedom,
+    GDALProgressFunc pfnProgress, void *pProgressData);
+
+CPLErr CPL_DLL GDALDatasetComputeInterBandCovarianceMatrix(
+    GDALDatasetH hDS, double *padfCovMatrix, size_t nSize, int nBandCount,
+    const int *panBandList, bool bApproxOK, bool bWriteIntoMetadata,
+    int nDeltaDegreeOfFreedom, GDALProgressFunc pfnProgress,
+    void *pProgressData);
 
 int CPL_DLL CPL_STDCALL GDALGetGCPCount(GDALDatasetH);
 const char CPL_DLL *CPL_STDCALL GDALGetGCPProjection(GDALDatasetH);
@@ -1576,7 +1634,7 @@ void CPL_DLL GDALDestroySubdatasetInfo(GDALSubdatasetInfoH hInfo);
  *          a pixel from a source buffer.
  */
 #define SRCVAL(papoSource, eSrcType, ii) \
-    (eSrcType == GDT_Byte ? CPL_REINTERPRET_CAST(const GByte *, papoSource)[ii] : \
+    (eSrcType == GDT_UInt8 ? CPL_REINTERPRET_CAST(const GByte *, papoSource)[ii] : \
      eSrcType == GDT_Int8 ? CPL_REINTERPRET_CAST(const GInt8 *, papoSource)[ii] : \
      eSrcType == GDT_UInt16 ? CPL_REINTERPRET_CAST(const GUInt16 *, papoSource)[ii] : \
      eSrcType == GDT_Int16 ? CPL_REINTERPRET_CAST(const GInt16 *, papoSource)[ii] : \
@@ -2824,7 +2882,7 @@ extern "C++"
 #ifdef __cplusplus
         CPL_DLL
 #endif
-            GDALMDArrayRawBlockInfo
+        GDALMDArrayRawBlockInfo
     {
         /** Filename into which the raw block is found */
         char *pszFilename;
@@ -2878,6 +2936,13 @@ GDALMDArrayRawBlockInfoRelease(GDALMDArrayRawBlockInfo *psBlockInfo);
 bool CPL_DLL GDALMDArrayGetRawBlockInfo(GDALMDArrayH hArray,
                                         const uint64_t *panBlockCoordinates,
                                         GDALMDArrayRawBlockInfo *psBlockInfo);
+
+int CPL_DLL GDALMDArrayGetOverviewCount(GDALMDArrayH hArray);
+GDALMDArrayH CPL_DLL GDALMDArrayGetOverview(GDALMDArrayH hArray, int nIdx);
+CPLErr CPL_DLL GDALMDArrayBuildOverviews(
+    GDALMDArrayH hArray, const char *pszResampling, int nOverviews,
+    const int *panOverviewList, GDALProgressFunc pfnProgress,
+    void *pProgressData, CSLConstList papszOptions);
 
 void CPL_DLL GDALReleaseArrays(GDALMDArrayH *arrays, size_t nCount);
 int CPL_DLL GDALMDArrayCache(GDALMDArrayH hArray, CSLConstList papszOptions);

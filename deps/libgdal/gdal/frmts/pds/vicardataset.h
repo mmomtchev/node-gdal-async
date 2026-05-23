@@ -83,7 +83,7 @@ class VICARDataset final : public RawDataset
     static VICARDataset *CreateInternal(const char *pszFilename, int nXSize,
                                         int nYSize, int nBands,
                                         GDALDataType eType,
-                                        char **papszOptions);
+                                        CSLConstList papszOptions);
 
     void ReadProjectionFromMapGroup();
     void BuildLabelPropertyMap(CPLJSONObject &oLabel);
@@ -92,7 +92,7 @@ class VICARDataset final : public RawDataset
     void BuildLabelPropertyGeoTIFF(CPLJSONObject &oLabel);
 #endif
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
     CPL_DISALLOW_COPY_ASSIGN(VICARDataset)
 
@@ -109,8 +109,9 @@ class VICARDataset final : public RawDataset
     bool GetRawBinaryLayout(GDALDataset::RawBinaryLayout &) override;
 
     char **GetMetadataDomainList() override;
-    char **GetMetadata(const char *pszDomain = "") override;
-    CPLErr SetMetadata(char **papszMD, const char *pszDomain = "") override;
+    CSLConstList GetMetadata(const char *pszDomain = "") override;
+    CPLErr SetMetadata(CSLConstList papszMD,
+                       const char *pszDomain = "") override;
 
     int GetLayerCount() const override
     {
@@ -125,10 +126,10 @@ class VICARDataset final : public RawDataset
     static GDALDataset *Open(GDALOpenInfo *);
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
                                int nBands, GDALDataType eType,
-                               char **papszOptions);
+                               CSLConstList papszOptions);
     static GDALDataset *CreateCopy(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
-                                   char **papszOptions,
+                                   CSLConstList papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
 

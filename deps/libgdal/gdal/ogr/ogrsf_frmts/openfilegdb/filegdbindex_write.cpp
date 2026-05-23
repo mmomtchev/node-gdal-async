@@ -26,7 +26,7 @@ namespace OpenFileGDB
 {
 
 /************************************************************************/
-/*                          RemoveIndices()                             */
+/*                           RemoveIndices()                            */
 /************************************************************************/
 
 void FileGDBTable::RemoveIndices()
@@ -70,7 +70,7 @@ void FileGDBTable::RemoveIndices()
 }
 
 /************************************************************************/
-/*                          RefreshIndices()                            */
+/*                           RefreshIndices()                           */
 /************************************************************************/
 
 void FileGDBTable::RefreshIndices()
@@ -113,7 +113,7 @@ void FileGDBTable::RefreshIndices()
 }
 
 /************************************************************************/
-/*                          CreateIndex()                               */
+/*                            CreateIndex()                             */
 /************************************************************************/
 
 bool FileGDBTable::CreateIndex(const std::string &osIndexName,
@@ -421,7 +421,25 @@ void FileGDBTable::ComputeOptimalSpatialIndexGridResolution()
 }
 
 /************************************************************************/
-/*                           WriteIndex()                               */
+/*                    SortByAscendingValuesAndOID()                     */
+/************************************************************************/
+
+template <class ValueOIDPair>
+static void SortByAscendingValuesAndOID(std::vector<ValueOIDPair> &asValues)
+{
+    if (!asValues.empty())
+    {
+        std::sort(asValues.begin(), asValues.end(),
+                  [](const ValueOIDPair &a, const ValueOIDPair &b)
+                  {
+                      return a.first < b.first ||
+                             (a.first == b.first && a.second < b.second);
+                  });
+    }
+}
+
+/************************************************************************/
+/*                             WriteIndex()                             */
 /************************************************************************/
 
 template <class ValueOIDPair>
@@ -476,11 +494,7 @@ static bool WriteIndex(
     }
 
     // Sort by ascending values, and for same value by ascending OID
-    std::sort(asValues.begin(), asValues.end(),
-              [](const ValueOIDPair &a, const ValueOIDPair &b) {
-                  return a.first < b.first ||
-                         (a.first == b.first && a.second < b.second);
-              });
+    SortByAscendingValuesAndOID(asValues);
 
     bool bRet = true;
     std::vector<GByte> abyPage;
@@ -794,7 +808,7 @@ static bool WriteIndex(
 }
 
 /************************************************************************/
-/*                        CreateSpatialIndex()                          */
+/*                         CreateSpatialIndex()                         */
 /************************************************************************/
 
 bool FileGDBTable::CreateSpatialIndex()
@@ -1303,7 +1317,7 @@ bool FileGDBTable::CreateSpatialIndex()
 }
 
 /************************************************************************/
-/*                      CreateAttributeIndex()                          */
+/*                        CreateAttributeIndex()                        */
 /************************************************************************/
 
 bool FileGDBTable::CreateAttributeIndex(const FileGDBIndex *poIndex)

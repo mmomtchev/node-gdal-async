@@ -19,6 +19,7 @@
 #include "cpl_multiproc.h"
 #include "cpl_string.h"
 #include "cpl_worker_thread_pool.h"
+#include "gdal_thread_pool.h"
 #include "gdaljp2abstractdataset.h"
 #include "gdaljp2metadata.h"
 
@@ -57,19 +58,9 @@ struct JP2DatasetBase
 {
     int GetNumThreads()
     {
-        if (nThreads >= 1)
-            return nThreads;
-
-        const char *pszThreads =
-            CPLGetConfigOption("GDAL_NUM_THREADS", "ALL_CPUS");
-        if (EQUAL(pszThreads, "ALL_CPUS"))
-            nThreads = CPLGetNumCPUs();
-        else
-            nThreads = atoi(pszThreads);
-        if (nThreads > 128)
-            nThreads = 128;
-        if (nThreads <= 0)
-            nThreads = 1;
+        if (nThreads < 0)
+            nThreads = GDALGetNumThreads(GDAL_DEFAULT_MAX_THREAD_COUNT,
+                                         /* bDefaultAllCPUs = */ true);
         return nThreads;
     }
 
@@ -82,6 +73,7 @@ struct JP2DatasetBase
     int nGreenIndex = 1;
     int nBlueIndex = 2;
     int nAlphaIndex = -1;
+    bool bHas1BitAlpha = false;
 
     int bIs420 = FALSE;
 
@@ -103,7 +95,8 @@ struct JP2DatasetBase
     uint32_t m_nTileWidth = 0;
     uint32_t m_nTileHeight = 0;
 
-    virtual ~JP2DatasetBase();
+  protected:
+    ~JP2DatasetBase() = default;
 };
 
 /************************************************************************/
@@ -125,7 +118,7 @@ class JP2OPJLikeDataset final : public GDALJP2AbstractDataset, public BASE
   protected:
     int CloseDependentDatasets() override;
     VSILFILE *GetFileHandle() override;
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
   public:
     JP2OPJLikeDataset();
@@ -135,7 +128,7 @@ class JP2OPJLikeDataset final : public GDALJP2AbstractDataset, public BASE
     static GDALDataset *Open(GDALOpenInfo *);
     static GDALDataset *CreateCopy(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
-                                   char **papszOptions,
+                                   CSLConstList papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
 
@@ -146,7 +139,7 @@ class JP2OPJLikeDataset final : public GDALJP2AbstractDataset, public BASE
     CPLErr SetGCPs(int nGCPCountIn, const GDAL_GCP *pasGCPListIn,
                    const OGRSpatialReference *poSRS) override;
 
-    CPLErr SetMetadata(char **papszMetadata,
+    CPLErr SetMetadata(CSLConstList papszMetadata,
                        const char *pszDomain = "") override;
     CPLErr SetMetadataItem(const char *pszName, const char *pszValue,
                            const char *pszDomain = "") override;
@@ -158,6 +151,11 @@ class JP2OPJLikeDataset final : public GDALJP2AbstractDataset, public BASE
                      GSpacing nLineSpace, GSpacing nBandSpace,
                      GDALRasterIOExtraArg *psExtraArg) override;
 
+    virtual CPLErr AdviseRead(int nXOff, int nYOff, int nXSize, int nYSize,
+                              int nBufXSize, int nBufYSize, GDALDataType eDT,
+                              int nBandCount, int *panBandList,
+                              CSLConstList papszOptions) override;
+
     GIntBig GetEstimatedRAMUsage() override;
 
     CPLErr IBuildOverviews(const char *pszResampling, int nOverviews,
@@ -168,7 +166,7 @@ class JP2OPJLikeDataset final : public GDALJP2AbstractDataset, public BASE
 
     static bool WriteBox(VSILFILE *fp, GDALJP2Box *poBox);
     static bool WriteGDALMetadataBox(VSILFILE *fp, GDALDataset *poSrcDS,
-                                     char **papszOptions);
+                                     CSLConstList papszOptions);
     static bool WriteXMLBoxes(VSILFILE *fp, GDALDataset *poSrcDS);
     static bool WriteXMPBox(VSILFILE *fp, GDALDataset *poSrcDS);
     static bool WriteIPRBox(VSILFILE *fp, GDALDataset *poSrcDS);
@@ -181,6 +179,8 @@ class JP2OPJLikeDataset final : public GDALJP2AbstractDataset, public BASE
                       const int *panBandMap);
 
     static void ReadBlockInThread(void *userdata);
+
+    static vsi_l_offset JP2FindCodeStream(VSILFILE *fp, vsi_l_offset *pnLength);
 };
 
 /************************************************************************/
@@ -220,6 +220,8 @@ class JP2OPJLikeRasterBand final : public GDALPamRasterBand
     GDALRasterBand *GetOverview(int iOvrLevel) override;
 
     int HasArbitraryOverviews() override;
+
+    bool MayMultiBlockReadingBeMultiThreaded() const override;
 };
 
 #ifdef unused

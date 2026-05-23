@@ -34,13 +34,13 @@
 /*! @cond Doxygen_Suppress */
 
 /************************************************************************/
-/*                     GDALJP2AbstractDataset()                         */
+/*                       GDALJP2AbstractDataset()                       */
 /************************************************************************/
 
 GDALJP2AbstractDataset::GDALJP2AbstractDataset() = default;
 
 /************************************************************************/
-/*                     ~GDALJP2AbstractDataset()                        */
+/*                      ~GDALJP2AbstractDataset()                       */
 /************************************************************************/
 
 GDALJP2AbstractDataset::~GDALJP2AbstractDataset()
@@ -51,7 +51,7 @@ GDALJP2AbstractDataset::~GDALJP2AbstractDataset()
 }
 
 /************************************************************************/
-/*                      CloseDependentDatasets()                        */
+/*                       CloseDependentDatasets()                       */
 /************************************************************************/
 
 int GDALJP2AbstractDataset::CloseDependentDatasets()
@@ -322,12 +322,12 @@ char **GDALJP2AbstractDataset::GetFileList()
 }
 
 /************************************************************************/
-/*                        LoadVectorLayers()                            */
+/*                          LoadVectorLayers()                          */
 /************************************************************************/
 
 void GDALJP2AbstractDataset::LoadVectorLayers(int bOpenRemoteResources)
 {
-    char **papszGMLJP2 = GetMetadata("xml:gml.root-instance");
+    CSLConstList papszGMLJP2 = GetMetadata("xml:gml.root-instance");
     if (papszGMLJP2 == nullptr)
         return;
 
@@ -389,7 +389,7 @@ void GDALJP2AbstractDataset::LoadVectorLayers(int bOpenRemoteResources)
             {
                 const char *const pszBoxName =
                     psChild->psChild->pszValue + strlen("gmljp2://xml/");
-                char **papszBoxData =
+                CSLConstList papszBoxData =
                     GetMetadata(CPLSPrintf("xml:%s", pszBoxName));
                 if (papszBoxData != nullptr)
                 {
@@ -465,7 +465,7 @@ void GDALJP2AbstractDataset::LoadVectorLayers(int bOpenRemoteResources)
                             {
                                 const char *pszBoxName =
                                     papszIter[1] + strlen("gmljp2://xml/");
-                                char **papszBoxData = GetMetadata(
+                                CSLConstList papszBoxData = GetMetadata(
                                     CPLSPrintf("xml:%s", pszBoxName));
                                 if (papszBoxData != nullptr)
                                 {
@@ -475,7 +475,8 @@ void GDALJP2AbstractDataset::LoadVectorLayers(int bOpenRemoteResources)
                                         VSIFCloseL(VSIFileFromMemBuffer(
                                             osXSDTmpFile,
                                             reinterpret_cast<GByte *>(
-                                                papszBoxData[0]),
+                                                const_cast<char *>(
+                                                    papszBoxData[0])),
                                             strlen(papszBoxData[0]), FALSE)));
                                 }
                                 else
@@ -616,7 +617,7 @@ int GDALJP2AbstractDataset::GetLayerCount() const
 }
 
 /************************************************************************/
-/*                             GetLayer()                               */
+/*                              GetLayer()                              */
 /************************************************************************/
 
 OGRLayer *GDALJP2AbstractDataset::GetLayer(int i) const
@@ -628,7 +629,7 @@ OGRLayer *GDALJP2AbstractDataset::GetLayer(int i) const
 /*                            GetMetadata()                             */
 /************************************************************************/
 
-char **GDALJP2AbstractDataset::GetMetadata(const char *pszDomain)
+CSLConstList GDALJP2AbstractDataset::GetMetadata(const char *pszDomain)
 {
     if (pszDomain && EQUAL(pszDomain, "IMAGE_STRUCTURE"))
     {
@@ -651,7 +652,7 @@ char **GDALJP2AbstractDataset::GetMetadata(const char *pszDomain)
 }
 
 /************************************************************************/
-/*                        GetMetadataItem()                             */
+/*                          GetMetadataItem()                           */
 /************************************************************************/
 
 const char *GDALJP2AbstractDataset::GetMetadataItem(const char *pszName,
@@ -660,7 +661,7 @@ const char *GDALJP2AbstractDataset::GetMetadataItem(const char *pszName,
     if (pszDomain && EQUAL(pszDomain, "IMAGE_STRUCTURE") &&
         EQUAL(pszName, "COMPRESSION_REVERSIBILITY"))
     {
-        char **papszMD = GetMetadata(pszDomain);
+        CSLConstList papszMD = GetMetadata(pszDomain);
         return CSLFetchNameValue(papszMD, pszName);
     }
     return GDALGeorefPamDataset::GetMetadataItem(pszName, pszDomain);

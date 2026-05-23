@@ -68,7 +68,7 @@ static PyObject *GDALCreateNumpyArray(PyObject *pCreateArray, void *pBuffer,
     const char *pszDataType = nullptr;
     switch (eType)
     {
-        case GDT_Byte:
+        case GDT_UInt8:
             pszDataType = "uint8";
             break;
         case GDT_Int8:
@@ -228,7 +228,40 @@ VRTDerivedRasterBand::~VRTDerivedRasterBand()
 }
 
 /************************************************************************/
-/*                               Cleanup()                              */
+/*                     CopyForCloneWithoutSources()                     */
+/************************************************************************/
+
+void VRTDerivedRasterBand::CopyForCloneWithoutSources(
+    const VRTDerivedRasterBand *poSrcBand)
+{
+    VRTSourcedRasterBand::CopyForCloneWithoutSources(poSrcBand);
+    osFuncName = poSrcBand->osFuncName;
+    eSourceTransferType = poSrcBand->eSourceTransferType;
+    m_poPrivate->m_osCode = poSrcBand->m_poPrivate->m_osCode;
+    m_poPrivate->m_osLanguage = poSrcBand->m_poPrivate->m_osLanguage;
+    m_poPrivate->m_nBufferRadius = poSrcBand->m_poPrivate->m_nBufferRadius;
+    m_poPrivate->m_oFunctionArgs = poSrcBand->m_poPrivate->m_oFunctionArgs;
+    m_poPrivate->m_bSkipNonContributingSources =
+        poSrcBand->m_poPrivate->m_bSkipNonContributingSources;
+}
+
+/************************************************************************/
+/*                        CloneWithoutSources()                         */
+/************************************************************************/
+
+std::unique_ptr<VRTSourcedRasterBand>
+VRTDerivedRasterBand::CloneWithoutSources(GDALDataset *poNewDS, int nNewXSize,
+                                          int nNewYSize) const
+{
+    auto poClone = std::make_unique<VRTDerivedRasterBand>(
+        poNewDS, GetBand(), GetRasterDataType(), nNewXSize, nNewYSize,
+        nBlockXSize, nBlockYSize);
+    poClone->CopyForCloneWithoutSources(this);
+    return poClone;
+}
+
+/************************************************************************/
+/*                              Cleanup()                               */
 /************************************************************************/
 
 void VRTDerivedRasterBand::Cleanup()
@@ -236,7 +269,7 @@ void VRTDerivedRasterBand::Cleanup()
 }
 
 /************************************************************************/
-/*                      GetGlobalMapPixelFunction()                     */
+/*                     GetGlobalMapPixelFunction()                      */
 /************************************************************************/
 
 static std::map<std::string,
@@ -250,7 +283,7 @@ GetGlobalMapPixelFunction()
 }
 
 /************************************************************************/
-/*                           AddPixelFunction()                         */
+/*                          AddPixelFunction()                          */
 /************************************************************************/
 
 /*! @endcond */
@@ -359,7 +392,7 @@ CPLErr VRTDerivedRasterBand::AddPixelFunction(
 }
 
 /************************************************************************/
-/*                           GetPixelFunction()                         */
+/*                          GetPixelFunction()                          */
 /************************************************************************/
 
 /**
@@ -392,7 +425,7 @@ VRTDerivedRasterBand::GetPixelFunction(const char *pszFuncNameIn)
 }
 
 /************************************************************************/
-/*                        GetPixelFunctionNames()                       */
+/*                       GetPixelFunctionNames()                        */
 /************************************************************************/
 
 /**
@@ -410,7 +443,7 @@ std::vector<std::string> VRTDerivedRasterBand::GetPixelFunctionNames()
 }
 
 /************************************************************************/
-/*                         SetPixelFunctionName()                       */
+/*                        SetPixelFunctionName()                        */
 /************************************************************************/
 
 /**
@@ -426,7 +459,7 @@ void VRTDerivedRasterBand::SetPixelFunctionName(const char *pszFuncNameIn)
 }
 
 /************************************************************************/
-/*                     AddPixelFunctionArgument()                       */
+/*                      AddPixelFunctionArgument()                      */
 /************************************************************************/
 
 /**
@@ -443,7 +476,7 @@ void VRTDerivedRasterBand::AddPixelFunctionArgument(const char *pszArg,
 }
 
 /************************************************************************/
-/*                         SetPixelFunctionLanguage()                   */
+/*                      SetPixelFunctionLanguage()                      */
 /************************************************************************/
 
 /**
@@ -459,7 +492,7 @@ void VRTDerivedRasterBand::SetPixelFunctionLanguage(const char *pszLanguage)
 }
 
 /************************************************************************/
-/*                 SetSkipNonContributingSources()                      */
+/*                   SetSkipNonContributingSources()                    */
 /************************************************************************/
 
 /** Whether sources that do not intersect the VRTRasterBand RasterIO() requested
@@ -479,7 +512,7 @@ void VRTDerivedRasterBand::SetSkipNonContributingSources(bool bSkip)
 }
 
 /************************************************************************/
-/*                         SetSourceTransferType()                      */
+/*                       SetSourceTransferType()                        */
 /************************************************************************/
 
 /**
@@ -499,7 +532,7 @@ void VRTDerivedRasterBand::SetSourceTransferType(GDALDataType eDataTypeIn)
 }
 
 /************************************************************************/
-/*                           InitializePython()                         */
+/*                          InitializePython()                          */
 /************************************************************************/
 
 bool VRTDerivedRasterBand::InitializePython()
@@ -887,6 +920,22 @@ CPLErr VRTDerivedRasterBand::GetPixelFunctionArguments(
                         dfVal = static_cast<double>(nYOff);
                         success = true;
                     }
+                    else if (osArgName == "crs")
+                    {
+                        const auto *crs =
+                            GetDataset()->GetSpatialRefRasterOnly();
+                        if (crs)
+                        {
+                            osVal =
+                                std::to_string(reinterpret_cast<size_t>(crs));
+                            success = true;
+                        }
+                        else
+                        {
+                            CPLError(CE_Failure, CPLE_AppDefined,
+                                     "VRTDataset has no <SRS>");
+                        }
+                    }
                     else if (osArgName == "geotransform")
                     {
                         GDALGeoTransform gt;
@@ -897,9 +946,7 @@ CPLErr VRTDerivedRasterBand::GetPixelFunctionArguments(
                             // is needed, the pixel function can emit the error.
                             continue;
                         }
-                        osVal = CPLSPrintf(
-                            "%.17g,%.17g,%.17g,%.17g,%.17g,%.17g", gt[0], gt[1],
-                            gt[2], gt[3], gt[4], gt[5]);
+                        osVal = gt.ToString();
                         success = true;
                     }
                     else if (osArgName == "source_names")
@@ -1503,7 +1550,7 @@ CPLErr VRTDerivedRasterBand::IRasterIO(
         }
     }
 
-    // Collect any pixel function arguments
+    // Collect any pixel function arguments into oAdditionalArgs
     if (poPixelFunc != nullptr && !poPixelFunc->second.empty())
     {
         if (GetPixelFunctionArguments(poPixelFunc->second,
@@ -1652,13 +1699,17 @@ CPLErr VRTDerivedRasterBand::IRasterIO(
     {
         CPLStringList aosArgs;
 
-        oAdditionalArgs.insert(oAdditionalArgs.end(),
-                               m_poPrivate->m_oFunctionArgs.begin(),
-                               m_poPrivate->m_oFunctionArgs.end());
-        for (const auto &oArg : oAdditionalArgs)
+        // Apply arguments specified using <PixelFunctionArguments>
+        for (const auto &[pszKey, pszValue] : m_poPrivate->m_oFunctionArgs)
         {
-            const char *pszKey = oArg.first.c_str();
-            const char *pszValue = oArg.second.c_str();
+            aosArgs.SetNameValue(pszKey, pszValue);
+        }
+
+        // Apply built-in arguments, potentially overwriting those in <PixelFunctionArguments>
+        // This is important because some pixel functions rely on built-in arguments being
+        // properly formatted, or even being a valid pointer. If a user can override these, we could have a crash.
+        for (const auto &[pszKey, pszValue] : oAdditionalArgs)
+        {
             aosArgs.SetNameValue(pszKey, pszValue);
         }
 
@@ -1676,7 +1727,7 @@ CPLErr VRTDerivedRasterBand::IRasterIO(
 }
 
 /************************************************************************/
-/*                         IGetDataCoverageStatus()                     */
+/*                       IGetDataCoverageStatus()                       */
 /************************************************************************/
 
 int VRTDerivedRasterBand::IGetDataCoverageStatus(
@@ -1868,7 +1919,7 @@ double VRTDerivedRasterBand::GetMaximum(int *pbSuccess)
 }
 
 /************************************************************************/
-/*                       ComputeRasterMinMax()                          */
+/*                        ComputeRasterMinMax()                         */
 /************************************************************************/
 
 CPLErr VRTDerivedRasterBand::ComputeRasterMinMax(int bApproxOK,

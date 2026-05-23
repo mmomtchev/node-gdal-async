@@ -20,7 +20,7 @@
 #include "cpl_vsi_virtual.h"
 
 /************************************************************************/
-/*                           Utilities functions                        */
+/*                         Utilities functions                          */
 /************************************************************************/
 static void MoveOverwrite(VSILFILE *fpDest, VSILFILE *fpSource)
 {
@@ -77,7 +77,7 @@ OGRSelafinLayer::OGRSelafinLayer(GDALDataset *poDS, const char *pszLayerNameP,
 }
 
 /************************************************************************/
-/*                           ~OGRSelafinLayer()                         */
+/*                          ~OGRSelafinLayer()                          */
 /************************************************************************/
 OGRSelafinLayer::~OGRSelafinLayer()
 {
@@ -173,7 +173,7 @@ int OGRSelafinLayer::TestCapability(const char *pszCap) const
 }
 
 /************************************************************************/
-/*                            GetFeature()                              */
+/*                             GetFeature()                             */
 /************************************************************************/
 OGRFeature *OGRSelafinLayer::GetFeature(GIntBig nFID)
 {
@@ -245,7 +245,7 @@ OGRFeature *OGRSelafinLayer::GetFeature(GIntBig nFID)
 }
 
 /************************************************************************/
-/*                           GetFeatureCount()                          */
+/*                          GetFeatureCount()                           */
 /************************************************************************/
 GIntBig OGRSelafinLayer::GetFeatureCount(int bForce)
 {
@@ -270,7 +270,7 @@ GIntBig OGRSelafinLayer::GetFeatureCount(int bForce)
 }
 
 /************************************************************************/
-/*                            IGetExtent()                              */
+/*                             IGetExtent()                             */
 /************************************************************************/
 OGRErr OGRSelafinLayer::IGetExtent(int /* iGeomField*/, OGREnvelope *psExtent,
                                    bool /* bForce*/)
@@ -288,7 +288,7 @@ OGRErr OGRSelafinLayer::IGetExtent(int /* iGeomField*/, OGREnvelope *psExtent,
 }
 
 /************************************************************************/
-/*                             ISetFeature()                             */
+/*                            ISetFeature()                             */
 /************************************************************************/
 OGRErr OGRSelafinLayer::ISetFeature(OGRFeature *poFeature)
 {
@@ -313,14 +313,15 @@ OGRErr OGRSelafinLayer::ISetFeature(OGRFeature *poFeature)
         CPLDebug("Selafin", "SetFeature(" CPL_FRMT_GIB ",%f,%f)", nFID,
                  poHeader->paadfCoords[0][nFID],
                  poHeader->paadfCoords[1][nFID]);
-        if (VSIFSeekL(
-                poHeader->fp,
-                88 + 16 + 40 * poHeader->nVar + 48 +
-                    ((poHeader->panStartDate != nullptr) ? 32 : 0) + 24 +
-                    (poHeader->nElements * poHeader->nPointsPerElement + 2) *
-                        4 +
-                    (poHeader->nPoints + 2) * 4 + 4 + nFID * 4,
-                SEEK_SET) != 0)
+        if (VSIFSeekL(poHeader->fp,
+                      88 + 16 + 40 * poHeader->nVar + 48 +
+                          ((poHeader->panStartDate != nullptr) ? 32 : 0) + 24 +
+                          (static_cast<vsi_l_offset>(poHeader->nElements) *
+                               poHeader->nPointsPerElement +
+                           2) *
+                              4 +
+                          (poHeader->nPoints + 2) * 4 + 4 + nFID * 4,
+                      SEEK_SET) != 0)
             return OGRERR_FAILURE;
         CPLDebug("Selafin", "Write_float(" CPL_FRMT_GUIB ",%f)",
                  VSIFTellL(poHeader->fp),
@@ -328,15 +329,16 @@ OGRErr OGRSelafinLayer::ISetFeature(OGRFeature *poFeature)
         if (Selafin::write_float(poHeader->fp, poHeader->paadfCoords[0][nFID] -
                                                    poHeader->adfOrigin[0]) == 0)
             return OGRERR_FAILURE;
-        if (VSIFSeekL(
-                poHeader->fp,
-                88 + 16 + 40 * poHeader->nVar + 48 +
-                    ((poHeader->panStartDate != nullptr) ? 32 : 0) + 24 +
-                    (poHeader->nElements * poHeader->nPointsPerElement + 2) *
-                        4 +
-                    (poHeader->nPoints + 2) * 4 + (poHeader->nPoints + 2) * 4 +
-                    4 + nFID * 4,
-                SEEK_SET) != 0)
+        if (VSIFSeekL(poHeader->fp,
+                      88 + 16 + 40 * poHeader->nVar + 48 +
+                          ((poHeader->panStartDate != nullptr) ? 32 : 0) + 24 +
+                          (static_cast<vsi_l_offset>(poHeader->nElements) *
+                               poHeader->nPointsPerElement +
+                           2) *
+                              4 +
+                          (poHeader->nPoints + 2) * 4 +
+                          (poHeader->nPoints + 2) * 4 + 4 + nFID * 4,
+                      SEEK_SET) != 0)
             return OGRERR_FAILURE;
         CPLDebug("Selafin", "Write_float(" CPL_FRMT_GUIB ",%f)",
                  VSIFTellL(poHeader->fp),
@@ -447,7 +449,7 @@ OGRErr OGRSelafinLayer::ISetFeature(OGRFeature *poFeature)
 }
 
 /************************************************************************/
-/*                           ICreateFeature()                            */
+/*                           ICreateFeature()                           */
 /************************************************************************/
 OGRErr OGRSelafinLayer::ICreateFeature(OGRFeature *poFeature)
 {
@@ -672,7 +674,7 @@ OGRErr OGRSelafinLayer::ICreateFeature(OGRFeature *poFeature)
 }
 
 /************************************************************************/
-/*                           CreateField()                              */
+/*                            CreateField()                             */
 /************************************************************************/
 OGRErr OGRSelafinLayer::CreateField(const OGRFieldDefn *poField,
                                     CPL_UNUSED int bApproxOK)
@@ -794,7 +796,7 @@ OGRErr OGRSelafinLayer::CreateField(const OGRFieldDefn *poField,
 }
 
 /************************************************************************/
-/*                           DeleteField()                              */
+/*                            DeleteField()                             */
 /************************************************************************/
 OGRErr OGRSelafinLayer::DeleteField(int iField)
 {
@@ -875,7 +877,7 @@ OGRErr OGRSelafinLayer::DeleteField(int iField)
 }
 
 /************************************************************************/
-/*                          ReorderFields()                             */
+/*                           ReorderFields()                            */
 /************************************************************************/
 OGRErr OGRSelafinLayer::ReorderFields(int *panMap)
 {
@@ -952,7 +954,7 @@ OGRErr OGRSelafinLayer::ReorderFields(int *panMap)
 }
 
 /************************************************************************/
-/*                         AlterFieldDefn()                             */
+/*                           AlterFieldDefn()                           */
 /************************************************************************/
 OGRErr OGRSelafinLayer::AlterFieldDefn(int iField, OGRFieldDefn *poNewFieldDefn,
                                        int /* nFlagsIn */)
@@ -990,7 +992,7 @@ OGRErr OGRSelafinLayer::AlterFieldDefn(int iField, OGRFieldDefn *poNewFieldDefn,
 }
 
 /************************************************************************/
-/*                          DeleteFeature()                             */
+/*                           DeleteFeature()                            */
 /************************************************************************/
 OGRErr OGRSelafinLayer::DeleteFeature(GIntBig nFID)
 {

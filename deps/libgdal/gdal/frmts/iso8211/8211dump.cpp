@@ -90,7 +90,10 @@ int main(int nArgc, char **papszArgv)
                    oModule.GetCodeExtensionIndicator());
             printf(" _versionNumber=\"%c\"", oModule.GetVersionNumber());
             printf(" _appIndicator=\"%c\"", oModule.GetAppIndicator());
-            printf(" _extendedCharSet=\"%s\"", oModule.GetExtendedCharSet());
+            printf(" _extendedCharSet=\"%c%c%c\"",
+                   oModule.GetExtendedCharSet()[0],
+                   oModule.GetExtendedCharSet()[1],
+                   oModule.GetExtendedCharSet()[2]);
             printf(" _fieldControlLength=\"%d\"",
                    oModule.GetFieldControlLength());
             printf(" _sizeFieldLength=\"%d\"", oModule.GetSizeFieldLength());
@@ -175,10 +178,8 @@ int main(int nArgc, char **papszArgv)
                        poFieldDefn->GetFormatControls());
             }
             printf(">\n");
-            for (int iSubField = 0; iSubField < nSubfieldCount; iSubField++)
+            for (const auto &poSubFieldDefn : poFieldDefn->GetSubfields())
             {
-                const DDFSubfieldDefn *poSubFieldDefn =
-                    poFieldDefn->GetSubfield(iSubField);
                 printf("  <DDFSubfieldDefn name=\"%s\" format=\"%s\"/>\n",
                        poSubFieldDefn->GetName(), poSubFieldDefn->GetFormat());
             }
@@ -225,12 +226,9 @@ int main(int nArgc, char **papszArgv)
                     printf(">\n");
                 for (nLoopCount = 0; nLoopCount < nRepeatCount; nLoopCount++)
                 {
-                    for (int iSubField = 0;
-                         iSubField < poDefn->GetSubfieldCount(); iSubField++)
+                    for (const auto &poSubFieldDefn : poDefn->GetSubfields())
                     {
                         int nBytesConsumed;
-                        const DDFSubfieldDefn *poSubFieldDefn =
-                            poDefn->GetSubfield(iSubField);
                         const char *pszSubFieldName = poSubFieldDefn->GetName();
                         printf("    <DDFSubfield name=\"%s\" ",
                                pszSubFieldName);

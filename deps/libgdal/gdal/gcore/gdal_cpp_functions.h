@@ -203,7 +203,7 @@ int CPL_DLL GDALReadTabFile2(const char *pszBaseFilename,
                              char **ppszTabFileNameOut);
 
 void CPL_DLL GDALCopyRasterIOExtraArg(GDALRasterIOExtraArg *psDestArg,
-                                      GDALRasterIOExtraArg *psSrcArg);
+                                      const GDALRasterIOExtraArg *psSrcArg);
 
 void CPL_DLL GDALExpandPackedBitsToByteAt0Or1(
     const GByte *CPL_RESTRICT pabyInput, GByte *CPL_RESTRICT pabyOutput,
@@ -237,9 +237,11 @@ CPLString GDALFindAssociatedFile(const char *pszBasename, const char *pszExt,
                                  CSLConstList papszSiblingFiles, int nFlags);
 
 CPLErr CPL_DLL EXIFExtractMetadata(char **&papszMetadata, void *fpL,
-                                   int nOffset, int bSwabflag, int nTIFFHEADER,
-                                   int &nExifOffset, int &nInterOffset,
-                                   int &nGPSOffset);
+                                   uint32_t nOffset, int bSwabflag,
+                                   vsi_l_offset nTIFFHEADER,
+                                   uint32_t &nExifOffset,
+                                   uint32_t &nInterOffset,
+                                   uint32_t &nGPSOffset);
 
 int GDALValidateOpenOptions(GDALDriverH hDriver,
                             const char *const *papszOptionOptions);
@@ -256,8 +258,8 @@ void GDALRasterIOExtraArgSetResampleAlg(GDALRasterIOExtraArg *psExtraArg,
                                         int nXSize, int nYSize, int nBufXSize,
                                         int nBufYSize);
 
-GDALDataset *GDALCreateOverviewDataset(GDALDataset *poDS, int nOvrLevel,
-                                       bool bThisLevelOnly);
+GDALDataset CPL_DLL *GDALCreateOverviewDataset(GDALDataset *poDS, int nOvrLevel,
+                                               bool bThisLevelOnly);
 
 // Should cover particular cases of #3573, #4183, #4506, #6578
 // Behavior is undefined if fVal1 or fVal2 are NaN (should be tested before
@@ -387,6 +389,21 @@ inline CPLErr Combine(CPLErr eErr1, bool b)
 }
 
 }  // namespace GDAL
+
+CPLStringList CPL_DLL GDALReadENVIHeader(VSILFILE *fpHdr);
+CPLStringList CPL_DLL GDALENVISplitList(const char *pszCleanInput);
+void CPL_DLL GDALApplyENVIHeaders(GDALDataset *poDS,
+                                  const CPLStringList &aosHeaders,
+                                  CSLConstList papszOptions);
+
+class GDALAsyncReader;
+
+GDALAsyncReader *
+GDALGetDefaultAsyncReader(GDALDataset *poDS, int nXOff, int nYOff, int nXSize,
+                          int nYSize, void *pBuf, int nBufXSize, int nBufYSize,
+                          GDALDataType eBufType, int nBandCount,
+                          int *panBandMap, int nPixelSpace, int nLineSpace,
+                          int nBandSpace, CSLConstList papszOptions);
 
 //! @endcond
 

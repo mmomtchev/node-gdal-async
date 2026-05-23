@@ -119,11 +119,10 @@ static void ViewRecordField(const DDFField *poField)
         /*   Loop over all the subfields of this field, advancing   */
         /*   the data pointer as we consume data.                   */
         /* -------------------------------------------------------- */
-        for (int iSF = 0; iSF < poFieldDefn->GetSubfieldCount(); iSF++)
+        for (const auto &poSFDefn : poFieldDefn->GetSubfields())
         {
-            const DDFSubfieldDefn *poSFDefn = poFieldDefn->GetSubfield(iSF);
             int nBytesConsumed =
-                ViewSubfield(poSFDefn, pachFieldData, nBytesRemaining);
+                ViewSubfield(poSFDefn.get(), pachFieldData, nBytesRemaining);
 
             nBytesRemaining -= nBytesConsumed;
             pachFieldData += nBytesConsumed;

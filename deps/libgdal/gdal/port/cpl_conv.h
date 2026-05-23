@@ -41,6 +41,13 @@ void CPL_DLL CPLVerifyConfiguration(void);
 
 bool CPL_DLL CPLIsDebugEnabled(void);
 
+/** Special value to indicate setting the null value to a configuration option,
+ * even if there is an environment variable defining it.
+ *
+ * @since 3.13
+ */
+#define CPL_NULL_VALUE "__CPL_NULL_VALUE__"
+
 const char CPL_DLL *CPL_STDCALL CPLGetConfigOption(const char *, const char *)
     CPL_WARN_UNUSED_RESULT;
 const char CPL_DLL *CPL_STDCALL CPLGetThreadLocalConfigOption(
@@ -238,11 +245,15 @@ extern "C++"
         CPL_WARN_UNUSED_RESULT;
     std::string CPL_DLL CPLLaunderForFilenameSafe(
         const char *pszName, const char *pszOutputPath) CPL_WARN_UNUSED_RESULT;
+    std::string CPL_DLL CPLLaunderForFilenameSafe(
+        const std::string &osName, char chReplacementChar = '_',
+        const char *pszExtraReservedCharacters = nullptr)
+        CPL_WARN_UNUSED_RESULT;
 
 #if defined(GDAL_COMPILATION) || __cplusplus >= 201703L
-    std::string CPL_DLL CPLLexicallyNormalize(std::string_view svPath,
-                                              char sep1, char sep2 = 0)
-        CPL_WARN_UNUSED_RESULT;
+    std::string
+        CPL_DLL CPLLexicallyNormalize(std::string_view svPath, char sep1,
+                                      char sep2 = 0) CPL_WARN_UNUSED_RESULT;
 #endif
 }
 

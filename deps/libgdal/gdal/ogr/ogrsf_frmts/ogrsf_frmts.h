@@ -115,7 +115,12 @@ class CPL_DLL OGRLayer : public GDALMajorObject
     virtual OGRErr ISetSpatialFilter(int iGeomField, const OGRGeometry *);
 
     virtual OGRErr ISetFeature(OGRFeature *poFeature) CPL_WARN_UNUSED_RESULT;
+    virtual OGRErr
+        ISetFeatureUniqPtr(std::unique_ptr<OGRFeature>) CPL_WARN_UNUSED_RESULT;
     virtual OGRErr ICreateFeature(OGRFeature *poFeature) CPL_WARN_UNUSED_RESULT;
+    virtual OGRErr
+    ICreateFeatureUniqPtr(std::unique_ptr<OGRFeature> poFeature,
+                          GIntBig *pnFID = nullptr) CPL_WARN_UNUSED_RESULT;
     virtual OGRErr IUpsertFeature(OGRFeature *poFeature) CPL_WARN_UNUSED_RESULT;
     virtual OGRErr
     IUpdateFeature(OGRFeature *poFeature, int nUpdatedFieldsCount,
@@ -228,7 +233,11 @@ class CPL_DLL OGRLayer : public GDALMajorObject
                                  CSLConstList papszOptions = nullptr);
 
     OGRErr SetFeature(OGRFeature *poFeature) CPL_WARN_UNUSED_RESULT;
+    OGRErr
+    SetFeature(std::unique_ptr<OGRFeature> poFeature) CPL_WARN_UNUSED_RESULT;
     OGRErr CreateFeature(OGRFeature *poFeature) CPL_WARN_UNUSED_RESULT;
+    OGRErr CreateFeature(std::unique_ptr<OGRFeature> poFeature,
+                         GIntBig *pnFID = nullptr) CPL_WARN_UNUSED_RESULT;
     OGRErr UpsertFeature(OGRFeature *poFeature) CPL_WARN_UNUSED_RESULT;
     OGRErr UpdateFeature(OGRFeature *poFeature, int nUpdatedFieldsCount,
                          const int *panUpdatedFieldsIdx,
@@ -253,8 +262,7 @@ class CPL_DLL OGRLayer : public GDALMajorObject
     virtual const OGRSpatialReference *GetSpatialRef() const;
 
     /** Return type of OGRLayer::GetSupportedSRSList() */
-    typedef std::vector<
-        std::unique_ptr<OGRSpatialReference, OGRSpatialReferenceReleaser>>
+    typedef std::vector<OGRSpatialReferenceRefCountedPtr>
         GetSupportedSRSListRetType;
     virtual const GetSupportedSRSListRetType &
     GetSupportedSRSList(int iGeomField);
@@ -317,30 +325,30 @@ class CPL_DLL OGRLayer : public GDALMajorObject
                      GDALProgressFunc pfnProgress, void *pProgressData);
 
     OGRErr Intersection(OGRLayer *pLayerMethod, OGRLayer *pLayerResult,
-                        char **papszOptions = nullptr,
+                        CSLConstList papszOptions = nullptr,
                         GDALProgressFunc pfnProgress = nullptr,
                         void *pProgressArg = nullptr);
     OGRErr Union(OGRLayer *pLayerMethod, OGRLayer *pLayerResult,
-                 char **papszOptions = nullptr,
+                 CSLConstList papszOptions = nullptr,
                  GDALProgressFunc pfnProgress = nullptr,
                  void *pProgressArg = nullptr);
     OGRErr SymDifference(OGRLayer *pLayerMethod, OGRLayer *pLayerResult,
-                         char **papszOptions, GDALProgressFunc pfnProgress,
-                         void *pProgressArg);
+                         CSLConstList papszOptions,
+                         GDALProgressFunc pfnProgress, void *pProgressArg);
     OGRErr Identity(OGRLayer *pLayerMethod, OGRLayer *pLayerResult,
-                    char **papszOptions = nullptr,
+                    CSLConstList papszOptions = nullptr,
                     GDALProgressFunc pfnProgress = nullptr,
                     void *pProgressArg = nullptr);
     OGRErr Update(OGRLayer *pLayerMethod, OGRLayer *pLayerResult,
-                  char **papszOptions = nullptr,
+                  CSLConstList papszOptions = nullptr,
                   GDALProgressFunc pfnProgress = nullptr,
                   void *pProgressArg = nullptr);
     OGRErr Clip(OGRLayer *pLayerMethod, OGRLayer *pLayerResult,
-                char **papszOptions = nullptr,
+                CSLConstList papszOptions = nullptr,
                 GDALProgressFunc pfnProgress = nullptr,
                 void *pProgressArg = nullptr);
     OGRErr Erase(OGRLayer *pLayerMethod, OGRLayer *pLayerResult,
-                 char **papszOptions = nullptr,
+                 CSLConstList papszOptions = nullptr,
                  GDALProgressFunc pfnProgress = nullptr,
                  void *pProgressArg = nullptr);
 
@@ -648,7 +656,7 @@ class CPL_DLL OGRSFDriverRegistrar
                                           GDALOpenInfo *poOpenInfo);
     static GDALDataset *CreateVectorOnly(GDALDriver *poDriver,
                                          const char *pszName,
-                                         char **papszOptions);
+                                         CSLConstList papszOptions);
     static CPLErr DeleteDataSource(GDALDriver *poDriver, const char *pszName);
 
   public:
@@ -687,6 +695,8 @@ void OGRRegisterAllInternal();
 void CPL_DLL RegisterOGRFileGDB();
 void DeclareDeferredOGRFileGDBPlugin();
 void CPL_DLL RegisterOGRShape();
+void CPL_DLL RegisterOGRNTF();
+void CPL_DLL RegisterOGRTiger();
 void CPL_DLL RegisterOGRS57();
 void CPL_DLL RegisterOGRTAB();
 void CPL_DLL RegisterOGRMIF();

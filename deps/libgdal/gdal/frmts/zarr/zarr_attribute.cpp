@@ -19,7 +19,7 @@
 constexpr const char *ATTRIBUTE_GROUP_SUFFIX = "/_GLOBAL_";
 
 /************************************************************************/
-/*             ZarrAttributeGroup::ZarrAttributeGroup()                 */
+/*               ZarrAttributeGroup::ZarrAttributeGroup()               */
 /************************************************************************/
 
 ZarrAttributeGroup::ZarrAttributeGroup(const std::string &osParentName,
@@ -35,7 +35,7 @@ ZarrAttributeGroup::ZarrAttributeGroup(const std::string &osParentName,
 }
 
 /************************************************************************/
-/*                   ZarrAttributeGroup::Init()                         */
+/*                      ZarrAttributeGroup::Init()                      */
 /************************************************************************/
 
 void ZarrAttributeGroup::Init(const CPLJSONObject &obj, bool bUpdatable)
@@ -285,7 +285,7 @@ void ZarrAttributeGroup::Init(const CPLJSONObject &obj, bool bUpdatable)
 }
 
 /************************************************************************/
-/*                    ZarrAttributeGroup::Serialize()                   */
+/*                   ZarrAttributeGroup::Serialize()                    */
 /************************************************************************/
 
 CPLJSONObject ZarrAttributeGroup::Serialize() const
@@ -349,7 +349,7 @@ CPLJSONObject ZarrAttributeGroup::Serialize() const
                     const int64_t nVal = attr->ReadAsInt64();
                     o.Add(attr->GetName(), static_cast<GInt64>(nVal));
                 }
-                else if (eDT == GDT_Byte || eDT == GDT_UInt16 ||
+                else if (eDT == GDT_UInt8 || eDT == GDT_UInt16 ||
                          eDT == GDT_UInt32 || eDT == GDT_UInt64)
                 {
                     const int64_t nVal = attr->ReadAsInt64();
@@ -373,7 +373,7 @@ CPLJSONObject ZarrAttributeGroup::Serialize() const
                         arr.Add(static_cast<GInt64>(nVal));
                     }
                 }
-                else if (eDT == GDT_Byte || eDT == GDT_UInt16 ||
+                else if (eDT == GDT_UInt8 || eDT == GDT_UInt16 ||
                          eDT == GDT_UInt32 || eDT == GDT_UInt64)
                 {
                     const auto list = attr->ReadAsInt64Array();
@@ -405,7 +405,7 @@ CPLJSONObject ZarrAttributeGroup::Serialize() const
 }
 
 /************************************************************************/
-/*                          ParentRenamed()                             */
+/*                           ParentRenamed()                            */
 /************************************************************************/
 
 void ZarrAttributeGroup::ParentRenamed(const std::string &osNewParentFullName)
@@ -422,7 +422,7 @@ void ZarrAttributeGroup::ParentRenamed(const std::string &osNewParentFullName)
 }
 
 /************************************************************************/
-/*                          ParentDeleted()                             */
+/*                           ParentDeleted()                            */
 /************************************************************************/
 
 void ZarrAttributeGroup::ParentDeleted()

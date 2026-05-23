@@ -16,7 +16,7 @@
 #ifndef HAVE_LIBARCHIVE
 
 /************************************************************************/
-/*                    VSIInstall7zFileHandler()                         */
+/*                      VSIInstall7zFileHandler()                       */
 /************************************************************************/
 
 /*!
@@ -34,7 +34,7 @@ void VSIInstall7zFileHandler(void)
 }
 
 /************************************************************************/
-/*                    VSIInstallRarFileHandler()                         */
+/*                      VSIInstallRarFileHandler()                      */
 /************************************************************************/
 
 /*!
@@ -122,7 +122,7 @@ struct VSILibArchiveClientData
         auto poClientData = static_cast<VSILibArchiveClientData *>(pClientData);
         *ppBuffer = poClientData->m_abyBuffer.data();
         return static_cast<la_ssize_t>(poClientData->m_poBaseHandle->Read(
-            poClientData->m_abyBuffer.data(), 1,
+            poClientData->m_abyBuffer.data(),
             poClientData->m_abyBuffer.size()));
     }
 
@@ -143,7 +143,7 @@ struct VSILibArchiveClientData
 };
 
 /************************************************************************/
-/*                    VSILibArchiveReadOpen()                           */
+/*                       VSILibArchiveReadOpen()                        */
 /************************************************************************/
 
 /**Open an archive, with the base handle being a VSIVirtualHandle* */
@@ -158,7 +158,7 @@ static int VSILibArchiveReadOpen(struct archive *pArchive,
 }
 
 /************************************************************************/
-/*                    VSICreateArchiveHandle()                          */
+/*                       VSICreateArchiveHandle()                       */
 /************************************************************************/
 
 static struct archive *VSICreateArchiveHandle(const std::string &osFSPrefix)
@@ -244,7 +244,7 @@ class VSILibArchiveReader final : public VSIArchiveReader
 };
 
 /************************************************************************/
-/*                       ~VSILibArchiveReader()                         */
+/*                        ~VSILibArchiveReader()                        */
 /************************************************************************/
 
 VSILibArchiveReader::~VSILibArchiveReader()
@@ -276,7 +276,7 @@ int VSILibArchiveReader::GotoFirstFile()
 }
 
 /************************************************************************/
-/*                           GotoNextFile()                             */
+/*                            GotoNextFile()                            */
 /************************************************************************/
 
 int VSILibArchiveReader::GotoNextFile()
@@ -297,7 +297,7 @@ int VSILibArchiveReader::GotoNextFile()
 }
 
 /************************************************************************/
-/*                      VSILibArchiveEntryFileOffset                    */
+/*                     VSILibArchiveEntryFileOffset                     */
 /************************************************************************/
 
 struct VSILibArchiveEntryFileOffset : public VSIArchiveEntryFileOffset
@@ -315,7 +315,7 @@ struct VSILibArchiveEntryFileOffset : public VSIArchiveEntryFileOffset
 VSILibArchiveEntryFileOffset::~VSILibArchiveEntryFileOffset() = default;
 
 /************************************************************************/
-/*                          GetFileOffset()                             */
+/*                           GetFileOffset()                            */
 /************************************************************************/
 
 VSIArchiveEntryFileOffset *VSILibArchiveReader::GetFileOffset()
@@ -324,7 +324,7 @@ VSIArchiveEntryFileOffset *VSILibArchiveReader::GetFileOffset()
 }
 
 /************************************************************************/
-/*                         GotoFileOffset()                             */
+/*                           GotoFileOffset()                           */
 /************************************************************************/
 
 int VSILibArchiveReader::GotoFileOffset(VSIArchiveEntryFileOffset *pOffset)
@@ -342,7 +342,7 @@ int VSILibArchiveReader::GotoFileOffset(VSIArchiveEntryFileOffset *pOffset)
 }
 
 /************************************************************************/
-/*                       GotoFileOffsetForced()                         */
+/*                        GotoFileOffsetForced()                        */
 /************************************************************************/
 
 int VSILibArchiveReader::GotoFileOffsetForced(
@@ -375,7 +375,7 @@ class VSILibArchiveHandler final : public VSIVirtualHandle
     {
     }
 
-    size_t Read(void *pBuffer, size_t nSize, size_t nCount) override;
+    size_t Read(void *pBuffer, size_t nBytes) override;
     int Seek(vsi_l_offset nOffset, int nWhence) override;
 
     vsi_l_offset Tell() override
@@ -383,7 +383,7 @@ class VSILibArchiveHandler final : public VSIVirtualHandle
         return m_nOffset;
     }
 
-    size_t Write(const void *, size_t, size_t) override
+    size_t Write(const void *, size_t) override
     {
         return 0;
     }
@@ -415,9 +415,9 @@ class VSILibArchiveHandler final : public VSIVirtualHandle
 /*                                Read()                                */
 /************************************************************************/
 
-size_t VSILibArchiveHandler::Read(void *pBuffer, size_t nSize, size_t nCount)
+size_t VSILibArchiveHandler::Read(void *pBuffer, size_t nBytes)
 {
-    if (m_bError || nSize == 0 || nCount == 0)
+    if (m_bError || nBytes == 0)
         return 0;
     const auto nFileSize = m_poReader->GetFileSize();
     if (m_nOffset == nFileSize)
@@ -425,9 +425,8 @@ size_t VSILibArchiveHandler::Read(void *pBuffer, size_t nSize, size_t nCount)
         m_bEOF = true;
         return 0;
     }
-    size_t nToRead = nSize * nCount;
     auto pArchive = m_poReader->GetArchiveHandler();
-    auto nReadUnsigned = archive_read_data(pArchive, pBuffer, nToRead);
+    auto nReadUnsigned = archive_read_data(pArchive, pBuffer, nBytes);
     if (nReadUnsigned < 0)
     {
         m_bError = true;
@@ -435,7 +434,7 @@ size_t VSILibArchiveHandler::Read(void *pBuffer, size_t nSize, size_t nCount)
         return 0;
     }
     const auto nRead = static_cast<size_t>(nReadUnsigned);
-    if (nRead < nToRead)
+    if (nRead < nBytes)
     {
         if (m_nOffset + nRead == nFileSize)
             m_bEOF = true;
@@ -443,7 +442,7 @@ size_t VSILibArchiveHandler::Read(void *pBuffer, size_t nSize, size_t nCount)
             m_bError = true;
     }
     m_nOffset += nRead;
-    return nRead / nSize;
+    return nRead;
 }
 
 /************************************************************************/
@@ -486,7 +485,7 @@ int VSILibArchiveHandler::Seek(vsi_l_offset nOffset, int nWhence)
     {
         size_t nToRead = static_cast<size_t>(
             std::min<vsi_l_offset>(abyBuffer.size(), nNewOffset - m_nOffset));
-        if (Read(abyBuffer.data(), 1, nToRead) != nToRead)
+        if (Read(abyBuffer.data(), nToRead) != nToRead)
             break;
     }
 
@@ -537,7 +536,7 @@ class VSILibArchiveFilesystemHandler final : public VSIArchiveFilesystemHandler
 };
 
 /************************************************************************/
-/*                                 Open()                               */
+/*                                Open()                                */
 /************************************************************************/
 
 VSIVirtualHandleUniquePtr
@@ -553,15 +552,15 @@ VSILibArchiveFilesystemHandler::Open(const char *pszFilename,
     }
 
     CPLString osFileInArchive;
-    char *pszArchiveFileName =
+    auto pszArchiveFileName =
         SplitFilename(pszFilename, osFileInArchive, true, bSetError);
     if (pszArchiveFileName == nullptr)
         return nullptr;
 
     auto poReader = std::unique_ptr<VSILibArchiveReader>(
         cpl::down_cast<VSILibArchiveReader *>(
-            OpenArchiveFile(pszArchiveFileName, osFileInArchive).release()));
-    CPLFree(pszArchiveFileName);
+            OpenArchiveFile(pszArchiveFileName.get(), osFileInArchive)
+                .release()));
     if (poReader == nullptr)
     {
         return nullptr;
@@ -576,7 +575,7 @@ VSILibArchiveFilesystemHandler::Open(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                           CreateReader()                             */
+/*                            CreateReader()                            */
 /************************************************************************/
 
 std::unique_ptr<VSIArchiveReader>
@@ -598,7 +597,7 @@ VSILibArchiveFilesystemHandler::CreateReader(const char *pszArchiveFileName)
 //! @endcond
 
 /************************************************************************/
-/*                    VSIInstall7zFileHandler()                         */
+/*                      VSIInstall7zFileHandler()                       */
 /************************************************************************/
 
 /*!
@@ -613,11 +612,11 @@ VSILibArchiveFilesystemHandler::CreateReader(const char *pszArchiveFileName)
 void VSIInstall7zFileHandler(void)
 {
     VSIFileManager::InstallHandler(
-        "/vsi7z/", new VSILibArchiveFilesystemHandler("/vsi7z"));
+        "/vsi7z/", std::make_shared<VSILibArchiveFilesystemHandler>("/vsi7z"));
 }
 
 /************************************************************************/
-/*                    VSIInstallRarFileHandler()                         */
+/*                      VSIInstallRarFileHandler()                      */
 /************************************************************************/
 
 /*!
@@ -632,7 +631,8 @@ void VSIInstall7zFileHandler(void)
 void VSIInstallRarFileHandler(void)
 {
     VSIFileManager::InstallHandler(
-        "/vsirar/", new VSILibArchiveFilesystemHandler("/vsirar"));
+        "/vsirar/",
+        std::make_shared<VSILibArchiveFilesystemHandler>("/vsirar"));
 }
 
 #endif

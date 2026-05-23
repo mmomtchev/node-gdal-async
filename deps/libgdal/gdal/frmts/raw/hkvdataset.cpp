@@ -47,7 +47,7 @@ class HKVRasterBand final : public RawRasterBand
 HKVRasterBand::~HKVRasterBand() = default;
 
 /************************************************************************/
-/*                      HKV Spheroids                                   */
+/*                            HKV Spheroids                             */
 /************************************************************************/
 
 class HKVSpheroidList final : public SpheroidList
@@ -230,7 +230,7 @@ class HKVDataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(HKVDataset)
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
   public:
     HKVDataset();
@@ -291,7 +291,7 @@ HKVRasterBand::HKVRasterBand(HKVDataset *poDSIn, int nBandIn, VSILFILE *fpRawIn,
 /************************************************************************/
 
 /************************************************************************/
-/*                            HKVDataset()                             */
+/*                             HKVDataset()                             */
 /************************************************************************/
 
 HKVDataset::HKVDataset()
@@ -305,7 +305,7 @@ HKVDataset::HKVDataset()
 }
 
 /************************************************************************/
-/*                            ~HKVDataset()                            */
+/*                            ~HKVDataset()                             */
 /************************************************************************/
 
 HKVDataset::~HKVDataset()
@@ -315,10 +315,10 @@ HKVDataset::~HKVDataset()
 }
 
 /************************************************************************/
-/*                              Close()                                 */
+/*                               Close()                                */
 /************************************************************************/
 
-CPLErr HKVDataset::Close()
+CPLErr HKVDataset::Close(GDALProgressFunc, void *)
 {
     CPLErr eErr = CE_None;
     if (nOpenFlags != OPEN_FLAGS_CLOSED)
@@ -843,7 +843,7 @@ GDALDataset *HKVDataset::Open(GDALOpenInfo *poOpenInfo)
 
     GDALDataType eType;
     if (nSize == 1)
-        eType = GDT_Byte;
+        eType = GDT_UInt8;
     else if (nSize == 2 && strstr(pszEncoding, "*unsigned") != nullptr)
         eType = GDT_UInt16;
     else if (nSize == 4 && bComplex)
@@ -954,7 +954,7 @@ GDALDataset *HKVDataset::Open(GDALOpenInfo *poOpenInfo)
 }
 
 /************************************************************************/
-/*                         GDALRegister_HKV()                           */
+/*                          GDALRegister_HKV()                          */
 /************************************************************************/
 
 void GDALRegister_HKV()

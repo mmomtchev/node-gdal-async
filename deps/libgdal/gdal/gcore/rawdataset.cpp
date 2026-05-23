@@ -16,6 +16,7 @@
 #include "rawdataset.h"
 
 #include <cassert>
+#include <cinttypes>
 #include <climits>
 #include <cmath>
 #include <cstddef>
@@ -93,7 +94,7 @@ RawRasterBand::RawRasterBand(GDALDataset *poDSIn, int nBandIn,
 }
 
 /************************************************************************/
-/*                          RawRasterBand::Create()                     */
+/*                       RawRasterBand::Create()                        */
 /************************************************************************/
 
 std::unique_ptr<RawRasterBand>
@@ -132,7 +133,7 @@ RawRasterBand::RawRasterBand(VSILFILE *fpRawLIn, vsi_l_offset nImgOffsetIn,
 }
 
 /************************************************************************/
-/*                          RawRasterBand::Create()                     */
+/*                       RawRasterBand::Create()                        */
 /************************************************************************/
 
 std::unique_ptr<RawRasterBand>
@@ -332,7 +333,7 @@ RawRasterBand::~RawRasterBand()
 }
 
 /************************************************************************/
-/*                              IsBIP()                                 */
+/*                               IsBIP()                                */
 /************************************************************************/
 
 bool RawRasterBand::IsBIP() const
@@ -381,6 +382,12 @@ void RawRasterBand::SetAccess(GDALAccess eAccessIn)
 CPLErr RawRasterBand::FlushCache(bool bAtClosing)
 
 {
+    if (bAtClosing)
+    {
+        if (bFlushCacheAtClosingHasRun)
+            return CE_None;
+        bFlushCacheAtClosingHasRun = true;
+    }
     CPLErr eErr = GDALRasterBand::FlushCache(bAtClosing);
     if (eErr != CE_None)
     {
@@ -420,22 +427,22 @@ CPLErr RawRasterBand::FlushCache(bool bAtClosing)
 }
 
 /************************************************************************/
-/*                      NeedsByteOrderChange()                          */
+/*                        NeedsByteOrderChange()                        */
 /************************************************************************/
 
 bool RawRasterBand::NeedsByteOrderChange() const
 {
 #ifdef CPL_LSB
-    return eDataType != GDT_Byte &&
+    return eDataType != GDT_UInt8 &&
            eByteOrder != RawRasterBand::ByteOrder::ORDER_LITTLE_ENDIAN;
 #else
-    return eDataType != GDT_Byte &&
+    return eDataType != GDT_UInt8 &&
            eByteOrder != RawRasterBand::ByteOrder::ORDER_BIG_ENDIAN;
 #endif
 }
 
 /************************************************************************/
-/*                          DoByteSwap()                                */
+/*                             DoByteSwap()                             */
 /************************************************************************/
 
 void RawRasterBand::DoByteSwap(void *pBuffer, size_t nValues, int nByteSkip,
@@ -597,9 +604,7 @@ CPLErr RawRasterBand::AccessLine(int iLine)
     const size_t nBytesActuallyRead = Read(pLineBuffer, 1, nBytesToRead);
     if (nBytesActuallyRead < nBytesToRead)
     {
-        if (poDS != nullptr && poDS->GetAccess() == GA_ReadOnly &&
-            // ENVI datasets might be sparse (see #915)
-            poDS->GetMetadata("ENVI") == nullptr)
+        if (!bTruncatedFileAllowed)
         {
             CPLError(CE_Failure, CPLE_FileIO, "Failed to read scanline %d.",
                      iLine);
@@ -836,7 +841,7 @@ CPLErr RawRasterBand::IWriteBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
 }
 
 /************************************************************************/
-/*                         FlushCurrentLine()                           */
+/*                          FlushCurrentLine()                          */
 /************************************************************************/
 
 bool RawRasterBand::FlushCurrentLine(bool bNeedUsableBufferAfter)
@@ -911,7 +916,7 @@ bool RawRasterBand::FlushCurrentLine(bool bNeedUsableBufferAfter)
 }
 
 /************************************************************************/
-/*                             AccessBlock()                            */
+/*                            AccessBlock()                             */
 /************************************************************************/
 
 CPLErr RawRasterBand::AccessBlock(vsi_l_offset nBlockOff, size_t nBlockSize,
@@ -928,9 +933,18 @@ CPLErr RawRasterBand::AccessBlock(vsi_l_offset nBlockOff, size_t nBlockSize,
     const size_t nBytesActuallyRead = Read(pData, 1, nBlockSize);
     if (nBytesActuallyRead < nBlockSize)
     {
-
-        memset(static_cast<GByte *>(pData) + nBytesActuallyRead, 0,
-               nBlockSize - nBytesActuallyRead);
+        if (!bTruncatedFileAllowed)
+        {
+            CPLError(CE_Failure, CPLE_FileIO,
+                     "Failed to read block at offset %" PRIu64,
+                     static_cast<uint64_t>(nBlockOff));
+            return CE_Failure;
+        }
+        else
+        {
+            memset(static_cast<GByte *>(pData) + nBytesActuallyRead, 0,
+                   nBlockSize - nBytesActuallyRead);
+        }
     }
 
     // Byte swap the interesting data, if required.
@@ -1062,7 +1076,7 @@ CPLErr RawRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
     const int nBandDataSize = GDALGetDataTypeSizeBytes(eDataType);
 #ifdef DEBUG
     // Otherwise Coverity thinks that a divide by zero is possible in
-    // AccessBlock() in the complex data type wapping case.
+    // AccessBlock() in the complex data type wrapping case.
     if (nBandDataSize == 0)
         return CE_Failure;
 #endif
@@ -1495,13 +1509,13 @@ GDALColorInterp RawRasterBand::GetColorInterpretation()
 }
 
 /************************************************************************/
-/*                           GetVirtualMemAuto()                        */
+/*                         GetVirtualMemAuto()                          */
 /************************************************************************/
 
 CPLVirtualMem *RawRasterBand::GetVirtualMemAuto(GDALRWFlag eRWFlag,
                                                 int *pnPixelSpace,
                                                 GIntBig *pnLineSpace,
-                                                char **papszOptions)
+                                                CSLConstList papszOptions)
 {
     CPLAssert(pnPixelSpace);
     CPLAssert(pnLineSpace);
@@ -1552,7 +1566,7 @@ CPLVirtualMem *RawRasterBand::GetVirtualMemAuto(GDALRWFlag eRWFlag,
 /************************************************************************/
 
 /************************************************************************/
-/*                            RawDataset()                              */
+/*                             RawDataset()                             */
 /************************************************************************/
 
 RawDataset::RawDataset()
@@ -1560,7 +1574,7 @@ RawDataset::RawDataset()
 }
 
 /************************************************************************/
-/*                           ~RawDataset()                              */
+/*                            ~RawDataset()                             */
 /************************************************************************/
 
 // It's pure virtual function but must be defined, even if empty.
@@ -1734,7 +1748,7 @@ CPLErr RawDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
 }
 
 /************************************************************************/
-/*                  RAWDatasetCheckMemoryUsage()                        */
+/*                     RAWDatasetCheckMemoryUsage()                     */
 /************************************************************************/
 
 bool RAWDatasetCheckMemoryUsage(int nXSize, int nYSize, int nBands, int nDTSize,
@@ -1820,7 +1834,7 @@ bool RAWDatasetCheckMemoryUsage(int nXSize, int nYSize, int nBands, int nDTSize,
 }
 
 /************************************************************************/
-/*                        GetRawBinaryLayout()                          */
+/*                         GetRawBinaryLayout()                         */
 /************************************************************************/
 
 bool RawDataset::GetRawBinaryLayout(GDALDataset::RawBinaryLayout &sLayout)
@@ -1904,7 +1918,7 @@ bool RawDataset::GetRawBinaryLayout(GDALDataset::RawBinaryLayout &sLayout)
 }
 
 /************************************************************************/
-/*                        ClearCachedConfigOption()                     */
+/*                      ClearCachedConfigOption()                       */
 /************************************************************************/
 
 void RawDataset::ClearCachedConfigOption(void)

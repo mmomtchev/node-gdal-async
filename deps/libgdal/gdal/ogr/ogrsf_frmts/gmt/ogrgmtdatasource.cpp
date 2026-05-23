@@ -62,7 +62,7 @@ int OGRGmtDataSource::Open(const char *pszFilename, VSILFILE *fp,
 }
 
 /************************************************************************/
-/*                           ICreateLayer()                             */
+/*                            ICreateLayer()                            */
 /************************************************************************/
 
 OGRLayer *
@@ -151,10 +151,10 @@ OGRGmtDataSource::ICreateLayer(const char *pszLayerName,
     /* -------------------------------------------------------------------- */
     if (poSRS != nullptr)
     {
-        if (poSRS->GetAuthorityName(nullptr) &&
-            EQUAL(poSRS->GetAuthorityName(nullptr), "EPSG"))
+        if (poSRS->GetAuthorityName() &&
+            EQUAL(poSRS->GetAuthorityName(), "EPSG"))
         {
-            VSIFPrintfL(fp, "# @Je%s\n", poSRS->GetAuthorityCode(nullptr));
+            VSIFPrintfL(fp, "# @Je%s\n", poSRS->GetAuthorityCode());
         }
 
         char *pszValue = nullptr;

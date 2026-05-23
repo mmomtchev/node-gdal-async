@@ -87,7 +87,7 @@ GDALRasterAlgorithm::GDALRasterAlgorithm()
     RegisterSubAlgorithm<GDALRasterColorMapAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterCompareAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterConvertAlgorithm>();
-    RegisterSubAlgorithm<GDALRasterCreateAlgorithm>();
+    RegisterSubAlgorithm<GDALRasterCreateAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterEditAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterFootprintAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterHillshadeAlgorithmStandalone>();
@@ -96,7 +96,7 @@ GDALRasterAlgorithm::GDALRasterAlgorithm()
     RegisterSubAlgorithm<GDALRasterNeighborsAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterOverviewAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterPipelineAlgorithm>();
-    RegisterSubAlgorithm<GDALRasterPixelInfoAlgorithm>();
+    RegisterSubAlgorithm<GDALRasterPixelInfoAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterProximityAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterRGBToPaletteAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterReclassifyAlgorithmStandalone>();
@@ -118,7 +118,7 @@ GDALRasterAlgorithm::GDALRasterAlgorithm()
     RegisterSubAlgorithm<GDALRasterTPIAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterTRIAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterUnscaleAlgorithmStandalone>();
-    RegisterSubAlgorithm<GDALRasterUpdateAlgorithm>();
+    RegisterSubAlgorithm<GDALRasterUpdateAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterViewshedAlgorithmStandalone>();
     RegisterSubAlgorithm<GDALRasterZonalStatsAlgorithmStandalone>();
 }

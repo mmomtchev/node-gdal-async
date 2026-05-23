@@ -18,7 +18,7 @@
 #include "cpl_vsi_virtual.h"
 
 /************************************************************************/
-/*                     KEADatasetDriverUnload()                        */
+/*                       KEADatasetDriverUnload()                       */
 /************************************************************************/
 
 void KEADatasetDriverUnload(GDALDriver *)
@@ -36,7 +36,7 @@ GDALDataType KEA_to_GDAL_Type(kealib::KEADataType ekeaType)
             egdalType = GDT_Int8;
             break;
         case kealib::kea_8uint:
-            egdalType = GDT_Byte;
+            egdalType = GDT_UInt8;
             break;
         case kealib::kea_16int:
             egdalType = GDT_Int16;
@@ -78,7 +78,7 @@ kealib::KEADataType GDAL_to_KEA_Type(GDALDataType egdalType)
         case GDT_Int8:
             ekeaType = kealib::kea_8int;
             break;
-        case GDT_Byte:
+        case GDT_UInt8:
             ekeaType = kealib::kea_8uint;
             break;
         case GDT_Int16:
@@ -183,7 +183,7 @@ GDALDataset *KEADataset::Open(GDALOpenInfo *poOpenInfo)
 // static function
 H5::H5File *KEADataset::CreateLL(const char *pszFilename, int nXSize,
                                  int nYSize, int nBandsIn, GDALDataType eType,
-                                 char **papszParamList)
+                                 CSLConstList papszParamList)
 {
     GDALDriverH hDriver = GDALGetDriverByName("KEA");
     if ((hDriver == nullptr) ||
@@ -294,7 +294,7 @@ H5::H5File *KEADataset::CreateLL(const char *pszFilename, int nXSize,
 // static function- pointer set in driver
 GDALDataset *KEADataset::Create(const char *pszFilename, int nXSize, int nYSize,
                                 int nBandsIn, GDALDataType eType,
-                                char **papszParamList)
+                                CSLConstList papszParamList)
 {
     H5::H5File *keaImgH5File =
         CreateLL(pszFilename, nXSize, nYSize, nBandsIn, eType, papszParamList);
@@ -334,7 +334,7 @@ GDALDataset *KEADataset::Create(const char *pszFilename, int nXSize, int nYSize,
 
 GDALDataset *KEADataset::CreateCopy(const char *pszFilename,
                                     GDALDataset *pSrcDs, CPL_UNUSED int bStrict,
-                                    char **papszParamList,
+                                    CSLConstList papszParamList,
                                     GDALProgressFunc pfnProgress,
                                     void *pProgressData)
 {
@@ -535,12 +535,12 @@ CPLErr KEADataset::GetGeoTransform(GDALGeoTransform &gt) const
         kealib::KEAImageSpatialInfo *pSpatialInfo =
             m_pImageIO->getSpatialInfo();
         // GDAL uses an array format
-        gt[0] = pSpatialInfo->tlX;
-        gt[1] = pSpatialInfo->xRes;
-        gt[2] = pSpatialInfo->xRot;
-        gt[3] = pSpatialInfo->tlY;
-        gt[4] = pSpatialInfo->yRot;
-        gt[5] = pSpatialInfo->yRes;
+        gt.xorig = pSpatialInfo->tlX;
+        gt.xscale = pSpatialInfo->xRes;
+        gt.xrot = pSpatialInfo->xRot;
+        gt.yorig = pSpatialInfo->tlY;
+        gt.yrot = pSpatialInfo->yRot;
+        gt.yscale = pSpatialInfo->yRes;
 
         return CE_None;
     }
@@ -581,12 +581,12 @@ CPLErr KEADataset::SetGeoTransform(const GDALGeoTransform &gt)
         kealib::KEAImageSpatialInfo *pSpatialInfo =
             m_pImageIO->getSpatialInfo();
         // convert back from GDAL's array format
-        pSpatialInfo->tlX = gt[0];
-        pSpatialInfo->xRes = gt[1];
-        pSpatialInfo->xRot = gt[2];
-        pSpatialInfo->tlY = gt[3];
-        pSpatialInfo->yRot = gt[4];
-        pSpatialInfo->yRes = gt[5];
+        pSpatialInfo->tlX = gt.xorig;
+        pSpatialInfo->xRes = gt.xscale;
+        pSpatialInfo->xRot = gt.xrot;
+        pSpatialInfo->tlY = gt.yorig;
+        pSpatialInfo->yRot = gt.yrot;
+        pSpatialInfo->yRes = gt.yscale;
 
         m_pImageIO->setSpatialInfo(pSpatialInfo);
         return CE_None;
@@ -718,7 +718,7 @@ const char *KEADataset::GetMetadataItem(const char *pszName,
 }
 
 // get the whole metadata as CSLStringList - note may be thread safety issues
-char **KEADataset::GetMetadata(const char *pszDomain)
+CSLConstList KEADataset::GetMetadata(const char *pszDomain)
 {
     // only deal with 'default' domain - no geolocation etc
     if ((pszDomain != nullptr) && (*pszDomain != '\0'))
@@ -728,7 +728,8 @@ char **KEADataset::GetMetadata(const char *pszDomain)
 }
 
 // set the whole metadata as a CSLStringList
-CPLErr KEADataset::SetMetadata(char **papszMetadata, const char *pszDomain)
+CPLErr KEADataset::SetMetadata(CSLConstList papszMetadata,
+                               const char *pszDomain)
 {
     CPLMutexHolderD(&m_hMutex);
     // only deal with 'default' domain - no geolocation etc
@@ -769,7 +770,7 @@ CPLErr KEADataset::SetMetadata(char **papszMetadata, const char *pszDomain)
     return CE_None;
 }
 
-CPLErr KEADataset::AddBand(GDALDataType eType, char **papszOptions)
+CPLErr KEADataset::AddBand(GDALDataType eType, CSLConstList papszOptions)
 {
     // process any creation options in papszOptions
     unsigned int nimageBlockSize = kealib::KEA_IMAGE_CHUNK_SIZE;

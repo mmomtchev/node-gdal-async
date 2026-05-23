@@ -14,12 +14,13 @@
 #include "gdal_frmts.h"
 #include "common.h"
 #include "include_basisu_sdk.h"
+#include "gdal_thread_pool.h"
 
 #include <algorithm>
 #include <mutex>
 
 /************************************************************************/
-/*                        GDALInitBasisUTranscoder()                    */
+/*                      GDALInitBasisUTranscoder()                      */
 /************************************************************************/
 
 void GDALInitBasisUTranscoder()
@@ -29,7 +30,7 @@ void GDALInitBasisUTranscoder()
 }
 
 /************************************************************************/
-/*                        GDALInitBasisUEncoder()                       */
+/*                       GDALInitBasisUEncoder()                        */
 /************************************************************************/
 
 void GDALInitBasisUEncoder()
@@ -52,7 +53,7 @@ void GDALRegister_BASISU_KTX2()
 }
 
 /************************************************************************/
-/*                     GDAL_KTX2_BASISU_CreateCopy()                    */
+/*                    GDAL_KTX2_BASISU_CreateCopy()                     */
 /************************************************************************/
 
 bool GDAL_KTX2_BASISU_CreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
@@ -67,7 +68,7 @@ bool GDAL_KTX2_BASISU_CreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
                  "Only band count >= 1 and <= 4 is supported");
         return false;
     }
-    if (poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_Byte)
+    if (poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_UInt8)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "Only Byte data type supported");
@@ -81,7 +82,7 @@ bool GDAL_KTX2_BASISU_CreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
         return false;
 
     if (poSrcDS->RasterIO(GF_Read, 0, 0, nXSize, nYSize, pSrcData, nXSize,
-                          nYSize, GDT_Byte, nBands, nullptr, nBands,
+                          nYSize, GDT_UInt8, nBands, nullptr, nBands,
                           static_cast<GSpacing>(nBands) * nXSize, 1,
                           nullptr) != CE_None)
     {
@@ -264,11 +265,8 @@ bool GDAL_KTX2_BASISU_CreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
         params.m_mip_srgb = params.m_perceptual;
     }
 
-    const int nNumThreads = std::max(
-        1, atoi(CSLFetchNameValueDef(
-               papszOptions, "NUM_THREADS",
-               CPLGetConfigOption("GDAL_NUM_THREADS",
-                                  CPLSPrintf("%d", CPLGetNumCPUs())))));
+    const int nNumThreads = GDALGetNumThreads(GDAL_DEFAULT_MAX_THREAD_COUNT,
+                                              /* bDefaultAllCPUs = */ true);
     CPLDebug("KTX2", "Using %d threads", nNumThreads);
     if (params.m_uastc)
     {

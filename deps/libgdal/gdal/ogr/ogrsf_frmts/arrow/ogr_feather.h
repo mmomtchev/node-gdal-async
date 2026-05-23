@@ -38,7 +38,7 @@ constexpr const char *GDAL_GEO_FOOTER_KEY = "gdal:geo";
 constexpr const char *ARROW_DRIVER_NAME_UC = "ARROW";
 
 /************************************************************************/
-/*                        OGRFeatherLayer                               */
+/*                           OGRFeatherLayer                            */
 /************************************************************************/
 
 class OGRFeatherDataset;
@@ -111,7 +111,7 @@ class OGRFeatherLayer final : public OGRArrowLayer
     GIntBig GetFeatureCount(int bForce) override;
     const char *GetMetadataItem(const char *pszName,
                                 const char *pszDomain = "") override;
-    char **GetMetadata(const char *pszDomain = "") override;
+    CSLConstList GetMetadata(const char *pszDomain = "") override;
 
     GDALDataset *GetDataset() override;
 
@@ -120,7 +120,7 @@ class OGRFeatherLayer final : public OGRArrowLayer
 };
 
 /************************************************************************/
-/*                         OGRFeatherDataset                            */
+/*                          OGRFeatherDataset                           */
 /************************************************************************/
 
 class OGRFeatherDataset final : public OGRArrowDataset
@@ -197,7 +197,7 @@ class OGRFeatherWriterLayer final : public OGRArrowWriterLayer
 };
 
 /************************************************************************/
-/*                        OGRFeatherWriterDataset                       */
+/*                       OGRFeatherWriterDataset                        */
 /************************************************************************/
 
 class OGRFeatherWriterDataset final : public GDALPamDataset
@@ -214,7 +214,7 @@ class OGRFeatherWriterDataset final : public GDALPamDataset
 
     ~OGRFeatherWriterDataset() override;
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
     arrow::MemoryPool *GetMemoryPool() const
     {

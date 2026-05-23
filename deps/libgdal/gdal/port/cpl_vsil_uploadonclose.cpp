@@ -49,14 +49,14 @@ class VSIUploadOnCloseHandle final : public VSIVirtualHandle
         return m_fpTemp->Tell();
     }
 
-    size_t Read(void *pBuffer, size_t nSize, size_t nCount) override
+    size_t Read(void *pBuffer, size_t nBytes) override
     {
-        return m_fpTemp->Read(pBuffer, nSize, nCount);
+        return m_fpTemp->Read(pBuffer, nBytes);
     }
 
-    size_t Write(const void *pBuffer, size_t nSize, size_t nCount) override
+    size_t Write(const void *pBuffer, size_t nBytes) override
     {
-        return m_fpTemp->Write(pBuffer, nSize, nCount);
+        return m_fpTemp->Write(pBuffer, nBytes);
     }
 
     void ClearErr() override
@@ -104,7 +104,7 @@ VSIUploadOnCloseHandle::~VSIUploadOnCloseHandle()
 }
 
 /************************************************************************/
-/*                              Close()                                 */
+/*                               Close()                                */
 /************************************************************************/
 
 int VSIUploadOnCloseHandle::Close()
@@ -140,7 +140,7 @@ int VSIUploadOnCloseHandle::Close()
 }
 
 /************************************************************************/
-/*                    VSICreateUploadOnCloseFile()                      */
+/*                     VSICreateUploadOnCloseFile()                     */
 /************************************************************************/
 
 VSIVirtualHandle *

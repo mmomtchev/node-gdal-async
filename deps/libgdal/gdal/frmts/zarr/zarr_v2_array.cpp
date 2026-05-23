@@ -12,6 +12,7 @@
 
 #include "cpl_float.h"
 #include "cpl_vsi_virtual.h"
+#include "cpl_worker_thread_pool.h"
 #include "gdal_thread_pool.h"
 #include "zarr.h"
 #include "vsikerchunk.h"
@@ -26,39 +27,38 @@
 #include <set>
 
 /************************************************************************/
-/*                       ZarrV2Array::ZarrV2Array()                     */
+/*                      ZarrV2Array::ZarrV2Array()                      */
 /************************************************************************/
 
 ZarrV2Array::ZarrV2Array(
     const std::shared_ptr<ZarrSharedResource> &poSharedResource,
-    const std::string &osParentName, const std::string &osName,
+    const std::shared_ptr<ZarrGroupBase> &poParent, const std::string &osName,
     const std::vector<std::shared_ptr<GDALDimension>> &aoDims,
     const GDALExtendedDataType &oType, const std::vector<DtypeElt> &aoDtypeElts,
     const std::vector<GUInt64> &anBlockSize, bool bFortranOrder)
-    : GDALAbstractMDArray(osParentName, osName),
-      ZarrArray(poSharedResource, osParentName, osName, aoDims, oType,
-                aoDtypeElts, anBlockSize),
+    : GDALAbstractMDArray(poParent->GetFullName(), osName),
+      ZarrArray(poSharedResource, poParent, osName, aoDims, oType, aoDtypeElts,
+                anBlockSize, anBlockSize),
       m_bFortranOrder(bFortranOrder)
 {
     m_oCompressorJSon.Deinit();
 }
 
 /************************************************************************/
-/*                         ZarrV2Array::Create()                        */
+/*                        ZarrV2Array::Create()                         */
 /************************************************************************/
 
-std::shared_ptr<ZarrV2Array>
-ZarrV2Array::Create(const std::shared_ptr<ZarrSharedResource> &poSharedResource,
-                    const std::string &osParentName, const std::string &osName,
-                    const std::vector<std::shared_ptr<GDALDimension>> &aoDims,
-                    const GDALExtendedDataType &oType,
-                    const std::vector<DtypeElt> &aoDtypeElts,
-                    const std::vector<GUInt64> &anBlockSize, bool bFortranOrder)
+std::shared_ptr<ZarrV2Array> ZarrV2Array::Create(
+    const std::shared_ptr<ZarrSharedResource> &poSharedResource,
+    const std::shared_ptr<ZarrGroupBase> &poParent, const std::string &osName,
+    const std::vector<std::shared_ptr<GDALDimension>> &aoDims,
+    const GDALExtendedDataType &oType, const std::vector<DtypeElt> &aoDtypeElts,
+    const std::vector<GUInt64> &anBlockSize, bool bFortranOrder)
 {
     auto arr = std::shared_ptr<ZarrV2Array>(
-        new ZarrV2Array(poSharedResource, osParentName, osName, aoDims, oType,
+        new ZarrV2Array(poSharedResource, poParent, osName, aoDims, oType,
                         aoDtypeElts, anBlockSize, bFortranOrder));
-    if (arr->m_nTotalTileCount == 0)
+    if (arr->m_nTotalInnerChunkCount == 0)
         return nullptr;
     arr->SetSelf(arr);
 
@@ -66,7 +66,7 @@ ZarrV2Array::Create(const std::shared_ptr<ZarrSharedResource> &poSharedResource,
 }
 
 /************************************************************************/
-/*                             ~ZarrV2Array()                           */
+/*                            ~ZarrV2Array()                            */
 /************************************************************************/
 
 ZarrV2Array::~ZarrV2Array()
@@ -75,7 +75,7 @@ ZarrV2Array::~ZarrV2Array()
 }
 
 /************************************************************************/
-/*                                Flush()                               */
+/*                               Flush()                                */
 /************************************************************************/
 
 bool ZarrV2Array::Flush()
@@ -83,7 +83,9 @@ bool ZarrV2Array::Flush()
     if (!m_bValid)
         return true;
 
-    bool ret = ZarrV2Array::FlushDirtyTile();
+    bool ret = ZarrV2Array::FlushDirtyBlock();
+
+    m_anCachedBlockIndices.clear();
 
     if (m_bDefinitionModified)
     {
@@ -142,7 +144,7 @@ bool ZarrV2Array::Flush()
 }
 
 /************************************************************************/
-/*           StripUselessItemsFromCompressorConfiguration()             */
+/*            StripUselessItemsFromCompressorConfiguration()            */
 /************************************************************************/
 
 static void StripUselessItemsFromCompressorConfiguration(CPLJSONObject &o)
@@ -156,7 +158,7 @@ static void StripUselessItemsFromCompressorConfiguration(CPLJSONObject &o)
 }
 
 /************************************************************************/
-/*                    ZarrV2Array::Serialize()                          */
+/*                       ZarrV2Array::Serialize()                       */
 /************************************************************************/
 
 bool ZarrV2Array::Serialize()
@@ -165,7 +167,7 @@ bool ZarrV2Array::Serialize()
     CPLJSONObject oRoot = oDoc.GetRoot();
 
     CPLJSONArray oChunks;
-    for (const auto nBlockSize : m_anBlockSize)
+    for (const auto nBlockSize : m_anOuterBlockSize)
     {
         oChunks.Add(static_cast<GInt64>(nBlockSize));
     }
@@ -267,7 +269,7 @@ bool ZarrV2Array::Serialize()
 }
 
 /************************************************************************/
-/*                  ZarrV2Array::NeedDecodedBuffer()                    */
+/*                   ZarrV2Array::NeedDecodedBuffer()                   */
 /************************************************************************/
 
 bool ZarrV2Array::NeedDecodedBuffer() const
@@ -295,7 +297,7 @@ bool ZarrV2Array::NeedDecodedBuffer() const
 }
 
 /************************************************************************/
-/*               ZarrV2Array::AllocateWorkingBuffers()                  */
+/*                ZarrV2Array::AllocateWorkingBuffers()                 */
 /************************************************************************/
 
 bool ZarrV2Array::AllocateWorkingBuffers() const
@@ -305,7 +307,7 @@ bool ZarrV2Array::AllocateWorkingBuffers() const
 
     m_bAllocateWorkingBuffersDone = true;
 
-    size_t nSizeNeeded = m_nTileSize;
+    size_t nSizeNeeded = m_nInnerBlockSizeBytes;
     if (m_bFortranOrder || m_oFiltersArray.Size() != 0)
     {
         if (nSizeNeeded > std::numeric_limits<size_t>::max() / 2)
@@ -318,7 +320,7 @@ bool ZarrV2Array::AllocateWorkingBuffers() const
     if (NeedDecodedBuffer())
     {
         size_t nDecodedBufferSize = m_oType.GetSize();
-        for (const auto &nBlockSize : m_anBlockSize)
+        for (const auto &nBlockSize : m_anOuterBlockSize)
         {
             if (nDecodedBufferSize > std::numeric_limits<size_t>::max() /
                                          static_cast<size_t>(nBlockSize))
@@ -351,28 +353,28 @@ bool ZarrV2Array::AllocateWorkingBuffers() const
     }
 
     m_bWorkingBuffersOK = AllocateWorkingBuffers(
-        m_abyRawTileData, m_abyTmpRawTileData, m_abyDecodedTileData);
+        m_abyRawBlockData, m_abyTmpRawBlockData, m_abyDecodedBlockData);
     return m_bWorkingBuffersOK;
 }
 
 bool ZarrV2Array::AllocateWorkingBuffers(
-    ZarrByteVectorQuickResize &abyRawTileData,
-    ZarrByteVectorQuickResize &abyTmpRawTileData,
-    ZarrByteVectorQuickResize &abyDecodedTileData) const
+    ZarrByteVectorQuickResize &abyRawBlockData,
+    ZarrByteVectorQuickResize &abyTmpRawBlockData,
+    ZarrByteVectorQuickResize &abyDecodedBlockData) const
 {
     // This method should NOT modify any ZarrArray member, as it is going to
     // be called concurrently from several threads.
 
     // Set those #define to avoid accidental use of some global variables
-#define m_abyTmpRawTileData cannot_use_here
-#define m_abyRawTileData cannot_use_here
-#define m_abyDecodedTileData cannot_use_here
+#define m_abyTmpRawBlockData cannot_use_here
+#define m_abyRawBlockData cannot_use_here
+#define m_abyDecodedBlockData cannot_use_here
 
     try
     {
-        abyRawTileData.resize(m_nTileSize);
+        abyRawBlockData.resize(m_nInnerBlockSizeBytes);
         if (m_bFortranOrder || m_oFiltersArray.Size() != 0)
-            abyTmpRawTileData.resize(m_nTileSize);
+            abyTmpRawBlockData.resize(m_nInnerBlockSizeBytes);
     }
     catch (const std::bad_alloc &e)
     {
@@ -383,13 +385,13 @@ bool ZarrV2Array::AllocateWorkingBuffers(
     if (NeedDecodedBuffer())
     {
         size_t nDecodedBufferSize = m_oType.GetSize();
-        for (const auto &nBlockSize : m_anBlockSize)
+        for (const auto &nBlockSize : m_anOuterBlockSize)
         {
             nDecodedBufferSize *= static_cast<size_t>(nBlockSize);
         }
         try
         {
-            abyDecodedTileData.resize(nDecodedBufferSize);
+            abyDecodedBlockData.resize(nDecodedBufferSize);
         }
         catch (const std::bad_alloc &e)
         {
@@ -399,43 +401,160 @@ bool ZarrV2Array::AllocateWorkingBuffers(
     }
 
     return true;
-#undef m_abyTmpRawTileData
-#undef m_abyRawTileData
-#undef m_abyDecodedTileData
+#undef m_abyTmpRawBlockData
+#undef m_abyRawBlockData
+#undef m_abyDecodedBlockData
 }
 
 /************************************************************************/
-/*                      ZarrV2Array::LoadTileData()                     */
+/*                    ZarrV2Array::BlockTranspose()                     */
 /************************************************************************/
 
-bool ZarrV2Array::LoadTileData(const uint64_t *tileIndices,
-                               bool &bMissingTileOut) const
+void ZarrV2Array::BlockTranspose(const ZarrByteVectorQuickResize &abySrc,
+                                 ZarrByteVectorQuickResize &abyDst,
+                                 bool bDecode) const
 {
-    return LoadTileData(tileIndices,
-                        false,  // use mutex
-                        m_psDecompressor, m_abyRawTileData, m_abyTmpRawTileData,
-                        m_abyDecodedTileData, bMissingTileOut);
+    // Perform transposition
+    const size_t nDims = m_anOuterBlockSize.size();
+    const size_t nSourceSize =
+        m_aoDtypeElts.back().nativeOffset + m_aoDtypeElts.back().nativeSize;
+
+    struct Stack
+    {
+        size_t nIters = 0;
+        const GByte *src_ptr = nullptr;
+        GByte *dst_ptr = nullptr;
+        size_t src_inc_offset = 0;
+        size_t dst_inc_offset = 0;
+    };
+
+    std::vector<Stack> stack(nDims);
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnull-dereference"
+#endif
+    stack.emplace_back(
+        Stack());  // to make gcc 9.3 -O2 -Wnull-dereference happy
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+
+    if (bDecode)
+    {
+        stack[0].src_inc_offset = nSourceSize;
+        for (size_t i = 1; i < nDims; ++i)
+        {
+            stack[i].src_inc_offset =
+                stack[i - 1].src_inc_offset *
+                static_cast<size_t>(m_anOuterBlockSize[i - 1]);
+        }
+
+        stack[nDims - 1].dst_inc_offset = nSourceSize;
+        for (size_t i = nDims - 1; i > 0;)
+        {
+            --i;
+            stack[i].dst_inc_offset =
+                stack[i + 1].dst_inc_offset *
+                static_cast<size_t>(m_anOuterBlockSize[i + 1]);
+        }
+    }
+    else
+    {
+        stack[0].dst_inc_offset = nSourceSize;
+        for (size_t i = 1; i < nDims; ++i)
+        {
+            stack[i].dst_inc_offset =
+                stack[i - 1].dst_inc_offset *
+                static_cast<size_t>(m_anOuterBlockSize[i - 1]);
+        }
+
+        stack[nDims - 1].src_inc_offset = nSourceSize;
+        for (size_t i = nDims - 1; i > 0;)
+        {
+            --i;
+            stack[i].src_inc_offset =
+                stack[i + 1].src_inc_offset *
+                static_cast<size_t>(m_anOuterBlockSize[i + 1]);
+        }
+    }
+
+    stack[0].src_ptr = abySrc.data();
+    stack[0].dst_ptr = &abyDst[0];
+
+    size_t dimIdx = 0;
+lbl_next_depth:
+    if (dimIdx == nDims)
+    {
+        void *dst_ptr = stack[nDims].dst_ptr;
+        const void *src_ptr = stack[nDims].src_ptr;
+        if (nSourceSize == 1)
+            *stack[nDims].dst_ptr = *stack[nDims].src_ptr;
+        else if (nSourceSize == 2)
+            *static_cast<uint16_t *>(dst_ptr) =
+                *static_cast<const uint16_t *>(src_ptr);
+        else if (nSourceSize == 4)
+            *static_cast<uint32_t *>(dst_ptr) =
+                *static_cast<const uint32_t *>(src_ptr);
+        else if (nSourceSize == 8)
+            *static_cast<uint64_t *>(dst_ptr) =
+                *static_cast<const uint64_t *>(src_ptr);
+        else
+            memcpy(dst_ptr, src_ptr, nSourceSize);
+    }
+    else
+    {
+        stack[dimIdx].nIters = static_cast<size_t>(m_anOuterBlockSize[dimIdx]);
+        while (true)
+        {
+            dimIdx++;
+            stack[dimIdx].src_ptr = stack[dimIdx - 1].src_ptr;
+            stack[dimIdx].dst_ptr = stack[dimIdx - 1].dst_ptr;
+            goto lbl_next_depth;
+        lbl_return_to_caller:
+            dimIdx--;
+            if ((--stack[dimIdx].nIters) == 0)
+                break;
+            stack[dimIdx].src_ptr += stack[dimIdx].src_inc_offset;
+            stack[dimIdx].dst_ptr += stack[dimIdx].dst_inc_offset;
+        }
+    }
+    if (dimIdx > 0)
+        goto lbl_return_to_caller;
 }
 
-bool ZarrV2Array::LoadTileData(const uint64_t *tileIndices, bool bUseMutex,
-                               const CPLCompressor *psDecompressor,
-                               ZarrByteVectorQuickResize &abyRawTileData,
-                               ZarrByteVectorQuickResize &abyTmpRawTileData,
-                               ZarrByteVectorQuickResize &abyDecodedTileData,
-                               bool &bMissingTileOut) const
+/************************************************************************/
+/*                     ZarrV2Array::LoadBlockData()                     */
+/************************************************************************/
+
+bool ZarrV2Array::LoadBlockData(const uint64_t *blockIndices,
+                                bool &bMissingBlockOut) const
+{
+    return LoadBlockData(blockIndices,
+                         false,  // use mutex
+                         m_psDecompressor, m_abyRawBlockData,
+                         m_abyTmpRawBlockData, m_abyDecodedBlockData,
+                         bMissingBlockOut);
+}
+
+bool ZarrV2Array::LoadBlockData(const uint64_t *blockIndices, bool bUseMutex,
+                                const CPLCompressor *psDecompressor,
+                                ZarrByteVectorQuickResize &abyRawBlockData,
+                                ZarrByteVectorQuickResize &abyTmpRawBlockData,
+                                ZarrByteVectorQuickResize &abyDecodedBlockData,
+                                bool &bMissingBlockOut) const
 {
     // This method should NOT modify any ZarrArray member, as it is going to
     // be called concurrently from several threads.
 
     // Set those #define to avoid accidental use of some global variables
-#define m_abyTmpRawTileData cannot_use_here
-#define m_abyRawTileData cannot_use_here
-#define m_abyDecodedTileData cannot_use_here
+#define m_abyTmpRawBlockData cannot_use_here
+#define m_abyRawBlockData cannot_use_here
+#define m_abyDecodedBlockData cannot_use_here
 #define m_psDecompressor cannot_use_here
 
-    bMissingTileOut = false;
+    bMissingBlockOut = false;
 
-    std::string osFilename = BuildTileFilename(tileIndices);
+    std::string osFilename = BuildChunkFilename(blockIndices);
 
     // For network file systems, get the streaming version of the filename,
     // as we don't need arbitrary seeking in the file
@@ -447,15 +566,15 @@ bool ZarrV2Array::LoadTileData(const uint64_t *tileIndices, bool bUseMutex,
     if (bUseMutex)
     {
         std::lock_guard<std::mutex> oLock(m_oMutex);
-        bEarlyRet = IsTileMissingFromCacheInfo(osFilename, tileIndices);
+        bEarlyRet = IsBlockMissingFromCacheInfo(osFilename, blockIndices);
     }
     else
     {
-        bEarlyRet = IsTileMissingFromCacheInfo(osFilename, tileIndices);
+        bEarlyRet = IsBlockMissingFromCacheInfo(osFilename, blockIndices);
     }
     if (bEarlyRet)
     {
-        bMissingTileOut = true;
+        bMissingBlockOut = true;
         return true;
     }
 
@@ -465,10 +584,10 @@ bool ZarrV2Array::LoadTileData(const uint64_t *tileIndices, bool bUseMutex,
     const char *const apszOpenOptions[] = {"IGNORE_FILENAME_RESTRICTIONS=YES",
                                            nullptr};
     const auto nErrorBefore = CPLGetErrorCounter();
-    if ((m_osDimSeparator == "/" && !m_anBlockSize.empty() &&
-         m_anBlockSize.back() > MAX_TILES_ALLOWED_FOR_DIRECTORY_LISTING) ||
+    if ((m_osDimSeparator == "/" && !m_anOuterBlockSize.empty() &&
+         m_anOuterBlockSize.back() > MAX_TILES_ALLOWED_FOR_DIRECTORY_LISTING) ||
         (m_osDimSeparator != "/" &&
-         m_nTotalTileCount > MAX_TILES_ALLOWED_FOR_DIRECTORY_LISTING))
+         m_nTotalInnerChunkCount > MAX_TILES_ALLOWED_FOR_DIRECTORY_LISTING))
     {
         // Avoid issuing ReadDir() when a lot of files are expected
         CPLConfigOptionSetter optionSetter("GDAL_DISABLE_READDIR_ON_OPEN",
@@ -488,19 +607,19 @@ bool ZarrV2Array::LoadTileData(const uint64_t *tileIndices, bool bUseMutex,
         else
         {
             // Missing files are OK and indicate nodata_value
-            CPLDebugOnly(ZARR_DEBUG_KEY, "Tile %s missing (=nodata)",
+            CPLDebugOnly(ZARR_DEBUG_KEY, "Block %s missing (=nodata)",
                          osFilename.c_str());
-            bMissingTileOut = true;
+            bMissingBlockOut = true;
             return true;
         }
     }
 
-    bMissingTileOut = false;
+    bMissingBlockOut = false;
     bool bRet = true;
-    size_t nRawDataSize = abyRawTileData.size();
+    size_t nRawDataSize = abyRawBlockData.size();
     if (psDecompressor == nullptr)
     {
-        nRawDataSize = VSIFReadL(&abyRawTileData[0], 1, nRawDataSize, fp);
+        nRawDataSize = VSIFReadL(&abyRawBlockData[0], 1, nRawDataSize, fp);
     }
     else
     {
@@ -540,7 +659,7 @@ bool ZarrV2Array::LoadTileData(const uint64_t *tileIndices, bool bUseMutex,
             }
             else
             {
-                void *out_buffer = &abyRawTileData[0];
+                void *out_buffer = &abyRawBlockData[0];
                 if (!psDecompressor->pfnFunc(
                         abyCompressedData.data(), abyCompressedData.size(),
                         &out_buffer, &nRawDataSize, nullptr,
@@ -569,6 +688,8 @@ bool ZarrV2Array::LoadTileData(const uint64_t *tileIndices, bool bUseMutex,
             std::lock_guard<std::mutex> oLock(m_oMutex);
             const auto &oFilter = m_oFiltersArray[i];
             osFilterId = oFilter["id"].ToString();
+            if (osFilterId == "bitround")
+                continue;  // no-op on decoding
             psFilterDecompressor =
                 EQUAL(osFilterId.c_str(), "shuffle")
                     ? ZarrGetShuffleDecompressor()
@@ -586,10 +707,10 @@ bool ZarrV2Array::LoadTileData(const uint64_t *tileIndices, bool bUseMutex,
             }
         }
 
-        void *out_buffer = &abyTmpRawTileData[0];
-        size_t nOutSize = abyTmpRawTileData.size();
+        void *out_buffer = &abyTmpRawBlockData[0];
+        size_t nOutSize = abyTmpRawBlockData.size();
         if (!psFilterDecompressor->pfnFunc(
-                abyRawTileData.data(), nRawDataSize, &out_buffer, &nOutSize,
+                abyRawBlockData.data(), nRawDataSize, &out_buffer, &nOutSize,
                 aosOptions.List(), psFilterDecompressor->user_data))
         {
             CPLError(CE_Failure, CPLE_AppDefined,
@@ -599,9 +720,9 @@ bool ZarrV2Array::LoadTileData(const uint64_t *tileIndices, bool bUseMutex,
         }
 
         nRawDataSize = nOutSize;
-        std::swap(abyRawTileData, abyTmpRawTileData);
+        std::swap(abyRawBlockData, abyTmpRawBlockData);
     }
-    if (nRawDataSize != abyRawTileData.size())
+    if (nRawDataSize != abyRawBlockData.size())
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Decompressed tile %s has not expected size after filters",
@@ -611,18 +732,18 @@ bool ZarrV2Array::LoadTileData(const uint64_t *tileIndices, bool bUseMutex,
 
     if (m_bFortranOrder && !m_aoDims.empty())
     {
-        BlockTranspose(abyRawTileData, abyTmpRawTileData, true);
-        std::swap(abyRawTileData, abyTmpRawTileData);
+        BlockTranspose(abyRawBlockData, abyTmpRawBlockData, true);
+        std::swap(abyRawBlockData, abyTmpRawBlockData);
     }
 
-    if (!abyDecodedTileData.empty())
+    if (!abyDecodedBlockData.empty())
     {
         const size_t nSourceSize =
             m_aoDtypeElts.back().nativeOffset + m_aoDtypeElts.back().nativeSize;
         const auto nDTSize = m_oType.GetSize();
-        const size_t nValues = abyDecodedTileData.size() / nDTSize;
-        const GByte *pSrc = abyRawTileData.data();
-        GByte *pDst = &abyDecodedTileData[0];
+        const size_t nValues = abyDecodedBlockData.size() / nDTSize;
+        const GByte *pSrc = abyRawBlockData.data();
+        GByte *pDst = &abyDecodedBlockData[0];
         for (size_t i = 0; i < nValues;
              i++, pSrc += nSourceSize, pDst += nDTSize)
         {
@@ -632,9 +753,9 @@ bool ZarrV2Array::LoadTileData(const uint64_t *tileIndices, bool bUseMutex,
 
     return true;
 
-#undef m_abyTmpRawTileData
-#undef m_abyRawTileData
-#undef m_abyDecodedTileData
+#undef m_abyTmpRawBlockData
+#undef m_abyRawBlockData
+#undef m_abyDecodedBlockData
 #undef m_psDecompressor
 }
 
@@ -647,10 +768,10 @@ bool ZarrV2Array::IAdviseRead(const GUInt64 *arrayStartIdx, const size_t *count,
 {
     std::vector<uint64_t> anIndicesCur;
     int nThreadsMax = 0;
-    std::vector<uint64_t> anReqTilesIndices;
-    size_t nReqTiles = 0;
+    std::vector<uint64_t> anReqBlocksIndices;
+    size_t nReqBlocks = 0;
     if (!IAdviseReadCommon(arrayStartIdx, count, papszOptions, anIndicesCur,
-                           nThreadsMax, anReqTilesIndices, nReqTiles))
+                           nThreadsMax, anReqBlocksIndices, nReqBlocks))
     {
         return false;
     }
@@ -659,8 +780,8 @@ bool ZarrV2Array::IAdviseRead(const GUInt64 *arrayStartIdx, const size_t *count,
         return true;
     }
 
-    const int nThreads =
-        static_cast<int>(std::min(static_cast<size_t>(nThreadsMax), nReqTiles));
+    const int nThreads = static_cast<int>(
+        std::min(static_cast<size_t>(nThreadsMax), nReqBlocks));
 
     CPLWorkerThreadPool *wtp = GDALGetGlobalThreadPool(nThreadsMax);
     if (wtp == nullptr)
@@ -679,7 +800,7 @@ bool ZarrV2Array::IAdviseRead(const GUInt64 *arrayStartIdx, const size_t *count,
         const ZarrV2Array *poArray = nullptr;
         bool *pbGlobalStatus = nullptr;
         int *pnRemainingThreads = nullptr;
-        const std::vector<uint64_t> *panReqTilesIndices = nullptr;
+        const std::vector<uint64_t> *panReqBlocksIndices = nullptr;
         size_t nFirstIdx = 0;
         size_t nLastIdxNotIncluded = 0;
     };
@@ -690,7 +811,7 @@ bool ZarrV2Array::IAdviseRead(const GUInt64 *arrayStartIdx, const size_t *count,
     int nRemainingThreads = nThreads;
     // Check for very highly overflow in below loop
     assert(static_cast<size_t>(nThreads) <
-           std::numeric_limits<size_t>::max() / nReqTiles);
+           std::numeric_limits<size_t>::max() / nReqBlocks);
 
     // Setup jobs
     for (int i = 0; i < nThreads; i++)
@@ -699,10 +820,10 @@ bool ZarrV2Array::IAdviseRead(const GUInt64 *arrayStartIdx, const size_t *count,
         jobStruct.poArray = this;
         jobStruct.pbGlobalStatus = &bGlobalStatus;
         jobStruct.pnRemainingThreads = &nRemainingThreads;
-        jobStruct.panReqTilesIndices = &anReqTilesIndices;
-        jobStruct.nFirstIdx = static_cast<size_t>(i * nReqTiles / nThreads);
+        jobStruct.panReqBlocksIndices = &anReqBlocksIndices;
+        jobStruct.nFirstIdx = static_cast<size_t>(i * nReqBlocks / nThreads);
         jobStruct.nLastIdxNotIncluded = std::min(
-            static_cast<size_t>((i + 1) * nReqTiles / nThreads), nReqTiles);
+            static_cast<size_t>((i + 1) * nReqBlocks / nThreads), nReqBlocks);
         asJobStructs.emplace_back(std::move(jobStruct));
     }
 
@@ -712,11 +833,10 @@ bool ZarrV2Array::IAdviseRead(const GUInt64 *arrayStartIdx, const size_t *count,
             static_cast<const JobStruct *>(pThreadData);
 
         const auto poArray = jobStruct->poArray;
-        const auto &aoDims = poArray->GetDimensions();
         const size_t l_nDims = poArray->GetDimensionCount();
-        ZarrByteVectorQuickResize abyRawTileData;
-        ZarrByteVectorQuickResize abyDecodedTileData;
-        ZarrByteVectorQuickResize abyTmpRawTileData;
+        ZarrByteVectorQuickResize abyRawBlockData;
+        ZarrByteVectorQuickResize abyDecodedBlockData;
+        ZarrByteVectorQuickResize abyTmpRawBlockData;
         const CPLCompressor *psDecompressor =
             CPLGetDecompressor(poArray->m_osDecompressorId.c_str());
 
@@ -730,19 +850,11 @@ bool ZarrV2Array::IAdviseRead(const GUInt64 *arrayStartIdx, const size_t *count,
                     return;
             }
 
-            const uint64_t *tileIndices =
-                jobStruct->panReqTilesIndices->data() + iReq * l_nDims;
-
-            uint64_t nTileIdx = 0;
-            for (size_t j = 0; j < l_nDims; ++j)
-            {
-                if (j > 0)
-                    nTileIdx *= aoDims[j - 1]->GetSize();
-                nTileIdx += tileIndices[j];
-            }
+            const uint64_t *blockIndices =
+                jobStruct->panReqBlocksIndices->data() + iReq * l_nDims;
 
             if (!poArray->AllocateWorkingBuffers(
-                    abyRawTileData, abyTmpRawTileData, abyDecodedTileData))
+                    abyRawBlockData, abyTmpRawBlockData, abyDecodedBlockData))
             {
                 std::lock_guard<std::mutex> oLock(poArray->m_oMutex);
                 *jobStruct->pbGlobalStatus = false;
@@ -750,11 +862,11 @@ bool ZarrV2Array::IAdviseRead(const GUInt64 *arrayStartIdx, const size_t *count,
             }
 
             bool bIsEmpty = false;
-            bool success = poArray->LoadTileData(tileIndices,
-                                                 true,  // use mutex
-                                                 psDecompressor, abyRawTileData,
-                                                 abyTmpRawTileData,
-                                                 abyDecodedTileData, bIsEmpty);
+            bool success = poArray->LoadBlockData(
+                blockIndices,
+                true,  // use mutex
+                psDecompressor, abyRawBlockData, abyTmpRawBlockData,
+                abyDecodedBlockData, bIsEmpty);
 
             std::lock_guard<std::mutex> oLock(poArray->m_oMutex);
             if (!success)
@@ -763,16 +875,17 @@ bool ZarrV2Array::IAdviseRead(const GUInt64 *arrayStartIdx, const size_t *count,
                 break;
             }
 
-            CachedTile cachedTile;
+            CachedBlock cachedBlock;
             if (!bIsEmpty)
             {
-                if (!abyDecodedTileData.empty())
-                    std::swap(cachedTile.abyDecoded, abyDecodedTileData);
+                if (!abyDecodedBlockData.empty())
+                    std::swap(cachedBlock.abyDecoded, abyDecodedBlockData);
                 else
-                    std::swap(cachedTile.abyDecoded, abyRawTileData);
+                    std::swap(cachedBlock.abyDecoded, abyRawBlockData);
             }
-            poArray->m_oMapTileIndexToCachedTile[nTileIdx] =
-                std::move(cachedTile);
+            const std::vector<uint64_t> cacheKey{blockIndices,
+                                                 blockIndices + l_nDims};
+            poArray->m_oChunkCache[cacheKey] = std::move(cachedBlock);
         }
 
         std::lock_guard<std::mutex> oLock(poArray->m_oMutex);
@@ -806,25 +919,26 @@ bool ZarrV2Array::IAdviseRead(const GUInt64 *arrayStartIdx, const size_t *count,
 }
 
 /************************************************************************/
-/*                    ZarrV2Array::FlushDirtyTile()                     */
+/*                    ZarrV2Array::FlushDirtyBlock()                    */
 /************************************************************************/
 
-bool ZarrV2Array::FlushDirtyTile() const
+bool ZarrV2Array::FlushDirtyBlock() const
 {
-    if (!m_bDirtyTile)
+    if (!m_bDirtyBlock)
         return true;
-    m_bDirtyTile = false;
+    m_bDirtyBlock = false;
 
-    std::string osFilename = BuildTileFilename(m_anCachedTiledIndices.data());
+    std::string osFilename = BuildChunkFilename(m_anCachedBlockIndices.data());
 
     const size_t nSourceSize =
         m_aoDtypeElts.back().nativeOffset + m_aoDtypeElts.back().nativeSize;
-    const auto &abyTile =
-        m_abyDecodedTileData.empty() ? m_abyRawTileData : m_abyDecodedTileData;
+    const auto &abyBlock = m_abyDecodedBlockData.empty()
+                               ? m_abyRawBlockData
+                               : m_abyDecodedBlockData;
 
-    if (IsEmptyTile(abyTile))
+    if (IsEmptyBlock(abyBlock))
     {
-        m_bCachedTiledEmpty = true;
+        m_bCachedBlockEmpty = true;
 
         VSIStatBufL sStat;
         if (VSIStatL(osFilename.c_str(), &sStat) == 0)
@@ -837,12 +951,12 @@ bool ZarrV2Array::FlushDirtyTile() const
         return true;
     }
 
-    if (!m_abyDecodedTileData.empty())
+    if (!m_abyDecodedBlockData.empty())
     {
         const size_t nDTSize = m_oType.GetSize();
-        const size_t nValues = m_abyDecodedTileData.size() / nDTSize;
-        GByte *pDst = &m_abyRawTileData[0];
-        const GByte *pSrc = m_abyDecodedTileData.data();
+        const size_t nValues = m_abyDecodedBlockData.size() / nDTSize;
+        GByte *pDst = &m_abyRawBlockData[0];
+        const GByte *pSrc = m_abyDecodedBlockData.data();
         for (size_t i = 0; i < nValues;
              i++, pDst += nSourceSize, pSrc += nDTSize)
         {
@@ -852,15 +966,16 @@ bool ZarrV2Array::FlushDirtyTile() const
 
     if (m_bFortranOrder && !m_aoDims.empty())
     {
-        BlockTranspose(m_abyRawTileData, m_abyTmpRawTileData, false);
-        std::swap(m_abyRawTileData, m_abyTmpRawTileData);
+        BlockTranspose(m_abyRawBlockData, m_abyTmpRawBlockData, false);
+        std::swap(m_abyRawBlockData, m_abyTmpRawBlockData);
     }
 
-    size_t nRawDataSize = m_abyRawTileData.size();
+    size_t nRawDataSize = m_abyRawBlockData.size();
     for (const auto &oFilter : m_oFiltersArray)
     {
         const auto osFilterId = oFilter["id"].ToString();
-        if (osFilterId == "quantize" || osFilterId == "fixedscaleoffset")
+        if (osFilterId == "quantize" || osFilterId == "fixedscaleoffset" ||
+            osFilterId == "bitround")
         {
             CPLError(CE_Failure, CPLE_NotSupported,
                      "%s filter not supported for writing", osFilterId.c_str());
@@ -878,10 +993,10 @@ bool ZarrV2Array::FlushDirtyTile() const
             aosOptions.SetNameValue(obj.GetName().c_str(),
                                     obj.ToString().c_str());
         }
-        void *out_buffer = &m_abyTmpRawTileData[0];
-        size_t nOutSize = m_abyTmpRawTileData.size();
+        void *out_buffer = &m_abyTmpRawBlockData[0];
+        size_t nOutSize = m_abyTmpRawBlockData.size();
         if (!psFilterCompressor->pfnFunc(
-                m_abyRawTileData.data(), nRawDataSize, &out_buffer, &nOutSize,
+                m_abyRawBlockData.data(), nRawDataSize, &out_buffer, &nOutSize,
                 aosOptions.List(), psFilterCompressor->user_data))
         {
             CPLError(CE_Failure, CPLE_AppDefined,
@@ -891,7 +1006,7 @@ bool ZarrV2Array::FlushDirtyTile() const
         }
 
         nRawDataSize = nOutSize;
-        std::swap(m_abyRawTileData, m_abyTmpRawTileData);
+        std::swap(m_abyRawBlockData, m_abyTmpRawBlockData);
     }
 
     if (m_osDimSeparator == "/")
@@ -930,7 +1045,7 @@ bool ZarrV2Array::FlushDirtyTile() const
     bool bRet = true;
     if (m_psCompressor == nullptr)
     {
-        if (VSIFWriteL(m_abyRawTileData.data(), 1, nRawDataSize, fp) !=
+        if (VSIFWriteL(m_abyRawBlockData.data(), 1, nRawDataSize, fp) !=
             nRawDataSize)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
@@ -976,7 +1091,7 @@ bool ZarrV2Array::FlushDirtyTile() const
             }
 
             if (!m_psCompressor->pfnFunc(
-                    m_abyRawTileData.data(), nRawDataSize, &out_buffer,
+                    m_abyRawBlockData.data(), nRawDataSize, &out_buffer,
                     &out_size, aosOptions.List(), m_psCompressor->user_data))
             {
                 CPLError(CE_Failure, CPLE_AppDefined,
@@ -1001,10 +1116,10 @@ bool ZarrV2Array::FlushDirtyTile() const
 }
 
 /************************************************************************/
-/*                          BuildTileFilename()                         */
+/*                         BuildChunkFilename()                         */
 /************************************************************************/
 
-std::string ZarrV2Array::BuildTileFilename(const uint64_t *tileIndices) const
+std::string ZarrV2Array::BuildChunkFilename(const uint64_t *blockIndices) const
 {
     std::string osFilename;
     if (m_aoDims.empty())
@@ -1017,7 +1132,7 @@ std::string ZarrV2Array::BuildTileFilename(const uint64_t *tileIndices) const
         {
             if (!osFilename.empty())
                 osFilename += m_osDimSeparator;
-            osFilename += std::to_string(tileIndices[i]);
+            osFilename += std::to_string(blockIndices[i]);
         }
     }
 
@@ -1035,11 +1150,11 @@ std::string ZarrV2Array::GetDataDirectory() const
 }
 
 /************************************************************************/
-/*                        GetTileIndicesFromFilename()                  */
+/*                    GetChunkIndicesFromFilename()                     */
 /************************************************************************/
 
 CPLStringList
-ZarrV2Array::GetTileIndicesFromFilename(const char *pszFilename) const
+ZarrV2Array::GetChunkIndicesFromFilename(const char *pszFilename) const
 {
     return CPLStringList(
         CSLTokenizeString2(pszFilename, m_osDimSeparator.c_str(), 0));
@@ -1129,12 +1244,12 @@ static GDALExtendedDataType ParseDtype(const CPLJSONObject &obj,
             if (chType == 'b' && nBytes == 1)  // boolean
             {
                 elt.nativeType = DtypeElt::NativeType::BOOLEAN;
-                eDT = GDT_Byte;
+                eDT = GDT_UInt8;
             }
             else if (chType == 'u' && nBytes == 1)
             {
                 elt.nativeType = DtypeElt::NativeType::UNSIGNED_INT;
-                eDT = GDT_Byte;
+                eDT = GDT_UInt8;
             }
             else if (chType == 'i' && nBytes == 1)
             {
@@ -1173,9 +1288,6 @@ static GDALExtendedDataType ParseDtype(const CPLJSONObject &obj,
             }
             else if (chType == 'f' && nBytes == 2)
             {
-                // elt.nativeType = DtypeElt::NativeType::IEEEFP;
-                // elt.gdalTypeIsApproxOfNative = true;
-                // eDT = GDT_Float32;
                 elt.nativeType = DtypeElt::NativeType::IEEEFP;
                 eDT = GDT_Float16;
             }
@@ -1295,7 +1407,7 @@ static void SetGDALOffset(const GDALExtendedDataType &dt,
 }
 
 /************************************************************************/
-/*                     ZarrV2Group::LoadArray()                         */
+/*                       ZarrV2Group::LoadArray()                       */
 /************************************************************************/
 
 std::shared_ptr<ZarrArray>
@@ -1922,7 +2034,8 @@ ZarrV2Group::LoadArray(const std::string &osArrayName,
             }
             if (!EQUAL(osFilterId.c_str(), "shuffle") &&
                 !EQUAL(osFilterId.c_str(), "quantize") &&
-                !EQUAL(osFilterId.c_str(), "fixedscaleoffset"))
+                !EQUAL(osFilterId.c_str(), "fixedscaleoffset") &&
+                !EQUAL(osFilterId.c_str(), "bitround"))
             {
                 const auto psFilterCompressor =
                     CPLGetCompressor(osFilterId.c_str());
@@ -1944,9 +2057,9 @@ ZarrV2Group::LoadArray(const std::string &osArrayName,
         return nullptr;
     }
 
-    auto poArray = ZarrV2Array::Create(m_poSharedResource, GetFullName(),
-                                       osArrayName, aoDims, oType, aoDtypeElts,
-                                       anBlockSize, bFortranOrder);
+    auto poArray =
+        ZarrV2Array::Create(m_poSharedResource, Self(), osArrayName, aoDims,
+                            oType, aoDtypeElts, anBlockSize, bFortranOrder);
     if (!poArray)
         return nullptr;
     poArray->SetCompressorJson(oCompressor);
@@ -1992,8 +2105,7 @@ ZarrV2Group::LoadArray(const std::string &osArrayName,
         }
     }
 
-    poArray->ParseSpecialAttributes(m_pSelf.lock(), oAttributes);
-    poArray->SetAttributes(oAttributes);
+    poArray->SetAttributes(Self(), oAttributes);
     poArray->SetDtype(oDtype);
     RegisterArray(poArray);
 
@@ -2010,14 +2122,14 @@ ZarrV2Group::LoadArray(const std::string &osArrayName,
     if (CPLTestBool(m_poSharedResource->GetOpenOptions().FetchNameValueDef(
             "CACHE_TILE_PRESENCE", "NO")))
     {
-        poArray->CacheTilePresence();
+        poArray->BlockCachePresence();
     }
 
     return poArray;
 }
 
 /************************************************************************/
-/*                    ZarrV2Array::SetCompressorJson()                  */
+/*                   ZarrV2Array::SetCompressorJson()                   */
 /************************************************************************/
 
 void ZarrV2Array::SetCompressorJson(const CPLJSONObject &oCompressor)
@@ -2029,7 +2141,7 @@ void ZarrV2Array::SetCompressorJson(const CPLJSONObject &oCompressor)
 }
 
 /************************************************************************/
-/*                     ZarrV2Array::SetFilters()                        */
+/*                      ZarrV2Array::SetFilters()                       */
 /************************************************************************/
 
 void ZarrV2Array::SetFilters(const CPLJSONArray &oFiltersArray)
@@ -2041,7 +2153,7 @@ void ZarrV2Array::SetFilters(const CPLJSONArray &oFiltersArray)
 }
 
 /************************************************************************/
-/*                   ZarrV2Array::GetRawBlockInfoInfo()                 */
+/*                  ZarrV2Array::GetRawBlockInfoInfo()                  */
 /************************************************************************/
 
 CPLStringList ZarrV2Array::GetRawBlockInfoInfo() const

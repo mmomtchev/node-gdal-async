@@ -10,6 +10,7 @@
 		"include_dirs": [
 			"./gdal/alg",
 			"./gdal/gcore",
+			"./gdal/gcore/multidim",
 			"./gdal/apps",
 			"./gdal/port",
 			"./gdal/frmts",
@@ -23,6 +24,7 @@
 			"./gdal/ogr/ogrsf_frmts/shape",
 			"./gdal/ogr/ogrsf_frmts/avc",
 			"./gdal/ogr/ogrsf_frmts/vrt",
+			"./gdal/ogr/ogrsf_frmts/gmlutils",
 			"./gdal/ogr/ogrsf_frmts/geojson",
 			"./gdal/ogr/ogrsf_frmts/geojson/libjson"
 		],
@@ -59,7 +61,10 @@
 			"RENAME_INTERNAL_SHAPELIB_SYMBOLS=1",
 			"GDAL_USE_SHAPELIB_INTERNAL=1",
 			"flatbuffers=gdal_flatbuffers",
-			"OGR_P_WITH_SRS_CACHE=1"
+			"OGR_P_WITH_SRS_CACHE=1",
+			# TODO - check if these can be enabled on Linux
+			"VSI_LSEEK64=lseek",
+			"VSI_OPEN64=open"
 		],
 		"dependencies": [
 			"<(deps_dir)/libexpat/libexpat.gyp:libexpat",

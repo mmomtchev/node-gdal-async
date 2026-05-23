@@ -33,7 +33,7 @@ static constexpr int TZFLAG_UNINITIALIZED = -1;
         if (!(status).ok())                                                    \
         {                                                                      \
             CPLError(CE_Failure, CPLE_AppDefined, "%s failed",                 \
-                     ARROW_STRINGIFY(status));                                 \
+                     (status).message().c_str());                              \
             return (ret_value);                                                \
         }                                                                      \
     } while (false)
@@ -52,7 +52,7 @@ static constexpr int TZFLAG_UNINITIALIZED = -1;
     } while (0)
 
 /************************************************************************/
-/*                      OGRArrowWriterLayer()                           */
+/*                        OGRArrowWriterLayer()                         */
 /************************************************************************/
 
 inline OGRArrowWriterLayer::OGRArrowWriterLayer(
@@ -68,7 +68,7 @@ inline OGRArrowWriterLayer::OGRArrowWriterLayer(
 }
 
 /************************************************************************/
-/*                     ~OGRArrowWriterLayer()                           */
+/*                        ~OGRArrowWriterLayer()                        */
 /************************************************************************/
 
 inline OGRArrowWriterLayer::~OGRArrowWriterLayer()
@@ -82,7 +82,7 @@ inline OGRArrowWriterLayer::~OGRArrowWriterLayer()
 }
 
 /************************************************************************/
-/*                         FinalizeWriting()                            */
+/*                          FinalizeWriting()                           */
 /************************************************************************/
 
 inline bool OGRArrowWriterLayer::FinalizeWriting()
@@ -108,7 +108,7 @@ inline bool OGRArrowWriterLayer::FinalizeWriting()
 }
 
 /************************************************************************/
-/*                      RemoveIDFromMemberOfEnsembles()                 */
+/*                   RemoveIDFromMemberOfEnsembles()                    */
 /************************************************************************/
 
 /* static */
@@ -226,7 +226,7 @@ OGRArrowWriterLayer::IdentifyCRS(const OGRSpatialReference *poSRS)
 }
 
 /************************************************************************/
-/*                       CreateSchemaCommon()                           */
+/*                         CreateSchemaCommon()                         */
 /************************************************************************/
 
 inline void OGRArrowWriterLayer::CreateSchemaCommon()
@@ -275,6 +275,7 @@ inline void OGRArrowWriterLayer::CreateSchemaCommon()
                 poFieldDomain = oIter->second.get();
             }
         }
+        const char *pszFieldMetadata = nullptr;
         switch (eDT)
         {
             case OFTInteger:
@@ -326,6 +327,8 @@ inline void OGRArrowWriterLayer::CreateSchemaCommon()
             case OFTWideString:
                 if ((eSubDT != OFSTNone && eSubDT != OFSTJSON) || nWidth > 0)
                     bNeedGDALSchema = true;
+                if (eSubDT == OFSTJSON)
+                    pszFieldMetadata = EXTENSION_NAME_ARROW_JSON;
                 dt = arrow::utf8();
                 break;
 
@@ -372,22 +375,44 @@ inline void OGRArrowWriterLayer::CreateSchemaCommon()
             case OFTDateTime:
             {
                 const int nTZFlag = poFieldDefn->GetTZFlag();
-                if (nTZFlag >= OGR_TZFLAG_MIXED_TZ)
+                const char *pszTIMESTAMP_WITH_OFFSET =
+                    m_aosCreationOptions.FetchNameValueDef(
+                        "TIMESTAMP_WITH_OFFSET", "AUTO");
+                if ((nTZFlag == OGR_TZFLAG_MIXED_TZ &&
+                     !EQUAL(pszTIMESTAMP_WITH_OFFSET, "NO")) ||
+                    EQUAL(pszTIMESTAMP_WITH_OFFSET, "YES"))
                 {
                     m_anTZFlag[i] = nTZFlag;
+                    std::vector<std::shared_ptr<arrow::Field>>
+                        tsWithOffsetFields{
+                            arrow::field(
+                                ATSWO_TIMESTAMP_FIELD_NAME,
+                                arrow::timestamp(arrow::TimeUnit::MILLI, "UTC"),
+                                false),
+                            arrow::field(ATSWO_OFFSET_MINUTES_FIELD_NAME,
+                                         arrow::int16(), false)};
+                    dt = arrow::struct_(std::move(tsWithOffsetFields));
+                    pszFieldMetadata =
+                        EXTENSION_NAME_ARROW_TIMESTAMP_WITH_OFFSET;
                 }
-                dt = arrow::timestamp(arrow::TimeUnit::MILLI);
+                else
+                {
+                    if (nTZFlag >= OGR_TZFLAG_MIXED_TZ)
+                    {
+                        m_anTZFlag[i] = nTZFlag;
+                    }
+                    dt = arrow::timestamp(arrow::TimeUnit::MILLI);
+                }
                 break;
             }
         }
 
         auto field = arrow::field(poFieldDefn->GetNameRef(), std::move(dt),
-                                  poFieldDefn->IsNullable());
-        if (eDT == OFTString && eSubDT == OFSTJSON)
+                                  CPL_TO_BOOL(poFieldDefn->IsNullable()));
+        if (pszFieldMetadata)
         {
             auto kvMetadata = std::make_shared<arrow::KeyValueMetadata>();
-            kvMetadata->Append(ARROW_EXTENSION_NAME_KEY,
-                               EXTENSION_NAME_ARROW_JSON);
+            kvMetadata->Append(ARROW_EXTENSION_NAME_KEY, pszFieldMetadata);
             field = field->WithMetadata(kvMetadata);
         }
 
@@ -566,7 +591,7 @@ inline void OGRArrowWriterLayer::CreateSchemaCommon()
 
         std::shared_ptr<arrow::Field> field(
             arrow::field(poGeomFieldDefn->GetNameRef(), std::move(dt),
-                         poGeomFieldDefn->IsNullable()));
+                         CPL_TO_BOOL(poGeomFieldDefn->IsNullable())));
         if (m_bWriteFieldArrowExtensionName)
         {
             auto kvMetadata = field->metadata()
@@ -593,14 +618,13 @@ inline void OGRArrowWriterLayer::CreateSchemaCommon()
             auto bbox_field_xmax(arrow::field("xmax", arrow::float32(), false));
             auto bbox_field_ymax(arrow::field("ymax", arrow::float32(), false));
             auto bbox_field(arrow::field(
-                CPLGetConfigOption("OGR_PARQUET_COVERING_BBOX_NAME",
-                                   std::string(poGeomFieldDefn->GetNameRef())
-                                       .append("_bbox")
-                                       .c_str()),
+                m_oBBoxStructFieldName.empty()
+                    ? std::string(poGeomFieldDefn->GetNameRef()).append("_bbox")
+                    : m_oBBoxStructFieldName,
                 arrow::struct_(
                     {std::move(bbox_field_xmin), std::move(bbox_field_ymin),
                      std::move(bbox_field_xmax), std::move(bbox_field_ymax)}),
-                poGeomFieldDefn->IsNullable()));
+                CPL_TO_BOOL(poGeomFieldDefn->IsNullable())));
             fields.emplace_back(bbox_field);
             m_apoFieldsBBOX.emplace_back(bbox_field);
         }
@@ -656,7 +680,7 @@ inline void OGRArrowWriterLayer::CreateSchemaCommon()
 }
 
 /************************************************************************/
-/*                         FinalizeSchema()                             */
+/*                           FinalizeSchema()                           */
 /************************************************************************/
 
 inline void OGRArrowWriterLayer::FinalizeSchema()
@@ -666,9 +690,13 @@ inline void OGRArrowWriterLayer::FinalizeSchema()
     int nArrowIdxFirstField = !m_osFIDColumn.empty() ? 1 : 0;
     for (int i = 0; i < m_poFeatureDefn->GetFieldCount(); ++i)
     {
-        if (m_anTZFlag[i] >= OGR_TZFLAG_MIXED_TZ)
+        const auto poFieldDefn = m_poFeatureDefn->GetFieldDefn(i);
+        if (m_anTZFlag[i] >= OGR_TZFLAG_MIXED_TZ &&
+            poFieldDefn->GetTZFlag() != OGR_TZFLAG_MIXED_TZ &&
+            m_poSchema->field(nArrowIdxFirstField + i)->type()->id() !=
+                arrow::Type::STRUCT)
         {
-            const int nOffset = m_anTZFlag[i] == OGR_TZFLAG_UTC
+            const int nOffset = m_anTZFlag[i] == OGR_TZFLAG_MIXED_TZ
                                     ? 0
                                     : (m_anTZFlag[i] - OGR_TZFLAG_UTC) * 15;
             int nHours = static_cast<int>(nOffset / 60);  // Round towards zero.
@@ -678,9 +706,8 @@ inline void OGRArrowWriterLayer::FinalizeSchema()
                 CPLSPrintf("%c%02d:%02d", nOffset >= 0 ? '+' : '-',
                            std::abs(nHours), nMinutes);
             auto dt = arrow::timestamp(arrow::TimeUnit::MILLI, osTZ);
-            const auto poFieldDefn = m_poFeatureDefn->GetFieldDefn(i);
             auto field = arrow::field(poFieldDefn->GetNameRef(), std::move(dt),
-                                      poFieldDefn->IsNullable());
+                                      CPL_TO_BOOL(poFieldDefn->IsNullable()));
             auto result = m_poSchema->SetField(nArrowIdxFirstField + i, field);
             if (!result.ok())
             {
@@ -697,7 +724,7 @@ inline void OGRArrowWriterLayer::FinalizeSchema()
 }
 
 /************************************************************************/
-/*                         AddFieldDomain()                             */
+/*                           AddFieldDomain()                           */
 /************************************************************************/
 
 inline bool
@@ -761,7 +788,7 @@ OGRArrowWriterLayer::AddFieldDomain(std::unique_ptr<OGRFieldDomain> &&domain,
 }
 
 /************************************************************************/
-/*                          GetFieldDomainNames()                       */
+/*                        GetFieldDomainNames()                         */
 /************************************************************************/
 
 inline std::vector<std::string> OGRArrowWriterLayer::GetFieldDomainNames() const
@@ -776,7 +803,7 @@ inline std::vector<std::string> OGRArrowWriterLayer::GetFieldDomainNames() const
 }
 
 /************************************************************************/
-/*                          GetFieldDomain()                            */
+/*                           GetFieldDomain()                           */
 /************************************************************************/
 
 inline const OGRFieldDomain *
@@ -789,7 +816,7 @@ OGRArrowWriterLayer::GetFieldDomain(const std::string &name) const
 }
 
 /************************************************************************/
-/*                          CreateField()                               */
+/*                            CreateField()                             */
 /************************************************************************/
 
 inline OGRErr OGRArrowWriterLayer::CreateField(const OGRFieldDefn *poField,
@@ -873,7 +900,8 @@ inline bool OGRArrowWriterLayer::CreateFieldFromArrowSchema(
     if (!result.ok())
     {
         CPLError(CE_Failure, CPLE_AppDefined,
-                 "CreateFieldFromArrowSchema() failed");
+                 "CreateFieldFromArrowSchema() failed: %s",
+                 result.status().message().c_str());
         return false;
     }
     m_apoFieldsFromArrowSchema.emplace_back(std::move(*result));
@@ -881,7 +909,7 @@ inline bool OGRArrowWriterLayer::CreateFieldFromArrowSchema(
 }
 
 /************************************************************************/
-/*                   GetPreciseArrowGeomEncoding()                      */
+/*                    GetPreciseArrowGeomEncoding()                     */
 /************************************************************************/
 
 inline OGRArrowGeomEncoding OGRArrowWriterLayer::GetPreciseArrowGeomEncoding(
@@ -936,7 +964,7 @@ inline OGRArrowGeomEncoding OGRArrowWriterLayer::GetPreciseArrowGeomEncoding(
 }
 
 /************************************************************************/
-/*                        GetGeomEncodingAsString()                     */
+/*                      GetGeomEncodingAsString()                       */
 /************************************************************************/
 
 inline const char *
@@ -1038,7 +1066,7 @@ MakeGeoArrowBuilder(arrow::MemoryPool *poMemoryPool, int nDim, int nDepth)
 }
 
 /************************************************************************/
-/*                      MakeGeoArrowStructBuilder()                     */
+/*                     MakeGeoArrowStructBuilder()                      */
 /************************************************************************/
 
 static std::shared_ptr<arrow::ArrayBuilder>
@@ -1201,9 +1229,27 @@ inline void OGRArrowWriterLayer::CreateArrayBuilders()
                 break;
 
             case OFTDateTime:
-                builder = std::make_shared<arrow::TimestampBuilder>(
-                    arrow::timestamp(arrow::TimeUnit::MILLI), m_poMemoryPool);
+            {
+                const auto arrowType = m_poSchema->fields()[nArrowIdx]->type();
+                if (arrowType->id() == arrow::Type::STRUCT)
+                {
+                    builder = std::make_shared<arrow::StructBuilder>(
+                        arrowType, m_poMemoryPool,
+                        std::vector<std::shared_ptr<arrow::ArrayBuilder>>{
+                            std::make_shared<arrow::TimestampBuilder>(
+                                arrow::timestamp(arrow::TimeUnit::MILLI),
+                                m_poMemoryPool),
+                            std::make_shared<arrow::Int16Builder>(
+                                m_poMemoryPool)});
+                }
+                else
+                {
+                    builder = std::make_shared<arrow::TimestampBuilder>(
+                        arrow::timestamp(arrow::TimeUnit::MILLI),
+                        m_poMemoryPool);
+                }
                 break;
+            }
         }
         m_apoBuilders.emplace_back(builder);
     }
@@ -1313,7 +1359,7 @@ inline void OGRArrowWriterLayer::CreateArrayBuilders()
 }
 
 /************************************************************************/
-/*                          castToFloatDown()                            */
+/*                          castToFloatDown()                           */
 /************************************************************************/
 
 // Cf https://github.com/sqlite/sqlite/blob/90e4a3b7fcdf63035d6f35eb44d11ff58ff4b068/ext/rtree/rtree.c#L2993C1-L2995C3
@@ -1348,7 +1394,7 @@ static float castToFloatUp(double d)
 }
 
 /************************************************************************/
-/*                         GeoArrowLineBuilder()                        */
+/*                        GeoArrowLineBuilder()                         */
 /************************************************************************/
 
 template <class PointBuilderType>
@@ -1373,7 +1419,7 @@ static OGRErr GeoArrowLineBuilder(const OGRLineString *poLS,
 }
 
 /************************************************************************/
-/*                          BuildGeometry()                             */
+/*                           BuildGeometry()                            */
 /************************************************************************/
 
 inline OGRErr OGRArrowWriterLayer::BuildGeometry(OGRGeometry *poGeom,
@@ -1870,7 +1916,7 @@ inline OGRErr OGRArrowWriterLayer::BuildGeometry(OGRGeometry *poGeom,
 }
 
 /************************************************************************/
-/*                          ICreateFeature()                            */
+/*                           ICreateFeature()                           */
 /************************************************************************/
 
 inline OGRErr OGRArrowWriterLayer::ICreateFeature(OGRFeature *poFeature)
@@ -2255,10 +2301,30 @@ inline OGRErr OGRArrowWriterLayer::ICreateFeature(OGRFeature *poFeature)
                     const int nOffsetSec = (nTZFlag - OGR_TZFLAG_UTC) * 15 * 60;
                     nVal -= nOffsetSec;
                 }
-                OGR_ARROW_RETURN_OGRERR_NOT_OK(
-                    static_cast<arrow::TimestampBuilder *>(poBuilder)->Append(
-                        static_cast<int64_t>(
-                            (static_cast<double>(nVal) + fSec) * 1000 + 0.5)));
+                const int64_t nTimestamp = static_cast<int64_t>(
+                    (static_cast<double>(nVal) + fSec) * 1000 + 0.5);
+                auto structBuilder =
+                    dynamic_cast<arrow::StructBuilder *>(poBuilder);
+                if (structBuilder)
+                {
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                        static_cast<arrow::TimestampBuilder *>(
+                            structBuilder->field_builder(0))
+                            ->Append(nTimestamp));
+                    const int16_t nUTCOffsetMin =
+                        static_cast<int16_t>((nTZFlag - OGR_TZFLAG_UTC) * 15);
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                        static_cast<arrow::Int16Builder *>(
+                            structBuilder->field_builder(1))
+                            ->Append(nUTCOffsetMin));
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(structBuilder->Append());
+                }
+                else
+                {
+                    OGR_ARROW_RETURN_OGRERR_NOT_OK(
+                        static_cast<arrow::TimestampBuilder *>(poBuilder)
+                            ->Append(nTimestamp));
+                }
                 break;
             }
         }
@@ -2286,7 +2352,7 @@ inline OGRErr OGRArrowWriterLayer::ICreateFeature(OGRFeature *poFeature)
 }
 
 /************************************************************************/
-/*                         FlushFeatures()                              */
+/*                           FlushFeatures()                            */
 /************************************************************************/
 
 inline bool OGRArrowWriterLayer::FlushFeatures()
@@ -2305,7 +2371,7 @@ inline bool OGRArrowWriterLayer::FlushFeatures()
 }
 
 /************************************************************************/
-/*                        GetFeatureCount()                             */
+/*                          GetFeatureCount()                           */
 /************************************************************************/
 
 inline GIntBig OGRArrowWriterLayer::GetFeatureCount(int bForce)
@@ -2318,7 +2384,7 @@ inline GIntBig OGRArrowWriterLayer::GetFeatureCount(int bForce)
 }
 
 /************************************************************************/
-/*                         TestCapability()                             */
+/*                           TestCapability()                           */
 /************************************************************************/
 
 inline int OGRArrowWriterLayer::TestCapability(const char *pszCap) const
@@ -2342,7 +2408,7 @@ inline int OGRArrowWriterLayer::TestCapability(const char *pszCap) const
 }
 
 /************************************************************************/
-/*                         WriteArrays()                                */
+/*                            WriteArrays()                             */
 /************************************************************************/
 
 inline bool OGRArrowWriterLayer::WriteArrays(
@@ -2431,7 +2497,7 @@ inline bool OGRArrowWriterLayer::WriteArrays(
 }
 
 /************************************************************************/
-/*                            TestBit()                                 */
+/*                              TestBit()                               */
 /************************************************************************/
 
 static inline bool TestBit(const uint8_t *pabyData, size_t nIdx)
@@ -2440,7 +2506,7 @@ static inline bool TestBit(const uint8_t *pabyData, size_t nIdx)
 }
 
 /************************************************************************/
-/*                       WriteArrowBatchInternal()                      */
+/*                      WriteArrowBatchInternal()                       */
 /************************************************************************/
 
 inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
@@ -2803,9 +2869,7 @@ inline bool OGRArrowWriterLayer::WriteArrowBatchInternal(
     // but make sure the original release() callback sees the original children
     struct ArrayReleaser
     {
-        struct ArrowArray ori_array
-        {
-        };
+        struct ArrowArray ori_array{};
 
         explicit ArrayReleaser(struct ArrowArray *array)
         {

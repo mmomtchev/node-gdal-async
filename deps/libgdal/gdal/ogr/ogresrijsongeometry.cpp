@@ -16,7 +16,7 @@ static OGRGeometry *OGRESRIJSONReadPolygon(json_object *poObj);
 static OGRMultiPoint *OGRESRIJSONReadMultiPoint(json_object *poObj);
 
 /************************************************************************/
-/*                       OGRESRIJSONReadGeometry()                      */
+/*                      OGRESRIJSONReadGeometry()                       */
 /************************************************************************/
 
 OGRGeometry *OGRESRIJSONReadGeometry(json_object *poObj)
@@ -36,7 +36,7 @@ OGRGeometry *OGRESRIJSONReadGeometry(json_object *poObj)
 }
 
 /************************************************************************/
-/*                     OGR_G_CreateGeometryFromEsriJson()               */
+/*                  OGR_G_CreateGeometryFromEsriJson()                  */
 /************************************************************************/
 
 /** Create a OGR geometry from a ESRIJson geometry object */
@@ -61,7 +61,7 @@ OGRGeometryH OGR_G_CreateGeometryFromEsriJson(const char *pszJson)
 }
 
 /************************************************************************/
-/*                        OGRESRIJSONGetType()                          */
+/*                         OGRESRIJSONGetType()                         */
 /************************************************************************/
 
 OGRwkbGeometryType OGRESRIJSONGetGeometryType(json_object *poObj)
@@ -89,7 +89,7 @@ OGRwkbGeometryType OGRESRIJSONGetGeometryType(json_object *poObj)
 }
 
 /************************************************************************/
-/*                     OGRESRIJSONGetCoordinateToDouble()               */
+/*                  OGRESRIJSONGetCoordinateToDouble()                  */
 /************************************************************************/
 
 static double OGRESRIJSONGetCoordinateToDouble(json_object *poObjCoord,
@@ -111,7 +111,7 @@ static double OGRESRIJSONGetCoordinateToDouble(json_object *poObjCoord,
 }
 
 /************************************************************************/
-/*                       OGRESRIJSONGetCoordinate()                     */
+/*                      OGRESRIJSONGetCoordinate()                      */
 /************************************************************************/
 
 static double OGRESRIJSONGetCoordinate(json_object *poObj,
@@ -132,7 +132,7 @@ static double OGRESRIJSONGetCoordinate(json_object *poObj,
 }
 
 /************************************************************************/
-/*                          OGRESRIJSONReadPoint()                      */
+/*                        OGRESRIJSONReadPoint()                        */
 /************************************************************************/
 
 OGRPoint *OGRESRIJSONReadPoint(json_object *poObj)
@@ -156,7 +156,7 @@ OGRPoint *OGRESRIJSONReadPoint(json_object *poObj)
 }
 
 /************************************************************************/
-/*                     OGRESRIJSONReaderParseZM()                      */
+/*                      OGRESRIJSONReaderParseZM()                      */
 /************************************************************************/
 
 static void OGRESRIJSONReaderParseZM(json_object *poObj, bool *bHasZ,
@@ -193,7 +193,7 @@ static void OGRESRIJSONReaderParseZM(json_object *poObj, bool *bHasZ,
 }
 
 /************************************************************************/
-/*                     OGRESRIJSONReaderParseXYZMArray()                  */
+/*                  OGRESRIJSONReaderParseXYZMArray()                   */
 /************************************************************************/
 
 static bool OGRESRIJSONReaderParseXYZMArray(json_object *poObjCoords,
@@ -320,7 +320,7 @@ static bool OGRESRIJSONReaderParseXYZMArray(json_object *poObjCoords,
 }
 
 /************************************************************************/
-/*                        OGRESRIJSONReadLineString()                   */
+/*                     OGRESRIJSONReadLineString()                      */
 /************************************************************************/
 
 OGRGeometry *OGRESRIJSONReadLineString(json_object *poObj)
@@ -420,7 +420,7 @@ OGRGeometry *OGRESRIJSONReadLineString(json_object *poObj)
 }
 
 /************************************************************************/
-/*                          OGRESRIJSONReadPolygon()                    */
+/*                       OGRESRIJSONReadPolygon()                       */
 /************************************************************************/
 
 OGRGeometry *OGRESRIJSONReadPolygon(json_object *poObj)
@@ -450,23 +450,19 @@ OGRGeometry *OGRESRIJSONReadPolygon(json_object *poObj)
     }
 
     const auto nRings = json_object_array_length(poObjRings);
-    OGRGeometry **papoGeoms = new OGRGeometry *[nRings];
+    std::vector<std::unique_ptr<OGRGeometry>> apoGeoms;
+    apoGeoms.reserve(nRings);
     for (auto iRing = decltype(nRings){0}; iRing < nRings; iRing++)
     {
         json_object *poObjRing = json_object_array_get_idx(poObjRings, iRing);
         if (poObjRing == nullptr ||
             json_type_array != json_object_get_type(poObjRing))
         {
-            for (auto j = decltype(iRing){0}; j < iRing; j++)
-                delete papoGeoms[j];
-            delete[] papoGeoms;
             CPLDebug("ESRIJSON", "Polygon: got non-array object.");
             return nullptr;
         }
 
-        OGRPolygon *poPoly = new OGRPolygon();
         auto poLine = std::make_unique<OGRLinearRing>();
-        papoGeoms[iRing] = poPoly;
 
         const auto nPoints = json_object_array_length(poObjRing);
         for (auto i = decltype(nPoints){0}; i < nPoints; i++)
@@ -481,9 +477,6 @@ OGRGeometry *OGRESRIJSONReadPolygon(json_object *poObj)
                                                  &dfX, &dfY, &dfZ, &dfM,
                                                  &nNumCoords))
             {
-                for (auto j = decltype(iRing){0}; j <= iRing; j++)
-                    delete papoGeoms[j];
-                delete[] papoGeoms;
                 return nullptr;
             }
 
@@ -504,18 +497,17 @@ OGRGeometry *OGRESRIJSONReadPolygon(json_object *poObj)
                 poLine->addPoint(dfX, dfY);
             }
         }
-        poPoly->addRingDirectly(poLine.release());
+
+        auto poPoly = std::make_unique<OGRPolygon>();
+        poPoly->addRing(std::move(poLine));
+        apoGeoms.push_back(std::move(poPoly));
     }
 
-    OGRGeometry *poRet = OGRGeometryFactory::organizePolygons(
-        papoGeoms, static_cast<int>(nRings), nullptr, nullptr);
-    delete[] papoGeoms;
-
-    return poRet;
+    return OGRGeometryFactory::organizePolygons(apoGeoms).release();
 }
 
 /************************************************************************/
-/*                        OGRESRIJSONReadMultiPoint()                   */
+/*                     OGRESRIJSONReadMultiPoint()                      */
 /************************************************************************/
 
 OGRMultiPoint *OGRESRIJSONReadMultiPoint(json_object *poObj)
@@ -586,7 +578,7 @@ OGRMultiPoint *OGRESRIJSONReadMultiPoint(json_object *poObj)
 }
 
 /************************************************************************/
-/*                    OGRESRIJSONReadSpatialReference()                 */
+/*                  OGRESRIJSONReadSpatialReference()                   */
 /************************************************************************/
 
 OGRSpatialReference *OGRESRIJSONReadSpatialReference(json_object *poObj)

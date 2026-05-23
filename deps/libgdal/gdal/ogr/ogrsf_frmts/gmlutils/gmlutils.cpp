@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "cpl_conv.h"
+#include "cpl_mem_cache.h"
 #include "cpl_string.h"
 #include "ogr_api.h"
 #include "ogr_core.h"
@@ -28,7 +29,7 @@
 #include "ogr_spatialref.h"
 
 /************************************************************************/
-/*                GML_ExtractSrsNameFromGeometry()                      */
+/*                   GML_ExtractSrsNameFromGeometry()                   */
 /************************************************************************/
 
 const char *
@@ -99,114 +100,96 @@ bool GML_IsSRSLatLongOrder(const char *pszSRSName)
 }
 
 /************************************************************************/
-/*                GML_BuildOGRGeometryFromList_CreateCache()            */
+/*            OGRGML_SRSCacheEntry::~OGRGML_SRSCacheEntry()             */
 /************************************************************************/
 
-namespace
+OGRGML_SRSCacheEntry::~OGRGML_SRSCacheEntry()
 {
-class SRSDesc
+    if (poSRS)
+        poSRS->Release();
+}
+
+/************************************************************************/
+/*                           OGRGML_SRSCache                            */
+/************************************************************************/
+
+class OGRGML_SRSCache
 {
   public:
-    std::string osSRSName{};
-    bool bAxisInvert = false;
-    OGRSpatialReference *poSRS = nullptr;
-
-    SRSDesc() = default;
-
-    SRSDesc &operator=(SRSDesc &&other)
-    {
-        osSRSName = std::move(other.osSRSName);
-        bAxisInvert = other.bAxisInvert;
-        if (poSRS)
-            poSRS->Release();
-        poSRS = other.poSRS;
-        other.poSRS = nullptr;
-        return *this;
-    }
-
-    ~SRSDesc()
-    {
-        if (poSRS)
-            poSRS->Release();
-    }
-
-    CPL_DISALLOW_COPY_ASSIGN(SRSDesc)
+    lru11::Cache<std::string, std::shared_ptr<OGRGML_SRSCacheEntry>>
+        oSRSCache{};
 };
 
-class SRSCache
+/************************************************************************/
+/*                       OGRGML_SRSCache_Create()                       */
+/************************************************************************/
+
+OGRGML_SRSCache *OGRGML_SRSCache_Create()
 {
-    std::map<std::string, SRSDesc> oMap{};
-    SRSDesc *poLastDesc = nullptr;
+    return new OGRGML_SRSCache();
+}
 
-    CPL_DISALLOW_COPY_ASSIGN(SRSCache)
+/************************************************************************/
+/*                      OGRGML_SRSCache_Destroy()                       */
+/************************************************************************/
 
-  public:
-    SRSCache() = default;
+void OGRGML_SRSCache_Destroy(OGRGML_SRSCache *hSRSCache)
+{
+    delete hSRSCache;
+}
 
-    // Not super elegant, but GML2OGRGeometry_XMLNode() uses its own SRS cache,
-    // so hide within ourselves.
-    lru11::Cache<std::string, std::shared_ptr<OGRSpatialReference>>
-        oSRSCacheForGML2OGRGeom{};
+/************************************************************************/
+/*                      OGRGML_SRSCache_GetInfo()                       */
+/************************************************************************/
 
-    const SRSDesc &Get(const std::string &osSRSName)
+std::shared_ptr<OGRGML_SRSCacheEntry>
+OGRGML_SRSCache_GetInfo(OGRGML_SRSCache *hSRSCache, const char *pszSRSName)
+{
+    std::shared_ptr<OGRGML_SRSCacheEntry> entry;
+    if (!hSRSCache->oSRSCache.tryGet(pszSRSName, entry))
     {
-        if (poLastDesc && osSRSName == poLastDesc->osSRSName)
-            return *poLastDesc;
-
-        std::map<std::string, SRSDesc>::iterator oIter = oMap.find(osSRSName);
-        if (oIter != oMap.end())
-        {
-            poLastDesc = &(oIter->second);
-            return *poLastDesc;
-        }
-
-        SRSDesc oDesc;
-        oDesc.osSRSName = osSRSName;
-        oDesc.bAxisInvert = GML_IsSRSLatLongOrder(osSRSName.c_str());
-        oDesc.poSRS = new OGRSpatialReference();
-        oDesc.poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-        if (oDesc.poSRS->SetFromUserInput(
-                osSRSName.c_str(),
+        entry = std::make_shared<OGRGML_SRSCacheEntry>();
+        auto poSRS = new OGRSpatialReference();
+        entry->poSRS = poSRS;
+        poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        if (poSRS->SetFromUserInput(
+                pszSRSName,
                 OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) !=
             OGRERR_NONE)
         {
-            delete oDesc.poSRS;
-            oDesc.poSRS = nullptr;
+            return nullptr;
         }
-        oMap[osSRSName] = std::move(oDesc);
-        poLastDesc = &(oMap[osSRSName]);
-        return *poLastDesc;
+        entry->nAxisCount = poSRS->GetAxesCount();
+        entry->bIsGeographic = CPL_TO_BOOL(poSRS->IsGeographic());
+        entry->bIsProjected = CPL_TO_BOOL(poSRS->IsProjected());
+        entry->bInvertedAxisOrder = !STARTS_WITH(pszSRSName, "EPSG:") &&
+                                    (poSRS->EPSGTreatsAsLatLong() ||
+                                     poSRS->EPSGTreatsAsNorthingEasting());
+        entry->dfSemiMajor = poSRS->GetSemiMajor();
+        if (entry->bIsProjected)
+            entry->dfLinearUnits = poSRS->GetLinearUnits(nullptr);
+        if (entry->bIsGeographic)
+        {
+            entry->bAngularUnitIsDegree =
+                fabs(poSRS->GetAngularUnits(nullptr) -
+                     CPLAtof(SRS_UA_DEGREE_CONV)) < 1e-8;
+        }
+        hSRSCache->oSRSCache.insert(pszSRSName, entry);
     }
-};
-
-}  // namespace
-
-void *GML_BuildOGRGeometryFromList_CreateCache()
-{
-    return new SRSCache();
+    return entry;
 }
 
 /************************************************************************/
-/*                 GML_BuildOGRGeometryFromList_DestroyCache()          */
-/************************************************************************/
-
-void GML_BuildOGRGeometryFromList_DestroyCache(void *hCacheSRS)
-{
-    delete static_cast<SRSCache *>(hCacheSRS);
-}
-
-/************************************************************************/
-/*                 GML_BuildOGRGeometryFromList()                       */
+/*                    GML_BuildOGRGeometryFromList()                    */
 /************************************************************************/
 
 OGRGeometry *GML_BuildOGRGeometryFromList(
     const CPLXMLNode *const *papsGeometry, bool bTryToMakeMultipolygons,
     bool bInvertAxisOrderIfLatLong, const char *pszDefaultSRSName,
     bool bConsiderEPSGAsURN, GMLSwapCoordinatesEnum eSwapCoordinates,
-    int nPseudoBoolGetSecondaryGeometryOption, void *hCacheSRS,
+    int nPseudoBoolGetSecondaryGeometryOption, OGRGML_SRSCache *hSRSCache,
     bool bFaceHoleNegative)
 {
-    SRSCache *poSRSCache = static_cast<SRSCache *>(hCacheSRS);
     OGRGeometry *poGeom = nullptr;
     OGRGeometryCollection *poCollection = nullptr;
 #ifndef WITHOUT_CPLDEBUG
@@ -224,9 +207,8 @@ OGRGeometry *GML_BuildOGRGeometryFromList(
         }
 #endif
         OGRGeometry *poSubGeom = GML2OGRGeometry_XMLNode(
-            papsGeometry[i], nPseudoBoolGetSecondaryGeometryOption,
-            poSRSCache->oSRSCacheForGML2OGRGeom, 0, 0, false, true,
-            bFaceHoleNegative);
+            papsGeometry[i], nPseudoBoolGetSecondaryGeometryOption, hSRSCache,
+            0, 0, false, true, bFaceHoleNegative);
         if (poSubGeom)
         {
             if (poGeom == nullptr)
@@ -279,7 +261,7 @@ OGRGeometry *GML_BuildOGRGeometryFromList(
                             papsGeometry, false, bInvertAxisOrderIfLatLong,
                             pszDefaultSRSName, bConsiderEPSGAsURN,
                             eSwapCoordinates,
-                            nPseudoBoolGetSecondaryGeometryOption, hCacheSRS);
+                            nPseudoBoolGetSecondaryGeometryOption, hSRSCache);
                     }
                     else
                     {
@@ -308,13 +290,16 @@ OGRGeometry *GML_BuildOGRGeometryFromList(
 
     if (pszNameLookup != nullptr)
     {
-        const SRSDesc &oSRSDesc = poSRSCache->Get(pszNameLookup);
-        poGeom->assignSpatialReference(oSRSDesc.poSRS);
-        if ((eSwapCoordinates == GML_SWAP_AUTO && oSRSDesc.bAxisInvert &&
-             bInvertAxisOrderIfLatLong) ||
-            eSwapCoordinates == GML_SWAP_YES)
+        auto entry = OGRGML_SRSCache_GetInfo(hSRSCache, pszNameLookup);
+        if (entry)
         {
-            poGeom->swapXY();
+            poGeom->assignSpatialReference(entry->poSRS);
+            if ((eSwapCoordinates == GML_SWAP_AUTO &&
+                 entry->bInvertedAxisOrder && bInvertAxisOrderIfLatLong) ||
+                eSwapCoordinates == GML_SWAP_YES)
+            {
+                poGeom->swapXY();
+            }
         }
     }
     else if (eSwapCoordinates == GML_SWAP_YES)
@@ -343,8 +328,8 @@ char *GML_GetSRSName(const OGRSpatialReference *poSRS,
         *pbCoordSwap = true;
     }
 
-    const char *pszAuthName = poSRS->GetAuthorityName(nullptr);
-    const char *pszAuthCode = poSRS->GetAuthorityCode(nullptr);
+    const char *pszAuthName = poSRS->GetAuthorityName();
+    const char *pszAuthCode = poSRS->GetAuthorityCode();
     if (nullptr != pszAuthName && nullptr != pszAuthCode)
     {
         if (eSRSNameFormat == SRSNAME_SHORT)
@@ -368,7 +353,7 @@ char *GML_GetSRSName(const OGRSpatialReference *poSRS,
 }
 
 /************************************************************************/
-/*                       GML_IsLegitSRSName()                           */
+/*                         GML_IsLegitSRSName()                         */
 /************************************************************************/
 
 bool GML_IsLegitSRSName(const char *pszSRSName)

@@ -362,7 +362,7 @@ bool CPL_DLL GDALIsLineOfSightVisible(
     int *pnyTerrainIntersection, CSLConstList papszOptions);
 
 /************************************************************************/
-/*      Rasterizer API - geometries burned into GDAL raster.            */
+/*         Rasterizer API - geometries burned into GDAL raster.         */
 /************************************************************************/
 
 CPLErr CPL_DLL GDALRasterizeGeometries(
@@ -393,7 +393,7 @@ CPLErr CPL_DLL GDALRasterizeLayersBuf(
     char **papszOptions, GDALProgressFunc pfnProgress, void *pProgressArg);
 
 /************************************************************************/
-/*  Gridding interface.                                                 */
+/*                         Gridding interface.                          */
 /************************************************************************/
 
 /** Gridding Algorithms */
@@ -634,7 +634,7 @@ GDAL_GCP CPL_DLL *GDALComputeMatchingPoints(GDALDatasetH hFirstImage,
                                             int *pnGCPCount);
 
 /************************************************************************/
-/*  Delaunay triangulation interface.                                   */
+/*                  Delaunay triangulation interface.                   */
 /************************************************************************/
 
 /** Triangle fact */
@@ -725,13 +725,28 @@ GDALDatasetH CPL_DLL GDALApplyVerticalShiftGrid(GDALDatasetH hSrcDataset,
     ;
 
 /************************************************************************/
-/*  Zonal statistics interface                                          */
+/*                      Zonal statistics interface                      */
 /************************************************************************/
 
 CPLErr CPL_DLL GDALZonalStats(GDALDatasetH hSrcDS, GDALDatasetH hWeightsDS,
                               GDALDatasetH hZonesDS, GDALDatasetH hOutDS,
                               CSLConstList papszOptions,
                               GDALProgressFunc pfnProgress, void *pProgressArg);
+
+/************************************************************************/
+/*                           Hilbert encoding                           */
+/************************************************************************/
+
+/** Provides a Hilbert code describing the location of a specified point within
+ * a specified spatial extent.
+ *
+ * @param poDomain The domain to be covered by the Hilbert curve.
+ * @param dfX X coordinate of the point to encode
+ * @param dfY Y coordinate of the point to encode
+ * @return Hilbert-encoded point.
+ */
+uint32_t CPL_DLL GDALHilbertCode(const OGREnvelope *poDomain, double dfX,
+                                 double dfY);
 
 CPL_C_END
 

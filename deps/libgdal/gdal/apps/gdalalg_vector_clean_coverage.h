@@ -21,7 +21,7 @@
 //! @cond Doxygen_Suppress
 
 /************************************************************************/
-/*                     GDALVectorCleanCoverageAlgorithm                 */
+/*                   GDALVectorCleanCoverageAlgorithm                   */
 /************************************************************************/
 
 class GDALVectorCleanCoverageAlgorithm : public GDALVectorPipelineStepAlgorithm
@@ -35,6 +35,11 @@ class GDALVectorCleanCoverageAlgorithm : public GDALVectorPipelineStepAlgorithm
         "/programs/gdal_vector_clean_coverage.html";
 
     explicit GDALVectorCleanCoverageAlgorithm(bool standaloneStep = false);
+
+    bool IsNativelyStreamingCompatible() const override
+    {
+        return false;
+    }
 
     struct Options
     {
@@ -52,7 +57,7 @@ class GDALVectorCleanCoverageAlgorithm : public GDALVectorPipelineStepAlgorithm
 };
 
 /************************************************************************/
-/*                 GDALVectorCleanCoverageAlgorithmStandalone           */
+/*              GDALVectorCleanCoverageAlgorithmStandalone              */
 /************************************************************************/
 
 class GDALVectorCleanCoverageAlgorithmStandalone final

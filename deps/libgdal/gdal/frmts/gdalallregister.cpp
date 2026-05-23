@@ -189,6 +189,9 @@ void CPL_STDCALL GDALAllRegister()
 #if defined(DEFERRED_IDB_DRIVER)
     DeclareDeferredOGRIDBPlugin();
 #endif
+#if defined(DEFERRED_JP2Grok_DRIVER)
+    DeclareDeferredJP2GrokPlugin();
+#endif
 #if defined(DEFERRED_JP2KAK_DRIVER)
     DeclareDeferredJP2KAKPlugin();
 #endif
@@ -494,6 +497,10 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_ERS();
 #endif
 
+#ifdef FRMT_jp2grok
+    GDALRegister_JP2Grok();
+#endif
+
 #ifdef FRMT_jp2kak
     // JPEG2000 support using Kakadu toolkit
     GDALRegister_JP2KAK();
@@ -608,10 +615,6 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_MRF();
 #endif
 
-#ifdef FRMT_tiledb
-    GDALRegister_TileDB();
-#endif
-
 #ifdef FRMT_rdb
     GDALRegister_RDB();
 #endif
@@ -624,6 +627,10 @@ void CPL_STDCALL GDALAllRegister()
 
 #ifdef FRMT_raw
     GDALRegister_raw_no_sidecar();
+#endif
+
+#ifdef FRMT_tiledb
+    GDALRegister_TileDB();
 #endif
 
     /* -------------------------------------------------------------------- */
@@ -763,6 +770,10 @@ void CPL_STDCALL GDALAllRegister()
 
 #ifdef FRMT_gdalg
     GDALRegister_GDALG();
+#endif
+
+#ifdef FRMT_e57
+    GDALRegister_E57();
 #endif
 
     // NOTE: you need to generally insert your own driver before that line.

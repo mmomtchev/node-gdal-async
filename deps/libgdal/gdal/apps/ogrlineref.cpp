@@ -58,7 +58,7 @@ typedef struct _curve_data
 } CURVE_DATA;
 
 /************************************************************************/
-/*                         SetupTargetLayer()                           */
+/*                          SetupTargetLayer()                          */
 /************************************************************************/
 
 static OGRLayer *SetupTargetLayer(OGRLayer *poSrcLayer, GDALDataset *poDstDS,
@@ -1097,7 +1097,7 @@ static OGRErr GetCoordinates(OGRLayer *const poPkLayer, double dfPos,
 }
 
 /************************************************************************/
-/*                           OGRLineRefOptions                          */
+/*                          OGRLineRefOptions                           */
 /************************************************************************/
 
 struct OGRLineRefOptions
@@ -1148,7 +1148,7 @@ struct OGRLineRefOptions
 };
 
 /************************************************************************/
-/*                           OGRLineRefGetParser                        */
+/*                         OGRLineRefGetParser                          */
 /************************************************************************/
 
 static std::unique_ptr<GDALArgumentParser>
@@ -1312,7 +1312,7 @@ OGRLineRefAppOptionsGetParser(OGRLineRefOptions *psOptions)
 }
 
 /************************************************************************/
-/*                              GetOutputDriver()                       */
+/*                          GetOutputDriver()                           */
 /************************************************************************/
 
 static GDALDriver *GetOutputDriver(OGRLineRefOptions &sOptions)
@@ -1354,7 +1354,7 @@ static GDALDriver *GetOutputDriver(OGRLineRefOptions &sOptions)
         for (int iDriver = 0; iDriver < poDM->GetDriverCount(); iDriver++)
         {
             GDALDriver *poIter = poDM->GetDriver(iDriver);
-            char **papszDriverMD = poIter->GetMetadata();
+            CSLConstList papszDriverMD = poIter->GetMetadata();
             if (CPLTestBool(CSLFetchNameValueDef(papszDriverMD,
                                                  GDAL_DCAP_VECTOR, "FALSE")) &&
                 CPLTestBool(CSLFetchNameValueDef(papszDriverMD,

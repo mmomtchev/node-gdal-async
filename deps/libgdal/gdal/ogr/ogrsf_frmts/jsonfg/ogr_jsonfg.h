@@ -28,7 +28,7 @@
 #include <utility>
 
 /************************************************************************/
-/*                         OGRJSONFGMemLayer                            */
+/*                          OGRJSONFGMemLayer                           */
 /************************************************************************/
 
 /** Layer with all features ingested into memory. */
@@ -65,7 +65,7 @@ class OGRJSONFGMemLayer final : public OGRMemLayer
 };
 
 /************************************************************************/
-/*                    OGRJSONFGStreamedLayer                            */
+/*                        OGRJSONFGStreamedLayer                        */
 /************************************************************************/
 
 class OGRJSONFGStreamingParser;
@@ -259,7 +259,7 @@ class OGRJSONFGDataset final : public GDALDataset
     OGRJSONFGDataset() = default;
     ~OGRJSONFGDataset() override;
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
     bool Open(GDALOpenInfo *poOpenInfo, GeoJSONSourceType nSrcType);
     bool Create(const char *pszName, CSLConstList papszOptions);
@@ -337,7 +337,7 @@ class OGRJSONFGDataset final : public GDALDataset
 };
 
 /************************************************************************/
-/*                          OGRJSONFGReader                             */
+/*                           OGRJSONFGReader                            */
 /************************************************************************/
 
 class OGRJSONFGReader
@@ -556,7 +556,7 @@ class OGRJSONFGReader
 };
 
 /************************************************************************/
-/*                      OGRJSONFGStreamingParser                        */
+/*                       OGRJSONFGStreamingParser                       */
 /************************************************************************/
 
 /** FeatureCollection streaming parser. */

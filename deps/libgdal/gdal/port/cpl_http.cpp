@@ -147,7 +147,7 @@ static void CPLOpenSSLCleanup()
 #if defined(_WIN32) && defined(HAVE_OPENSSL_CRYPTO)
 
 /************************************************************************/
-/*                    CPLWindowsCertificateListCleanup()                */
+/*                  CPLWindowsCertificateListCleanup()                  */
 /************************************************************************/
 
 static void CPLWindowsCertificateListCleanup()
@@ -164,7 +164,7 @@ static void CPLWindowsCertificateListCleanup()
 }
 
 /************************************************************************/
-/*                       LoadCAPICertificates()                         */
+/*                        LoadCAPICertificates()                        */
 /************************************************************************/
 
 static CPLErr LoadCAPICertificates(const char *pszName,
@@ -221,7 +221,7 @@ static CPLErr LoadCAPICertificates(const char *pszName,
 }
 
 /************************************************************************/
-/*                       CPL_ssl_ctx_callback()                         */
+/*                        CPL_ssl_ctx_callback()                        */
 /************************************************************************/
 
 // Load certificates from Windows Crypto API store.
@@ -280,7 +280,7 @@ static CURLcode CPL_ssl_ctx_callback(CURL *, void *pSSL, void *)
 #endif  // defined(_WIN32) && defined (HAVE_OPENSSL_CRYPTO)
 
 /************************************************************************/
-/*                       CheckCurlFeatures()                            */
+/*                         CheckCurlFeatures()                          */
 /************************************************************************/
 
 static void CheckCurlFeatures()
@@ -421,7 +421,8 @@ static size_t CPLHTTPReadFunction(char *buffer, size_t size, size_t nitems,
 /************************************************************************/
 static int CPLHTTPSeekFunction(void *arg, curl_off_t offset, int origin)
 {
-    if (VSIFSeekL(static_cast<VSILFILE *>(arg), offset, origin) == 0)
+    if (VSIFSeekL(static_cast<VSILFILE *>(arg),
+                  static_cast<vsi_l_offset>(offset), origin) == 0)
         return CURL_SEEKFUNC_OK;
     else
         return CURL_SEEKFUNC_FAIL;
@@ -492,7 +493,7 @@ void CPLHTTPSetDefaultUserAgent(const char *pszUserAgent)
 }
 
 /************************************************************************/
-/*                       CPLHTTPGetOptionsFromEnv()                     */
+/*                      CPLHTTPGetOptionsFromEnv()                      */
 /************************************************************************/
 
 typedef struct
@@ -655,7 +656,7 @@ static double CPLHTTPGetNewRetryDelay(int response_code, double dfOldDelay,
 /*! @cond Doxygen_Suppress */
 
 /************************************************************************/
-/*                      CPLHTTPRetryParameters()                        */
+/*                       CPLHTTPRetryParameters()                       */
 /************************************************************************/
 
 /** Constructs a CPLHTTPRetryParameters instance from configuration
@@ -684,7 +685,7 @@ CPLHTTPRetryContext::CPLHTTPRetryContext(const CPLHTTPRetryParameters &oParams)
 }
 
 /************************************************************************/
-/*                     CPLHTTPRetryContext::CanRetry()                  */
+/*                   CPLHTTPRetryContext::CanRetry()                    */
 /************************************************************************/
 
 /** Returns whether we can attempt a new retry, based on the retry counter,
@@ -737,7 +738,7 @@ double CPLHTTPRetryContext::GetCurrentDelay() const
 #ifdef HAVE_CURL
 
 /************************************************************************/
-/*                      CPLHTTPEmitFetchDebug()                         */
+/*                       CPLHTTPEmitFetchDebug()                        */
 /************************************************************************/
 
 static void CPLHTTPEmitFetchDebug(const char *pszURL,
@@ -767,7 +768,7 @@ static void CPLHTTPEmitFetchDebug(const char *pszURL,
 #ifdef HAVE_CURL
 
 /************************************************************************/
-/*                      class CPLHTTPPostFields                         */
+/*                       class CPLHTTPPostFields                        */
 /************************************************************************/
 
 class CPLHTTPPostFields
@@ -892,7 +893,7 @@ class CPLHTTPPostFields
 };
 
 /************************************************************************/
-/*                       CPLHTTPFetchCleanup()                          */
+/*                        CPLHTTPFetchCleanup()                         */
 /************************************************************************/
 
 static void CPLHTTPFetchCleanup(CURL *http_handle, struct curl_slist *headers,
@@ -999,7 +1000,7 @@ int CPLHTTPPushFetchCallback(CPLHTTPFetchCallbackFunc pFunc, void *pUserData)
 }
 
 /************************************************************************/
-/*                       CPLHTTPPopFetchCallback()                      */
+/*                      CPLHTTPPopFetchCallback()                       */
 /************************************************************************/
 
 /** Uninstalls a callback set by CPLHTTPPushFetchCallback().
@@ -1026,7 +1027,7 @@ int CPLHTTPPopFetchCallback(void)
 }
 
 /************************************************************************/
-/*                           CPLHTTPFetch()                             */
+/*                            CPLHTTPFetch()                            */
 /************************************************************************/
 
 // NOTE: when adding an option below, add it in asAssocEnvVarOptionName[]
@@ -1247,6 +1248,7 @@ int CPLHTTPPopFetchCallback(void)
  * CPLHTTPDestroyResult(), or NULL if libcurl support is disabled
  */
 // clang-format on
+
 CPLHTTPResult *CPLHTTPFetch(const char *pszURL, CSLConstList papszOptions)
 {
     return CPLHTTPFetchEx(pszURL, papszOptions, nullptr, nullptr, nullptr,
@@ -1719,7 +1721,7 @@ CPLHTTPResult *CPLHTTPFetchEx(const char *pszURL, CSLConstList papszOptions,
 
 #ifdef HAVE_CURL
 /************************************************************************/
-/*                       CPLMultiPerformWait()                          */
+/*                        CPLMultiPerformWait()                         */
 /************************************************************************/
 
 bool CPLMultiPerformWait(void *hCurlMultiHandleIn, int & /*repeats*/)
@@ -1755,7 +1757,7 @@ class CPLHTTPErrorBuffer
 #endif  // HAVE_CURL
 
 /************************************************************************/
-/*                           CPLHTTPMultiFetch()                        */
+/*                         CPLHTTPMultiFetch()                          */
 /************************************************************************/
 
 /**
@@ -2017,7 +2019,7 @@ CPLHTTPResult **CPLHTTPMultiFetch(const char *const *papszURL, int nURLCount,
 }
 
 /************************************************************************/
-/*                      CPLHTTPDestroyMultiResult()                     */
+/*                     CPLHTTPDestroyMultiResult()                      */
 /************************************************************************/
 /**
  * \brief Clean the memory associated with the return value of
@@ -2045,7 +2047,7 @@ void CPLHTTPDestroyMultiResult(CPLHTTPResult **papsResults, int nCount)
 #include <windows.h>
 
 /************************************************************************/
-/*                     CPLFindWin32CurlCaBundleCrt()                    */
+/*                    CPLFindWin32CurlCaBundleCrt()                     */
 /************************************************************************/
 
 static const char *CPLFindWin32CurlCaBundleCrt()
@@ -2071,7 +2073,7 @@ static const char *CPLFindWin32CurlCaBundleCrt()
 #endif  // WIN32
 
 /************************************************************************/
-/*                     CPLHTTPCurlDebugFunction()                       */
+/*                      CPLHTTPCurlDebugFunction()                      */
 /************************************************************************/
 
 static int CPLHTTPCurlDebugFunction(CURL *handle, curl_infotype type,
@@ -2737,7 +2739,7 @@ void *CPLHTTPSetOptions(void *pcurl, const char *pszURL,
 }
 
 /************************************************************************/
-/*                         CPLHTTPIgnoreSigPipe()                       */
+/*                        CPLHTTPIgnoreSigPipe()                        */
 /************************************************************************/
 
 /* If using OpenSSL with Curl, openssl can cause SIGPIPE to be triggered */
@@ -2766,7 +2768,7 @@ void *CPLHTTPIgnoreSigPipe()
 }
 
 /************************************************************************/
-/*                     CPLHTTPRestoreSigPipeHandler()                   */
+/*                    CPLHTTPRestoreSigPipeHandler()                    */
 /************************************************************************/
 
 void CPLHTTPRestoreSigPipeHandler(void *old_handler)

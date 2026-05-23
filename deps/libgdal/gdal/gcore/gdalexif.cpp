@@ -254,7 +254,7 @@ static const EXIFTagDesc IFD0Tags[] = {
     {0x0000, TIFF_NOTYPE, 0, "", COND_NOT_ALLOWED}};
 
 /************************************************************************/
-/*                         EXIFPrintData()                              */
+/*                           EXIFPrintData()                            */
 /************************************************************************/
 static void EXIFPrintData(char *pszData, GUInt16 type, GUInt32 count,
                           const unsigned char *data)
@@ -495,9 +495,10 @@ static int EXIF_TIFFDataWidth(int /* GDALEXIFTIFFDataType */ type)
 /*                                                                      */
 /*      Extract all entry from a IFD                                    */
 /************************************************************************/
-CPLErr EXIFExtractMetadata(char **&papszMetadata, void *fpInL, int nOffset,
-                           int bSwabflag, int nTIFFHEADER, int &nExifOffset,
-                           int &nInterOffset, int &nGPSOffset)
+CPLErr EXIFExtractMetadata(char **&papszMetadata, void *fpInL, uint32_t nOffset,
+                           int bSwabflag, vsi_l_offset nTIFFHEADER,
+                           uint32_t &nExifOffset, uint32_t &nInterOffset,
+                           uint32_t &nGPSOffset)
 {
     /* -------------------------------------------------------------------- */
     /*      Read number of entry in directory                               */
@@ -505,8 +506,7 @@ CPLErr EXIFExtractMetadata(char **&papszMetadata, void *fpInL, int nOffset,
     GUInt16 nEntryCount;
     VSILFILE *const fp = static_cast<VSILFILE *>(fpInL);
 
-    if (nOffset > INT_MAX - nTIFFHEADER ||
-        VSIFSeekL(fp, nOffset + nTIFFHEADER, SEEK_SET) != 0 ||
+    if (VSIFSeekL(fp, nOffset + nTIFFHEADER, SEEK_SET) != 0 ||
         VSIFReadL(&nEntryCount, 1, sizeof(GUInt16), fp) != sizeof(GUInt16))
     {
         CPLError(CE_Failure, CPLE_AppDefined,
@@ -639,25 +639,20 @@ CPLErr EXIFExtractMetadata(char **&papszMetadata, void *fpInL, int nOffset,
         /*      Save important directory tag offset */
         /* --------------------------------------------------------------------
          */
-
-        // Our current API uses int32 and not uint32
-        if (poTIFFDirEntry->tdir_offset < INT_MAX)
+        if (poTIFFDirEntry->tdir_tag == EXIFOFFSETTAG)
         {
-            if (poTIFFDirEntry->tdir_tag == EXIFOFFSETTAG)
-            {
-                nExifOffset = poTIFFDirEntry->tdir_offset;
-                continue;
-            }
-            else if (poTIFFDirEntry->tdir_tag == INTEROPERABILITYOFFSET)
-            {
-                nInterOffset = poTIFFDirEntry->tdir_offset;
-                continue;
-            }
-            else if (poTIFFDirEntry->tdir_tag == GPSOFFSETTAG)
-            {
-                nGPSOffset = poTIFFDirEntry->tdir_offset;
-                continue;
-            }
+            nExifOffset = poTIFFDirEntry->tdir_offset;
+            continue;
+        }
+        else if (poTIFFDirEntry->tdir_tag == INTEROPERABILITYOFFSET)
+        {
+            nInterOffset = poTIFFDirEntry->tdir_offset;
+            continue;
+        }
+        else if (poTIFFDirEntry->tdir_tag == GPSOFFSETTAG)
+        {
+            nGPSOffset = poTIFFDirEntry->tdir_offset;
+            continue;
         }
 
         /* ----------------------------------------------------------------- */
@@ -864,7 +859,7 @@ CPLErr EXIFExtractMetadata(char **&papszMetadata, void *fpInL, int nOffset,
 }
 
 /************************************************************************/
-/*                        WriteLEUInt16()                               */
+/*                           WriteLEUInt16()                            */
 /************************************************************************/
 
 static void WriteLEUInt16(GByte *pabyData, GUInt32 &nBufferOff, GUInt16 nVal)
@@ -875,7 +870,7 @@ static void WriteLEUInt16(GByte *pabyData, GUInt32 &nBufferOff, GUInt16 nVal)
 }
 
 /************************************************************************/
-/*                        WriteLEUInt32()                               */
+/*                           WriteLEUInt32()                            */
 /************************************************************************/
 
 static void WriteLEUInt32(GByte *pabyData, GUInt32 &nBufferOff, GUInt32 nVal)
@@ -888,7 +883,7 @@ static void WriteLEUInt32(GByte *pabyData, GUInt32 &nBufferOff, GUInt32 nVal)
 }
 
 /************************************************************************/
-/*                          GetHexValue()                               */
+/*                            GetHexValue()                             */
 /************************************************************************/
 
 static int GetHexValue(char ch)
@@ -904,7 +899,7 @@ static int GetHexValue(char ch)
 }
 
 /************************************************************************/
-/*                         ParseUndefined()                             */
+/*                           ParseUndefined()                           */
 /************************************************************************/
 
 static GByte *ParseUndefined(const char *pszVal, GUInt32 *pnLength)
@@ -971,7 +966,7 @@ static GByte *ParseUndefined(const char *pszVal, GUInt32 *pnLength)
 }
 
 /************************************************************************/
-/*                             TagValue                                 */
+/*                               TagValue                               */
 /************************************************************************/
 
 struct TagValue
@@ -999,7 +994,7 @@ struct TagValue
 };
 
 /************************************************************************/
-/*                        GetNumDenomFromDouble()                       */
+/*                       GetNumDenomFromDouble()                        */
 /************************************************************************/
 
 static bool GetNumDenomFromDouble(GDALEXIFTIFFDataType datatype, double dfVal,
@@ -1081,7 +1076,7 @@ static bool GetNumDenomFromDouble(GDALEXIFTIFFDataType datatype, double dfVal,
 }
 
 /************************************************************************/
-/*                       EXIFFormatTagValue()                           */
+/*                         EXIFFormatTagValue()                         */
 /************************************************************************/
 
 enum class EXIFLocation
@@ -1091,7 +1086,7 @@ enum class EXIFLocation
     GPS_IFD
 };
 
-static std::vector<TagValue> EXIFFormatTagValue(char **papszEXIFMetadata,
+static std::vector<TagValue> EXIFFormatTagValue(CSLConstList papszEXIFMetadata,
                                                 EXIFLocation location,
                                                 GUInt32 *pnOfflineSize)
 {
@@ -1100,24 +1095,23 @@ static std::vector<TagValue> EXIFFormatTagValue(char **papszEXIFMetadata,
     const EXIFTagDesc *tagdescArray =
         (location == EXIFLocation::GPS_IFD) ? gpstags : exiftags;
 
-    for (char **papszIter = papszEXIFMetadata; papszIter && *papszIter;
-         ++papszIter)
+    for (const char *pszKeyValue : cpl::Iterate(papszEXIFMetadata))
     {
-        if (!STARTS_WITH_CI(*papszIter, "EXIF_"))
+        if (!STARTS_WITH_CI(pszKeyValue, "EXIF_"))
             continue;
         if (location == EXIFLocation::GPS_IFD &&
-            !STARTS_WITH_CI(*papszIter, "EXIF_GPS"))
+            !STARTS_WITH_CI(pszKeyValue, "EXIF_GPS"))
             continue;
         if (location != EXIFLocation::GPS_IFD &&
-            STARTS_WITH_CI(*papszIter, "EXIF_GPS"))
+            STARTS_WITH_CI(pszKeyValue, "EXIF_GPS"))
             continue;
 
         bool bFound = false;
         size_t i = 0;  // needed after loop
         for (; tagdescArray[i].name[0] != '\0'; i++)
         {
-            if (STARTS_WITH_CI(*papszIter, tagdescArray[i].name) &&
-                (*papszIter)[strlen(tagdescArray[i].name)] == '=')
+            if (STARTS_WITH_CI(pszKeyValue, tagdescArray[i].name) &&
+                pszKeyValue[strlen(tagdescArray[i].name)] == '=')
             {
                 bFound = true;
                 break;
@@ -1140,7 +1134,7 @@ static std::vector<TagValue> EXIFFormatTagValue(char **papszEXIFMetadata,
         }
 
         char *pszKey = nullptr;
-        const char *pszValue = CPLParseNameValue(*papszIter, &pszKey);
+        const char *pszValue = CPLParseNameValue(pszKeyValue, &pszKey);
         if (!bFound || pszKey == nullptr || pszValue == nullptr)
         {
             CPLError(CE_Warning, CPLE_NotSupported,
@@ -1380,7 +1374,7 @@ static std::vector<TagValue> EXIFFormatTagValue(char **papszEXIFMetadata,
 }
 
 /************************************************************************/
-/*                            WriteTag()                                */
+/*                              WriteTag()                              */
 /************************************************************************/
 
 static void WriteTag(GByte *pabyData, GUInt32 &nBufferOff, GUInt16 nTag,
@@ -1393,7 +1387,7 @@ static void WriteTag(GByte *pabyData, GUInt32 &nBufferOff, GUInt16 nTag,
 }
 
 /************************************************************************/
-/*                            WriteTags()                               */
+/*                             WriteTags()                              */
 /************************************************************************/
 
 static void WriteTags(GByte *pabyData, GUInt32 &nBufferOff,
@@ -1420,20 +1414,19 @@ static void WriteTags(GByte *pabyData, GUInt32 &nBufferOff,
 }
 
 /************************************************************************/
-/*                          EXIFCreate()                                */
+/*                             EXIFCreate()                             */
 /************************************************************************/
 
-GByte *EXIFCreate(char **papszEXIFMetadata, GByte *pabyThumbnail,
+GByte *EXIFCreate(CSLConstList papszEXIFMetadata, GByte *pabyThumbnail,
                   GUInt32 nThumbnailSize, GUInt32 nThumbnailWidth,
                   GUInt32 nThumbnailHeight, GUInt32 *pnOutBufferSize)
 {
     *pnOutBufferSize = 0;
 
     bool bHasEXIFMetadata = false;
-    for (char **papszIter = papszEXIFMetadata; papszIter && *papszIter;
-         ++papszIter)
+    for (const char *pszKeyValue : cpl::Iterate(papszEXIFMetadata))
     {
-        if (STARTS_WITH_CI(*papszIter, "EXIF_"))
+        if (STARTS_WITH_CI(pszKeyValue, "EXIF_"))
         {
             bHasEXIFMetadata = true;
             break;

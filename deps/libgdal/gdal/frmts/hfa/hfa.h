@@ -147,7 +147,8 @@ CPLErr HFARenameReferences(HFAHandle, const char *, const char *);
 
 HFAHandle CPL_DLL HFACreateLL(const char *pszFilename);
 HFAHandle CPL_DLL HFACreate(const char *pszFilename, int nXSize, int nYSize,
-                            int nBands, EPTType eDataType, char **papszOptions);
+                            int nBands, EPTType eDataType,
+                            CSLConstList papszOptions);
 CPLErr CPL_DLL HFAFlush(HFAHandle);
 int CPL_DLL HFACreateOverview(HFAHandle hHFA, int nBand, int nOverviewLevel,
                               const char *pszResampling);
@@ -203,7 +204,7 @@ void CPL_DLL HFADumpTree(HFAHandle, FILE *);
 void CPL_DLL HFADumpDictionary(HFAHandle, FILE *);
 CPLErr CPL_DLL HFAGetDataRange(HFAHandle, int, double *, double *);
 char CPL_DLL **HFAGetMetadata(HFAHandle hHFA, int nBand);
-CPLErr CPL_DLL HFASetMetadata(HFAHandle hHFA, int nBand, char **);
+CPLErr CPL_DLL HFASetMetadata(HFAHandle hHFA, int nBand, CSLConstList);
 char CPL_DLL **HFAGetClassNames(HFAHandle hHFA, int nBand);
 
 int CPL_DLL HFAReadXFormStack(HFAHandle psInfo,

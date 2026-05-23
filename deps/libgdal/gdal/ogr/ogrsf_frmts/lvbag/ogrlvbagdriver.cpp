@@ -14,7 +14,7 @@
 #include "ogrsf_frmts.h"
 
 /************************************************************************/
-/*                             Identify()                               */
+/*                              Identify()                              */
 /************************************************************************/
 
 static int OGRLVBAGDriverIdentify(GDALOpenInfo *poOpenInfo)
@@ -80,7 +80,7 @@ GDALDataset *OGRLVBAGDriverOpen(GDALOpenInfo *poOpenInfo)
     }
 
     const char *pszFilename = poOpenInfo->pszFilename;
-    auto poDS = std::unique_ptr<OGRLVBAGDataSource>{new OGRLVBAGDataSource{}};
+    auto poDS = std::make_unique<OGRLVBAGDataSource>();
     poDS->SetDescription(pszFilename);
 
     if (!poOpenInfo->bIsDirectory && poOpenInfo->fpL != nullptr)
@@ -151,7 +151,7 @@ GDALDataset *OGRLVBAGDriverOpen(GDALOpenInfo *poOpenInfo)
 }
 
 /************************************************************************/
-/*                         RegisterOGRLVBAG()                           */
+/*                          RegisterOGRLVBAG()                          */
 /************************************************************************/
 
 void RegisterOGRLVBAG()

@@ -79,7 +79,7 @@ static GDALColorEntry GetXMLColorEntry(const CPLXMLNode *p)
 }
 
 /************************************************************************/
-/*                           SearchXMLSiblings()                        */
+/*                         SearchXMLSiblings()                          */
 /************************************************************************/
 
 /*
@@ -492,7 +492,7 @@ CPLErr WMSMiniDriver_TiledWMS::Initialize(CPLXMLNode *config,
         GDALDataType dt =
             GDALGetDataTypeByName(CPLGetXMLValue(TG, "DataType", "Byte"));
         m_parent_dataset->WMSSetDataType(dt);
-        if (dt != GDT_Byte)
+        if (dt != GDT_UInt8)
             m_parent_dataset->SetTileOO("@DATATYPE", GDALGetDataTypeName(dt));
         // Let the TiledGroup override the projection
         pszProjection = CPLGetXMLValue(TG, "Projection", "");

@@ -96,14 +96,15 @@ std::string GetFeatureCount(const std::string &osUrl,
 std::string GetLayerExtent(const std::string &osUrl,
                            const std::string &osResourceId);
 bool FlushMetadata(const std::string &osUrl, const std::string &osResourceId,
-                   char **papszMetadata, const CPLStringList &aosHTTPOptions);
+                   CSLConstList papszMetadata,
+                   const CPLStringList &aosHTTPOptions);
 std::string CreateResource(const std::string &osUrl,
                            const std::string &osPayload,
                            const CPLStringList &aosHTTPOptions);
 bool UpdateResource(const std::string &osUrl, const std::string &osResourceId,
                     const std::string &osPayload,
                     const CPLStringList &aosHTTPOptions);
-void FillResmeta(const CPLJSONObject &oRoot, char **papszMetadata);
+void FillResmeta(const CPLJSONObject &oRoot, CSLConstList papszMetadata);
 std::string GetResmetaSuffix(CPLJSONObject::Type eType);
 bool DeleteFeature(const std::string &osUrl, const std::string &osResourceId,
                    const std::string &osFeatureId,
@@ -224,7 +225,7 @@ class OGRNGWLayer final : public OGRLayer
     OGRErr DeleteFeatures(const std::vector<GIntBig> &vFeaturesID);
     bool DeleteAllFeatures();
 
-    CPLErr SetMetadata(char **papszMetadata,
+    CPLErr SetMetadata(CSLConstList papszMetadata,
                        const char *pszDomain = "") override;
     CPLErr SetMetadataItem(const char *pszName, const char *pszValue,
                            const char *pszDomain = "") override;
@@ -301,10 +302,11 @@ class OGRNGWDataset final : public GDALDataset
     OGRNGWDataset();
     ~OGRNGWDataset() override;
 
-    bool Open(const char *pszFilename, char **papszOpenOptionsIn,
+    bool Open(const char *pszFilename, CSLConstList papszOpenOptionsIn,
               bool bUpdateIn, int nOpenFlagsIn);
     bool Open(const std::string &osUrlIn, const std::string &osResourceIdIn,
-              char **papszOpenOptionsIn, bool bUpdateIn, int nOpenFlagsIn);
+              CSLConstList papszOpenOptionsIn, bool bUpdateIn,
+              int nOpenFlagsIn);
     std::string Extensions() const;
 
     /* GDALDataset */
@@ -319,7 +321,7 @@ class OGRNGWDataset final : public GDALDataset
                                    const OGRGeomFieldDefn *poGeomFieldDefn,
                                    CSLConstList papszOptions) override;
     OGRErr DeleteLayer(int) override;
-    CPLErr SetMetadata(char **papszMetadata,
+    CPLErr SetMetadata(CSLConstList papszMetadata,
                        const char *pszDomain = "") override;
     CPLErr SetMetadataItem(const char *pszName, const char *pszValue,
                            const char *pszDomain = "") override;
@@ -366,7 +368,7 @@ class OGRNGWDataset final : public GDALDataset
     void AddRaster(const CPLJSONObject &oResourceJsonObject);
     void SetupRasterDSWrapper(const OGREnvelope &stExtent);
     bool Init(int nOpenFlagsIn);
-    bool FlushMetadata(char **papszMetadata);
+    bool FlushMetadata(CSLConstList papszMetadata);
 
     inline bool IsUpdateMode() const
     {

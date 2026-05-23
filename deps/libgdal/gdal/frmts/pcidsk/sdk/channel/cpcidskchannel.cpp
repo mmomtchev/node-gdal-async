@@ -123,23 +123,6 @@ void CPCIDSKChannel::InvalidateOverviewInfo()
 }
 
 /************************************************************************/
-/*                         SortOverviewComp()                           */
-/************************************************************************/
-
-static bool SortOverviewComp(const std::string &first,
-                             const std::string &second)
-{
-    if( !STARTS_WITH(first.c_str(), "_Overview_") ||
-        !STARTS_WITH(second.c_str(), "_Overview_") )
-    {
-        return false;
-    }
-    int nFirst = atoi(first.c_str() + 10);
-    int nSecond = atoi(second.c_str() + 10);
-    return nFirst < nSecond;
-}
-
-/************************************************************************/
 /*                       EstablishOverviewInfo()                        */
 /************************************************************************/
 void CPCIDSKChannel::EstablishOverviewInfo() const
@@ -151,22 +134,36 @@ void CPCIDSKChannel::EstablishOverviewInfo() const
     overviews_initialized = true;
 
     std::vector<std::string> keys = GetMetadataKeys();
-    std::sort(keys.begin(), keys.end(), SortOverviewComp); // sort overviews
-    size_t i;
-
-    for( i = 0; i < keys.size(); i++ )
+    if( !keys.empty() )
     {
-        if( !STARTS_WITH(keys[i].c_str(), "_Overview_") )
+        std::sort(keys.begin(), keys.end(),
+              [] (const std::string &first,
+                             const std::string &second)
+                {
+                    if( !STARTS_WITH(first.c_str(), "_Overview_") ||
+                        !STARTS_WITH(second.c_str(), "_Overview_") )
+                    {
+                        return false;
+                    }
+                    int nFirst = atoi(first.c_str() + 10);
+                    int nSecond = atoi(second.c_str() + 10);
+                    return nFirst < nSecond;
+                });
+    }
+
+    for( const std::string& key: keys)
+    {
+        if( !STARTS_WITH(key.c_str(), "_Overview_") )
             continue;
 
-        overview_infos.push_back( GetMetadataValue( keys[i] ) );
+        overview_infos.push_back( GetMetadataValue( key ) );
         overview_bands.push_back( nullptr );
-        overview_decimations.push_back( atoi(keys[i].c_str()+10) );
+        overview_decimations.push_back( atoi(key.c_str()+10) );
     }
 }
 
 /************************************************************************/
-/*                       UpdateOverviewInfo()                           */
+/*                         UpdateOverviewInfo()                         */
 /************************************************************************/
 /** Update the in-memory information for an overview.
   * This method will add overview information to the in-memory arrays
@@ -344,7 +341,7 @@ void CPCIDSKChannel::InvalidateOverviews()
 }
 
 /************************************************************************/
-/*                  GetOverviewLevelMapping()                           */
+/*                      GetOverviewLevelMapping()                       */
 /************************************************************************/
 
 std::vector<int> CPCIDSKChannel::GetOverviewLevelMapping() const
@@ -355,7 +352,7 @@ std::vector<int> CPCIDSKChannel::GetOverviewLevelMapping() const
 }
 
 /************************************************************************/
-/*                              GetFilename()                           */
+/*                            GetFilename()                             */
 /************************************************************************/
 std::string CPCIDSKChannel::GetFilename() const
 {

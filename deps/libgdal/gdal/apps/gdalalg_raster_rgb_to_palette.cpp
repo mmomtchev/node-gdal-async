@@ -14,7 +14,11 @@
 
 #include "cpl_string.h"
 #include "gdal_alg.h"
+#include "gdal_alg_priv.h"
 #include "gdal_priv.h"
+
+#include <algorithm>
+#include <limits>
 
 //! @cond Doxygen_Suppress
 
@@ -23,7 +27,7 @@
 #endif
 
 /************************************************************************/
-/*                    GDALRasterRGBToPaletteAlgorithm()                 */
+/*                  GDALRasterRGBToPaletteAlgorithm()                   */
 /************************************************************************/
 
 GDALRasterRGBToPaletteAlgorithm::GDALRasterRGBToPaletteAlgorithm(
@@ -38,10 +42,21 @@ GDALRasterRGBToPaletteAlgorithm::GDALRasterRGBToPaletteAlgorithm(
         .SetMinValueIncluded(2)
         .SetMaxValueIncluded(256);
     AddArg("color-map", 0, _("Color map filename"), &m_colorMap);
+    AddArg("output-nodata", 0, _("Output nodata value"), &m_dstNoData)
+        .AddHiddenAlias("dst-nodata")
+        .SetMinValueIncluded(0)
+        .SetMaxValueIncluded(255);
+    AddArg("no-dither", 0, _("Disable Floyd-Steinberg dithering"), &m_noDither);
+    AddArg("bit-depth", 0,
+           _("Bit depth of color palette component (8 bit causes longer "
+             "computation time)"),
+           &m_bitDepth)
+        .SetDefault(m_bitDepth)
+        .SetChoices("5", "8");
 }
 
 /************************************************************************/
-/*                GDALRasterRGBToPaletteAlgorithm::RunStep()            */
+/*              GDALRasterRGBToPaletteAlgorithm::RunStep()              */
 /************************************************************************/
 
 bool GDALRasterRGBToPaletteAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)
@@ -58,6 +73,12 @@ bool GDALRasterRGBToPaletteAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)
                     "Input dataset must have at least 3 bands");
         return false;
     }
+    else if (nSrcBandCount == 4 &&
+             poSrcDS->GetRasterBand(4)->GetColorInterpretation() ==
+                 GCI_AlphaBand)
+    {
+        // nothing to do
+    }
     else if (nSrcBandCount >= 4)
     {
         ReportError(
@@ -70,7 +91,7 @@ bool GDALRasterRGBToPaletteAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)
     for (int i = 1; i <= nSrcBandCount; ++i)
     {
         auto poSrcBand = poSrcDS->GetRasterBand(i);
-        if (poSrcBand->GetRasterDataType() != GDT_Byte)
+        if (poSrcBand->GetRasterDataType() != GDT_UInt8)
         {
             ReportError(CE_Failure, CPLE_NotSupported,
                         "Non-byte band found and not supported");
@@ -115,12 +136,38 @@ bool GDALRasterRGBToPaletteAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)
     }
 
     auto poTmpDS = CreateTemporaryDataset(
-        poSrcDS->GetRasterXSize(), poSrcDS->GetRasterYSize(), 1, GDT_Byte,
+        poSrcDS->GetRasterXSize(), poSrcDS->GetRasterYSize(), 1, GDT_UInt8,
         /* bTiledIfPossible = */ true, poSrcDS, /* bCopyMetadata = */ true);
     if (!poTmpDS)
         return false;
 
     const double oneOverStep = 1.0 / ((m_colorMap.empty() ? 1 : 0) + 1);
+
+    if (m_colorMap.empty() && m_dstNoData < 0)
+    {
+        int bSrcHasNoDataR = FALSE;
+        const double dfSrcNoDataR =
+            GDALGetRasterNoDataValue(mapBands[GCI_RedBand], &bSrcHasNoDataR);
+        int bSrcHasNoDataG = FALSE;
+        const double dfSrcNoDataG =
+            GDALGetRasterNoDataValue(mapBands[GCI_GreenBand], &bSrcHasNoDataG);
+        int bSrcHasNoDataB = FALSE;
+        const double dfSrcNoDataB =
+            GDALGetRasterNoDataValue(mapBands[GCI_BlueBand], &bSrcHasNoDataB);
+        if (bSrcHasNoDataR && bSrcHasNoDataG && bSrcHasNoDataB &&
+            dfSrcNoDataR == dfSrcNoDataG && dfSrcNoDataR == dfSrcNoDataB &&
+            dfSrcNoDataR >= 0 && dfSrcNoDataR <= 255 &&
+            std::round(dfSrcNoDataR) == dfSrcNoDataR)
+        {
+            m_dstNoData = 0;
+        }
+        else
+        {
+            const int nMaskFlags = GDALGetMaskFlags(mapBands[GCI_RedBand]);
+            if ((nMaskFlags & GMF_PER_DATASET))
+                m_dstNoData = 0;
+        }
+    }
 
     GDALColorTable oCT;
 
@@ -133,12 +180,40 @@ bool GDALRasterRGBToPaletteAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)
         pScaledData.reset(GDALCreateScaledProgress(0, oneOverStep, pfnProgress,
                                                    pProgressData));
         dfLastProgress = oneOverStep;
-        bOK = (GDALComputeMedianCutPCT(
-                   mapBands[GCI_RedBand], mapBands[GCI_GreenBand],
-                   mapBands[GCI_BlueBand], nullptr, m_colorCount,
-                   GDALColorTable::ToHandle(&oCT),
-                   pScaledData ? GDALScaledProgress : nullptr,
-                   pScaledData.get()) == CE_None);
+
+        const int nXSize = poSrcDS->GetRasterXSize();
+        const int nYSize = poSrcDS->GetRasterYSize();
+
+        if (m_dstNoData >= 0 && m_colorCount == 256)
+            --m_colorCount;
+        if (nYSize == 0)
+        {
+            bOK = false;
+        }
+        else if (static_cast<GUInt32>(nXSize) <
+                 std::numeric_limits<GUInt32>::max() /
+                     static_cast<GUInt32>(nYSize))
+        {
+            bOK =
+                GDALComputeMedianCutPCTInternal(
+                    mapBands[GCI_RedBand], mapBands[GCI_GreenBand],
+                    mapBands[GCI_BlueBand], nullptr, nullptr, nullptr, nullptr,
+                    m_colorCount, m_bitDepth, static_cast<GUInt32 *>(nullptr),
+                    GDALColorTable::ToHandle(&oCT),
+                    pScaledData ? GDALScaledProgress : nullptr,
+                    pScaledData.get()) == CE_None;
+        }
+        else
+        {
+            bOK =
+                GDALComputeMedianCutPCTInternal(
+                    mapBands[GCI_RedBand], mapBands[GCI_GreenBand],
+                    mapBands[GCI_BlueBand], nullptr, nullptr, nullptr, nullptr,
+                    m_colorCount, m_bitDepth, static_cast<GUIntBig *>(nullptr),
+                    GDALColorTable::ToHandle(&oCT),
+                    pScaledData ? GDALScaledProgress : nullptr,
+                    pScaledData.get()) == CE_None;
+        }
     }
     else
     {
@@ -178,6 +253,20 @@ bool GDALRasterRGBToPaletteAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)
                 oCT = std::move(*(poCT.get()));
             }
         }
+
+        m_colorCount = oCT.GetColorEntryCount();
+    }
+
+    if (m_dstNoData >= 0)
+    {
+        for (int i = std::min(255, m_colorCount); i > m_dstNoData; --i)
+        {
+            oCT.SetColorEntry(i, oCT.GetColorEntry(i - 1));
+        }
+
+        poTmpDS->GetRasterBand(1)->SetNoDataValue(m_dstNoData);
+        GDALColorEntry sEntry = {0, 0, 0, 0};
+        oCT.SetColorEntry(m_dstNoData, &sEntry);
     }
 
     if (bOK)
@@ -187,11 +276,12 @@ bool GDALRasterRGBToPaletteAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)
         pScaledData.reset(GDALCreateScaledProgress(dfLastProgress, 1.0,
                                                    pfnProgress, pProgressData));
 
-        bOK = GDALDitherRGB2PCT(
+        bOK = GDALDitherRGB2PCTInternal(
                   mapBands[GCI_RedBand], mapBands[GCI_GreenBand],
                   mapBands[GCI_BlueBand],
                   GDALRasterBand::ToHandle(poTmpDS->GetRasterBand(1)),
-                  GDALColorTable::ToHandle(&oCT),
+                  GDALColorTable::ToHandle(&oCT), m_bitDepth,
+                  /* pasDynamicColorMap = */ nullptr, !m_noDither,
                   pScaledData ? GDALScaledProgress : nullptr,
                   pScaledData.get()) == CE_None;
     }

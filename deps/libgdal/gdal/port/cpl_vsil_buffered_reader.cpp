@@ -59,8 +59,8 @@ class VSIBufferedReaderHandle final : public VSIVirtualHandle
 
     int Seek(vsi_l_offset nOffset, int nWhence) override;
     vsi_l_offset Tell() override;
-    size_t Read(void *pBuffer, size_t nSize, size_t nMemb) override;
-    size_t Write(const void *pBuffer, size_t nSize, size_t nMemb) override;
+    size_t Read(void *pBuffer, size_t nBytes) override;
+    size_t Write(const void *pBuffer, size_t nBytes) override;
     int Eof() override;
     int Error() override;
     void ClearErr() override;
@@ -71,7 +71,7 @@ class VSIBufferedReaderHandle final : public VSIVirtualHandle
 //! @endcond
 
 /************************************************************************/
-/*                    VSICreateBufferedReaderHandle()                   */
+/*                   VSICreateBufferedReaderHandle()                    */
 /************************************************************************/
 
 VSIVirtualHandle *VSICreateBufferedReaderHandle(VSIVirtualHandle *poBaseHandle)
@@ -91,7 +91,7 @@ VSICreateBufferedReaderHandle(VSIVirtualHandle *poBaseHandle,
 //! @cond Doxygen_Suppress
 
 /************************************************************************/
-/*                        VSIBufferedReaderHandle()                     */
+/*                      VSIBufferedReaderHandle()                       */
 /************************************************************************/
 
 VSIBufferedReaderHandle::VSIBufferedReaderHandle(VSIVirtualHandle *poBaseHandle)
@@ -114,7 +114,7 @@ VSIBufferedReaderHandle::VSIBufferedReaderHandle(
 }
 
 /************************************************************************/
-/*                        ~VSIBufferedReaderHandle()                    */
+/*                      ~VSIBufferedReaderHandle()                      */
 /************************************************************************/
 
 VSIBufferedReaderHandle::~VSIBufferedReaderHandle()
@@ -124,7 +124,7 @@ VSIBufferedReaderHandle::~VSIBufferedReaderHandle()
 }
 
 /************************************************************************/
-/*                               Seek()                                 */
+/*                                Seek()                                */
 /************************************************************************/
 
 int VSIBufferedReaderHandle::Seek(vsi_l_offset nOffset, int nWhence)
@@ -161,7 +161,7 @@ int VSIBufferedReaderHandle::Seek(vsi_l_offset nOffset, int nWhence)
 }
 
 /************************************************************************/
-/*                               Tell()                                 */
+/*                                Tell()                                */
 /************************************************************************/
 
 vsi_l_offset VSIBufferedReaderHandle::Tell()
@@ -173,7 +173,7 @@ vsi_l_offset VSIBufferedReaderHandle::Tell()
 }
 
 /************************************************************************/
-/*                           SeekBaseTo()                               */
+/*                             SeekBaseTo()                             */
 /************************************************************************/
 
 int VSIBufferedReaderHandle::SeekBaseTo(vsi_l_offset nTargetOffset)
@@ -211,17 +211,16 @@ int VSIBufferedReaderHandle::SeekBaseTo(vsi_l_offset nTargetOffset)
 }
 
 /************************************************************************/
-/*                               Read()                                 */
+/*                                Read()                                */
 /************************************************************************/
 
-size_t VSIBufferedReaderHandle::Read(void *pBuffer, size_t nSize, size_t nMemb)
+size_t VSIBufferedReaderHandle::Read(void *pBuffer, size_t nTotalToRead)
 {
-    const size_t nTotalToRead = nSize * nMemb;
 #ifdef DEBUG_VERBOSE
     CPLDebug("BUFFERED", "Read(%d)", static_cast<int>(nTotalToRead));
 #endif
 
-    if (nSize == 0)
+    if (nTotalToRead == 0)
         return 0;
 
     if (nBufferSize != 0 && nCurOffset >= nBufferOffset &&
@@ -242,7 +241,7 @@ size_t VSIBufferedReaderHandle::Read(void *pBuffer, size_t nSize, size_t nMemb)
                 if (!SeekBaseTo(nBufferOffset + nBufferSize))
                 {
                     nCurOffset += nReadInBuffer;
-                    return nReadInBuffer / nSize;
+                    return nReadInBuffer;
                 }
             }
             bNeedBaseHandleSeek = false;
@@ -251,8 +250,7 @@ size_t VSIBufferedReaderHandle::Read(void *pBuffer, size_t nSize, size_t nMemb)
 #endif
 
             const size_t nReadInFile = m_poBaseHandle->Read(
-                static_cast<GByte *>(pBuffer) + nReadInBuffer, 1,
-                nToReadInFile);
+                static_cast<GByte *>(pBuffer) + nReadInBuffer, nToReadInFile);
             if (nReadInFile < nToReadInFile)
             {
                 if (m_poBaseHandle->Eof())
@@ -278,13 +276,13 @@ size_t VSIBufferedReaderHandle::Read(void *pBuffer, size_t nSize, size_t nMemb)
             CPLAssert(m_poBaseHandle->Tell() == nCurOffset);
 #endif
 
-            return nRead / nSize;
+            return nRead;
         }
         else
         {
             // The data to read is completely located within the buffer.
             nCurOffset += nTotalToRead;
-            return nTotalToRead / nSize;
+            return nTotalToRead;
         }
     }
     else
@@ -294,8 +292,7 @@ size_t VSIBufferedReaderHandle::Read(void *pBuffer, size_t nSize, size_t nMemb)
         if (!SeekBaseTo(nCurOffset))
             return 0;
         bNeedBaseHandleSeek = false;
-        const size_t nReadInFile =
-            m_poBaseHandle->Read(pBuffer, 1, nTotalToRead);
+        const size_t nReadInFile = m_poBaseHandle->Read(pBuffer, nTotalToRead);
         if (nReadInFile < nTotalToRead)
         {
             if (m_poBaseHandle->Eof())
@@ -319,16 +316,16 @@ size_t VSIBufferedReaderHandle::Read(void *pBuffer, size_t nSize, size_t nMemb)
         CPLAssert(m_poBaseHandle->Tell() == nCurOffset);
 #endif
 
-        return nReadInFile / nSize;
+        return nReadInFile;
     }
 }
 
 /************************************************************************/
-/*                              Write()                                 */
+/*                               Write()                                */
 /************************************************************************/
 
 size_t VSIBufferedReaderHandle::Write(const void * /* pBuffer */,
-                                      size_t /* nSize */, size_t /* nMemb */)
+                                      size_t /* nBytes */)
 {
     CPLError(CE_Failure, CPLE_NotSupported,
              "VSIFWriteL is not supported on buffer reader streams");
@@ -336,7 +333,7 @@ size_t VSIBufferedReaderHandle::Write(const void * /* pBuffer */,
 }
 
 /************************************************************************/
-/*                             ClearErr()                               */
+/*                              ClearErr()                              */
 /************************************************************************/
 
 void VSIBufferedReaderHandle::ClearErr()
@@ -348,7 +345,7 @@ void VSIBufferedReaderHandle::ClearErr()
 }
 
 /************************************************************************/
-/*                               Eof()                                  */
+/*                                Eof()                                 */
 /************************************************************************/
 
 int VSIBufferedReaderHandle::Eof()
@@ -357,7 +354,7 @@ int VSIBufferedReaderHandle::Eof()
 }
 
 /************************************************************************/
-/*                              Error()                                 */
+/*                               Error()                                */
 /************************************************************************/
 
 int VSIBufferedReaderHandle::Error()
@@ -366,7 +363,7 @@ int VSIBufferedReaderHandle::Error()
 }
 
 /************************************************************************/
-/*                              Flush()                                 */
+/*                               Flush()                                */
 /************************************************************************/
 
 int VSIBufferedReaderHandle::Flush()
@@ -375,7 +372,7 @@ int VSIBufferedReaderHandle::Flush()
 }
 
 /************************************************************************/
-/*                              Close()                                 */
+/*                               Close()                                */
 /************************************************************************/
 
 int VSIBufferedReaderHandle::Close()
