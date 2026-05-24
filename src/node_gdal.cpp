@@ -870,6 +870,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @type {string}
    */
   Nan::Set(target, Nan::New("GDT_Byte").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Byte)).ToLocalChecked());
+  Nan::Set(target, Nan::New("GDT_UInt8").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Byte)).ToLocalChecked());
   /**
    * Sixteen bit unsigned integer
    * @final

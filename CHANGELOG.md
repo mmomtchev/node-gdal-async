@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
  - GDAL 3.13.0
+ - `gdal.GDT_UInt8` constant identical to `gdal.GDT_Byte`
 
 ## [3.12.3] 2026-03-21
 
