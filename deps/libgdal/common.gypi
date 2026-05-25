@@ -61,10 +61,7 @@
 			"RENAME_INTERNAL_SHAPELIB_SYMBOLS=1",
 			"GDAL_USE_SHAPELIB_INTERNAL=1",
 			"flatbuffers=gdal_flatbuffers",
-			"OGR_P_WITH_SRS_CACHE=1",
-			# TODO - check if these can be enabled on Linux
-			"VSI_LSEEK64=lseek",
-			"VSI_OPEN64=open"
+			"OGR_P_WITH_SRS_CACHE=1"
 		],
 		"dependencies": [
 			"<(deps_dir)/libexpat/libexpat.gyp:libexpat",
@@ -103,6 +100,10 @@
 				"VCLinkerTool": {
 					"GenerateDebugInformation": "false",
 				},
+				"defines": [
+					"VSI_LSEEK64=lseek",
+			    "VSI_OPEN64=open"
+        ]
 			}],
 			["OS == 'win' and target_arch == 'x64'", {
 				"VCCLCompilerTool": {
@@ -116,7 +117,9 @@
 				"defines": [
 					"ENABLE_UFFD=1",
 					"HAVE_5ARGS_MREMAP=1",
-					"HAVE_SC_PHYS_PAGES=1"
+					"HAVE_SC_PHYS_PAGES=1",
+					"VSI_LSEEK64=lseek64",
+          "VSI_OPEN64=open64"
 				],
       }],
 			["OS == 'linux' and target_arch == 'x64'", {
@@ -127,6 +130,12 @@
 				"cflags_cc": [
 					"-mavx",
 					"-mavx2"
+        ]
+      }],
+			["OS == 'mac'", {
+        "defines": [
+          "VSI_LSEEK64=lseek",
+          "VSI_OPEN64=open"
         ]
       }],
 			["OS == 'mac' and target_arch == 'x64'", {
