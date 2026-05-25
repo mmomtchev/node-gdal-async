@@ -106,7 +106,13 @@
 					"HAVE_5ARGS_MREMAP=1",
 					"HAVE_SC_PHYS_PAGES=1"
 				],
+      }],
+			["OS == 'linux' or OS == 'mac'", {
 				"cflags": [
+					"-mavx",
+					"-mavx2"
+        ],
+				"cflags_cc": [
 					"-mavx",
 					"-mavx2"
         ]
