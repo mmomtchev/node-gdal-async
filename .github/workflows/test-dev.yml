@@ -39,7 +39,7 @@ jobs:
         CXX: ccache g++
         CC: ccache gcc
     - name: Build from sources
-      run: npx @mapbox/node-pre-gyp build -j max --debug --enable_coverage
+      run: npx @mapbox/node-pre-gyp build -v -j max --debug --enable_coverage
       env:
         CXX: ccache g++
         CC: ccache gcc
@@ -216,7 +216,7 @@ jobs:
         CC: ccache gcc
         CXXFLAGS: -DDEBUG_MACOS_FREEZE
     - name: Build from sources
-      run: npx @mapbox/node-pre-gyp build -j max
+      run: npx @mapbox/node-pre-gyp build -v -j max
       env:
         CXX: ccache g++
         CC: ccache gcc
@@ -251,7 +251,7 @@ jobs:
         CC: ccache gcc
         CXXFLAGS: -DDEBUG_MACOS_FREEZE
     - name: Build from sources
-      run: npx @mapbox/node-pre-gyp build -j max
+      run: npx @mapbox/node-pre-gyp build -v -j max
       env:
         CXX: ccache g++
         CC: ccache gcc
@@ -280,7 +280,7 @@ jobs:
     - run: npm install node-gyp
     - run: npx @mapbox/node-pre-gyp configure
     - name: Build from sources
-      run: npx @mapbox/node-pre-gyp build -j max
+      run: npx @mapbox/node-pre-gyp build -v -j max
     - name: Run unit tests
       run: npm test
       env:
@@ -299,7 +299,7 @@ jobs:
     - run: npm install --ignore-scripts
     - run: npx @mapbox/node-pre-gyp configure --debug
     - name: Build from sources
-      run: npx @mapbox/node-pre-gyp build -j max
+      run: npx @mapbox/node-pre-gyp build -v -j max
     - name: Run unit tests
       run: npm test
       env:
