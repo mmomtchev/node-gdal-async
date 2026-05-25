@@ -115,7 +115,7 @@
 					"-mavx2"
         ]
       }],
-			["OS == 'mac' and target_arch == 'x86'", {
+			["OS == 'mac' and target_arch == 'x64'", {
 				"xcode_settings": {
 					"OTHER_CFLAGS": [
             "-mavx",
