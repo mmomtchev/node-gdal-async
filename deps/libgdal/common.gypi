@@ -65,6 +65,16 @@
 			# TODO - check if these can be enabled on Linux
 			"VSI_LSEEK64=lseek",
 			"VSI_OPEN64=open"
+			# This drops support for some old compilers but
+			# GDAL does not support being compiled on an AVX-enabled
+			# compiler without AVX
+			# Most current compiles support these and there is a
+			# runtime detection
+			"HAVE_AVX_AT_COMPILE_TIME=1",
+			"HAVE_AVX2_AT_COMPILE_TIME=1",
+			"HAVE_SSSE3_AT_COMPILE_TIME=1",
+			"HAVE_SSE41_AT_COMPILE_TIME=1",
+			"HAVE_FMA_AT_COMPILE_TIME=1"
 		],
 		"dependencies": [
 			"<(deps_dir)/libexpat/libexpat.gyp:libexpat",
