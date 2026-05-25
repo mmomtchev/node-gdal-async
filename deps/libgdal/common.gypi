@@ -90,7 +90,11 @@
 			["OS == 'win'", {
 				"include_dirs": ["./arch/win"],
 				"VCCLCompilerTool": {
-					"DebugInformationFormat": "0"
+					"DebugInformationFormat": "0",
+					"AdditionalOptions": [
+						"-arch:AVX2",
+            "-arch:AVX"
+          ]
 				},
 				"VCLinkerTool": {
 					"GenerateDebugInformation": "false",
@@ -101,7 +105,11 @@
 					"ENABLE_UFFD=1",
 					"HAVE_5ARGS_MREMAP=1",
 					"HAVE_SC_PHYS_PAGES=1"
-				]
+				],
+				"cflags": [
+					"-mavx",
+					"-mavx2"
+        ]
 			}],
 			["OS == 'freebsd'", {
 				"include_dirs": ["./arch/bsd"]
