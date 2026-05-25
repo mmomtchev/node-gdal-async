@@ -106,8 +106,6 @@
 					"HAVE_5ARGS_MREMAP=1",
 					"HAVE_SC_PHYS_PAGES=1"
 				],
-      }],
-			["OS == 'linux' or OS == 'mac'", {
 				"cflags": [
 					"-mavx",
 					"-mavx2"
@@ -116,6 +114,18 @@
 					"-mavx",
 					"-mavx2"
         ]
+      }],
+			["OS == 'mac' and target_arch == 'x86'", {
+				"xcode_settings": {
+					"OTHER_CFLAGS": [
+            "-mavx",
+            "-mavx2"
+          ],
+          "OTHER_CPLUSPLUSFLAGS": [
+            "-mavx",
+            "-mavx2"
+          ]
+        }
 			}],
 			["OS == 'freebsd'", {
 				"include_dirs": ["./arch/bsd"]
