@@ -152,8 +152,10 @@
 			}],
 			["OS == 'mac' and target_arch == 'arm64'", {
 				"defines": [
-          "HAVE_SSSE3_AT_COMPILE_TIME=1",
-					"USE_NEON_OPTIMIZATIONS=1"
+					# Alas, this requires separating alg and gcore targets
+          #"HAVE_SSE_AT_COMPILE_TIME=1",
+					#"HAVE_SSSE3_AT_COMPILE_TIME=1",
+					#"USE_NEON_OPTIMIZATIONS=1"
         ]
 			}],
 			["OS == 'freebsd'", {
