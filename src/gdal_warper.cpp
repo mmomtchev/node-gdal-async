@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include "gdal_warper.hpp"
 #include "gdal_common.hpp"
 #include "gdal_dataset.hpp"
@@ -93,7 +95,7 @@ CPLErr GDALReprojectImageMulti(
   psWOptions->hDstDS = hDstDS;
 
   if (psWOptions->nBandCount == 0) {
-    psWOptions->nBandCount = MIN(GDALGetRasterCount(hSrcDS), GDALGetRasterCount(hDstDS));
+    psWOptions->nBandCount = std::min(GDALGetRasterCount(hSrcDS), GDALGetRasterCount(hDstDS));
 
     psWOptions->panSrcBands = (int *)CPLMalloc(sizeof(int) * psWOptions->nBandCount);
     psWOptions->panDstBands = (int *)CPLMalloc(sizeof(int) * psWOptions->nBandCount);
