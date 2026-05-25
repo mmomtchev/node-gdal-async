@@ -64,17 +64,7 @@
 			"OGR_P_WITH_SRS_CACHE=1",
 			# TODO - check if these can be enabled on Linux
 			"VSI_LSEEK64=lseek",
-			"VSI_OPEN64=open",
-			# This drops support for some old compilers but
-			# GDAL does not support being compiled on an AVX-enabled
-			# compiler without AVX
-			# Most current compiles support these and there is a
-			# runtime detection
-			"HAVE_AVX_AT_COMPILE_TIME=1",
-			"HAVE_AVX2_AT_COMPILE_TIME=1",
-			"HAVE_SSSE3_AT_COMPILE_TIME=1",
-			"HAVE_SSE41_AT_COMPILE_TIME=1",
-			"HAVE_FMA_AT_COMPILE_TIME=1"
+			"VSI_OPEN64=open"
 		],
 		"dependencies": [
 			"<(deps_dir)/libexpat/libexpat.gyp:libexpat",
@@ -87,6 +77,20 @@
 			"<(deps_dir)/libaec/libaec.gyp:libaec"
 		],
 		"conditions": [
+			["target_arch == 'x64'", {
+				"defines": [
+          # This drops support for some old compilers but
+          # GDAL does not support being compiled on an AVX-enabled
+          # compiler without AVX
+          # Most current compiles support these and there is a
+          # runtime detection
+          "HAVE_AVX_AT_COMPILE_TIME=1",
+          "HAVE_AVX2_AT_COMPILE_TIME=1",
+          "HAVE_SSSE3_AT_COMPILE_TIME=1",
+          "HAVE_SSE41_AT_COMPILE_TIME=1",
+          "HAVE_FMA_AT_COMPILE_TIME=1"
+        ]
+      }],
 			["OS == 'win'", {
 				"include_dirs": ["./arch/win"],
 				"VCCLCompilerTool": {
@@ -100,12 +104,22 @@
 					"GenerateDebugInformation": "false",
 				},
 			}],
+			["OS == 'win' and target_arch == 'x64'", {
+				"VCCLCompilerTool": {
+					"AdditionalOptions": [
+						"-arch:AVX2",
+            "-arch:AVX"
+          ]
+				},
+			}],
 			["OS == 'linux'", {
 				"defines": [
 					"ENABLE_UFFD=1",
 					"HAVE_5ARGS_MREMAP=1",
 					"HAVE_SC_PHYS_PAGES=1"
 				],
+      }],
+			["OS == 'linux' and target_arch == 'x64'", {
 				"cflags": [
 					"-mavx",
 					"-mavx2"
