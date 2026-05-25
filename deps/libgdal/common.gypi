@@ -150,6 +150,12 @@
           ]
         }
 			}],
+			["OS == 'mac' and target_arch == 'arm64'", {
+				"defines": [
+					"HAVE_SSE3_AT_COMPILE_TIME=1",
+					"USE_NEON_OPTIMIZATIONS=1"
+        ]
+			}],
 			["OS == 'freebsd'", {
 				"include_dirs": ["./arch/bsd"]
 			}],
