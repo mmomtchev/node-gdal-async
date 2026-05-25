@@ -64,7 +64,7 @@
 			"OGR_P_WITH_SRS_CACHE=1",
 			# TODO - check if these can be enabled on Linux
 			"VSI_LSEEK64=lseek",
-			"VSI_OPEN64=open"
+			"VSI_OPEN64=open",
 			# This drops support for some old compilers but
 			# GDAL does not support being compiled on an AVX-enabled
 			# compiler without AVX
