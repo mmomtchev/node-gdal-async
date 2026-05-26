@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
  - GDAL 3.13.0
  - `gdal.GDT_UInt8` constant identical to `gdal.GDT_Byte`
+ - `gdal-async` now has preliminary undocumented support for being rebuilt with SIMD support on x86 CPUs with `--enable-simd`. The option has no effect on Apple Silicon. Alas, at the moment it is impossible to provide prebuilt binaries that autodetect SIMD and can work without it, because it would require very significant changes to the build process. As the current build is already obsolete and will certainly be replaced by the CMake build (with `hadron`) at some point, there is no point in implementing this complex change.
 
 ## [3.12.3] 2026-03-21
 
