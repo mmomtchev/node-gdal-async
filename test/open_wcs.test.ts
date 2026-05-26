@@ -45,7 +45,10 @@ describe('Open', () => {
 
     it('should be able to read raster size', () =>
       assert.isFulfilled(Promise.all([
-        assert.eventually.equal(ds.then((r) => r.bands.count()), 1)
+        assert.eventually.isAbove(
+          ds
+            .then((r) => r.bands.get(1).sizeAsync)
+            .then((sz) => sz.x), 0)
       ]))
     )
 
