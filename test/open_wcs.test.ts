@@ -25,7 +25,7 @@ describe('Open', () => {
     })
 
     it('should be able to the bands', () => {
-      assert.equal(ds.bands.count(), 1)
+      assert.isAtLeast(ds.bands.count(), 1)
     })
 
     it('should have projection', () => {

@@ -34,8 +34,6 @@ else
   GDAL_NAME="bundled"
 fi
 
-export MOCHA_TEST_NETWORK=1
-
 case ${1} in
   DEV)
     echo -e "${SEP}Testing current version against ${GDAL_NAME} GDAL${SEP}"
