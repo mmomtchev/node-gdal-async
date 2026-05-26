@@ -4,6 +4,7 @@
 	],
 	"variables": {
 		"shared_geos%": "false",
+		"enable_simd%": "false",
 		"endianness": "<!(<(python) -c \"import sys;print(sys.byteorder.upper())\")",
 	},
 	"target_defaults": {
@@ -74,13 +75,13 @@
 			"<(deps_dir)/libaec/libaec.gyp:libaec"
 		],
 		"conditions": [
-			["target_arch == 'x64'", {
+			["target_arch == 'x64' and enable_simd != 'false'", {
 				"defines": [
-          # This drops support for some old compilers but
-          # GDAL does not support being compiled on an AVX-enabled
-          # compiler without AVX
-          # Most current compiles support these and there is a
-          # runtime detection
+          # This is a preliminary undocumented support
+					# for enabling SIMD
+					# Alas, producing prebuilt binaries that can
+					# autodetect SIMD and use it when available would
+					# require far too many changes to the current build process
           "HAVE_AVX_AT_COMPILE_TIME=1",
           "HAVE_AVX2_AT_COMPILE_TIME=1",
           "HAVE_SSSE3_AT_COMPILE_TIME=1",
@@ -91,21 +92,17 @@
 			["OS == 'win'", {
 				"include_dirs": ["./arch/win"],
 				"VCCLCompilerTool": {
-					"DebugInformationFormat": "0",
-					"AdditionalOptions": [
-						"-arch:AVX2",
-            "-arch:AVX"
-          ]
+					"DebugInformationFormat": "0"
 				},
 				"VCLinkerTool": {
-					"GenerateDebugInformation": "false",
+					"GenerateDebugInformation": "false"
 				},
 				"defines": [
 					"VSI_LSEEK64=lseek",
 			    "VSI_OPEN64=open"
         ]
 			}],
-			["OS == 'win' and target_arch == 'x64'", {
+			["OS == 'win' and target_arch == 'x64' and enable_simd != 'false'", {
 				"VCCLCompilerTool": {
 					"AdditionalOptions": [
 						"-arch:AVX2",
@@ -122,7 +119,7 @@
           "VSI_OPEN64=open64"
 				],
       }],
-			["OS == 'linux' and target_arch == 'x64'", {
+			["OS == 'linux' and target_arch == 'x64' and enable_simd != 'false'", {
 				"cflags": [
 					"-mavx",
 					"-mavx2"
@@ -138,7 +135,7 @@
           "VSI_OPEN64=open"
         ]
       }],
-			["OS == 'mac' and target_arch == 'x64'", {
+			["OS == 'mac' and target_arch == 'x64' and enable_simd != 'false'", {
 				"xcode_settings": {
 					"OTHER_CFLAGS": [
             "-mavx",
@@ -150,7 +147,7 @@
           ]
         }
 			}],
-			["OS == 'mac' and target_arch == 'arm64'", {
+			["OS == 'mac' and target_arch == 'arm64' and enable_simd != 'false'", {
 				"defines": [
 					# Alas, this requires separating alg and gcore targets
           #"HAVE_SSE_AT_COMPILE_TIME=1",
