@@ -50,7 +50,7 @@
 #if (defined(__GNUC__) || defined(__clang__)) &&                               \
     defined(HAVE_AVX2_AT_COMPILE_TIME)
 #define HAVE_AVX2_DISPATCH
-#elif defined(_MSC_VER)
+#elif defined(_MSC_VER) && defined(HAVE_AVX2_AT_COMPILE_TIME)
 #include <intrin.h>
 #define HAVE_AVX2_DISPATCH
 #endif
