@@ -66,6 +66,7 @@ jobs:
         linux-version:
           - ubuntu:22.04
           - ubuntu:24.04
+          - ubuntu:26.04
           - debian:bullseye
           - fedora:42
           # CentOS is disabled because of
