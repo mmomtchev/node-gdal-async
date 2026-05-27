@@ -1,7 +1,6 @@
 {
   "extends": "./test/tsconfig.test.json",
   "compilerOptions": {
-    "baseUrl": "./",
     "paths": {
       "gdal-async": [
         "."
