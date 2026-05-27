@@ -98,7 +98,7 @@ BSBRasterBand::BSBRasterBand(BSBDataset *poDSIn)
     poDS = poDSIn;
     nBand = 1;
 
-    eDataType = GDT_Byte;
+    eDataType = GDT_UInt8;
 
     nBlockXSize = poDS->GetRasterXSize();
     nBlockYSize = 1;
@@ -169,7 +169,7 @@ GDALColorInterp BSBRasterBand::GetColorInterpretation()
 /************************************************************************/
 
 /************************************************************************/
-/*                           BSBDataset()                               */
+/*                             BSBDataset()                             */
 /************************************************************************/
 
 BSBDataset::BSBDataset()
@@ -212,7 +212,7 @@ CPLErr BSBDataset::GetGeoTransform(GDALGeoTransform &gt) const
 }
 
 /************************************************************************/
-/*                          GetSpatialRef()                             */
+/*                           GetSpatialRef()                            */
 /************************************************************************/
 
 const OGRSpatialReference *BSBDataset::GetSpatialRef() const
@@ -633,7 +633,7 @@ void BSBDataset::ScanForGCPsNos(const char *pszFilename)
 }
 
 /************************************************************************/
-/*                            ScanForGCPsBSB()                          */
+/*                           ScanForGCPsBSB()                           */
 /************************************************************************/
 
 void BSBDataset::ScanForGCPsBSB()
@@ -691,7 +691,7 @@ void BSBDataset::ScanForGCPsBSB()
 }
 
 /************************************************************************/
-/*                            ScanForCutline()                          */
+/*                           ScanForCutline()                           */
 /************************************************************************/
 
 void BSBDataset::ScanForCutline()
@@ -919,7 +919,7 @@ static int BSBIsSRSOK(const char *pszWKT)
     if (!bOK)
     {
         CPLError(CE_Warning, CPLE_NotSupported,
-                 "BSB only supports WGS84 or NAD83 geographic projections.\n");
+                 "BSB only supports WGS84 or NAD83 geographic projections.");
     }
 
     return bOK;
@@ -942,12 +942,12 @@ static GDALDataset *BSBCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
     if (nBands != 1)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
-                 "BSB driver only supports one band images.\n");
+                 "BSB driver only supports one band images.");
 
         return NULL;
     }
 
-    if (poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_Byte && bStrict)
+    if (poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_UInt8 && bStrict)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "BSB driver doesn't support data type %s. "
@@ -1138,17 +1138,17 @@ static GDALDataset *BSBCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
         if (BSBIsSRSOK(pszProjection))
         {
             VSIFPrintfL(psBSB->fp, "REF/%d,%d,%d,%f,%f\n", 1, 0, 0,
-                        gt[3] + 0 * gt[4] + 0 * gt[5],
-                        gt[0] + 0 * gt[1] + 0 * gt[2]);
+                        gt.yorig + 0 * gt.yrot + 0 * gt.yscale,
+                        gt.xorig + 0 * gt.xscale + 0 * gt.xrot);
             VSIFPrintfL(psBSB->fp, "REF/%d,%d,%d,%f,%f\n", 2, nXSize, 0,
-                        gt[3] + nXSize * gt[4] + 0 * gt[5],
-                        gt[0] + nXSize * gt[1] + 0 * gt[2]);
+                        gt.yorig + nXSize * gt.yrot + 0 * gt.yscale,
+                        gt.xorig + nXSize * gt.xscale + 0 * gt.xrot);
             VSIFPrintfL(psBSB->fp, "REF/%d,%d,%d,%f,%f\n", 3, nXSize, nYSize,
-                        gt[3] + nXSize * gt[4] + nYSize * gt[5],
-                        gt[0] + nXSize * gt[1] + nYSize * gt[2]);
+                        gt.yorig + nXSize * gt.yrot + nYSize * gt.yscale,
+                        gt.xorig + nXSize * gt.xscale + nYSize * gt.xrot);
             VSIFPrintfL(psBSB->fp, "REF/%d,%d,%d,%f,%f\n", 4, 0, nYSize,
-                        gt[3] + 0 * gt[4] + nYSize * gt[5],
-                        gt[0] + 0 * gt[1] + nYSize * gt[2]);
+                        gt.yorig + 0 * gt.yrot + nYSize * gt.yscale,
+                        gt.xorig + 0 * gt.xscale + nYSize * gt.xrot);
         }
     }
 
@@ -1163,7 +1163,7 @@ static GDALDataset *BSBCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
     {
         eErr =
             poBand->RasterIO(GF_Read, 0, iLine, nXSize, 1, pabyScanline, nXSize,
-                             1, GDT_Byte, nBands, nBands * nXSize, NULL);
+                             1, GDT_UInt8, nBands, nBands * nXSize, NULL);
         if (eErr == CE_None)
         {
             for (int i = 0; i < nXSize; i++)
@@ -1192,7 +1192,7 @@ static GDALDataset *BSBCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
 #endif
 
 /************************************************************************/
-/*                        GDALRegister_BSB()                            */
+/*                          GDALRegister_BSB()                          */
 /************************************************************************/
 
 void GDALRegister_BSB()

@@ -23,16 +23,13 @@
 static GDALDataset *OGRILI2DriverOpen(GDALOpenInfo *poOpenInfo)
 
 {
-    if (poOpenInfo->eAccess == GA_Update ||
-        (!poOpenInfo->bStatOK &&
-         strchr(poOpenInfo->pszFilename, ',') == nullptr))
-        return nullptr;
-
     if (poOpenInfo->pabyHeader != nullptr)
     {
         if (poOpenInfo->pabyHeader[0] != '<' ||
-            strstr((const char *)poOpenInfo->pabyHeader,
-                   "interlis.ch/INTERLIS2") == nullptr)
+            (strstr(reinterpret_cast<char *>(poOpenInfo->pabyHeader),
+                    "interlis.ch/INTERLIS2") == nullptr &&
+             strstr(reinterpret_cast<char *>(poOpenInfo->pabyHeader),
+                    "//www.interlis.ch/xtf/") == nullptr))
         {
             return nullptr;
         }
@@ -42,8 +39,9 @@ static GDALDataset *OGRILI2DriverOpen(GDALOpenInfo *poOpenInfo)
 
     OGRILI2DataSource *poDS = new OGRILI2DataSource();
 
+    const bool bTestOpen = (poOpenInfo->pabyHeader == nullptr);
     if (!poDS->Open(poOpenInfo->pszFilename, poOpenInfo->papszOpenOptions,
-                    TRUE) ||
+                    bTestOpen) ||
         poDS->GetLayerCount() == 0)
     {
         delete poDS;
@@ -54,7 +52,7 @@ static GDALDataset *OGRILI2DriverOpen(GDALOpenInfo *poOpenInfo)
 }
 
 /************************************************************************/
-/*                           RegisterOGRILI2()                           */
+/*                          RegisterOGRILI2()                           */
 /************************************************************************/
 
 void RegisterOGRILI2()

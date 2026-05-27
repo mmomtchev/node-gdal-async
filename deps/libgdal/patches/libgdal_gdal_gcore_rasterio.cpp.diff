@@ -1,0 +1,11 @@
+--- libgdal/gdal/gcore/rasterio.cpp.orig	2026-05-27 16:56:09
++++ libgdal/gdal/gcore/rasterio.cpp	2026-05-27 16:56:01
+@@ -50,7 +50,7 @@
+ #if (defined(__GNUC__) || defined(__clang__)) &&                               \
+     defined(HAVE_AVX2_AT_COMPILE_TIME)
+ #define HAVE_AVX2_DISPATCH
+-#elif defined(_MSC_VER)
++#elif defined(_MSC_VER) && defined(HAVE_AVX2_AT_COMPILE_TIME)
+ #include <intrin.h>
+ #define HAVE_AVX2_DISPATCH
+ #endif

@@ -19,7 +19,7 @@
 #include "ogr_api.h"
 
 /************************************************************************/
-/*                          OGRTopoJSONReader()                         */
+/*                         OGRTopoJSONReader()                          */
 /************************************************************************/
 
 OGRTopoJSONReader::OGRTopoJSONReader() : poGJObject_(nullptr)
@@ -41,7 +41,7 @@ OGRTopoJSONReader::~OGRTopoJSONReader()
 }
 
 /************************************************************************/
-/*                           Parse()                                    */
+/*                               Parse()                                */
 /************************************************************************/
 
 OGRErr OGRTopoJSONReader::Parse(const char *pszText, bool bLooseIdentification)
@@ -78,7 +78,7 @@ typedef struct
 } ScalingParams;
 
 /************************************************************************/
-/*                            ParsePoint()                              */
+/*                             ParsePoint()                             */
 /************************************************************************/
 
 static bool ParsePoint(json_object *poPoint, double *pdfX, double *pdfY)
@@ -105,7 +105,7 @@ static bool ParsePoint(json_object *poPoint, double *pdfX, double *pdfY)
 }
 
 /************************************************************************/
-/*                             ParseArc()                               */
+/*                              ParseArc()                              */
 /************************************************************************/
 
 static void ParseArc(OGRLineString *poLS, json_object *poArcsDB, int nArcID,
@@ -169,7 +169,7 @@ static void ParseArc(OGRLineString *poLS, json_object *poArcsDB, int nArcID,
 }
 
 /************************************************************************/
-/*                        ParseLineString()                             */
+/*                          ParseLineString()                           */
 /************************************************************************/
 
 static void ParseLineString(OGRLineString *poLS, json_object *poRing,
@@ -200,7 +200,7 @@ static void ParseLineString(OGRLineString *poLS, json_object *poRing,
 }
 
 /************************************************************************/
-/*                          ParsePolygon()                              */
+/*                            ParsePolygon()                            */
 /************************************************************************/
 
 static void ParsePolygon(OGRPolygon *poPoly, json_object *poArcsObj,
@@ -232,7 +232,7 @@ static void ParsePolygon(OGRPolygon *poPoly, json_object *poArcsObj,
 }
 
 /************************************************************************/
-/*                       ParseMultiLineString()                         */
+/*                        ParseMultiLineString()                        */
 /************************************************************************/
 
 static void ParseMultiLineString(OGRMultiLineString *poMLS,
@@ -255,7 +255,7 @@ static void ParseMultiLineString(OGRMultiLineString *poMLS,
 }
 
 /************************************************************************/
-/*                       ParseMultiPolygon()                            */
+/*                         ParseMultiPolygon()                          */
 /************************************************************************/
 
 static void ParseMultiPolygon(OGRMultiPolygon *poMultiPoly,
@@ -286,7 +286,7 @@ static void ParseMultiPolygon(OGRMultiPolygon *poMultiPoly,
 }
 
 /************************************************************************/
-/*                          ParseObject()                               */
+/*                            ParseObject()                             */
 /************************************************************************/
 
 static void ParseObject(const char *pszId, json_object *poObj,
@@ -325,7 +325,7 @@ static void ParseObject(const char *pszId, json_object *poObj,
         }
     }
 
-    OGRFeature *poFeature = new OGRFeature(poLayer->GetLayerDefn());
+    auto poFeature = std::make_unique<OGRFeature>(poLayer->GetLayerDefn());
     if (pszId != nullptr)
         poFeature->SetField("id", pszId);
 
@@ -340,8 +340,8 @@ static void ParseObject(const char *pszId, json_object *poObj,
         json_object_object_foreachC(poProperties, it)
         {
             const int nField = poFeature->GetFieldIndex(it.key);
-            OGRGeoJSONReaderSetField(poLayer, poFeature, nField, it.key, it.val,
-                                     false, 0);
+            OGRGeoJSONReaderSetField(poLayer, poFeature.get(), nField, it.key,
+                                     it.val, false, 0);
         }
     }
 
@@ -407,12 +407,11 @@ static void ParseObject(const char *pszId, json_object *poObj,
 
     if (poGeom != nullptr)
         poFeature->SetGeometryDirectly(poGeom);
-    poLayer->AddFeature(poFeature);
-    delete poFeature;
+    poLayer->AddFeature(std::move(poFeature));
 }
 
 /************************************************************************/
-/*                        EstablishLayerDefn()                          */
+/*                         EstablishLayerDefn()                         */
 /************************************************************************/
 
 static void
@@ -452,7 +451,7 @@ EstablishLayerDefn(int nPrevFieldIdx, std::vector<int> &anCurFieldIndices,
 }
 
 /************************************************************************/
-/*                        ParseObjectMain()                             */
+/*                          ParseObjectMain()                           */
 /************************************************************************/
 
 static bool
@@ -629,7 +628,7 @@ static void ParseObjectMainSecondPass(const char *pszId, json_object *poObj,
 }
 
 /************************************************************************/
-/*                           ReadLayers()                               */
+/*                             ReadLayers()                             */
 /************************************************************************/
 
 void OGRTopoJSONReader::ReadLayers(OGRGeoJSONDataSource *poDS)

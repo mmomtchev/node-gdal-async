@@ -26,7 +26,7 @@
 #endif
 
 /************************************************************************/
-/*                   GDALVectorMakeValidAlgorithm()                     */
+/*                    GDALVectorMakeValidAlgorithm()                    */
 /************************************************************************/
 
 GDALVectorMakeValidAlgorithm::GDALVectorMakeValidAlgorithm(bool standaloneStep)
@@ -49,7 +49,7 @@ namespace
 {
 
 /************************************************************************/
-/*                    GDALVectorMakeValidAlgorithmLayer                 */
+/*                  GDALVectorMakeValidAlgorithmLayer                   */
 /************************************************************************/
 
 class GDALVectorMakeValidAlgorithmLayer final
@@ -100,7 +100,7 @@ std::unique_ptr<OGRFeature> GDALVectorMakeValidAlgorithmLayer::TranslateFeature(
                     wkbFlatten(poGeom->getGeometryType()) ==
                     wkbGeometryCollection;
 #if GEOS_VERSION_MAJOR == 3 && GEOS_VERSION_MINOR <= 11
-                const bool bSrcIs3D = poGeom->Is3D();
+                const bool bSrcIs3D = CPL_TO_BOOL(poGeom->Is3D());
 #endif
                 poGeom.reset(poGeom->MakeValid(m_aosMakeValidOptions.List()));
                 if (poGeom)
@@ -152,7 +152,7 @@ GDALVectorMakeValidAlgorithm::CreateAlgLayer(
 }
 
 /************************************************************************/
-/*                  GDALVectorMakeValidAlgorithm::RunStep()             */
+/*               GDALVectorMakeValidAlgorithm::RunStep()                */
 /************************************************************************/
 
 bool GDALVectorMakeValidAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)

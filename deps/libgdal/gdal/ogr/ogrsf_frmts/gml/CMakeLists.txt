@@ -71,8 +71,6 @@ set_property(
   APPEND
   PROPERTY RESOURCE "${GDAL_DATA_FILES}")
 
-target_compile_definitions(ogr_GML PRIVATE OGR_P_WITH_SRS_CACHE)
-
 if (EMBED_RESOURCE_FILES)
     add_driver_embedded_resources(ogr_GML OGR_ENABLE_DRIVER_GML_PLUGIN embedded_resources.c)
 endif()
@@ -91,5 +89,5 @@ if (GDAL_USE_XERCESC)
 endif ()
 if (GDAL_USE_SQLITE3)
   target_compile_definitions(ogr_GML PRIVATE -DHAVE_SQLITE)
-  gdal_target_link_libraries(ogr_GML PRIVATE SQLite::SQLite3)
+  gdal_target_link_libraries(ogr_GML PRIVATE SQLite3::SQLite3)
 endif ()

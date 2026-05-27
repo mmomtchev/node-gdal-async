@@ -29,7 +29,7 @@
 #include "ogr_spatialref.h"
 
 /************************************************************************/
-/*         OGRGeometryCollection( const OGRGeometryCollection& )        */
+/*        OGRGeometryCollection( const OGRGeometryCollection& )         */
 /************************************************************************/
 
 /**
@@ -53,7 +53,7 @@ OGRGeometryCollection::OGRGeometryCollection(const OGRGeometryCollection &other)
 }
 
 /************************************************************************/
-/*            OGRGeometryCollection( OGRGeometryCollection&& )          */
+/*           OGRGeometryCollection( OGRGeometryCollection&& )           */
 /************************************************************************/
 
 /**
@@ -124,7 +124,7 @@ OGRGeometryCollection::operator=(const OGRGeometryCollection &other)
 }
 
 /************************************************************************/
-/*                  operator=( OGRGeometryCollection&&)                 */
+/*                 operator=( OGRGeometryCollection&&)                  */
 /************************************************************************/
 
 /**
@@ -451,6 +451,63 @@ OGRErr OGRGeometryCollection::addGeometry(std::unique_ptr<OGRGeometry> geom)
     if (eErr != OGRERR_NONE)
         delete poGeom;
     return eErr;
+}
+
+/************************************************************************/
+/*                       addGeometryComponents()                        */
+/************************************************************************/
+
+/**
+ * \brief Add the components of another OGRGeometryCollection to this one.
+ *
+ * Some subclasses of OGRGeometryCollection restrict the types of geometry
+ * that can be added, and may return an error.
+ *
+ * @param geom geometry whose components should be added to add to the container.
+ *
+ * @return OGRERR_NONE if successful, or OGRERR_UNSUPPORTED_GEOMETRY_TYPE if
+ * the geometry type is illegal for the type of geometry container.
+ *
+ * @since 3.13
+ */
+
+OGRErr OGRGeometryCollection::addGeometryComponents(
+    std::unique_ptr<OGRGeometryCollection> geom)
+{
+    if (geom->nGeomCount == 0)
+    {
+        return OGRERR_NONE;
+    }
+
+    for (int i = 0; i < geom->nGeomCount; i++)
+    {
+        if (!isCompatibleSubType(geom->papoGeoms[i]->getGeometryType()))
+        {
+            return OGRERR_UNSUPPORTED_GEOMETRY_TYPE;
+        }
+    }
+
+    for (int i = 0; i < geom->nGeomCount; i++)
+    {
+        HomogenizeDimensionalityWith(geom->papoGeoms[i]);
+    }
+
+    OGRGeometry **papoNewGeoms = static_cast<OGRGeometry **>(
+        VSI_REALLOC_VERBOSE(papoGeoms, sizeof(OGRGeometry *) *
+                                           (nGeomCount + geom->nGeomCount)));
+    if (papoNewGeoms == nullptr)
+        return OGRERR_FAILURE;
+
+    for (int i = 0; i < geom->nGeomCount; i++)
+    {
+        papoNewGeoms[nGeomCount + i] = geom->papoGeoms[i];
+        geom->papoGeoms[i] = nullptr;
+    }
+
+    papoGeoms = papoNewGeoms;
+    nGeomCount += geom->nGeomCount;
+
+    return OGRERR_NONE;
 }
 
 /************************************************************************/
@@ -1198,7 +1255,7 @@ bool OGRGeometryCollection::setMeasured(OGRBoolean bIsMeasured)
 }
 
 /************************************************************************/
-/*                              get_Length()                            */
+/*                             get_Length()                             */
 /************************************************************************/
 
 /**
@@ -1284,7 +1341,7 @@ double OGRGeometryCollection::get_Area() const
 }
 
 /************************************************************************/
-/*                        get_GeodesicArea()                            */
+/*                          get_GeodesicArea()                          */
 /************************************************************************/
 
 /**
@@ -1355,7 +1412,7 @@ double OGRGeometryCollection::get_GeodesicArea(
 }
 
 /************************************************************************/
-/*                        get_GeodesicLength()                          */
+/*                         get_GeodesicLength()                         */
 /************************************************************************/
 
 /**
@@ -1431,7 +1488,7 @@ double OGRGeometryCollection::get_GeodesicLength(
 }
 
 /************************************************************************/
-/*                               IsEmpty()                              */
+/*                              IsEmpty()                               */
 /************************************************************************/
 
 OGRBoolean OGRGeometryCollection::IsEmpty() const
@@ -1459,7 +1516,7 @@ void OGRGeometryCollection::assignSpatialReference(
 }
 
 /************************************************************************/
-/*              OGRGeometryCollection::segmentize()                     */
+/*                 OGRGeometryCollection::segmentize()                  */
 /************************************************************************/
 
 bool OGRGeometryCollection::segmentize(double dfMaxLength)
@@ -1485,7 +1542,7 @@ void OGRGeometryCollection::swapXY()
 }
 
 /************************************************************************/
-/*                          isCompatibleSubType()                       */
+/*                        isCompatibleSubType()                         */
 /************************************************************************/
 
 /** Returns whether a geometry of the specified geometry type can be a
@@ -1503,7 +1560,7 @@ OGRBoolean OGRGeometryCollection::isCompatibleSubType(
 }
 
 /************************************************************************/
-/*                         hasCurveGeometry()                           */
+/*                          hasCurveGeometry()                          */
 /************************************************************************/
 
 OGRBoolean OGRGeometryCollection::hasCurveGeometry(int bLookForNonLinear) const
@@ -1517,7 +1574,7 @@ OGRBoolean OGRGeometryCollection::hasCurveGeometry(int bLookForNonLinear) const
 }
 
 /************************************************************************/
-/*                         getLinearGeometry()                        */
+/*                         getLinearGeometry()                          */
 /************************************************************************/
 
 OGRGeometry *
@@ -1541,7 +1598,7 @@ OGRGeometryCollection::getLinearGeometry(double dfMaxAngleStepSizeDegrees,
 }
 
 /************************************************************************/
-/*                             getCurveGeometry()                       */
+/*                          getCurveGeometry()                          */
 /************************************************************************/
 
 OGRGeometry *
@@ -1570,7 +1627,7 @@ OGRGeometryCollection::getCurveGeometry(const char *const *papszOptions) const
 }
 
 /************************************************************************/
-/*                      TransferMembersAndDestroy()                     */
+/*                     TransferMembersAndDestroy()                      */
 /************************************************************************/
 
 //! @cond Doxygen_Suppress
@@ -1592,7 +1649,7 @@ OGRGeometryCollection::TransferMembersAndDestroy(OGRGeometryCollection *poSrc,
 //! @endcond
 
 /************************************************************************/
-/*                        CastToGeometryCollection()                    */
+/*                      CastToGeometryCollection()                      */
 /************************************************************************/
 
 /**

@@ -110,7 +110,22 @@ int CPL_DLL CPLTestBoolean(const char *pszValue);
 bool CPL_DLL CPLTestBool(const char *pszValue);
 bool CPL_DLL CPLFetchBool(CSLConstList papszStrList, const char *pszKey,
                           bool bDefault);
+#ifdef __cplusplus
+CPL_C_END
 
+/*! @cond Doxygen_Suppress */
+inline bool CPLFetchBool(CSLConstList papszStrList, const char *pszKey,
+                         int bDefault)
+{
+    return CPLFetchBool(papszStrList, pszKey, bDefault != 0);
+}
+
+bool CPLFetchBool(CSLConstList papszStrList, const char *pszKey,
+                  const char *) = delete;
+
+/*! @endcond */
+CPL_C_START
+#endif
 CPLErr CPL_DLL CPLParseMemorySize(const char *pszValue, GIntBig *pnValue,
                                   bool *pbUnitSpecified);
 
@@ -294,6 +309,9 @@ extern "C++"
 #ifndef DOXYGEN_SKIP
 #include <string>
 #include <vector>
+#if __cplusplus >= 201703L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201703L)
+#include <string_view>
+#endif
 #endif
 
 // VC++ implicitly applies __declspec(dllexport) to template base classes
@@ -425,6 +443,10 @@ extern "C++"
 
         CPLSTRING_METHOD_DLL CPLString URLEncode() const;
 
+        CPLSTRING_METHOD_DLL CPLString SQLQuotedIdentifier() const;
+
+        CPLSTRING_METHOD_DLL CPLString SQLQuotedLiteral() const;
+
       private:
         operator void *(void) = delete;
     };
@@ -512,6 +534,11 @@ extern "C++"
             AddString(osStr.c_str());
         }
 
+#if defined(DOXYGEN_SKIP) || __cplusplus >= 201703L ||                         \
+    (defined(_MSVC_LANG) && _MSVC_LANG >= 201703L)
+        void push_back(std::string_view svStr);
+#endif
+
         CPLStringList &InsertString(int nInsertAtLineNo, const char *pszNewLine)
         {
             return InsertStringDirectly(nInsertAtLineNo, CPLStrdup(pszNewLine));
@@ -521,8 +548,10 @@ extern "C++"
                                             char *pszNewLine);
 
         // CPLStringList &InsertStrings( int nInsertAtLineNo, char
-        // **papszNewLines ); CPLStringList &RemoveStrings( int
-        // nFirstLineToDelete, int nNumToRemove=1 );
+        // **papszNewLines );
+
+        CPLStringList &RemoveStrings(int nFirstLineToDelete,
+                                     int nNumToRemove = 1);
 
         /** Return index of pszTarget in the list, or -1 */
         int FindString(const char *pszTarget) const
@@ -546,6 +575,10 @@ extern "C++"
                                       const char *pszDefault) const;
         CPLStringList &AddNameValue(const char *pszKey, const char *pszValue);
         CPLStringList &SetNameValue(const char *pszKey, const char *pszValue);
+
+        CPLStringList &SetString(int pos, const char *pszString);
+        CPLStringList &SetString(int pos, const std::string &osString);
+        CPLStringList &SetStringDirectly(int pos, char *pszString);
 
         CPLStringList &Assign(char **papszListIn, int bTakeOwnership = TRUE);
 

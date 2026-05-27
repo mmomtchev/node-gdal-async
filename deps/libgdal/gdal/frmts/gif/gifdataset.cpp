@@ -85,7 +85,7 @@ class GIFDataset final : public GIFAbstractDataset
 
     static GDALDataset *CreateCopy(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
-                                   char **papszOptions,
+                                   CSLConstList papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
 };
@@ -145,7 +145,7 @@ CPLErr GIFRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff, int nBlockYOff,
 /************************************************************************/
 
 /************************************************************************/
-/*                            GIFDataset()                            */
+/*                             GIFDataset()                             */
 /************************************************************************/
 
 GIFDataset::GIFDataset()
@@ -326,7 +326,7 @@ GDALDataset *GIFDataset::Open(GDALOpenInfo *poOpenInfo)
 }
 
 /************************************************************************/
-/*                        GDALPrintGifError()                           */
+/*                         GDALPrintGifError()                          */
 /************************************************************************/
 
 static void GDALPrintGifError(CPL_UNUSED GifFileType *hGifFile,
@@ -360,7 +360,7 @@ static void GDALPrintGifError(CPL_UNUSED GifFileType *hGifFile,
 
 GDALDataset *GIFDataset::CreateCopy(const char *pszFilename,
                                     GDALDataset *poSrcDS, int bStrict,
-                                    char **papszOptions,
+                                    CSLConstList papszOptions,
                                     GDALProgressFunc pfnProgress,
                                     void *pProgressData)
 
@@ -392,7 +392,7 @@ GDALDataset *GIFDataset::CreateCopy(const char *pszFilename,
         return nullptr;
     }
 
-    if (poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_Byte && bStrict)
+    if (poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_UInt8 && bStrict)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "GIF driver doesn't support data type %s. "
@@ -542,8 +542,9 @@ GDALDataset *GIFDataset::CreateCopy(const char *pszFilename,
         for (int iLine = 0; iLine < nYSize; iLine++)
         {
             const CPLErr eErr = poBand->RasterIO(
-                GF_Read, 0, iLine, nXSize, 1, pabyScanline, nXSize, 1, GDT_Byte,
-                nBands, static_cast<GSpacing>(nBands) * nXSize, nullptr);
+                GF_Read, 0, iLine, nXSize, 1, pabyScanline, nXSize, 1,
+                GDT_UInt8, nBands, static_cast<GSpacing>(nBands) * nXSize,
+                nullptr);
 
             if (eErr != CE_None ||
                 EGifPutLine(hGifFile, pabyScanline, nXSize) == GIF_ERROR)
@@ -571,7 +572,7 @@ GDALDataset *GIFDataset::CreateCopy(const char *pszFilename,
             {
                 const CPLErr eErr =
                     poBand->RasterIO(GF_Read, 0, j, nXSize, 1, pabyScanline,
-                                     nXSize, 1, GDT_Byte, 1, nXSize, nullptr);
+                                     nXSize, 1, GDT_UInt8, 1, nXSize, nullptr);
 
                 if (eErr != CE_None ||
                     EGifPutLine(hGifFile, pabyScanline, nXSize) == GIF_ERROR)

@@ -14,10 +14,10 @@
 #include "cpl_port.h"
 #include "kmlsuperoverlaydataset.h"
 
-#include <array>
 #include <cmath>
 #include <cstring>
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -50,14 +50,14 @@ static void GenerateTiles(const std::string &filename, CPL_UNUSED int zoom,
         bands = 3;
 
     auto poTmpDataset = std::unique_ptr<GDALDataset>(
-        MEMDataset::Create("", dxsize, dysize, bands, GDT_Byte, nullptr));
+        MEMDataset::Create("", dxsize, dysize, bands, GDT_UInt8, nullptr));
 
     if (!isJpegDriver)  // Jpeg dataset only has one or three bands
     {
         if (bands < 4)  // add transparency to files with one band or three
                         // bands
         {
-            poTmpDataset->AddBand(GDT_Byte);
+            poTmpDataset->AddBand(GDT_UInt8);
             alphaBand =
                 poTmpDataset->GetRasterBand(poTmpDataset->GetRasterCount());
         }
@@ -84,7 +84,7 @@ static void GenerateTiles(const std::string &filename, CPL_UNUSED int zoom,
             int yOffset = ry + row * rowOffset;
             CPLErr errTest = poBand->RasterIO(
                 GF_Read, rx, yOffset, rxsize, rowOffset, abyScanline.data(),
-                dxsize, 1, GDT_Byte, 0, 0, nullptr);
+                dxsize, 1, GDT_UInt8, 0, 0, nullptr);
 
             const bool bReadFailed = (errTest == CE_Failure);
             if (bReadFailed)
@@ -114,7 +114,7 @@ static void GenerateTiles(const std::string &filename, CPL_UNUSED int zoom,
                 GDALRasterBand *poBandtmp = poTmpDataset->GetRasterBand(band);
                 CPL_IGNORE_RET_VAL(poBandtmp->RasterIO(
                     GF_Write, 0, row, dxsize, 1, abyScanline.data(), dxsize, 1,
-                    GDT_Byte, 0, 0, nullptr));
+                    GDT_UInt8, 0, 0, nullptr));
             }
         }
 
@@ -137,7 +137,7 @@ static void GenerateTiles(const std::string &filename, CPL_UNUSED int zoom,
 
                 CPL_IGNORE_RET_VAL(alphaBand->RasterIO(
                     GF_Write, 0, row, dxsize, 1, abyScanline.data(), dxsize, 1,
-                    GDT_Byte, 0, 0, nullptr));
+                    GDT_UInt8, 0, 0, nullptr));
             }
         }
     }
@@ -485,7 +485,7 @@ int KmlSuperOverlayReadDataset::DetectTransparency(int rxsize, int rysize,
                 int yOffset = ry + row * rowOffset;
                 CPL_IGNORE_RET_VAL(poBand->RasterIO(
                     GF_Read, rx, yOffset, rxsize, rowOffset, abyScanline.data(),
-                    dxsize, 1, GDT_Byte, 0, 0, nullptr));
+                    dxsize, 1, GDT_UInt8, 0, 0, nullptr));
                 for (int i = 0; i < dxsize; i++)
                 {
                     if (abyScanline[i] == noDataValue)
@@ -514,7 +514,7 @@ int KmlSuperOverlayReadDataset::DetectTransparency(int rxsize, int rysize,
                 int yOffset = ry + row * rowOffset;
                 CPL_IGNORE_RET_VAL(poBand->RasterIO(
                     GF_Read, rx, yOffset, rxsize, rowOffset, abyScanline.data(),
-                    dxsize, 1, GDT_Byte, 0, 0, nullptr));
+                    dxsize, 1, GDT_UInt8, 0, 0, nullptr));
                 for (int i = 0; i < dxsize; i++)
                 {
                     if (abyScanline[i] == 255)
@@ -537,7 +537,7 @@ int KmlSuperOverlayReadDataset::DetectTransparency(int rxsize, int rysize,
 }
 
 /************************************************************************/
-/*                           CreateCopy()                               */
+/*                             CreateCopy()                             */
 /************************************************************************/
 
 class KmlSuperOverlayDummyDataset final : public GDALDataset
@@ -551,7 +551,7 @@ KmlSuperOverlayDummyDataset::~KmlSuperOverlayDummyDataset() = default;
 
 static GDALDataset *
 KmlSuperOverlayCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
-                          CPL_UNUSED int bStrict, char **papszOptions,
+                          CPL_UNUSED int bStrict, CSLConstList papszOptions,
                           GDALProgressFunc pfnProgress, void *pProgressData)
 {
     bool isKmz = false;
@@ -663,10 +663,10 @@ KmlSuperOverlayCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
 
     if (poSrcDS->GetGeoTransform(gt) == CE_None)
     {
-        north = gt[3];
-        south = gt[3] + gt[5] * ysize;
-        east = gt[0] + gt[1] * xsize;
-        west = gt[0];
+        north = gt.yorig;
+        south = gt.yorig + gt.yscale * ysize;
+        east = gt.xorig + gt.xscale * xsize;
+        west = gt.xorig;
     }
 
     std::unique_ptr<OGRCoordinateTransformation> poTransform;
@@ -726,10 +726,10 @@ KmlSuperOverlayCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
     std::vector<double> zoomypixels;
     for (int zoom = 0; zoom < maxzoom + 1; zoom++)
     {
-        zoomxpixels.push_back(gt[1] * pow(2.0, (maxzoom - zoom)));
-        // zoomypixels.push_back(abs(gt[5]) * pow(2.0, (maxzoom -
+        zoomxpixels.push_back(gt.xscale * pow(2.0, (maxzoom - zoom)));
+        // zoomypixels.push_back(abs(gt.yscale) * pow(2.0, (maxzoom -
         // zoom)));
-        zoomypixels.push_back(fabs(gt[5]) * pow(2.0, (maxzoom - zoom)));
+        zoomypixels.push_back(fabs(gt.yscale) * pow(2.0, (maxzoom - zoom)));
     }
 
     std::vector<std::string> fileVector;
@@ -922,7 +922,7 @@ KmlSuperOverlayCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
                     fileVector.push_back(childKmlfile);
                 }
 
-                double tmpSouth = gt[3] + gt[5] * ysize;
+                double tmpSouth = gt.yorig + gt.yscale * ysize;
                 double zoomxpix = zoomxpixels[zoom];
                 double zoomypix = zoomypixels[zoom];
                 if (zoomxpix == 0)
@@ -948,8 +948,8 @@ KmlSuperOverlayCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
                 currentTiles[parentXYKey].push_back(
                     std::make_pair(std::make_pair(ix, iy), hasChildKML));
                 GenerateChildKml(childKmlfile, zoom, ix, iy, zoomxpix, zoomypix,
-                                 dxsize, dysize, tmpSouth, gt[0], xsize, ysize,
-                                 maxzoom, poTransform.get(), fileExt,
+                                 dxsize, dysize, tmpSouth, gt.xorig, xsize,
+                                 ysize, maxzoom, poTransform.get(), fileExt,
                                  fixAntiMeridian, pszAltitude, pszAltitudeMode,
                                  childTiles[childXYKey]);
 
@@ -975,7 +975,7 @@ KmlSuperOverlayCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
 }
 
 /************************************************************************/
-/*                            KMLRemoveSlash()                          */
+/*                           KMLRemoveSlash()                           */
 /************************************************************************/
 
 /* replace "a/b/../c" pattern by "a/c" */
@@ -1000,7 +1000,7 @@ static std::string KMLRemoveSlash(const char *pszPathIn)
 }
 
 /************************************************************************/
-/*                      KmlSuperOverlayReadDataset()                    */
+/*                     KmlSuperOverlayReadDataset()                     */
 /************************************************************************/
 
 KmlSuperOverlayReadDataset::KmlSuperOverlayReadDataset()
@@ -1010,7 +1010,7 @@ KmlSuperOverlayReadDataset::KmlSuperOverlayReadDataset()
 }
 
 /************************************************************************/
-/*                     ~KmlSuperOverlayReadDataset()                    */
+/*                    ~KmlSuperOverlayReadDataset()                     */
 /************************************************************************/
 
 KmlSuperOverlayReadDataset::~KmlSuperOverlayReadDataset()
@@ -1022,7 +1022,7 @@ KmlSuperOverlayReadDataset::~KmlSuperOverlayReadDataset()
 }
 
 /************************************************************************/
-/*                         CloseDependentDatasets()                     */
+/*                       CloseDependentDatasets()                       */
 /************************************************************************/
 
 int KmlSuperOverlayReadDataset::CloseDependentDatasets()
@@ -1063,7 +1063,7 @@ int KmlSuperOverlayReadDataset::CloseDependentDatasets()
 }
 
 /************************************************************************/
-/*                          GetSpatialRef()                             */
+/*                           GetSpatialRef()                            */
 /************************************************************************/
 
 const OGRSpatialReference *KmlSuperOverlayReadDataset::GetSpatialRef() const
@@ -1083,7 +1083,7 @@ CPLErr KmlSuperOverlayReadDataset::GetGeoTransform(GDALGeoTransform &gt) const
 }
 
 /************************************************************************/
-/*                        KmlSuperOverlayRasterBand()                   */
+/*                     KmlSuperOverlayRasterBand()                      */
 /************************************************************************/
 
 KmlSuperOverlayRasterBand::KmlSuperOverlayRasterBand(
@@ -1091,26 +1091,22 @@ KmlSuperOverlayRasterBand::KmlSuperOverlayRasterBand(
 {
     nRasterXSize = poDSIn->nRasterXSize;
     nRasterYSize = poDSIn->nRasterYSize;
-    eDataType = GDT_Byte;
+    eDataType = GDT_UInt8;
     nBlockXSize = 256;
     nBlockYSize = 256;
 }
 
 /************************************************************************/
-/*                               IReadBlock()                           */
+/*                             IReadBlock()                             */
 /************************************************************************/
 
 CPLErr KmlSuperOverlayRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
                                              void *pData)
 {
-    int nXOff = nBlockXOff * nBlockXSize;
-    int nYOff = nBlockYOff * nBlockYSize;
-    int nXSize = nBlockXSize;
-    int nYSize = nBlockYSize;
-    if (nXOff + nXSize > nRasterXSize)
-        nXSize = nRasterXSize - nXOff;
-    if (nYOff + nYSize > nRasterYSize)
-        nYSize = nRasterYSize - nYOff;
+    const int nXOff = nBlockXOff * nBlockXSize;
+    const int nXSize = std::min(nBlockXSize, nRasterXSize - nXOff);
+    const int nYOff = nBlockYOff * nBlockYSize;
+    const int nYSize = std::min(nBlockYSize, nRasterYSize - nYOff);
 
     GDALRasterIOExtraArg sExtraArg;
     INIT_RASTERIO_EXTRA_ARG(sExtraArg);
@@ -1120,7 +1116,7 @@ CPLErr KmlSuperOverlayRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
 }
 
 /************************************************************************/
-/*                          GetColorInterpretation()                    */
+/*                       GetColorInterpretation()                       */
 /************************************************************************/
 
 GDALColorInterp KmlSuperOverlayRasterBand::GetColorInterpretation()
@@ -1129,7 +1125,7 @@ GDALColorInterp KmlSuperOverlayRasterBand::GetColorInterpretation()
 }
 
 /************************************************************************/
-/*                            IRasterIO()                               */
+/*                             IRasterIO()                              */
 /************************************************************************/
 
 CPLErr KmlSuperOverlayRasterBand::IRasterIO(
@@ -1158,7 +1154,7 @@ int KmlSuperOverlayRasterBand::GetOverviewCount()
 }
 
 /************************************************************************/
-/*                           GetOverview()                              */
+/*                            GetOverview()                             */
 /************************************************************************/
 
 GDALRasterBand *KmlSuperOverlayRasterBand::GetOverview(int iOvr)
@@ -1173,7 +1169,7 @@ GDALRasterBand *KmlSuperOverlayRasterBand::GetOverview(int iOvr)
 }
 
 /************************************************************************/
-/*                     KmlSuperOverlayGetBoundingBox()                  */
+/*                   KmlSuperOverlayGetBoundingBox()                    */
 /************************************************************************/
 
 static bool KmlSuperOverlayGetBoundingBox(const CPLXMLNode *psNode,
@@ -1236,7 +1232,7 @@ static bool KmlSuperOverlayGetBoundingBox(const CPLXMLNode *psNode,
 }
 
 /************************************************************************/
-/*                            IRasterIO()                               */
+/*                             IRasterIO()                              */
 /************************************************************************/
 
 class SubImageDesc
@@ -1283,15 +1279,17 @@ CPLErr KmlSuperOverlayReadDataset::IRasterIO(
 
     if (nBufXSize > dfXSize || nBufYSize > dfYSize)
     {
-        const double dfRequestXMin = m_gt[0] + nXOff * m_gt[1];
-        const double dfRequestXMax = m_gt[0] + (nXOff + nXSize) * m_gt[1];
-        const double dfRequestYMin = m_gt[3] + (nYOff + nYSize) * m_gt[5];
-        const double dfRequestYMax = m_gt[3] + nYOff * m_gt[5];
+        const double dfRequestXMin = m_gt.xorig + nXOff * m_gt.xscale;
+        const double dfRequestXMax =
+            m_gt.xorig + (nXOff + nXSize) * m_gt.xscale;
+        const double dfRequestYMin =
+            m_gt.yorig + (nYOff + nYSize) * m_gt.yscale;
+        const double dfRequestYMax = m_gt.yorig + nYOff * m_gt.yscale;
 
         const CPLXMLNode *psIter = psDocument->psChild;
         std::vector<SubImageDesc> aoImages;
-        const double dfXRes = m_gt[1] * nFactor;
-        const double dfYRes = -m_gt[5] * nFactor;
+        const double dfXRes = m_gt.xscale * nFactor;
+        const double dfYRes = -m_gt.yscale * nFactor;
         double dfNewXRes = dfXRes;
         double dfNewYRes = dfYRes;
 
@@ -1431,12 +1429,14 @@ CPLErr KmlSuperOverlayReadDataset::IRasterIO(
                     {
                         int nSubImageXSize = poSubImageDS->GetRasterXSize();
                         int nSubImageYSize = poSubImageDS->GetRasterYSize();
-                        adfExtents[0] = poSubImageDS->m_gt[0];
-                        adfExtents[1] = poSubImageDS->m_gt[3] +
-                                        nSubImageYSize * poSubImageDS->m_gt[5];
-                        adfExtents[2] = poSubImageDS->m_gt[0] +
-                                        nSubImageXSize * poSubImageDS->m_gt[1];
-                        adfExtents[3] = poSubImageDS->m_gt[3];
+                        adfExtents[0] = poSubImageDS->m_gt.xorig;
+                        adfExtents[1] =
+                            poSubImageDS->m_gt.yorig +
+                            nSubImageYSize * poSubImageDS->m_gt.yscale;
+                        adfExtents[2] =
+                            poSubImageDS->m_gt.xorig +
+                            nSubImageXSize * poSubImageDS->m_gt.xscale;
+                        adfExtents[3] = poSubImageDS->m_gt.yorig;
 
                         double dfSubXRes =
                             (adfExtents[2] - adfExtents[0]) / nSubImageXSize;
@@ -1470,7 +1470,7 @@ CPLErr KmlSuperOverlayReadDataset::IRasterIO(
 
             for (int iBandIdx = 0; iBandIdx < 4; iBandIdx++)
             {
-                poVRTDS->AddBand(GDT_Byte, nullptr);
+                poVRTDS->AddBand(GDT_UInt8, nullptr);
 
                 auto poVRTBand = static_cast<VRTSourcedRasterBand *>(
                     poVRTDS->GetRasterBand(iBandIdx + 1));
@@ -1496,9 +1496,9 @@ CPLErr KmlSuperOverlayReadDataset::IRasterIO(
             for (const auto &oImage : aoImages)
             {
                 const int nDstXOff = static_cast<int>(
-                    (oImage.adfExtents[0] - m_gt[0]) / dfNewXRes + 0.5);
+                    (oImage.adfExtents[0] - m_gt.xorig) / dfNewXRes + 0.5);
                 const int nDstYOff = static_cast<int>(
-                    (m_gt[3] - oImage.adfExtents[3]) / dfNewYRes + 0.5);
+                    (m_gt.yorig - oImage.adfExtents[3]) / dfNewYRes + 0.5);
                 const int nDstXSize = static_cast<int>(
                     (oImage.adfExtents[2] - oImage.adfExtents[0]) / dfNewXRes +
                     0.5);
@@ -1574,7 +1574,7 @@ CPLErr KmlSuperOverlayReadDataset::IRasterIO(
             GByte nVal = (nBand == 4) ? 255 : 0;
             for (int j = 0; j < nBufYSize; j++)
             {
-                GDALCopyWords(&nVal, GDT_Byte, 0,
+                GDALCopyWords(&nVal, GDT_UInt8, 0,
                               static_cast<GByte *>(pData) + j * nLineSpace +
                                   iBandIdx * nBandSpace,
                               eBufType, static_cast<int>(nPixelSpace),
@@ -1618,7 +1618,7 @@ CPLErr KmlSuperOverlayReadDataset::IRasterIO(
 }
 
 /************************************************************************/
-/*                    KmlSuperOverlayFindRegionStart()                  */
+/*                   KmlSuperOverlayFindRegionStart()                   */
 /************************************************************************/
 
 static int KmlSuperOverlayFindRegionStartInternal(CPLXMLNode *psNode,
@@ -1688,7 +1688,7 @@ static int KmlSuperOverlayFindRegionStart(CPLXMLNode *psNode,
 }
 
 /************************************************************************/
-/*                             Identify()                               */
+/*                              Identify()                              */
 /************************************************************************/
 
 int KmlSuperOverlayReadDataset::Identify(GDALOpenInfo *poOpenInfo)
@@ -1751,7 +1751,7 @@ GDALDataset *KmlSuperOverlayReadDataset::Open(GDALOpenInfo *poOpenInfo)
 }
 
 /************************************************************************/
-/*                         KmlSuperOverlayLoadIcon()                    */
+/*                      KmlSuperOverlayLoadIcon()                       */
 /************************************************************************/
 
 #define BUFFER_SIZE 20000000
@@ -1910,7 +1910,7 @@ static bool KmlSuperOverlayComputeDepth(const std::string &osFilename,
 }
 
 /************************************************************************/
-/*                    KmlSingleDocRasterDataset                         */
+/*                      KmlSingleDocRasterDataset                       */
 /************************************************************************/
 
 class KmlSingleDocRasterRasterBand;
@@ -1966,7 +1966,7 @@ class KmlSingleDocRasterDataset final : public GDALDataset
 };
 
 /************************************************************************/
-/*                    KmlSingleDocRasterRasterBand                      */
+/*                     KmlSingleDocRasterRasterBand                     */
 /************************************************************************/
 
 class KmlSingleDocRasterRasterBand final : public GDALRasterBand
@@ -1982,7 +1982,7 @@ class KmlSingleDocRasterRasterBand final : public GDALRasterBand
 };
 
 /************************************************************************/
-/*                        KmlSingleDocRasterDataset()                   */
+/*                     KmlSingleDocRasterDataset()                      */
 /************************************************************************/
 
 KmlSingleDocRasterDataset::KmlSingleDocRasterDataset()
@@ -1992,7 +1992,7 @@ KmlSingleDocRasterDataset::KmlSingleDocRasterDataset()
 }
 
 /************************************************************************/
-/*                       ~KmlSingleDocRasterDataset()                   */
+/*                     ~KmlSingleDocRasterDataset()                     */
 /************************************************************************/
 
 KmlSingleDocRasterDataset::~KmlSingleDocRasterDataset()
@@ -2001,7 +2001,7 @@ KmlSingleDocRasterDataset::~KmlSingleDocRasterDataset()
 }
 
 /************************************************************************/
-/*                         CloseDependentDatasets()                     */
+/*                       CloseDependentDatasets()                       */
 /************************************************************************/
 
 int KmlSingleDocRasterDataset::CloseDependentDatasets()
@@ -2103,14 +2103,14 @@ void KmlSingleDocRasterDataset::BuildOverviews()
         poOvrDS->nTileSize = nTileSize;
         poOvrDS->osDirname = osDirname;
         poOvrDS->osNominalExt = oDesc.szExtI;
-        poOvrDS->m_gt[0] = adfGlobalExtents[0];
-        poOvrDS->m_gt[1] =
+        poOvrDS->m_gt.xorig = adfGlobalExtents[0];
+        poOvrDS->m_gt.xscale =
             (adfGlobalExtents[2] - adfGlobalExtents[0]) / poOvrDS->nRasterXSize;
-        poOvrDS->m_gt[2] = 0.0;
-        poOvrDS->m_gt[3] = adfGlobalExtents[3];
-        poOvrDS->m_gt[4] = 0.0;
-        poOvrDS->m_gt[5] = -(adfGlobalExtents[3] - adfGlobalExtents[1]) /
-                           poOvrDS->nRasterXSize;
+        poOvrDS->m_gt.xrot = 0.0;
+        poOvrDS->m_gt.yorig = adfGlobalExtents[3];
+        poOvrDS->m_gt.yrot = 0.0;
+        poOvrDS->m_gt.yscale = -(adfGlobalExtents[3] - adfGlobalExtents[1]) /
+                               poOvrDS->nRasterXSize;
         for (int iBand = 1; iBand <= nBands; iBand++)
             poOvrDS->SetBand(iBand,
                              std::make_unique<KmlSingleDocRasterRasterBand>(
@@ -2122,7 +2122,7 @@ void KmlSingleDocRasterDataset::BuildOverviews()
 }
 
 /************************************************************************/
-/*                      KmlSingleDocRasterRasterBand()                  */
+/*                    KmlSingleDocRasterRasterBand()                    */
 /************************************************************************/
 
 KmlSingleDocRasterRasterBand::KmlSingleDocRasterRasterBand(
@@ -2132,11 +2132,11 @@ KmlSingleDocRasterRasterBand::KmlSingleDocRasterRasterBand(
     nBand = nBandIn;
     nBlockXSize = poDSIn->nTileSize;
     nBlockYSize = poDSIn->nTileSize;
-    eDataType = GDT_Byte;
+    eDataType = GDT_UInt8;
 }
 
 /************************************************************************/
-/*                               IReadBlock()                           */
+/*                             IReadBlock()                             */
 /************************************************************************/
 
 CPLErr KmlSingleDocRasterRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
@@ -2163,15 +2163,13 @@ CPLErr KmlSingleDocRasterRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
         memset(pImage, 0, static_cast<size_t>(nBlockXSize) * nBlockYSize);
         return CE_None;
     }
-    int nXSize = poImageDS->GetRasterXSize();
-    int nYSize = poImageDS->GetRasterYSize();
+    const int nXSize = poImageDS->GetRasterXSize();
+    const int nYSize = poImageDS->GetRasterYSize();
 
-    int nReqXSize = nBlockXSize;
-    if (nBlockXOff * nBlockXSize + nReqXSize > nRasterXSize)
-        nReqXSize = nRasterXSize - nBlockXOff * nBlockXSize;
-    int nReqYSize = nBlockYSize;
-    if (nBlockYOff * nBlockYSize + nReqYSize > nRasterYSize)
-        nReqYSize = nRasterYSize - nBlockYOff * nBlockYSize;
+    const int nXOff = nBlockXOff * nBlockXSize;
+    const int nReqXSize = std::min(nBlockXSize, nRasterXSize - nXOff);
+    const int nYOff = nBlockYOff * nBlockYSize;
+    const int nReqYSize = std::min(nBlockYSize, nRasterYSize - nYOff);
 
     if (nXSize != nReqXSize || nYSize != nReqYSize)
     {
@@ -2194,8 +2192,8 @@ CPLErr KmlSingleDocRasterRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
         else
         {
             eErr = poImageDS->GetRasterBand(1)->RasterIO(
-                GF_Read, 0, 0, nXSize, nYSize, pImage, nXSize, nYSize, GDT_Byte,
-                1, nBlockXSize, nullptr);
+                GF_Read, 0, 0, nXSize, nYSize, pImage, nXSize, nYSize,
+                GDT_UInt8, 1, nBlockXSize, nullptr);
 
             /* Expand color table */
             if (eErr == CE_None && poColorTable != nullptr)
@@ -2232,7 +2230,7 @@ CPLErr KmlSingleDocRasterRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
     else if (nBand <= poImageDS->GetRasterCount())
     {
         eErr = poImageDS->GetRasterBand(nBand)->RasterIO(
-            GF_Read, 0, 0, nXSize, nYSize, pImage, nXSize, nYSize, GDT_Byte, 1,
+            GF_Read, 0, 0, nXSize, nYSize, pImage, nXSize, nYSize, GDT_UInt8, 1,
             nBlockXSize, nullptr);
     }
     else if (nBand == 4 && poImageDS->GetRasterCount() == 3)
@@ -2267,7 +2265,7 @@ CPLErr KmlSingleDocRasterRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
 }
 
 /************************************************************************/
-/*                          GetColorInterpretation()                    */
+/*                       GetColorInterpretation()                       */
 /************************************************************************/
 
 GDALColorInterp KmlSingleDocRasterRasterBand::GetColorInterpretation()
@@ -2289,7 +2287,7 @@ int KmlSingleDocRasterRasterBand::GetOverviewCount()
 }
 
 /************************************************************************/
-/*                           GetOverview()                              */
+/*                            GetOverview()                             */
 /************************************************************************/
 
 GDALRasterBand *KmlSingleDocRasterRasterBand::GetOverview(int iOvr)
@@ -2305,7 +2303,7 @@ GDALRasterBand *KmlSingleDocRasterRasterBand::GetOverview(int iOvr)
 }
 
 /************************************************************************/
-/*                       KmlSingleDocCollectTiles()                     */
+/*                      KmlSingleDocCollectTiles()                      */
 /************************************************************************/
 
 static void
@@ -2458,13 +2456,13 @@ GDALDataset *KmlSingleDocRasterDataset::Open(const char *pszFilename,
     poDS->osDirname = std::move(osDirname);
     poDS->osNominalExt = oDesc.szExtI;
     poDS->adfGlobalExtents = adfGlobalExtents;
-    poDS->m_gt[0] = adfGlobalExtents[0];
-    poDS->m_gt[1] =
+    poDS->m_gt.xorig = adfGlobalExtents[0];
+    poDS->m_gt.xscale =
         (adfGlobalExtents[2] - adfGlobalExtents[0]) / poDS->nRasterXSize;
-    poDS->m_gt[2] = 0.0;
-    poDS->m_gt[3] = adfGlobalExtents[3];
-    poDS->m_gt[4] = 0.0;
-    poDS->m_gt[5] =
+    poDS->m_gt.xrot = 0.0;
+    poDS->m_gt.yorig = adfGlobalExtents[3];
+    poDS->m_gt.yrot = 0.0;
+    poDS->m_gt.yscale =
         -(adfGlobalExtents[3] - adfGlobalExtents[1]) / poDS->nRasterYSize;
     if (nBands == 1 && bHasCT)
         nBands = 4;
@@ -2479,7 +2477,7 @@ GDALDataset *KmlSingleDocRasterDataset::Open(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                   KmlSingleOverlayRasterDataset                      */
+/*                    KmlSingleOverlayRasterDataset                     */
 /************************************************************************/
 
 class KmlSingleOverlayRasterDataset final : public VRTDataset
@@ -2576,7 +2574,7 @@ GDALDataset *KmlSingleOverlayRasterDataset::Open(const char *pszFilename,
         poImageDS->GetRasterXSize(), poImageDS->GetRasterYSize());
     for (int i = 1; i <= poImageDS->GetRasterCount(); ++i)
     {
-        poDS->AddBand(GDT_Byte, nullptr);
+        poDS->AddBand(GDT_UInt8, nullptr);
 
         auto poImageBand = poImageDS->GetRasterBand(i);
         auto poVRTBand =
@@ -2803,10 +2801,10 @@ KmlSuperOverlayReadDataset::Open(const char *pszFilename,
     poDS->nFactor = nFactor;
     poDS->nRasterXSize = nFactor * poDSIcon->GetRasterXSize();
     poDS->nRasterYSize = nFactor * poDSIcon->GetRasterYSize();
-    poDS->m_gt[0] = adfExtents[0];
-    poDS->m_gt[1] = (adfExtents[2] - adfExtents[0]) / poDS->nRasterXSize;
-    poDS->m_gt[3] = adfExtents[3];
-    poDS->m_gt[5] = -(adfExtents[3] - adfExtents[1]) / poDS->nRasterYSize;
+    poDS->m_gt.xorig = adfExtents[0];
+    poDS->m_gt.xscale = (adfExtents[2] - adfExtents[0]) / poDS->nRasterXSize;
+    poDS->m_gt.yorig = adfExtents[3];
+    poDS->m_gt.yscale = -(adfExtents[3] - adfExtents[1]) / poDS->nRasterYSize;
     poDS->nBands = 4;
     for (int i = 0; i < 4; i++)
         poDS->SetBand(i + 1, std::make_unique<KmlSuperOverlayRasterBand>(
@@ -2828,11 +2826,11 @@ KmlSuperOverlayReadDataset::Open(const char *pszFilename,
         poOvrDS->nFactor = nFactor;
         poOvrDS->nRasterXSize = nFactor * poDSIcon->GetRasterXSize();
         poOvrDS->nRasterYSize = nFactor * poDSIcon->GetRasterYSize();
-        poOvrDS->m_gt[0] = adfExtents[0];
-        poOvrDS->m_gt[1] =
+        poOvrDS->m_gt.xorig = adfExtents[0];
+        poOvrDS->m_gt.xscale =
             (adfExtents[2] - adfExtents[0]) / poOvrDS->nRasterXSize;
-        poOvrDS->m_gt[3] = adfExtents[3];
-        poOvrDS->m_gt[5] =
+        poOvrDS->m_gt.yorig = adfExtents[3];
+        poOvrDS->m_gt.yscale =
             -(adfExtents[3] - adfExtents[1]) / poOvrDS->nRasterYSize;
         poOvrDS->nBands = 4;
         for (int i = 0; i < 4; i++)

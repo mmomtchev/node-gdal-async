@@ -126,7 +126,7 @@ static const char FIELD_BLOB[] = "blob";
 /*                       OGRGeocodeGetParameter()                       */
 /************************************************************************/
 
-static const char *OGRGeocodeGetParameter(char **papszOptions,
+static const char *OGRGeocodeGetParameter(CSLConstList papszOptions,
                                           const char *pszKey,
                                           const char *pszDefaultValue)
 {
@@ -139,7 +139,7 @@ static const char *OGRGeocodeGetParameter(char **papszOptions,
 }
 
 /************************************************************************/
-/*                      OGRGeocodeHasStringValidFormat()                */
+/*                   OGRGeocodeHasStringValidFormat()                   */
 /************************************************************************/
 
 // Checks that pszQueryTemplate has one and only one occurrence of %s in it.
@@ -179,7 +179,7 @@ static bool OGRGeocodeHasStringValidFormat(const char *pszQueryTemplate)
 }
 
 /************************************************************************/
-/*                       OGRGeocodeCreateSession()                      */
+/*                      OGRGeocodeCreateSession()                       */
 /************************************************************************/
 
 /* clang-format off */
@@ -233,7 +233,7 @@ static bool OGRGeocodeHasStringValidFormat(const char *pszQueryTemplate)
  */
 /* clang-format on */
 
-OGRGeocodingSessionH OGRGeocodeCreateSession(char **papszOptions)
+OGRGeocodingSessionH OGRGeocodeCreateSession(CSLConstList papszOptions)
 {
     OGRGeocodingSessionH hSession = static_cast<OGRGeocodingSessionH>(
         CPLCalloc(1, sizeof(_OGRGeocodingSessionHS)));
@@ -357,7 +357,7 @@ OGRGeocodingSessionH OGRGeocodeCreateSession(char **papszOptions)
 }
 
 /************************************************************************/
-/*                       OGRGeocodeDestroySession()                     */
+/*                      OGRGeocodeDestroySession()                      */
 /************************************************************************/
 
 /**
@@ -385,7 +385,7 @@ void OGRGeocodeDestroySession(OGRGeocodingSessionH hSession)
 }
 
 /************************************************************************/
-/*                        OGRGeocodeGetCacheLayer()                     */
+/*                      OGRGeocodeGetCacheLayer()                       */
 /************************************************************************/
 
 static OGRLayer *OGRGeocodeGetCacheLayer(OGRGeocodingSessionH hSession,
@@ -528,7 +528,7 @@ static OGRLayer *OGRGeocodeGetCacheLayer(OGRGeocodingSessionH hSession,
 }
 
 /************************************************************************/
-/*                        OGRGeocodeGetFromCache()                      */
+/*                       OGRGeocodeGetFromCache()                       */
 /************************************************************************/
 
 static char *OGRGeocodeGetFromCache(OGRGeocodingSessionH hSession,
@@ -559,7 +559,7 @@ static char *OGRGeocodeGetFromCache(OGRGeocodingSessionH hSession,
 }
 
 /************************************************************************/
-/*                        OGRGeocodePutIntoCache()                      */
+/*                       OGRGeocodePutIntoCache()                       */
 /************************************************************************/
 
 static bool OGRGeocodePutIntoCache(OGRGeocodingSessionH hSession,
@@ -582,7 +582,7 @@ static bool OGRGeocodePutIntoCache(OGRGeocodingSessionH hSession,
 }
 
 /************************************************************************/
-/*                        OGRGeocodeMakeRawLayer()                      */
+/*                       OGRGeocodeMakeRawLayer()                       */
 /************************************************************************/
 
 static OGRLayerH OGRGeocodeMakeRawLayer(const char *pszContent)
@@ -591,15 +591,14 @@ static OGRLayerH OGRGeocodeMakeRawLayer(const char *pszContent)
     const OGRFeatureDefn *poFDefn = poLayer->GetLayerDefn();
     OGRFieldDefn oFieldDefnRaw("raw", OFTString);
     poLayer->CreateField(&oFieldDefnRaw);
-    OGRFeature *poFeature = new OGRFeature(poFDefn);
+    auto poFeature = std::make_unique<OGRFeature>(poFDefn);
     poFeature->SetField("raw", pszContent);
-    CPL_IGNORE_RET_VAL(poLayer->CreateFeature(poFeature));
-    delete poFeature;
+    CPL_IGNORE_RET_VAL(poLayer->CreateFeature(std::move(poFeature)));
     return OGRLayer::ToHandle(poLayer);
 }
 
 /************************************************************************/
-/*                  OGRGeocodeBuildLayerNominatim()                     */
+/*                   OGRGeocodeBuildLayerNominatim()                    */
 /************************************************************************/
 
 static OGRLayerH OGRGeocodeBuildLayerNominatim(CPLXMLNode *psSearchResults,
@@ -667,7 +666,7 @@ static OGRLayerH OGRGeocodeBuildLayerNominatim(CPLXMLNode *psSearchResults,
             double dfLon = 0.0;
 
             // Iteration to fill the feature.
-            OGRFeature *poFeature = new OGRFeature(poFDefn);
+            auto poFeature = std::make_unique<OGRFeature>(poFDefn);
 
             for (CPLXMLNode *psChild = psPlace->psChild; psChild != nullptr;
                  psChild = psChild->psNext)
@@ -729,8 +728,7 @@ static OGRLayerH OGRGeocodeBuildLayerNominatim(CPLXMLNode *psSearchResults,
                 bFoundLat)
                 poFeature->SetGeometryDirectly(new OGRPoint(dfLon, dfLat));
 
-            CPL_IGNORE_RET_VAL(poLayer->CreateFeature(poFeature));
-            delete poFeature;
+            CPL_IGNORE_RET_VAL(poLayer->CreateFeature(std::move(poFeature)));
         }
         psPlace = psPlace->psNext;
     }
@@ -738,7 +736,7 @@ static OGRLayerH OGRGeocodeBuildLayerNominatim(CPLXMLNode *psSearchResults,
 }
 
 /************************************************************************/
-/*               OGRGeocodeReverseBuildLayerNominatim()                 */
+/*                OGRGeocodeReverseBuildLayerNominatim()                */
 /************************************************************************/
 
 static OGRLayerH OGRGeocodeReverseBuildLayerNominatim(
@@ -820,7 +818,7 @@ static OGRLayerH OGRGeocodeReverseBuildLayerNominatim(
     }
 
     // Second iteration to fill the feature.
-    OGRFeature *poFeature = new OGRFeature(poFDefn);
+    auto poFeature = std::make_unique<OGRFeature>(poFDefn);
     psChild = psResult->psChild;
     while (psChild != nullptr)
     {
@@ -867,14 +865,13 @@ static OGRLayerH OGRGeocodeReverseBuildLayerNominatim(
     if (poFeature->GetGeometryRef() == nullptr && bFoundLon && bFoundLat)
         poFeature->SetGeometryDirectly(new OGRPoint(dfLon, dfLat));
 
-    CPL_IGNORE_RET_VAL(poLayer->CreateFeature(poFeature));
-    delete poFeature;
+    CPL_IGNORE_RET_VAL(poLayer->CreateFeature(std::move(poFeature)));
 
     return OGRLayer::ToHandle(poLayer);
 }
 
 /************************************************************************/
-/*                   OGRGeocodeBuildLayerYahoo()                        */
+/*                     OGRGeocodeBuildLayerYahoo()                      */
 /************************************************************************/
 
 static OGRLayerH OGRGeocodeBuildLayerYahoo(CPLXMLNode *psResultSet,
@@ -938,7 +935,7 @@ static OGRLayerH OGRGeocodeBuildLayerYahoo(CPLXMLNode *psResultSet,
             double dfLon = 0.0;
 
             // Second iteration to fill the feature.
-            OGRFeature *poFeature = new OGRFeature(poFDefn);
+            auto poFeature = std::make_unique<OGRFeature>(poFDefn);
             for (CPLXMLNode *psChild = psPlace->psChild; psChild != nullptr;
                  psChild = psChild->psNext)
             {
@@ -1001,8 +998,7 @@ static OGRLayerH OGRGeocodeBuildLayerYahoo(CPLXMLNode *psResultSet,
             if (bFoundLon && bFoundLat)
                 poFeature->SetGeometryDirectly(new OGRPoint(dfLon, dfLat));
 
-            CPL_IGNORE_RET_VAL(poLayer->CreateFeature(poFeature));
-            delete poFeature;
+            CPL_IGNORE_RET_VAL(poLayer->CreateFeature(std::move(poFeature)));
         }
         psPlace = psPlace->psNext;
     }
@@ -1010,7 +1006,7 @@ static OGRLayerH OGRGeocodeBuildLayerYahoo(CPLXMLNode *psResultSet,
 }
 
 /************************************************************************/
-/*                   OGRGeocodeBuildLayerBing()                         */
+/*                      OGRGeocodeBuildLayerBing()                      */
 /************************************************************************/
 
 static OGRLayerH OGRGeocodeBuildLayerBing(CPLXMLNode *psResponse,
@@ -1097,7 +1093,7 @@ static OGRLayerH OGRGeocodeBuildLayerBing(CPLXMLNode *psResponse,
             double dfLat = 0.0;
             double dfLon = 0.0;
 
-            OGRFeature *poFeature = new OGRFeature(poFDefn);
+            auto poFeature = std::make_unique<OGRFeature>(poFDefn);
             for (CPLXMLNode *psChild = psPlace->psChild; psChild != nullptr;
                  psChild = psChild->psNext)
             {
@@ -1166,8 +1162,7 @@ static OGRLayerH OGRGeocodeBuildLayerBing(CPLXMLNode *psResponse,
             if (bFoundLon && bFoundLat)
                 poFeature->SetGeometryDirectly(new OGRPoint(dfLon, dfLat));
 
-            CPL_IGNORE_RET_VAL(poLayer->CreateFeature(poFeature));
-            delete poFeature;
+            CPL_IGNORE_RET_VAL(poLayer->CreateFeature(std::move(poFeature)));
         }
         psPlace = psPlace->psNext;
     }
@@ -1176,7 +1171,7 @@ static OGRLayerH OGRGeocodeBuildLayerBing(CPLXMLNode *psResponse,
 }
 
 /************************************************************************/
-/*                         OGRGeocodeBuildLayer()                       */
+/*                        OGRGeocodeBuildLayer()                        */
 /************************************************************************/
 
 static OGRLayerH OGRGeocodeBuildLayer(const char *pszContent,
@@ -1219,12 +1214,12 @@ static OGRLayerH OGRGeocodeBuildLayer(const char *pszContent,
 }
 
 /************************************************************************/
-/*                         OGRGeocodeCommon()                           */
+/*                          OGRGeocodeCommon()                          */
 /************************************************************************/
 
 static OGRLayerH OGRGeocodeCommon(OGRGeocodingSessionH hSession,
                                   const std::string &osURLIn,
-                                  char **papszOptions)
+                                  CSLConstList papszOptions)
 {
     std::string osURL(osURLIn);
 
@@ -1354,7 +1349,7 @@ static OGRLayerH OGRGeocodeCommon(OGRGeocodingSessionH hSession,
 }
 
 /************************************************************************/
-/*                              OGRGeocode()                            */
+/*                             OGRGeocode()                             */
 /************************************************************************/
 
 /* clang-format off */
@@ -1407,7 +1402,7 @@ static OGRLayerH OGRGeocodeCommon(OGRGeocodingSessionH hSession,
 /* clang-format on */
 
 OGRLayerH OGRGeocode(OGRGeocodingSessionH hSession, const char *pszQuery,
-                     char **papszStructuredQuery, char **papszOptions)
+                     char **papszStructuredQuery, CSLConstList papszOptions)
 {
     VALIDATE_POINTER1(hSession, "OGRGeocode", nullptr);
     if ((pszQuery == nullptr && papszStructuredQuery == nullptr) ||
@@ -1479,7 +1474,7 @@ OGRLayerH OGRGeocode(OGRGeocodingSessionH hSession, const char *pszQuery,
 }
 
 /************************************************************************/
-/*                      OGRGeocodeReverseSubstitute()                   */
+/*                    OGRGeocodeReverseSubstitute()                     */
 /************************************************************************/
 
 static CPLString OGRGeocodeReverseSubstitute(CPLString osURL, double dfLon,
@@ -1553,7 +1548,7 @@ static CPLString OGRGeocodeReverseSubstitute(CPLString osURL, double dfLon,
 /* clang-format on */
 
 OGRLayerH OGRGeocodeReverse(OGRGeocodingSessionH hSession, double dfLon,
-                            double dfLat, char **papszOptions)
+                            double dfLat, CSLConstList papszOptions)
 {
     VALIDATE_POINTER1(hSession, "OGRGeocodeReverse", nullptr);
 

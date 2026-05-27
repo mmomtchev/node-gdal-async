@@ -22,7 +22,7 @@
 #include "ogrparquetdrivercore.h"
 
 /************************************************************************/
-/*                             Identify()                               */
+/*                              Identify()                              */
 /************************************************************************/
 
 template <size_t N> constexpr int constexpr_length(const char (&)[N])
@@ -72,7 +72,7 @@ int OGRParquetDriverIdentify(GDALOpenInfo *poOpenInfo)
 }
 
 /************************************************************************/
-/*                OGRParquetDriverSetCommonMetadata()                   */
+/*                 OGRParquetDriverSetCommonMetadata()                  */
 /************************************************************************/
 
 void OGRParquetDriverSetCommonMetadata(GDALDriver *poDriver)
@@ -129,6 +129,8 @@ void OGRParquetDriverSetCommonMetadata(GDALDriver *poDriver)
     poDriver->SetMetadataItem(GDAL_DCAP_REORDER_FIELDS, "YES");
     poDriver->SetMetadataItem(GDAL_DMD_ALTER_FIELD_DEFN_FLAGS,
                               "Name Type WidthPrecision");
+
+    poDriver->DeclareAlgorithm({"create-metadata-file"});
 }
 
 /************************************************************************/

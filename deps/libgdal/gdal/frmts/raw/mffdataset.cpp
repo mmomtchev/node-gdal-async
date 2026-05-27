@@ -51,7 +51,7 @@ class MFFDataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(MFFDataset)
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
   public:
     MFFDataset();
@@ -179,7 +179,7 @@ CPLErr MFFTiledBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
 }
 
 /************************************************************************/
-/*                      MFF Spheroids                                   */
+/*                            MFF Spheroids                             */
 /************************************************************************/
 
 class MFFSpheroidList final : public SpheroidList
@@ -222,7 +222,7 @@ MFFSpheroidList ::MFFSpheroidList()
 /************************************************************************/
 
 /************************************************************************/
-/*                            MFFDataset()                             */
+/*                             MFFDataset()                             */
 /************************************************************************/
 
 MFFDataset::MFFDataset()
@@ -234,7 +234,7 @@ MFFDataset::MFFDataset()
 }
 
 /************************************************************************/
-/*                            ~MFFDataset()                            */
+/*                            ~MFFDataset()                             */
 /************************************************************************/
 
 MFFDataset::~MFFDataset()
@@ -244,10 +244,10 @@ MFFDataset::~MFFDataset()
 }
 
 /************************************************************************/
-/*                              Close()                                 */
+/*                               Close()                                */
 /************************************************************************/
 
-CPLErr MFFDataset::Close()
+CPLErr MFFDataset::Close(GDALProgressFunc, void *)
 {
     CPLErr eErr = CE_None;
     if (nOpenFlags != OPEN_FLAGS_CLOSED)
@@ -508,7 +508,7 @@ void MFFDataset::ScanForProjectionInfo()
     if (pszSpheroidName == nullptr)
     {
         CPLError(CE_Warning, CPLE_AppDefined,
-                 "Unspecified ellipsoid.  Using wgs-84 parameters.\n");
+                 "Unspecified ellipsoid.  Using wgs-84 parameters.");
 
         oProj.SetWellKnownGeogCS("WGS84");
         oLL.SetWellKnownGeogCS("WGS84");
@@ -825,7 +825,7 @@ GDALDataset *MFFDataset::Open(GDALOpenInfo *poOpenInfo)
             else if (EQUAL(pszRefinedType, "R*8"))
                 eDataType = GDT_Float64;
             else if (EQUAL(pszRefinedType, "I*1"))
-                eDataType = GDT_Byte;
+                eDataType = GDT_UInt8;
             else if (EQUAL(pszRefinedType, "I*2"))
                 eDataType = GDT_Int16;
             else if (EQUAL(pszRefinedType, "I*4"))
@@ -863,7 +863,7 @@ GDALDataset *MFFDataset::Open(GDALOpenInfo *poOpenInfo)
         }
         else if (STARTS_WITH_CI(osExt.c_str(), "b"))
         {
-            eDataType = GDT_Byte;
+            eDataType = GDT_UInt8;
         }
         else if (STARTS_WITH_CI(osExt.c_str(), "i"))
         {
@@ -1002,7 +1002,7 @@ GDALDataset *MFFDataset::Open(GDALOpenInfo *poOpenInfo)
 }
 
 /************************************************************************/
-/*                         GDALRegister_MFF()                           */
+/*                          GDALRegister_MFF()                          */
 /************************************************************************/
 
 void GDALRegister_MFF()

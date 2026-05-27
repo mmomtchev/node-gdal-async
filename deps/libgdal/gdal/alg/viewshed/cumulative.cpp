@@ -78,7 +78,8 @@ bool Cumulative::run(const std::string &srcFilename,
     CPLWorkerThreadPool executorPool(numThreads);
     for (int i = 0; i < numThreads; ++i)
         executorPool.SubmitJob(
-            [this, &srcFilename, &progress, &err, &running, &hasFoundNoData] {
+            [this, &srcFilename, &progress, &err, &running, &hasFoundNoData]
+            {
                 runExecutor(srcFilename, progress, err, running,
                             hasFoundNoData);
             });
@@ -146,7 +147,7 @@ void Cumulative::runExecutor(const std::string &srcFilename, Progress &progress,
         while (!err && m_observerQueue.pop(loc))
         {
             DatasetPtr dstDs(MEMDataset::Create(
-                "", m_extent.xSize(), m_extent.ySize(), 1, GDT_Byte, nullptr));
+                "", m_extent.xSize(), m_extent.ySize(), 1, GDT_UInt8, nullptr));
             if (!dstDs)
             {
                 err = true;

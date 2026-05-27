@@ -45,6 +45,7 @@ class GDALGroup;
 class GDALMDArray;
 class GDALRasterBand;
 class GDALRelationship;
+class GDALOpenInfo;
 
 //! @cond Doxygen_Suppress
 typedef struct GDALSQLParseInfo GDALSQLParseInfo;
@@ -223,7 +224,12 @@ class CPL_DLL GDALDataset : public GDALMajorObject
   public:
     ~GDALDataset() override;
 
-    virtual CPLErr Close();
+    virtual CPLErr Close(GDALProgressFunc pfnProgress = nullptr,
+                         void *pProgressData = nullptr);
+
+    virtual bool GetCloseReportsProgress() const;
+
+    virtual bool CanReopenWithCurrentDescription() const;
 
     int GetRasterXSize() const;
     int GetRasterYSize() const;
@@ -262,7 +268,7 @@ class CPL_DLL GDALDataset : public GDALMajorObject
             Iterator(const Iterator &oOther);  // declared but not defined.
                                                // Needed for gcc 5.4 at least
             Iterator(Iterator &&oOther) noexcept;  // declared but not defined.
-                // Needed for gcc 5.4 at least
+            // Needed for gcc 5.4 at least
             ~Iterator();
             GDALRasterBand *operator*();
             Iterator &operator++();
@@ -361,10 +367,11 @@ class CPL_DLL GDALDataset : public GDALMajorObject
         double *pdfPixel, double *pdfLine,
         CSLConstList papszTransformerOptions = nullptr) const;
 
-    virtual CPLErr AddBand(GDALDataType eType, char **papszOptions = nullptr);
+    virtual CPLErr AddBand(GDALDataType eType,
+                           CSLConstList papszOptions = nullptr);
 
     virtual void *GetInternalHandle(const char *pszHandleName);
-    virtual GDALDriver *GetDriver(void);
+    virtual GDALDriver *GetDriver(void) const;
     virtual char **GetFileList(void);
 
     const char *GetDriverName() const;
@@ -383,7 +390,7 @@ class CPL_DLL GDALDataset : public GDALMajorObject
     virtual CPLErr AdviseRead(int nXOff, int nYOff, int nXSize, int nYSize,
                               int nBufXSize, int nBufYSize, GDALDataType eDT,
                               int nBandCount, int *panBandList,
-                              char **papszOptions);
+                              CSLConstList papszOptions);
 
     virtual CPLErr CreateMaskBand(int nFlagsIn);
 
@@ -391,7 +398,7 @@ class CPL_DLL GDALDataset : public GDALMajorObject
     BeginAsyncReader(int nXOff, int nYOff, int nXSize, int nYSize, void *pBuf,
                      int nBufXSize, int nBufYSize, GDALDataType eBufType,
                      int nBandCount, int *panBandMap, int nPixelSpace,
-                     int nLineSpace, int nBandSpace, char **papszOptions);
+                     int nLineSpace, int nBandSpace, CSLConstList papszOptions);
     virtual void EndAsyncReader(GDALAsyncReader *poARIO);
 
     //! @cond Doxygen_Suppress
@@ -511,6 +518,31 @@ class CPL_DLL GDALDataset : public GDALMajorObject
                                 GDALProgressFunc pfnProgress,
                                 void *pProgressData, CSLConstList papszOptions);
 
+    CPLErr GetInterBandCovarianceMatrix(
+        double *padfCovMatrix, size_t nSize, int nBandCount = 0,
+        const int *panBandList = nullptr, bool bApproxOK = false,
+        bool bForce = false, bool bWriteIntoMetadata = true,
+        int nDeltaDegreeOfFreedom = 1, GDALProgressFunc pfnProgress = nullptr,
+        void *pProgressData = nullptr);
+
+    std::vector<double> GetInterBandCovarianceMatrix(
+        int nBandCount = 0, const int *panBandList = nullptr,
+        bool bApproxOK = false, bool bForce = false,
+        bool bWriteIntoMetadata = true, int nDeltaDegreeOfFreedom = 1,
+        GDALProgressFunc pfnProgress = nullptr, void *pProgressData = nullptr);
+
+    CPLErr ComputeInterBandCovarianceMatrix(
+        double *padfCovMatrix, size_t nSize, int nBandCount = 0,
+        const int *panBandList = nullptr, bool bApproxOK = false,
+        bool bWriteIntoMetadata = true, int nDeltaDegreeOfFreedom = 1,
+        GDALProgressFunc pfnProgress = nullptr, void *pProgressData = nullptr);
+
+    std::vector<double> ComputeInterBandCovarianceMatrix(
+        int nBandCount = 0, const int *panBandList = nullptr,
+        bool bApproxOK = false, bool bWriteIntoMetadata = true,
+        int nDeltaDegreeOfFreedom = 1, GDALProgressFunc pfnProgress = nullptr,
+        void *pProgressData = nullptr);
+
 #ifndef DOXYGEN_XML
     void ReportError(CPLErr eErrClass, CPLErrorNum err_no, const char *fmt,
                      ...) const CPL_PRINT_FUNC_FORMAT(4, 5);
@@ -520,7 +552,7 @@ class CPL_DLL GDALDataset : public GDALMajorObject
         CPL_PRINT_FUNC_FORMAT(4, 5);
 #endif
 
-    char **GetMetadata(const char *pszDomain = "") override;
+    CSLConstList GetMetadata(const char *pszDomain = "") override;
 
 // Only defined when Doxygen enabled
 #ifdef DOXYGEN_SKIP
@@ -561,6 +593,11 @@ class CPL_DLL GDALDataset : public GDALMajorObject
                                      papszAllowedDrivers, papszOpenOptions,
                                      papszSiblingFiles));
     }
+
+    static std::unique_ptr<GDALDataset>
+    Open(GDALOpenInfo *poOpenInfo,
+         const char *const *papszAllowedDrivers = nullptr,
+         const char *const *papszOpenOptions = nullptr);
 
     /** Object returned by GetFeatures() iterators */
     struct FeatureLayerPair
@@ -756,7 +793,7 @@ class CPL_DLL GDALDataset : public GDALMajorObject
             Iterator(const Iterator &oOther);  // declared but not defined.
                                                // Needed for gcc 5.4 at least
             Iterator(Iterator &&oOther) noexcept;  // declared but not defined.
-                // Needed for gcc 5.4 at least
+            // Needed for gcc 5.4 at least
             ~Iterator();
             const FeatureLayerPair &operator*() const;
             Iterator &operator++();
@@ -820,7 +857,7 @@ class CPL_DLL GDALDataset : public GDALMajorObject
                           CSLConstList papszOptions = nullptr);
 
     virtual OGRLayer *CopyLayer(OGRLayer *poSrcLayer, const char *pszNewName,
-                                char **papszOptions = nullptr);
+                                CSLConstList papszOptions = nullptr);
 
     virtual OGRStyleTable *GetStyleTable();
     virtual void SetStyleTableDirectly(OGRStyleTable *poStyleTable);

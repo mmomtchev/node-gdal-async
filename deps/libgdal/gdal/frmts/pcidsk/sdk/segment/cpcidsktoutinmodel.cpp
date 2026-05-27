@@ -141,7 +141,7 @@ void CPCIDSKToutinModelSegment::Synchronize()
 }
 
 /************************************************************************/
-/*                           BinaryToSRITInfo()                         */
+/*                          BinaryToSRITInfo()                          */
 /************************************************************************/
 /**
   * Translate a block of binary data into a SRIT segment. the caller is
@@ -181,7 +181,7 @@ CPCIDSKToutinModelSegment::BinaryToSRITInfo()
 /* -------------------------------------------------------------------- */
 /*      Allocate the SRITModel.                                         */
 /* -------------------------------------------------------------------- */
-    std::unique_ptr<SRITInfo_t> SRITModel( new SRITInfo_t());
+    auto SRITModel = std::make_unique<SRITInfo_t>();
 
     SRITModel->GCPMeanHtFlag = 0;
     SRITModel->nDownSample = 1;
@@ -341,7 +341,7 @@ CPCIDSKToutinModelSegment::BinaryToSRITInfo()
 }
 
 /************************************************************************/
-/*                           SRITInfoToBinary()                         */
+/*                          SRITInfoToBinary()                          */
 /************************************************************************/
 /**
   * Translate a SRITInfo_t into binary data.

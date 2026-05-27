@@ -12,12 +12,14 @@
 
 #include "gdal_pam.h"
 #include "ogrsf_frmts.h"
+#include "cpl_enumerate.h"
 
 #include <algorithm>
 #include <map>
 #include <mutex>
 #include <tuple>
 
+#include "gdalalgorithm.h"
 #include "ogr_parquet.h"
 #include "ogrparquetdrivercore.h"
 #include "memdataset.h"
@@ -32,7 +34,7 @@
 #ifdef GDAL_USE_ARROWDATASET
 
 /************************************************************************/
-/*                      OpenFromDatasetFactory()                        */
+/*                       OpenFromDatasetFactory()                       */
 /************************************************************************/
 
 static GDALDataset *OpenFromDatasetFactory(
@@ -55,7 +57,7 @@ static GDALDataset *OpenFromDatasetFactory(
 }
 
 /************************************************************************/
-/*                         GetFileSystem()                              */
+/*                           GetFileSystem()                            */
 /************************************************************************/
 
 static std::tuple<std::shared_ptr<arrow::fs::FileSystem>, std::string>
@@ -117,7 +119,7 @@ MakeParquetFileFormat()
 }
 
 /************************************************************************/
-/*                  OpenParquetDatasetWithMetadata()                    */
+/*                   OpenParquetDatasetWithMetadata()                   */
 /************************************************************************/
 
 static GDALDataset *OpenParquetDatasetWithMetadata(
@@ -189,7 +191,7 @@ OpenParquetDatasetWithoutMetadata(const std::string &osBasePathIn,
 #endif
 
 /************************************************************************/
-/*                  BuildMemDatasetWithRowGroupExtents()                */
+/*                 BuildMemDatasetWithRowGroupExtents()                 */
 /************************************************************************/
 
 /** Builds a MEM dataset that contains, for each row-group of the input file,
@@ -304,7 +306,7 @@ static GDALDataset *BuildMemDatasetWithRowGroupExtents(OGRParquetLayer *poLayer)
 }
 
 /************************************************************************/
-/*                     OGRParquetEditableLayerSynchronizer              */
+/*                 OGRParquetEditableLayerSynchronizer                  */
 /************************************************************************/
 
 class OGRParquetEditableLayer;
@@ -334,7 +336,7 @@ class OGRParquetEditableLayerSynchronizer final
 };
 
 /************************************************************************/
-/*                        OGRParquetEditableLayer                       */
+/*                       OGRParquetEditableLayer                        */
 /************************************************************************/
 
 class OGRParquetEditableLayer final : public IOGRArrowLayer,
@@ -697,7 +699,7 @@ static GDALDataset *OGRParquetDriverOpen(GDALOpenInfo *poOpenInfo)
 static GDALDataset *OGRParquetDriverCreate(const char *pszName, int nXSize,
                                            int nYSize, int nBands,
                                            GDALDataType eType,
-                                           char ** /* papszOptions */)
+                                           CSLConstList /* papszOptions */)
 {
     if (!(nXSize == 0 && nYSize == 0 && nBands == 0 && eType == GDT_Unknown))
         return nullptr;
@@ -734,7 +736,7 @@ static GDALDataset *OGRParquetDriverCreate(const char *pszName, int nXSize,
 }
 
 /************************************************************************/
-/*                         OGRParquetDriver()                           */
+/*                          OGRParquetDriver()                          */
 /************************************************************************/
 
 class OGRParquetDriver final : public GDALDriver
@@ -747,7 +749,7 @@ class OGRParquetDriver final : public GDALDriver
     const char *GetMetadataItem(const char *pszName,
                                 const char *pszDomain) override;
 
-    char **GetMetadata(const char *pszDomain) override
+    CSLConstList GetMetadata(const char *pszDomain) override
     {
         std::lock_guard oLock(m_oMutex);
         InitMetadata();
@@ -958,6 +960,16 @@ void OGRParquetDriver::InitMetadata()
         CPLCreateXMLElementAndValue(psOption, "Value", "NO");
     }
 
+    {
+        auto psOption = CPLCreateXMLNode(oTree.get(), CXT_Element, "Option");
+        CPLAddXMLAttributeAndValue(psOption, "name", "COVERING_BBOX_NAME");
+        CPLAddXMLAttributeAndValue(psOption, "type", "string");
+        CPLAddXMLAttributeAndValue(psOption, "description",
+                                   "Name of the bounding box of "
+                                   "geometries. If not same, "
+                                   "equals to {'GEOMETRY_NAME}_bbox'");
+    }
+
 #if ARROW_VERSION_MAJOR >= 21
     {
         auto psOption = CPLCreateXMLNode(oTree.get(), CXT_Element, "Option");
@@ -984,9 +996,226 @@ void OGRParquetDriver::InitMetadata()
                                    "the bounding box of their geometries");
     }
 
+    {
+        auto psOption = CPLCreateXMLNode(oTree.get(), CXT_Element, "Option");
+        CPLAddXMLAttributeAndValue(psOption, "name", "TIMESTAMP_WITH_OFFSET");
+        CPLAddXMLAttributeAndValue(psOption, "type", "string-select");
+        CPLAddXMLAttributeAndValue(psOption, "default", "AUTO");
+        CPLAddXMLAttributeAndValue(
+            psOption, "description",
+            "Whether timestamp with offset fields should be used");
+        CPLCreateXMLElementAndValue(psOption, "Value", "AUTO");
+        CPLCreateXMLElementAndValue(psOption, "Value", "YES");
+        CPLCreateXMLElementAndValue(psOption, "Value", "NO");
+    }
+
     char *pszXML = CPLSerializeXMLTree(oTree.get());
     GDALDriver::SetMetadataItem(GDAL_DS_LAYER_CREATIONOPTIONLIST, pszXML);
     CPLFree(pszXML);
+}
+
+/************************************************************************/
+/*               OGRParquetCreateMetadataFileAlgorithm()                */
+/************************************************************************/
+
+#ifndef _
+#define _(x) x
+#endif
+
+class OGRParquetCreateMetadataFileAlgorithm final : public GDALAlgorithm
+{
+  public:
+    OGRParquetCreateMetadataFileAlgorithm()
+        : GDALAlgorithm(
+              "create-metadata-file",
+              "Create the _metadata file for a partitioned Parquet dataset",
+              "/programs/gdal_driver_parquet_create_metadata_file.html")
+    {
+        auto &inputArg =
+            AddArg(GDAL_ARG_NAME_INPUT, 0, _("Input Parquet datasets"),
+                   &m_input, GDAL_OF_VECTOR)
+                .SetPositional()
+                .SetAutoOpenDataset(false)
+                .SetDatasetInputFlags(GADV_NAME)
+                .SetRequired();
+        SetAutoCompleteFunctionForFilename(inputArg, GDAL_OF_VECTOR);
+
+        auto &outputArg =
+            AddArg(GDAL_ARG_NAME_OUTPUT, 0, _("Output Parquet dataset"),
+                   &m_output, GDAL_OF_VECTOR)
+                .SetPositional()
+                .SetIsOutput(true)
+                .SetDatasetInputFlags(GADV_NAME)
+                .SetDatasetOutputFlags(0)
+                .SetRequired();
+        SetAutoCompleteFunctionForFilename(outputArg, GDAL_OF_VECTOR);
+
+        AddOverwriteArg(&m_overwrite);
+    }
+
+  protected:
+    bool RunImpl(GDALProgressFunc, void *) override;
+
+  private:
+    std::vector<GDALArgDatasetValue> m_input{};
+    GDALArgDatasetValue m_output{};
+    bool m_overwrite = false;
+};
+
+/************************************************************************/
+/*           OGRParquetCreateMetadataFileAlgorithm::RunImpl()           */
+/************************************************************************/
+
+bool OGRParquetCreateMetadataFileAlgorithm::RunImpl(
+    GDALProgressFunc pfnProgress, void *pProgressData)
+{
+    try
+    {
+        const std::string osOutputDir =
+            CPLGetPathSafe(m_output.GetName().c_str());
+        auto fs =
+            std::make_shared<VSIArrowFileSystem>("PARQUET", std::string());
+
+        std::shared_ptr<parquet::FileMetaData> outputMetadata;
+
+        // Iterate over input Parquet files
+        for (const auto &[i, input] : cpl::enumerate(m_input))
+        {
+            std::shared_ptr<arrow::io::RandomAccessFile> inputFile;
+            PARQUET_ASSIGN_OR_THROW(inputFile,
+                                    fs->OpenInputFile(input.GetName()));
+            auto reader =
+                parquet::ParquetFileReader::Open(std::move(inputFile));
+            if (!reader)
+            {
+                ReportError(CE_Failure, CPLE_AppDefined, "Cannot open %s",
+                            input.GetName().c_str());
+                return false;
+            }
+
+            auto inputMetadata = reader->metadata();
+            CPLAssert(inputMetadata);
+
+            if (!outputMetadata)
+            {
+                // Opens a file descriptor on the output dataset
+                VSIVirtualHandleUniquePtr fp = VSIFilesystemHandler::OpenStatic(
+                    m_output.GetName().c_str(), "wb");
+                if (fp == nullptr)
+                {
+                    ReportError(CE_Failure, CPLE_FileIO,
+                                "OpenStatic() failed: cannot create %s",
+                                m_output.GetName().c_str());
+                    return false;
+                }
+
+                // We need to create an empty Parquet file to be able to
+                // get its ParquetMetadata
+                auto schemaNode =
+                    std::dynamic_pointer_cast<parquet::schema::GroupNode>(
+                        inputMetadata->schema()->schema_root());
+                CPLAssert(schemaNode);
+                auto writer = parquet::ParquetFileWriter::Open(
+                    std::make_shared<OGRArrowWritableFile>(std::move(fp)),
+                    std::move(schemaNode));
+                if (!writer)
+                {
+                    ReportError(
+                        CE_Failure, CPLE_FileIO,
+                        "ParquetFileWriter::Open() failed: cannot create %s",
+                        m_output.GetName().c_str());
+                    return false;
+                }
+                // Close it and now re-open it to gets its metadata object
+                writer->Close();
+
+                PARQUET_ASSIGN_OR_THROW(
+                    inputFile, fs->OpenInputFile(m_output.GetName().c_str()));
+                auto readerMetadataFile =
+                    parquet::ParquetFileReader::Open(std::move(inputFile));
+                if (!readerMetadataFile)
+                {
+                    ReportError(CE_Failure, CPLE_AppDefined, "Cannot open %s",
+                                m_output.GetName().c_str());
+                    return false;
+                }
+
+                outputMetadata = readerMetadataFile->metadata();
+                CPLAssert(outputMetadata);
+            }
+
+            int bGotRelative = false;
+            const std::string osRelativePath(CPLExtractRelativePath(
+                osOutputDir.c_str(), input.GetName().c_str(), &bGotRelative));
+            if (!bGotRelative)
+            {
+                ReportError(
+                    CE_Failure, CPLE_AppDefined,
+                    "Cannot infer relative path of '%s' with respect to '%s'",
+                    input.GetName().c_str(), osOutputDir.c_str());
+                return false;
+            }
+
+            // Add the row groups from the current input file to the output
+            // metadata, and set the appropriate relative path.
+            inputMetadata->set_file_path(osRelativePath);
+            outputMetadata->AppendRowGroups(*inputMetadata);
+
+            if (pfnProgress &&
+                !pfnProgress(static_cast<double>(i + 1) /
+                                 static_cast<double>(m_input.size()),
+                             "", pProgressData))
+            {
+                ReportError(CE_Failure, CPLE_UserInterrupt,
+                            "Interrupted by user");
+                return false;
+            }
+        }
+
+        auto fp =
+            VSIFilesystemHandler::OpenStatic(m_output.GetName().c_str(), "wb");
+        if (fp == nullptr)
+        {
+            ReportError(CE_Failure, CPLE_FileIO, "Cannot create %s",
+                        m_output.GetName().c_str());
+            return false;
+        }
+        OGRArrowWritableFile out_file(std::move(fp));
+        parquet::WriteMetaDataFile(*outputMetadata, &out_file);
+        auto status = out_file.Close();
+        if (!status.ok())
+        {
+            ReportError(CE_Failure, CPLE_FileIO, "Cannot close %s: %s",
+                        m_output.GetName().c_str(), status.message().c_str());
+            return false;
+        }
+
+        return true;
+    }
+    catch (const std::exception &e)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "Parquet exception: %s",
+                 e.what());
+        return false;
+    }
+}
+
+/************************************************************************/
+/*                OGRParquetDriverInstantiateAlgorithm()                */
+/************************************************************************/
+
+static GDALAlgorithm *
+OGRParquetDriverInstantiateAlgorithm(const std::vector<std::string> &aosPath)
+{
+    if (aosPath.size() == 1 && aosPath[0] == "create-metadata-file")
+    {
+        return std::make_unique<OGRParquetCreateMetadataFileAlgorithm>()
+            .release();
+    }
+    else
+    {
+        return nullptr;
+    }
 }
 
 /************************************************************************/
@@ -1003,6 +1232,8 @@ void RegisterOGRParquet()
 
     poDriver->pfnOpen = OGRParquetDriverOpen;
     poDriver->pfnCreate = OGRParquetDriverCreate;
+
+    poDriver->pfnInstantiateAlgorithm = OGRParquetDriverInstantiateAlgorithm;
 
     poDriver->SetMetadataItem("ARROW_VERSION", ARROW_VERSION_STRING);
 #ifdef GDAL_USE_ARROWDATASET

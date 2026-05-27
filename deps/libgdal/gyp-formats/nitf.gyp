@@ -22,7 +22,10 @@
 				"../gdal/frmts/nitf/nitfwritejpeg_12.cpp",
 				"../gdal/frmts/nitf/nitf_gcprpc.cpp",
 				"../gdal/frmts/nitf/nitfbilevel.cpp",
-        "../gdal/frmts/nitf/nitffile.cpp"
+        "../gdal/frmts/nitf/nitffile.cpp",
+				"../gdal/frmts/nitf/rpfframewriter.cpp",
+				"../gdal/frmts/nitf/rpftocwriter.cpp",
+				"../gdal/frmts/nitf/offsetpatcher.cpp"
 			],
 			"include_dirs": [
 				"../gdal/frmts/nitf",

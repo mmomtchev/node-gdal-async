@@ -6,7 +6,7 @@
  *           either a color table or an attribute table, depending on the
  *           context.
  * Author:   Abel Pau
- * 
+ *
  ******************************************************************************
  * Copyright (c) 2025, Xavier Pons
  *
@@ -18,65 +18,93 @@
 
 #include "../miramon_common/mm_gdal_functions.h"  // For MMCheck_REL_FILE()
 
-MMRPalettes::MMRPalettes(MMRRel &fRel, const CPLString &osBandSectionIn)
-    : m_pfRel(&fRel), m_osBandSection(osBandSectionIn)
+MMRPalettes::MMRPalettes(MMRRel &fRel, int nIBand) : m_pfRel(&fRel)
 {
-    // Is a constant color, and which colors is it?
-    CPLString os_Color_Const;
-    if (!m_pfRel->GetMetadataValue(SECTION_COLOR_TEXT, m_osBandSection,
-                                   "Color_Const", os_Color_Const))
-        os_Color_Const = "";  // Coverity scan CID 1620831
+    // Is the palette a constant color? Then, which color is it?
+    MMRBand *poBand = m_pfRel->GetBand(nIBand - 1);
+    if (poBand == nullptr)
+        return;
 
-    if (EQUAL(os_Color_Const, "1"))
+    m_osBandSection = poBand->GetBandSection();
+
+    if (EQUAL(poBand->GetColor_Const(), "1"))
     {
         m_bIsConstantColor = true;
-        if (CE_None != UpdateConstantColor())
+        if (!poBand->ValidConstantColorRGB())
             return;  // The constant color indicated is wrong
-    }
 
-    CPLString os_Color_Paleta;
-
-    if (!m_pfRel->GetMetadataValue(SECTION_COLOR_TEXT, m_osBandSection,
-                                   "Color_Paleta", os_Color_Paleta) ||
-        EQUAL(os_Color_Paleta, "<Automatic>"))
-    {
+        SetConstantColorRGB(poBand->GetConstantColorRGB());
+        m_nRealNPaletteColors = 1;
         m_bIsValid = true;
-        ColorScaling = ColorTreatment::DIRECT_ASSIGNATION;
+        m_ColorScaling = ColorTreatment::DIRECT_ASSIGNATION;
+        SetIsCategorical(true);
         return;
     }
 
-    // Treatment of the color variable
-    CPLString os_Color_TractamentVariable;
-    if (!m_pfRel->GetMetadataValue(SECTION_COLOR_TEXT, m_osBandSection,
-                                   "Color_TractamentVariable",
-                                   os_Color_TractamentVariable) ||
-        os_Color_TractamentVariable.empty())
-    {
-        CPLString os_TractamentVariable;
-        if (!m_pfRel->GetMetadataValue(SECTION_ATTRIBUTE_DATA,
-                                       "TractamentVariable",
-                                       os_TractamentVariable))
-            os_TractamentVariable = "";  // Coverity scan CID 1620831
+    // Is this an authomatic palette or has a color table (dbf, pal,...)?
+    if (EQUAL(poBand->GetColor_Paleta(), "<Automatic>") ||
+        poBand->GetColor_Paleta().empty())
+        m_bIsAutomatic = true;
 
-        if (EQUAL(os_TractamentVariable, "Categoric"))
+    // Treatment of the color variable
+    if (poBand->GetColor_TractamentVariable().empty())
+    {
+        if (poBand->IsCategorical())
             SetIsCategorical(true);
         else
             SetIsCategorical(false);
     }
     else
     {
-        if (EQUAL(os_Color_TractamentVariable, "Categoric"))
+        if (EQUAL(poBand->GetColor_TractamentVariable(), "Categoric"))
             SetIsCategorical(true);
         else
             SetIsCategorical(false);
     }
 
-    UpdateColorInfo();
+    if (UpdateColorInfo() == CE_Failure)
+        return;
 
-    CPLString osExtension = CPLGetExtensionSafe(os_Color_Paleta);
+    if (m_bIsAutomatic)
+    {
+        // How many "colors" are involved?
+        if (!poBand->GetColor_N_SimbolsALaTaula().empty())
+        {
+            GIntBig nBigVal =
+                CPLAtoGIntBig(poBand->GetColor_N_SimbolsALaTaula());
+            if (nBigVal >= INT_MAX)
+                return;
+            m_nRealNPaletteColors = m_nNPaletteColors =
+                static_cast<int>(nBigVal);
+            if (m_nNPaletteColors <= 0 || m_nNPaletteColors >= 256)
+            {
+                CPLError(CE_Failure, CPLE_AssertionFailed,
+                         "Invalid number of colors "
+                         "(Color_N_SimbolsALaTaula) in \"%s\".",
+                         m_pfRel->GetRELName().c_str());
+                return;
+            }
+        }
+        else
+        {
+            if (IsCategorical())
+            {
+                // Predefined color table: m_ThematicPalette
+                if (CE_None != GetPaletteColors_Automatic())
+                    return;
+            }
+            else  // No palette associated
+                return;
+        }
+        m_bIsValid = true;
+        return;
+    }
+
+    // If color is no automatic, from where we got this?
+    CPLString osExtension = CPLGetExtensionSafe(poBand->GetColor_Paleta());
     if (osExtension.tolower() == "dbf")
     {
-        if (CE_None != GetPaletteColors_DBF(os_Color_Paleta))
+        if (CE_None != GetPaletteColors_DBF(poBand->GetColor_Paleta()))
             return;
 
         m_bIsValid = true;
@@ -84,7 +112,7 @@ MMRPalettes::MMRPalettes(MMRRel &fRel, const CPLString &osBandSectionIn)
     else if (osExtension.tolower() == "pal" || osExtension.tolower() == "p25" ||
              osExtension.tolower() == "p65")
     {
-        if (CE_None != GetPaletteColors_PAL_P25_P65(os_Color_Paleta))
+        if (CE_None != GetPaletteColors_PAL_P25_P65(poBand->GetColor_Paleta()))
             return;
 
         m_bIsValid = true;
@@ -180,6 +208,46 @@ CPLErr MMRPalettes::GetPaletteColors_DBF_Indexes(
     return CE_None;
 }
 
+// Colors in a PAL, P25 or P65 format files
+// Updates nNPaletteColors
+CPLErr MMRPalettes::GetPaletteColors_Automatic()
+{
+    m_nRealNPaletteColors = m_nNPaletteColors =
+        static_cast<int>(m_ThematicPalette.size());
+
+    for (int iColumn = 0; iColumn < 4; iColumn++)
+    {
+        try
+        {
+            m_aadfPaletteColors[iColumn].resize(m_nNPaletteColors, 0);
+        }
+        catch (std::bad_alloc &e)
+        {
+            CPLError(CE_Failure, CPLE_AppDefined, "%s", e.what());
+            return CE_Failure;
+        }
+    }
+
+    for (int nIndex = 0; nIndex < m_nRealNPaletteColors; nIndex++)
+    {
+        // Index of the color
+
+        // RED
+        m_aadfPaletteColors[0][nIndex] = m_ThematicPalette[nIndex].c1;
+
+        // GREEN
+        m_aadfPaletteColors[1][nIndex] = m_ThematicPalette[nIndex].c2;
+
+        // BLUE
+        m_aadfPaletteColors[2][nIndex] = m_ThematicPalette[nIndex].c3;
+
+        // ALPHA
+        m_aadfPaletteColors[3][nIndex] = m_ThematicPalette[nIndex].c4;
+    }
+
+    return CE_None;
+}
+
 // Updates nNPaletteColors
 CPLErr MMRPalettes::GetPaletteColors_DBF(const CPLString &os_Color_Paleta_DBF)
 
@@ -240,6 +308,18 @@ CPLErr MMRPalettes::GetPaletteColors_DBF(const CPLString &os_Color_Paleta_DBF)
         return CE_Failure;
     }
 
+    if (oColorTable.BytesPerRecord == UINT32_MAX)
+    {
+        CPLError(CE_Failure, CPLE_AssertionFailed,
+                 "Invalid color table:"
+                 "\"%s\".",
+                 osColorTableFileName.c_str());
+
+        VSIFCloseL(oColorTable.pfDataBase);
+        MM_ReleaseMainFields(&oColorTable);
+        return CE_Failure;
+    }
+
     // Guessing or reading the number of colors of the palette.
     MM_ACCUMULATED_BYTES_TYPE_DBF nBufferSize = oColorTable.BytesPerRecord + 1;
     char *pzsRecord = static_cast<char *>(VSI_CALLOC_VERBOSE(1, nBufferSize));
@@ -249,6 +329,7 @@ CPLErr MMRPalettes::GetPaletteColors_DBF(const CPLString &os_Color_Paleta_DBF)
                  "Out of memory allocating working buffer");
         VSIFCloseL(oColorTable.pfDataBase);
         MM_ReleaseMainFields(&oColorTable);
+        return CE_Failure;
     }
     char *pszField = static_cast<char *>(VSI_CALLOC_VERBOSE(1, nBufferSize));
 
@@ -259,6 +340,7 @@ CPLErr MMRPalettes::GetPaletteColors_DBF(const CPLString &os_Color_Paleta_DBF)
         VSIFree(pzsRecord);
         VSIFCloseL(oColorTable.pfDataBase);
         MM_ReleaseMainFields(&oColorTable);
+        return CE_Failure;
     }
 
     m_nNPaletteColors = static_cast<int>(oColorTable.nRecords);  // Safe cast
@@ -297,7 +379,9 @@ CPLErr MMRPalettes::GetPaletteColors_DBF(const CPLString &os_Color_Paleta_DBF)
         }
     }
 
-    VSIFSeekL(oColorTable.pfDataBase, oColorTable.FirstRecordOffset, SEEK_SET);
+    VSIFSeekL(oColorTable.pfDataBase,
+              static_cast<vsi_l_offset>(oColorTable.FirstRecordOffset),
+              SEEK_SET);
     /*
         Each record's CLAUSIMBOL field doesn't match a pixel value present in the raster,
         and it's used only for discovering nodata value (blanc value).
@@ -452,7 +536,7 @@ MMRPalettes::GetPaletteColors_PAL_P25_P65(const CPLString &os_Color_Paleta_DBF)
     return CE_None;
 }
 
-void MMRPalettes::UpdateColorInfo()
+CPLErr MMRPalettes::UpdateColorInfo()
 {
     CPLString os_Color_EscalatColor;
     if (m_pfRel->GetMetadataValue(SECTION_COLOR_TEXT, m_osBandSection,
@@ -461,78 +545,25 @@ void MMRPalettes::UpdateColorInfo()
         !os_Color_EscalatColor.empty())
     {
         if (os_Color_EscalatColor.compare("AssigDirecta") == 0)
-            ColorScaling = ColorTreatment::DIRECT_ASSIGNATION;
+            m_ColorScaling = ColorTreatment::DIRECT_ASSIGNATION;
         else if (os_Color_EscalatColor.compare("DespOrigen") == 0)
-            ColorScaling = ColorTreatment::ORIGIN_DISPLACEMENT;
+            m_ColorScaling = ColorTreatment::ORIGIN_DISPLACEMENT;
         else if (os_Color_EscalatColor.compare("lineal") == 0)
-            ColorScaling = ColorTreatment::LINEAR_SCALING;
+            m_ColorScaling = ColorTreatment::LINEAR_SCALING;
         else if (os_Color_EscalatColor.compare("log_10") == 0)
-            ColorScaling = ColorTreatment::LOG_10_SCALING;
+            m_ColorScaling = ColorTreatment::LOG_10_SCALING;
         else if (os_Color_EscalatColor.compare("IntervalsUsuari") == 0)
-            ColorScaling = ColorTreatment::USER_INTERVALS;
+            m_ColorScaling = ColorTreatment::USER_INTERVALS;
     }
     else
     {
         if (IsCategorical())
-            ColorScaling = ColorTreatment::DIRECT_ASSIGNATION;
+            m_ColorScaling = ColorTreatment::DIRECT_ASSIGNATION;
         else
-            ColorScaling = ColorTreatment::LINEAR_SCALING;
+            m_ColorScaling = ColorTreatment::LINEAR_SCALING;
     }
-}
 
-CPLErr MMRPalettes::UpdateConstantColor()
-{
-    // Example: Color_Smb=(255,0,255)
-    CPLString os_Color_Smb;
-    if (!m_pfRel->GetMetadataValue(SECTION_COLOR_TEXT, m_osBandSection,
-                                   "Color_Smb", os_Color_Smb))
-        return CE_None;
-
-    os_Color_Smb.replaceAll(" ", "");
-    if (!os_Color_Smb.empty() && os_Color_Smb.size() >= 7 &&
-        os_Color_Smb[0] == '(' && os_Color_Smb[os_Color_Smb.size() - 1] == ')')
-    {
-        os_Color_Smb.replaceAll("(", "");
-        os_Color_Smb.replaceAll(")", "");
-        const CPLStringList aosTokens(CSLTokenizeString2(os_Color_Smb, ",", 0));
-        if (CSLCount(aosTokens) != 3)
-        {
-            CPLError(CE_Failure, CPLE_AppDefined,
-                     "Invalid constant color: \"%s\"",
-                     m_pfRel->GetRELNameChar());
-            return CE_Failure;
-        }
-
-        int nIColor0;
-        if (1 != sscanf(aosTokens[0], "%d", &nIColor0))
-        {
-            CPLError(CE_Failure, CPLE_AppDefined,
-                     "Invalid constant color: \"%s\"",
-                     m_pfRel->GetRELNameChar());
-            return CE_Failure;
-        }
-
-        int nIColor1;
-        if (1 != sscanf(aosTokens[1], "%d", &nIColor1))
-        {
-            CPLError(CE_Failure, CPLE_AppDefined,
-                     "Invalid constant color: \"%s\"",
-                     m_pfRel->GetRELNameChar());
-            return CE_Failure;
-        }
-
-        int nIColor2;
-        if (1 != sscanf(aosTokens[2], "%d", &nIColor2))
-        {
-            CPLError(CE_Failure, CPLE_AppDefined,
-                     "Invalid constant color: \"%s\"",
-                     m_pfRel->GetRELNameChar());
-            return CE_Failure;
-        }
-
-        SetConstantColorRGB(static_cast<short>(nIColor0),
-                            static_cast<short>(nIColor1),
-                            static_cast<short>(nIColor2));
-    }
+    if (m_ColorScaling == ColorTreatment::DEFAULT_SCALING)
+        return CE_Failure;
     return CE_None;
 }

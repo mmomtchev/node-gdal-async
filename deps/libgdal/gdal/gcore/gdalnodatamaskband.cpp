@@ -29,7 +29,7 @@
 
 //! @cond Doxygen_Suppress
 /************************************************************************/
-/*                        GDALNoDataMaskBand()                          */
+/*                         GDALNoDataMaskBand()                         */
 /************************************************************************/
 
 GDALNoDataMaskBand::GDALNoDataMaskBand(GDALRasterBand *poParentIn)
@@ -41,7 +41,7 @@ GDALNoDataMaskBand::GDALNoDataMaskBand(GDALRasterBand *poParentIn)
     nRasterXSize = m_poParent->GetXSize();
     nRasterYSize = m_poParent->GetYSize();
 
-    eDataType = GDT_Byte;
+    eDataType = GDT_UInt8;
     m_poParent->GetBlockSize(&nBlockXSize, &nBlockYSize);
 
     const auto eParentDT = m_poParent->GetRasterDataType();
@@ -54,7 +54,7 @@ GDALNoDataMaskBand::GDALNoDataMaskBand(GDALRasterBand *poParentIn)
 }
 
 /************************************************************************/
-/*                        GDALNoDataMaskBand()                          */
+/*                         GDALNoDataMaskBand()                         */
 /************************************************************************/
 
 GDALNoDataMaskBand::GDALNoDataMaskBand(GDALRasterBand *poParentIn,
@@ -67,7 +67,7 @@ GDALNoDataMaskBand::GDALNoDataMaskBand(GDALRasterBand *poParentIn,
     nRasterXSize = m_poParent->GetXSize();
     nRasterYSize = m_poParent->GetYSize();
 
-    eDataType = GDT_Byte;
+    eDataType = GDT_UInt8;
     m_poParent->GetBlockSize(&nBlockXSize, &nBlockYSize);
 
     const auto eParentDT = m_poParent->GetRasterDataType();
@@ -80,7 +80,7 @@ GDALNoDataMaskBand::GDALNoDataMaskBand(GDALRasterBand *poParentIn,
 }
 
 /************************************************************************/
-/*                       ~GDALNoDataMaskBand()                          */
+/*                        ~GDALNoDataMaskBand()                         */
 /************************************************************************/
 
 GDALNoDataMaskBand::~GDALNoDataMaskBand() = default;
@@ -94,8 +94,8 @@ static GDALDataType GetWorkDataType(GDALDataType eDataType)
     GDALDataType eWrkDT = GDT_Unknown;
     switch (eDataType)
     {
-        case GDT_Byte:
-            eWrkDT = GDT_Byte;
+        case GDT_UInt8:
+            eWrkDT = GDT_UInt8;
             break;
 
         case GDT_Int16:
@@ -153,7 +153,7 @@ bool GDALNoDataMaskBand::IsNoDataInRange(double dfNoDataValue,
     GDALDataType eWrkDT = GetWorkDataType(eDataTypeIn);
     switch (eWrkDT)
     {
-        case GDT_Byte:
+        case GDT_UInt8:
         {
             return GDALIsValueInRange<GByte>(dfNoDataValue);
         }
@@ -244,7 +244,7 @@ CPLErr GDALNoDataMaskBand::IReadBlock(int nXBlockOff, int nYBlockOff,
     GDALRasterIOExtraArg sExtraArg;
     INIT_RASTERIO_EXTRA_ARG(sExtraArg);
     return IRasterIO(GF_Read, nXOff, nYOff, nXSizeRequest, nYSizeRequest,
-                     pImage, nXSizeRequest, nYSizeRequest, GDT_Byte, 1,
+                     pImage, nXSizeRequest, nYSizeRequest, GDT_UInt8, 1,
                      nBlockXSize, &sExtraArg);
 }
 
@@ -255,8 +255,7 @@ CPLErr GDALNoDataMaskBand::IReadBlock(int nXBlockOff, int nYBlockOff,
 #if (defined(__GNUC__) && !defined(__clang__))
 __attribute__((optimize("tree-vectorize")))
 #endif
-static void
-SetZeroOr255(GByte *pabyDestAndSrc, size_t nBufSize, GByte byNoData)
+static void SetZeroOr255(GByte *pabyDestAndSrc, size_t nBufSize, GByte byNoData)
 {
     for (size_t i = 0; i < nBufSize; ++i)
     {
@@ -268,8 +267,8 @@ template <class T>
 #if (defined(__GNUC__) && !defined(__clang__))
 __attribute__((optimize("tree-vectorize")))
 #endif
-static void
-SetZeroOr255(GByte *pabyDest, const T *panSrc, size_t nBufSize, T nNoData)
+static void SetZeroOr255(GByte *pabyDest, const T *panSrc, size_t nBufSize,
+                         T nNoData)
 {
     for (size_t i = 0; i < nBufSize; ++i)
     {
@@ -328,7 +327,7 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
     // Optimization in common use case (#4488).
     // This avoids triggering the block cache on this band, which helps
     // reducing the global block cache consumption.
-    if (eBufType == GDT_Byte && eWrkDT == GDT_Byte && nPixelSpace == 1 &&
+    if (eBufType == GDT_UInt8 && eWrkDT == GDT_UInt8 && nPixelSpace == 1 &&
         nLineSpace >= nBufXSize)
     {
         const CPLErr eErr = m_poParent->RasterIO(
@@ -408,7 +407,7 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
         return std::pair(CE_None, pTemp);
     };
 
-    if (eBufType == GDT_Byte)
+    if (eBufType == GDT_UInt8)
     {
         const int nWrkDTSize = GDALGetDataTypeSizeBytes(eWrkDT);
         auto [eErr, pTemp] = AllocTempBufferOrFallback(nWrkDTSize);
@@ -435,7 +434,7 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
          */
         switch (eWrkDT)
         {
-            case GDT_Byte:
+            case GDT_UInt8:
             {
                 const auto nNoData = static_cast<GByte>(m_dfNoDataValue);
                 const auto *panSrc = static_cast<const GByte *>(pTemp);
@@ -561,7 +560,7 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
         return eErr;
 
     eErr = IRasterIO(eRWFlag, nXOff, nYOff, nXSize, nYSize, pTemp, nBufXSize,
-                     nBufYSize, GDT_Byte, 1, nBufXSize, psExtraArg);
+                     nBufYSize, GDT_UInt8, 1, nBufXSize, psExtraArg);
     if (eErr != CE_None)
     {
         VSIFree(pTemp);
@@ -572,7 +571,7 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
     {
         GDALCopyWords64(
             static_cast<GByte *>(pTemp) + static_cast<size_t>(iY) * nBufXSize,
-            GDT_Byte, 1, static_cast<GByte *>(pData) + iY * nLineSpace,
+            GDT_UInt8, 1, static_cast<GByte *>(pData) + iY * nLineSpace,
             eBufType, static_cast<int>(nPixelSpace), nBufXSize);
     }
     VSIFree(pTemp);
@@ -580,7 +579,7 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
 }
 
 /************************************************************************/
-/*                   EmitErrorMessageIfWriteNotSupported()              */
+/*                EmitErrorMessageIfWriteNotSupported()                 */
 /************************************************************************/
 
 bool GDALNoDataMaskBand::EmitErrorMessageIfWriteNotSupported(

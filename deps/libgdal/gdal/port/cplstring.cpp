@@ -366,7 +366,7 @@ CPLString &CPLString::replaceAll(char chBefore, char chAfter)
 }
 
 /************************************************************************/
-/*                             endsWith()                              */
+/*                              endsWith()                              */
 /************************************************************************/
 
 /**
@@ -445,7 +445,49 @@ CPLString CPLString::URLEncode() const
 }
 
 /************************************************************************/
-/*                         CPLURLGetValue()                             */
+/*                        SQLQuotedIdentifier()                         */
+/************************************************************************/
+
+/** Returns a string between double quotes and with all double quotes
+ * inside the string are escaped by being doubled.
+ *
+ * Aimed at being used for SQL identifiers (table names, column names, etc.).
+ *
+ * @since 3.13
+ */
+CPLString CPLString::SQLQuotedIdentifier() const
+{
+    CPLString ret("\"");
+    CPLString tmp(*this);
+    tmp.replaceAll('"', "\"\"");
+    ret += tmp;
+    ret += '"';
+    return ret;
+}
+
+/************************************************************************/
+/*                          SQLQuotedLiteral()                          */
+/************************************************************************/
+
+/** Returns a string between single quotes and with all single quotes
+ * inside the string are escaped by being doubled.
+ *
+ * Aimed at being used for SQL literal strings.
+ *
+ * @since 3.13
+ */
+CPLString CPLString::SQLQuotedLiteral() const
+{
+    CPLString ret("'");
+    CPLString tmp(*this);
+    tmp.replaceAll('\'', "''");
+    ret += tmp;
+    ret += '\'';
+    return ret;
+}
+
+/************************************************************************/
+/*                           CPLURLGetValue()                           */
 /************************************************************************/
 
 /**
@@ -476,7 +518,7 @@ CPLString CPLURLGetValue(const char *pszURL, const char *pszKey)
 }
 
 /************************************************************************/
-/*                          CPLURLAddKVP()                              */
+/*                            CPLURLAddKVP()                            */
 /************************************************************************/
 
 /**
@@ -532,7 +574,7 @@ CPLString CPLURLAddKVP(const char *pszURL, const char *pszKey,
 }
 
 /************************************************************************/
-/*                            CPLOPrintf()                              */
+/*                             CPLOPrintf()                             */
 /************************************************************************/
 
 /** Return a CPLString with the content of sprintf() */
@@ -564,7 +606,7 @@ CPLString CPLOvPrintf(CPL_FORMAT_STRING(const char *pszFormat), va_list args)
 }
 
 /************************************************************************/
-/*                            CPLQuotedSQLIdentifer()                   */
+/*                       CPLQuotedSQLIdentifer()                        */
 /************************************************************************/
 
 /** Return a CPLString of the SQL quoted identifier */

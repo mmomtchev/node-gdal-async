@@ -336,7 +336,7 @@ static void KEACopyRAT(GDALRasterBand *pBand, kealib::KEAImageIO *pImageIO,
 static void KEACopyMetadata(GDALMajorObject *pObject,
                             kealib::KEAImageIO *pImageIO, int nBand)
 {
-    char **ppszMetadata = pObject->GetMetadata();
+    CSLConstList ppszMetadata = pObject->GetMetadata();
     if (ppszMetadata != nullptr)
     {
         int nCount = 0;
@@ -452,12 +452,12 @@ static void KEACopySpatialInfo(GDALDataset *pDataset,
     if (pDataset->GetGeoTransform(gt) == CE_None)
     {
         // convert back from GDAL's array format
-        pSpatialInfo->tlX = gt[0];
-        pSpatialInfo->xRes = gt[1];
-        pSpatialInfo->xRot = gt[2];
-        pSpatialInfo->tlY = gt[3];
-        pSpatialInfo->yRot = gt[4];
-        pSpatialInfo->yRes = gt[5];
+        pSpatialInfo->tlX = gt.xorig;
+        pSpatialInfo->xRes = gt.xscale;
+        pSpatialInfo->xRot = gt.xrot;
+        pSpatialInfo->tlY = gt.yorig;
+        pSpatialInfo->yRot = gt.yrot;
+        pSpatialInfo->yRes = gt.yscale;
     }
 
     const char *pszProjection = pDataset->GetProjectionRef();

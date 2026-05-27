@@ -47,7 +47,7 @@ extern char *CPLRecodeFromWCharIconv(const wchar_t *, const char *,
 extern wchar_t *CPLRecodeToWCharIconv(const char *, const char *, const char *);
 
 /************************************************************************/
-/*                 CPLClearRecodeIconvWarningFlags()                    */
+/*                  CPLClearRecodeIconvWarningFlags()                   */
 /************************************************************************/
 
 static bool bHaveWarned1 = false;
@@ -60,30 +60,30 @@ void CPLClearRecodeIconvWarningFlags()
 }
 
 /************************************************************************/
-/*                      CPLFixInputEncoding()                           */
+/*                        CPLFixInputEncoding()                         */
 /************************************************************************/
 
 static const char *CPLFixInputEncoding(const char *pszSrcEncoding,
-                                       int nFirstVal)
+                                       [[maybe_unused]] int nFirstVal)
 {
-#if CPL_IS_LSB
-    // iconv on Alpine Linux seems to assume BE order, when it is not explicit
-    if (EQUAL(pszSrcEncoding, CPL_ENC_UCS2))
-        pszSrcEncoding = "UCS-2LE";
-    else if (EQUAL(pszSrcEncoding, CPL_ENC_UTF16) && nFirstVal != 0xFF &&
-             nFirstVal != 0xFE && nFirstVal != 0xFFFE && nFirstVal != 0xFEFF)
+    if constexpr (CPL_IS_LSB)
     {
-        // Only force UTF-16LE if there's no starting endianness marker
-        pszSrcEncoding = "UTF-16LE";
+        // iconv on Alpine Linux seems to assume BE order, when it is not explicit
+        if (EQUAL(pszSrcEncoding, CPL_ENC_UCS2))
+            pszSrcEncoding = "UCS-2LE";
+        else if (EQUAL(pszSrcEncoding, CPL_ENC_UTF16) && nFirstVal != 0xFF &&
+                 nFirstVal != 0xFE && nFirstVal != 0xFFFE &&
+                 nFirstVal != 0xFEFF)
+        {
+            // Only force UTF-16LE if there's no starting endianness marker
+            pszSrcEncoding = "UTF-16LE";
+        }
     }
-#else
-    CPL_IGNORE_RET_VAL(nFirstVal);
-#endif
     return pszSrcEncoding;
 }
 
 /************************************************************************/
-/*                          CPLRecodeIconv()                            */
+/*                           CPLRecodeIconv()                           */
 /************************************************************************/
 
 /**
@@ -371,7 +371,7 @@ char *CPLRecodeFromWCharIconv(const wchar_t *pwszSource,
 }
 
 /************************************************************************/
-/*                        CPLRecodeToWCharIconv()                       */
+/*                       CPLRecodeToWCharIconv()                        */
 /************************************************************************/
 
 /**

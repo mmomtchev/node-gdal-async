@@ -1,7 +1,7 @@
 /******************************************************************************
  *
  * Project:  GDAL
- * Purpose:  "geom" step of "vector pipeline", or "gdal vector geom" standalone
+ * Purpose:  Base classes for some geometry-related vector algorithms
  * Author:   Even Rouault <even dot rouault at spatialys.com>
  *
  ******************************************************************************
@@ -19,55 +19,7 @@
 //! @cond Doxygen_Suppress
 
 /************************************************************************/
-/*                       GDALVectorGeomAlgorithm                        */
-/************************************************************************/
-
-class GDALVectorGeomAlgorithm /* non final */
-    : public GDALVectorPipelineStepAlgorithm
-{
-  public:
-    static constexpr const char *NAME = "geom";
-    static constexpr const char *DESCRIPTION =
-        "Geometry operations on a vector dataset.";
-    static constexpr const char *HELP_URL = "/programs/gdal_vector_geom.html";
-
-    explicit GDALVectorGeomAlgorithm(bool standaloneStep = false);
-
-  private:
-    bool RunStep(GDALPipelineStepRunContext &ctxt) override;
-
-    void WarnIfDeprecated() override;
-
-    /** Register the sub-algorithm of type MyAlgorithm.
-     */
-    template <class MyAlgorithm> bool RegisterSubAlgorithm(bool standalone)
-    {
-        GDALAlgorithmRegistry::AlgInfo info;
-        info.m_name = MyAlgorithm::NAME;
-        info.m_aliases = MyAlgorithm::GetAliasesStatic();
-        info.m_creationFunc = [standalone]() -> std::unique_ptr<GDALAlgorithm>
-        { return std::make_unique<MyAlgorithm>(standalone); };
-        return GDALAlgorithm::RegisterSubAlgorithm(info);
-    }
-};
-
-/************************************************************************/
-/*                    GDALVectorGeomAlgorithmStandalone                 */
-/************************************************************************/
-
-class GDALVectorGeomAlgorithmStandalone final : public GDALVectorGeomAlgorithm
-{
-  public:
-    GDALVectorGeomAlgorithmStandalone()
-        : GDALVectorGeomAlgorithm(/* standaloneStep = */ true)
-    {
-    }
-
-    ~GDALVectorGeomAlgorithmStandalone() override;
-};
-
-/************************************************************************/
-/*                    GDALVectorGeomAbstractAlgorithm                   */
+/*                   GDALVectorGeomAbstractAlgorithm                    */
 /************************************************************************/
 
 class GDALVectorGeomAbstractAlgorithm /* non final */
@@ -95,7 +47,7 @@ class GDALVectorGeomAbstractAlgorithm /* non final */
 };
 
 /************************************************************************/
-/*                  GDALVectorGeomOneToOneAlgorithmLayer                */
+/*                 GDALVectorGeomOneToOneAlgorithmLayer                 */
 /************************************************************************/
 
 template <class T>
@@ -188,26 +140,30 @@ class GDALVectorGeomOneToOneAlgorithmLayer /* non final */
 #ifdef HAVE_GEOS
 
 /************************************************************************/
-/*                    GDALGeosNonStreamingAlgorithmDataset              */
+/*                  GDALGeosNonStreamingAlgorithmLayer                  */
 /************************************************************************/
 
-/** A GDALGeosNonStreamingAlgorithmDataset manages the work of reading features
+/** A GDALGeosNonStreamingAlgorithmLayer manages the work of reading features
  *  from an input layer, converting OGR geometries into GEOS geometries,
- *  applying a GEOS function, and writing result to an output layer. It is
+ *  applying a GEOS function, and creating OGRFeatures for the results. It
  *  appropriate only for GEOS algorithms that operate on all input geometries
  *  at a single time.
  */
-class GDALGeosNonStreamingAlgorithmDataset
-    : public GDALVectorNonStreamingAlgorithmDataset
+class GDALGeosNonStreamingAlgorithmLayer
+    : public GDALVectorNonStreamingAlgorithmLayer
 {
   public:
-    GDALGeosNonStreamingAlgorithmDataset();
+    GDALGeosNonStreamingAlgorithmLayer(OGRLayer &srcLayer, int geomFieldIndex);
 
-    ~GDALGeosNonStreamingAlgorithmDataset() override;
+    ~GDALGeosNonStreamingAlgorithmLayer() override;
 
-    CPL_DISALLOW_COPY_ASSIGN(GDALGeosNonStreamingAlgorithmDataset)
+    void ResetReading() override;
 
-    bool Process(OGRLayer &srcLayer, OGRLayer &dstLayer) override;
+    CPL_DISALLOW_COPY_ASSIGN(GDALGeosNonStreamingAlgorithmLayer)
+
+    bool Process(GDALProgressFunc pfnProgress, void *pProgressData) override;
+
+    std::unique_ptr<OGRFeature> GetNextProcessedFeature() override;
 
     virtual bool ProcessGeos() = 0;
 
@@ -217,11 +173,6 @@ class GDALGeosNonStreamingAlgorithmDataset
     /// Whether empty result features should be excluded from the output
     virtual bool SkipEmpty() const = 0;
 
-    void SetSourceGeometryField(int i)
-    {
-        m_sourceGeometryField = i;
-    }
-
   protected:
     GEOSContextHandle_t m_poGeosContext{nullptr};
     std::vector<GEOSGeometry *> m_apoGeosInputs{};
@@ -229,16 +180,14 @@ class GDALGeosNonStreamingAlgorithmDataset
     GEOSGeometry **m_papoGeosResults{nullptr};
 
   private:
-    bool ConvertInputsToGeos(OGRLayer &srcLayer, OGRLayer &dstLayer,
-                             bool sameDefn);
-
-    bool ConvertOutputsFromGeos(OGRLayer &dstLayer);
+    bool ConvertInputsToGeos(OGRLayer &srcLayer, int geomFieldIndex,
+                             GDALProgressFunc pfnProgress, void *pProgressData);
 
     void Cleanup();
 
     std::vector<std::unique_ptr<OGRFeature>> m_apoFeatures{};
     unsigned int m_nGeosResultSize{0};
-    int m_sourceGeometryField{0};
+    unsigned int m_readPos{0};
 };
 
 #endif

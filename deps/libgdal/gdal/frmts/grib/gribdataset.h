@@ -76,7 +76,7 @@ class GRIBDataset final : public GDALPamDataset
     static int Identify(GDALOpenInfo *);
     static GDALDataset *CreateCopy(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
-                                   char **papszOptions,
+                                   CSLConstList papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
 
@@ -143,7 +143,7 @@ class GRIBRasterBand final : public GDALPamRasterBand
     const char *GetDescription() const override;
 
     double GetNoDataValue(int *pbSuccess = nullptr) override;
-    char **GetMetadata(const char *pszDomain = "") override;
+    CSLConstList GetMetadata(const char *pszDomain = "") override;
     virtual const char *GetMetadataItem(const char *pszName,
                                         const char *pszDomain = "") override;
 

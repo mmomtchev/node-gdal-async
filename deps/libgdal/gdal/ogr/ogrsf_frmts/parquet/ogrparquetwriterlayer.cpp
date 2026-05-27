@@ -27,7 +27,7 @@
 #include <utility>
 
 /************************************************************************/
-/*                      OGRParquetWriterLayer()                         */
+/*                       OGRParquetWriterLayer()                        */
 /************************************************************************/
 
 OGRParquetWriterLayer::OGRParquetWriterLayer(
@@ -42,7 +42,7 @@ OGRParquetWriterLayer::OGRParquetWriterLayer(
 }
 
 /************************************************************************/
-/*                                Close()                               */
+/*                               Close()                                */
 /************************************************************************/
 
 bool OGRParquetWriterLayer::Close()
@@ -63,7 +63,7 @@ bool OGRParquetWriterLayer::Close()
 }
 
 /************************************************************************/
-/*                     CopyTmpGpkgLayerToFinalFile()                    */
+/*                    CopyTmpGpkgLayerToFinalFile()                     */
 /************************************************************************/
 
 bool OGRParquetWriterLayer::CopyTmpGpkgLayerToFinalFile()
@@ -281,7 +281,7 @@ bool OGRParquetWriterLayer::CopyTmpGpkgLayerToFinalFile()
 }
 
 /************************************************************************/
-/*                       IsSupportedGeometryType()                      */
+/*                      IsSupportedGeometryType()                       */
 /************************************************************************/
 
 bool OGRParquetWriterLayer::IsSupportedGeometryType(
@@ -308,7 +308,7 @@ bool OGRParquetWriterLayer::IsSupportedGeometryType(
 }
 
 /************************************************************************/
-/*                           SetOptions()                               */
+/*                             SetOptions()                             */
 /************************************************************************/
 
 bool OGRParquetWriterLayer::SetOptions(
@@ -321,6 +321,9 @@ bool OGRParquetWriterLayer::SetOptions(
         CPLGetConfigOption("OGR_PARQUET_WRITE_COVERING_BBOX", nullptr));
     m_bWriteBBoxStruct =
         pszWriteCoveringBBox == nullptr || CPLTestBool(pszWriteCoveringBBox);
+
+    m_oBBoxStructFieldName =
+        CSLFetchNameValueDef(papszOptions, "COVERING_BBOX_NAME", "");
 
     if (CPLTestBool(CSLFetchNameValueDef(papszOptions, "SORT_BY_BBOX", "NO")))
     {
@@ -550,7 +553,7 @@ bool OGRParquetWriterLayer::SetOptions(
 }
 
 /************************************************************************/
-/*                         CloseFileWriter()                            */
+/*                          CloseFileWriter()                           */
 /************************************************************************/
 
 bool OGRParquetWriterLayer::CloseFileWriter()
@@ -566,7 +569,7 @@ bool OGRParquetWriterLayer::CloseFileWriter()
 }
 
 /************************************************************************/
-/*                            GetGeoMetadata()                          */
+/*                           GetGeoMetadata()                           */
 /************************************************************************/
 
 std::string OGRParquetWriterLayer::GetGeoMetadata() const
@@ -600,10 +603,8 @@ std::string OGRParquetWriterLayer::GetGeoMetadata() const
                 {
                     OGRSpatialReference oSRSIdentified(IdentifyCRS(poSRS));
 
-                    const char *pszAuthName =
-                        oSRSIdentified.GetAuthorityName(nullptr);
-                    const char *pszAuthCode =
-                        oSRSIdentified.GetAuthorityCode(nullptr);
+                    const char *pszAuthName = oSRSIdentified.GetAuthorityName();
+                    const char *pszAuthCode = oSRSIdentified.GetAuthorityCode();
 
                     bool bOmitCRS = false;
                     if (pszAuthName != nullptr && pszAuthCode != nullptr &&
@@ -670,7 +671,7 @@ std::string OGRParquetWriterLayer::GetGeoMetadata() const
                 bool bHasZ = false;
                 for (const auto eGeomType : m_oSetWrittenGeometryTypes[i])
                 {
-                    bHasZ = OGR_GT_HasZ(eGeomType);
+                    bHasZ = CPL_TO_BOOL(OGR_GT_HasZ(eGeomType));
                     if (bHasZ)
                         break;
                 }
@@ -758,7 +759,7 @@ std::string OGRParquetWriterLayer::GetGeoMetadata() const
 }
 
 /************************************************************************/
-/*               PerformStepsBeforeFinalFlushGroup()                    */
+/*                 PerformStepsBeforeFinalFlushGroup()                  */
 /************************************************************************/
 
 void OGRParquetWriterLayer::PerformStepsBeforeFinalFlushGroup()
@@ -881,7 +882,7 @@ void OGRParquetWriterLayer::PerformStepsBeforeFinalFlushGroup()
 }
 
 /************************************************************************/
-/*                                 Open()                               */
+/*                                Open()                                */
 /************************************************************************/
 
 // Same as parquet::arrow::FileWriter::Open(), except we also
@@ -918,7 +919,7 @@ Open(const ::arrow::Schema &schema, ::arrow::MemoryPool *pool,
 }
 
 /************************************************************************/
-/*                          CreateSchema()                              */
+/*                            CreateSchema()                            */
 /************************************************************************/
 
 void OGRParquetWriterLayer::CreateSchema()
@@ -952,7 +953,7 @@ OGRErr OGRParquetWriterLayer::CreateGeomField(const OGRGeomFieldDefn *poField,
 }
 
 /************************************************************************/
-/*                          CreateWriter()                              */
+/*                            CreateWriter()                            */
 /************************************************************************/
 
 void OGRParquetWriterLayer::CreateWriter()
@@ -977,7 +978,7 @@ void OGRParquetWriterLayer::CreateWriter()
 }
 
 /************************************************************************/
-/*                          ICreateFeature()                            */
+/*                           ICreateFeature()                           */
 /************************************************************************/
 
 OGRErr OGRParquetWriterLayer::ICreateFeature(OGRFeature *poFeature)
@@ -1039,7 +1040,7 @@ OGRErr OGRParquetWriterLayer::ICreateFeature(OGRFeature *poFeature)
 }
 
 /************************************************************************/
-/*                            FlushGroup()                              */
+/*                             FlushGroup()                             */
 /************************************************************************/
 
 bool OGRParquetWriterLayer::FlushGroup()
@@ -1077,7 +1078,7 @@ bool OGRParquetWriterLayer::FlushGroup()
 }
 
 /************************************************************************/
-/*                    FixupWKBGeometryBeforeWriting()                   */
+/*                   FixupWKBGeometryBeforeWriting()                    */
 /************************************************************************/
 
 void OGRParquetWriterLayer::FixupWKBGeometryBeforeWriting(GByte *pabyWkb,
@@ -1171,7 +1172,7 @@ OGRParquetWriterLayer::WriteArrowBatch(const struct ArrowSchema *schema,
 #endif
 
 /************************************************************************/
-/*                         TestCapability()                             */
+/*                           TestCapability()                           */
 /************************************************************************/
 
 inline int OGRParquetWriterLayer::TestCapability(const char *pszCap) const
@@ -1193,7 +1194,7 @@ inline int OGRParquetWriterLayer::TestCapability(const char *pszCap) const
 }
 
 /************************************************************************/
-/*                        CreateFieldFromArrowSchema()                  */
+/*                     CreateFieldFromArrowSchema()                     */
 /************************************************************************/
 
 #if PARQUET_VERSION_MAJOR > 10
@@ -1215,7 +1216,7 @@ bool OGRParquetWriterLayer::CreateFieldFromArrowSchema(
 #endif
 
 /************************************************************************/
-/*                        IsArrowSchemaSupported()                      */
+/*                       IsArrowSchemaSupported()                       */
 /************************************************************************/
 
 #if PARQUET_VERSION_MAJOR > 10
@@ -1277,7 +1278,7 @@ bool OGRParquetWriterLayer::IsArrowSchemaSupported(
 /*                            SetMetadata()                             */
 /************************************************************************/
 
-CPLErr OGRParquetWriterLayer::SetMetadata(char **papszMetadata,
+CPLErr OGRParquetWriterLayer::SetMetadata(CSLConstList papszMetadata,
                                           const char *pszDomain)
 {
     if (!pszDomain || !EQUAL(pszDomain, "SHAPEFILE"))

@@ -19,7 +19,7 @@
 #include <queue>
 
 /************************************************************************/
-/*                    GDALNearblackFloodFillAlg                         */
+/*                      GDALNearblackFloodFillAlg                       */
 /************************************************************************/
 
 // Implements the "final, combined-scan-and-fill span filler was then published
@@ -145,7 +145,7 @@ bool GDALNearblackFloodFillAlg::MustSet(int iX, int iY)
 }
 
 /************************************************************************/
-/*             GDALNearblackFloodFillAlg::LoadLine()                    */
+/*                GDALNearblackFloodFillAlg::LoadLine()                 */
 /************************************************************************/
 
 // Load the new line iY, and saves if needed buffer of the previous loaded
@@ -167,7 +167,7 @@ bool GDALNearblackFloodFillAlg::LoadLine(int iY)
             {
                 if (m_poDstDS->RasterIO(
                         GF_Write, 0, m_nLoadedLine, nXSize, 1, m_abyLine.data(),
-                        nXSize, 1, GDT_Byte, m_nDstBands, nullptr, m_nDstBands,
+                        nXSize, 1, GDT_UInt8, m_nDstBands, nullptr, m_nDstBands,
                         static_cast<GSpacing>(nXSize) * m_nDstBands, 1,
                         nullptr) != CE_None)
                 {
@@ -180,7 +180,7 @@ bool GDALNearblackFloodFillAlg::LoadLine(int iY)
             {
                 if (m_poMaskBand->RasterIO(GF_Write, 0, m_nLoadedLine, nXSize,
                                            1, m_abyMask.data(), nXSize, 1,
-                                           GDT_Byte, 0, 0, nullptr) != CE_None)
+                                           GDT_UInt8, 0, 0, nullptr) != CE_None)
                 {
                     return false;
                 }
@@ -198,7 +198,7 @@ bool GDALNearblackFloodFillAlg::LoadLine(int iY)
                 // line of interest
                 if (m_poDstDS->RasterIO(
                         GF_Read, 0, iY, nXSize, 1, m_abyLine.data(), nXSize, 1,
-                        GDT_Byte, m_nDstBands, nullptr, m_nDstBands,
+                        GDT_UInt8, m_nDstBands, nullptr, m_nDstBands,
                         static_cast<GSpacing>(nXSize) * m_nDstBands, 1,
                         nullptr) != CE_None)
                 {
@@ -210,7 +210,7 @@ bool GDALNearblackFloodFillAlg::LoadLine(int iY)
                 // Otherwise load from the source data
                 if (m_poSrcDataset->RasterIO(
                         GF_Read, 0, iY, nXSize, 1, m_abyLine.data(), nXSize, 1,
-                        GDT_Byte,
+                        GDT_UInt8,
                         // m_nSrcBands intended
                         m_nSrcBands,
                         // m_nDstBands intended
@@ -245,7 +245,7 @@ bool GDALNearblackFloodFillAlg::LoadLine(int iY)
                 {
                     if (m_poMaskBand->RasterIO(
                             GF_Read, 0, iY, nXSize, 1, m_abyMask.data(), nXSize,
-                            1, GDT_Byte, 0, 0, nullptr) != CE_None)
+                            1, GDT_UInt8, 0, 0, nullptr) != CE_None)
                     {
                         return false;
                     }
@@ -274,7 +274,7 @@ bool GDALNearblackFloodFillAlg::LoadLine(int iY)
         {
             if (m_poVisitedDS->GetRasterBand(1)->RasterIO(
                     GF_Write, 0, m_nLoadedLine, nXSize, 1,
-                    m_abyLineMustSet.data(), nXSize, 1, GDT_Byte, 0, 0,
+                    m_abyLineMustSet.data(), nXSize, 1, GDT_UInt8, 0, 0,
                     nullptr) != CE_None)
             {
                 return false;
@@ -285,7 +285,7 @@ bool GDALNearblackFloodFillAlg::LoadLine(int iY)
         {
             if (m_poVisitedDS->GetRasterBand(1)->RasterIO(
                     GF_Read, 0, iY, nXSize, 1, m_abyLineMustSet.data(), nXSize,
-                    1, GDT_Byte, 0, 0, nullptr) != CE_None)
+                    1, GDT_UInt8, 0, 0, nullptr) != CE_None)
             {
                 return false;
             }
@@ -298,7 +298,7 @@ bool GDALNearblackFloodFillAlg::LoadLine(int iY)
 }
 
 /************************************************************************/
-/*              GDALNearblackFloodFillAlg::Set()                        */
+/*                   GDALNearblackFloodFillAlg::Set()                   */
 /************************************************************************/
 
 // Mark the pixel as transparent
@@ -322,7 +322,7 @@ void GDALNearblackFloodFillAlg::Set(int iX, int iY)
 }
 
 /************************************************************************/
-/*              GDALNearblackFloodFillAlg::Fill()                       */
+/*                  GDALNearblackFloodFillAlg::Fill()                   */
 /************************************************************************/
 
 /* Implements the "final, combined-scan-and-fill span filler was then published
@@ -435,7 +435,7 @@ bool GDALNearblackFloodFillAlg::Fill(int iXInit, int iYInit)
 }
 
 /************************************************************************/
-/*              GDALNearblackFloodFillAlg::Process()                    */
+/*                 GDALNearblackFloodFillAlg::Process()                 */
 /************************************************************************/
 
 // Entry point.
@@ -521,7 +521,7 @@ bool GDALNearblackFloodFillAlg::Process()
     }
     m_poVisitedDS.reset(GDALDataset::FromHandle(
         GDALCreate(hDriver, osVisitedDataset.c_str(), nXSize, nYSize, 1,
-                   GDT_Byte, aosOptions.List())));
+                   GDT_UInt8, aosOptions.List())));
     if (!m_poVisitedDS)
         return false;
     if (strcmp(pszTmpDriver, "MEM") != 0)
@@ -571,7 +571,7 @@ bool GDALNearblackFloodFillAlg::Process()
 }
 
 /************************************************************************/
-/*                    GDALNearblackFloodFill()                          */
+/*                       GDALNearblackFloodFill()                       */
 /************************************************************************/
 
 // Entry point.

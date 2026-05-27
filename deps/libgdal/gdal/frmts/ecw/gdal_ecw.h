@@ -38,20 +38,21 @@ GDALColorInterp ECWGetColorInterpretationByName(const char *pszName);
 const char *ECWGetColorSpaceName(NCSFileColorSpace colorSpace);
 #ifdef HAVE_COMPRESS
 GDALDataset *ECWCreateCopyECW(const char *pszFilename, GDALDataset *poSrcDS,
-                              int bStrict, char **papszOptions,
+                              int bStrict, CSLConstList papszOptions,
                               GDALProgressFunc pfnProgress,
                               void *pProgressData);
 GDALDataset *ECWCreateCopyJPEG2000(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
-                                   char **papszOptions,
+                                   CSLConstList papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
 
 GDALDataset *ECWCreateECW(const char *pszFilename, int nXSize, int nYSize,
-                          int nBands, GDALDataType eType, char **papszOptions);
+                          int nBands, GDALDataType eType,
+                          CSLConstList papszOptions);
 GDALDataset *ECWCreateJPEG2000(const char *pszFilename, int nXSize, int nYSize,
                                int nBands, GDALDataType eType,
-                               char **papszOptions);
+                               CSLConstList papszOptions);
 #endif
 
 void ECWReportError(CNCSError &oErr, const char *pszMsg = "");
@@ -196,7 +197,7 @@ class VSIIOStream final : public CNCSJPCIOStream
         lengthOfJPData = size;
         bWritable = bWrite;
         bSeekable = bSeekableIn;
-        VSIFSeekL(fpVSIL, startOfJPData, SEEK_SET);
+        VSIFSeekL(fpVSIL, static_cast<vsi_l_offset>(startOfJPData), SEEK_SET);
         m_Filename = CPLStrdup(pszFilename);
 
 #if ECWSDK_VERSION >= 55
@@ -268,16 +269,22 @@ class VSIIOStream final : public CNCSJPCIOStream
         switch (origin)
         {
             case START:
-                success =
-                    (0 == VSIFSeekL(fpVSIL, offset + startOfJPData, SEEK_SET));
+                success = (0 == VSIFSeekL(fpVSIL,
+                                          static_cast<vsi_l_offset>(offset) +
+                                              startOfJPData,
+                                          SEEK_SET));
                 break;
 
             case CURRENT:
-                success = (0 == VSIFSeekL(fpVSIL, offset, SEEK_CUR));
+                success =
+                    (0 == VSIFSeekL(fpVSIL, static_cast<vsi_l_offset>(offset),
+                                    SEEK_CUR));
                 break;
 
             case END:
-                success = (0 == VSIFSeekL(fpVSIL, offset, SEEK_END));
+                success =
+                    (0 == VSIFSeekL(fpVSIL, static_cast<vsi_l_offset>(offset),
+                                    SEEK_END));
                 break;
         }
         if (!success)
@@ -592,20 +599,20 @@ class CPL_DLL ECWDataset final : public GDALJP2AbstractDataset
     char **GetMetadataDomainList() override;
     virtual const char *GetMetadataItem(const char *pszName,
                                         const char *pszDomain = "") override;
-    char **GetMetadata(const char *pszDomain = "") override;
+    CSLConstList GetMetadata(const char *pszDomain = "") override;
 
     CPLErr SetGeoTransform(const GDALGeoTransform &gt) override;
     CPLErr SetSpatialRef(const OGRSpatialReference *poSRS) override;
 
     CPLErr SetMetadataItem(const char *pszName, const char *pszValue,
                            const char *pszDomain = "") override;
-    CPLErr SetMetadata(char **papszMetadata,
+    CPLErr SetMetadata(CSLConstList papszMetadata,
                        const char *pszDomain = "") override;
 
     CPLErr AdviseRead(int nXOff, int nYOff, int nXSize, int nYSize,
                       int nBufXSize, int nBufYSize, GDALDataType eDT,
                       int nBandCount, int *panBandList,
-                      char **papszOptions) override;
+                      CSLConstList papszOptions) override;
 
     // progressive methods
 #if ECWSDK_VERSION >= 40
@@ -614,7 +621,7 @@ class CPL_DLL ECWDataset final : public GDALJP2AbstractDataset
                      int nBufXSize, int nBufYSize, GDALDataType eBufType,
                      int nBandCount, int *panBandMap, int nPixelSpace,
                      int nLineSpace, int nBandSpace,
-                     char **papszOptions) override;
+                     CSLConstList papszOptions) override;
 
     void EndAsyncReader(GDALAsyncReader *) override;
 #endif /* ECWSDK_VERSION > 40 */
@@ -687,7 +694,7 @@ class ECWRasterBand final : public GDALPamRasterBand
 
     CPLErr AdviseRead(int nXOff, int nYOff, int nXSize, int nYSize,
                       int nBufXSize, int nBufYSize, GDALDataType eDT,
-                      char **papszOptions) override;
+                      CSLConstList papszOptions) override;
 #if ECWSDK_VERSION >= 50
     void GetBandIndexAndCountForStatistics(int &bandIndex,
                                            int &bandCount) const;

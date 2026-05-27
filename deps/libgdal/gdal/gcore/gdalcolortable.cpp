@@ -418,7 +418,7 @@ int GDALColorTable::CreateColorRamp(int nStartIndex,
 }
 
 /************************************************************************/
-/*                         GDALCreateColorRamp()                        */
+/*                        GDALCreateColorRamp()                         */
 /************************************************************************/
 
 /**
@@ -438,7 +438,7 @@ void CPL_STDCALL GDALCreateColorRamp(GDALColorTableH hTable, int nStartIndex,
 }
 
 /************************************************************************/
-/*                           IsSame()                                   */
+/*                               IsSame()                               */
 /************************************************************************/
 
 /**
@@ -457,7 +457,7 @@ int GDALColorTable::IsSame(const GDALColorTable *poOtherCT) const
 }
 
 /************************************************************************/
-/*                          IsIdentity()                                */
+/*                             IsIdentity()                             */
 /************************************************************************/
 
 /**
@@ -481,7 +481,7 @@ bool GDALColorTable::IsIdentity() const
 }
 
 /************************************************************************/
-/*                          FindRasterRenderer()                        */
+/*                         FindRasterRenderer()                         */
 /************************************************************************/
 
 static bool FindRasterRenderer(const CPLXMLNode *const psNode,
@@ -670,7 +670,7 @@ GDALColorTable::LoadFromFile(const char *pszFilename)
 }
 
 /************************************************************************/
-/*                    GDALGetAbsoluteValFromPct()                       */
+/*                     GDALGetAbsoluteValFromPct()                      */
 /************************************************************************/
 
 /* dfPct : percentage between 0 and 1 */
@@ -692,7 +692,7 @@ static double GDALGetAbsoluteValFromPct(GDALRasterBand *poBand, double dfPct)
 }
 
 /************************************************************************/
-/*                     GDALFindNamedColor()                             */
+/*                         GDALFindNamedColor()                         */
 /************************************************************************/
 
 static bool GDALFindNamedColor(const char *pszColorName, int *pnR, int *pnG,
@@ -733,7 +733,7 @@ static bool GDALFindNamedColor(const char *pszColorName, int *pnR, int *pnG,
 }
 
 /************************************************************************/
-/*                          GDALLoadTextColorMap()                      */
+/*                        GDALLoadTextColorMap()                        */
 /************************************************************************/
 
 /**
@@ -744,11 +744,26 @@ static bool GDALFindNamedColor(const char *pszColorName, int *pnR, int *pnG,
 std::vector<GDALColorAssociation> GDALLoadTextColorMap(const char *pszFilename,
                                                        GDALRasterBand *poBand)
 {
-    auto fpColorFile = VSIVirtualHandleUniquePtr(VSIFOpenL(pszFilename, "rt"));
+    auto fpColorFile = VSIVirtualHandleUniquePtr(VSIFOpenL(pszFilename, "rb"));
     if (fpColorFile == nullptr)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "Cannot find %s", pszFilename);
         return {};
+    }
+
+    // Detect UTF-16 BOM (common on Windows)
+    unsigned char bom[2] = {0, 0};
+    if (fpColorFile->Read(bom, 1, 2) == 2)
+    {
+        if ((bom[0] == 0xFF && bom[1] == 0xFE) ||
+            (bom[0] == 0xFE && bom[1] == 0xFF))
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Color map file must be UTF-8 encoded, not UTF-16: %s",
+                     pszFilename);
+            return {};
+        }
+        fpColorFile->Seek(0, SEEK_SET);
     }
 
     std::vector<GDALColorAssociation> asColorAssociation;

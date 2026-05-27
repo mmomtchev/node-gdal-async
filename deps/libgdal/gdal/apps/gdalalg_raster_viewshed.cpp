@@ -30,7 +30,7 @@
 #endif
 
 /************************************************************************/
-/*       GDALRasterViewshedAlgorithm::GDALRasterViewshedAlgorithm()     */
+/*      GDALRasterViewshedAlgorithm::GDALRasterViewshedAlgorithm()      */
 /************************************************************************/
 
 GDALRasterViewshedAlgorithm::GDALRasterViewshedAlgorithm(bool standaloneStep)
@@ -44,6 +44,11 @@ GDALRasterViewshedAlgorithm::GDALRasterViewshedAlgorithm(bool standaloneStep)
         .SetMaxCount(3)
         .SetRepeatedArgAllowed(false);
     AddArg("height", 'z', _("Observer height"), &m_opts.observer.z);
+
+    auto &sdFilenameArg =
+        AddArg("sd-filename", 0, _("Filename of standard-deviation raster"),
+               &m_sdFilename, GDAL_OF_RASTER);
+    SetAutoCompleteFunctionForFilename(sdFilenameArg, GDAL_OF_RASTER);
 
     AddArg("target-height", 0,
            _("Height of the target above the DEM surface in the height unit of "
@@ -117,15 +122,22 @@ GDALRasterViewshedAlgorithm::GDALRasterViewshedAlgorithm(bool standaloneStep)
         .SetDefault(m_opts.invisibleVal)
         .SetMinValueIncluded(0)
         .SetMaxValueIncluded(255);
+    AddArg("maybe-visible-value", 0,
+           _("Pixel value to set for potentially visible areas"),
+           &m_opts.maybeVisibleVal)
+        .SetDefault(m_opts.maybeVisibleVal)
+        .SetMinValueIncluded(0)
+        .SetMaxValueIncluded(255);
     AddArg("out-of-range-value", 0,
            _("Pixel value to set for the cells that fall outside of the range "
              "specified by the observer location and the maximum distance"),
            &m_opts.outOfRangeVal)
         .SetDefault(m_opts.outOfRangeVal);
-    AddArg("dst-nodata", 0,
+    AddArg("output-nodata", 0,
            _("The value to be set for the cells in the output raster that have "
              "no data."),
            &m_opts.nodataVal)
+        .AddHiddenAlias("dst-nodata")
         .SetMinValueIncluded(0)
         .SetMaxValueIncluded(255);
     AddArg("observer-spacing", 0, _("Cell Spacing between observers"),
@@ -138,7 +150,7 @@ GDALRasterViewshedAlgorithm::GDALRasterViewshedAlgorithm(bool standaloneStep)
 }
 
 /************************************************************************/
-/*                 GDALRasterViewshedAlgorithm::RunStep()               */
+/*                GDALRasterViewshedAlgorithm::RunStep()                */
 /************************************************************************/
 
 bool GDALRasterViewshedAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)
@@ -148,6 +160,19 @@ bool GDALRasterViewshedAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)
     auto poSrcDS = m_inputDataset[0].GetDatasetRef();
     CPLAssert(poSrcDS);
     CPLAssert(!m_outputDataset.GetDatasetRef());
+
+    GDALRasterBandH sdBand = nullptr;
+    if (auto sdDataset = m_sdFilename.GetDatasetRef())
+    {
+        if (sdDataset->GetRasterCount() == 0)
+        {
+            ReportError(
+                CE_Failure, CPLE_AppDefined,
+                "The standard deviation dataset must have one raster band");
+            return false;
+        }
+        sdBand = GDALRasterBand::FromHandle(sdDataset->GetRasterBand(1));
+    }
 
     if (GetArg("height")->IsExplicitlySet())
     {
@@ -254,7 +279,7 @@ bool GDALRasterViewshedAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)
 
         gdal::viewshed::Viewshed oViewshed(m_opts);
         const bool bSuccess = oViewshed.run(
-            GDALRasterBand::ToHandle(poSrcDS->GetRasterBand(m_band)),
+            GDALRasterBand::ToHandle(poSrcDS->GetRasterBand(m_band)), sdBand,
             pfnProgress ? pfnProgress : GDALDummyProgress, pProgressData);
         if (bSuccess)
         {

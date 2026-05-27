@@ -112,12 +112,15 @@ static Colorbox *largest_box(Colorbox *usedboxes);
  * be clipped to 8bit during reading, so non-eight bit bands are generally
  * inappropriate.
  *
+ * Since GDAL 3.13, source nodata values or mask band will be taken into account
+ * to determine which pixels are valid.
+ *
  * @param hRed Red input band.
  * @param hGreen Green input band.
  * @param hBlue Blue input band.
  * @param pfnIncludePixel function used to test which pixels should be included
- * in the analysis.  At this time this argument is ignored and all pixels are
- * utilized.  This should normally be NULL.
+ * in the analysis.  At this time this argument is ignored.
+ * This should normally be NULL.
  * @param nColors the desired number of colors to be returned (2-256).
  * @param hColorTable the colors will be returned in this color table object.
  * @param pfnProgress callback for reporting algorithm progress matching the
@@ -269,7 +272,7 @@ int GDALComputeMedianCutPCTInternal(
     int (*pfnIncludePixel)(int, int, void *), int nColors, int nBits,
     T *panHistogram,  // NULL, or >= size (1<<nBits)^3 * sizeof(T) bytes.
     GDALColorTableH hColorTable, GDALProgressFunc pfnProgress,
-    void *pProgressArg)
+    void *pProgressArg, std::vector<T> *panPixelCountPerColorTableEntry)
 
 {
     VALIDATE_POINTER1(hRed, "GDALComputeMedianCutPCT", CE_Failure);
@@ -324,6 +327,30 @@ int GDALComputeMedianCutPCTInternal(
 
     if (pfnProgress == nullptr)
         pfnProgress = GDALDummyProgress;
+
+    int nSrcNoData = -1;
+    GDALRasterBandH hMaskBand = nullptr;
+    int bSrcHasNoDataR = FALSE;
+    const double dfSrcNoDataR = GDALGetRasterNoDataValue(hRed, &bSrcHasNoDataR);
+    int bSrcHasNoDataG = FALSE;
+    const double dfSrcNoDataG =
+        GDALGetRasterNoDataValue(hGreen, &bSrcHasNoDataG);
+    int bSrcHasNoDataB = FALSE;
+    const double dfSrcNoDataB =
+        GDALGetRasterNoDataValue(hBlue, &bSrcHasNoDataB);
+    if (bSrcHasNoDataR && bSrcHasNoDataG && bSrcHasNoDataB &&
+        dfSrcNoDataR == dfSrcNoDataG && dfSrcNoDataR == dfSrcNoDataB &&
+        dfSrcNoDataR >= 0 && dfSrcNoDataR <= 255 &&
+        std::round(dfSrcNoDataR) == dfSrcNoDataR)
+    {
+        nSrcNoData = static_cast<int>(dfSrcNoDataR);
+    }
+    else
+    {
+        const int nMaskFlags = GDALGetMaskFlags(hRed);
+        if ((nMaskFlags & GMF_PER_DATASET))
+            hMaskBand = GDALGetMaskBand(hRed);
+    }
 
     /* ==================================================================== */
     /*      STEP 1: create empty boxes.                                     */
@@ -426,9 +453,12 @@ int GDALComputeMedianCutPCTInternal(
     GByte *pabyRedLine = static_cast<GByte *>(VSI_MALLOC_VERBOSE(nXSize));
     GByte *pabyGreenLine = static_cast<GByte *>(VSI_MALLOC_VERBOSE(nXSize));
     GByte *pabyBlueLine = static_cast<GByte *>(VSI_MALLOC_VERBOSE(nXSize));
+    std::unique_ptr<GByte, VSIFreeReleaser> pabyMask;
+    if (hMaskBand)
+        pabyMask.reset(static_cast<GByte *>(VSI_MALLOC_VERBOSE(nXSize)));
 
     if (pabyRedLine == nullptr || pabyGreenLine == nullptr ||
-        pabyBlueLine == nullptr)
+        pabyBlueLine == nullptr || (hMaskBand && !pabyMask))
     {
         err = CE_Failure;
         goto end_and_cleanup;
@@ -445,18 +475,29 @@ int GDALComputeMedianCutPCTInternal(
         }
 
         err = GDALRasterIO(hRed, GF_Read, 0, iLine, nXSize, 1, pabyRedLine,
-                           nXSize, 1, GDT_Byte, 0, 0);
+                           nXSize, 1, GDT_UInt8, 0, 0);
         if (err == CE_None)
             err = GDALRasterIO(hGreen, GF_Read, 0, iLine, nXSize, 1,
-                               pabyGreenLine, nXSize, 1, GDT_Byte, 0, 0);
+                               pabyGreenLine, nXSize, 1, GDT_UInt8, 0, 0);
         if (err == CE_None)
             err = GDALRasterIO(hBlue, GF_Read, 0, iLine, nXSize, 1,
-                               pabyBlueLine, nXSize, 1, GDT_Byte, 0, 0);
+                               pabyBlueLine, nXSize, 1, GDT_UInt8, 0, 0);
+        if (err == CE_None && hMaskBand)
+            err = GDALRasterIO(hMaskBand, GF_Read, 0, iLine, nXSize, 1,
+                               pabyMask.get(), nXSize, 1, GDT_UInt8, 0, 0);
         if (err != CE_None)
             goto end_and_cleanup;
 
         for (int iPixel = 0; iPixel < nXSize; iPixel++)
         {
+            if ((pabyRedLine[iPixel] == nSrcNoData &&
+                 pabyGreenLine[iPixel] == nSrcNoData &&
+                 pabyBlueLine[iPixel] == nSrcNoData) ||
+                (pabyMask && (pabyMask.get())[iPixel] == 0))
+            {
+                continue;
+            }
+
             const int nRed = pabyRedLine[iPixel] >> nColorShift;
             const int nGreen = pabyGreenLine[iPixel] >> nColorShift;
             const int nBlue = pabyBlueLine[iPixel] >> nColorShift;
@@ -508,6 +549,11 @@ int GDALComputeMedianCutPCTInternal(
 #if DEBUG_VERBOSE
         CPLDebug("MEDIAN_CUT", "%d colors found <= %d", nColorCounter, nColors);
 #endif
+        if (panPixelCountPerColorTableEntry)
+        {
+            panPixelCountPerColorTableEntry->clear();
+            panPixelCountPerColorTableEntry->reserve(nColors);
+        }
         for (int iColor = 0; iColor < nColorCounter; iColor++)
         {
             const GDALColorEntry sEntry = {static_cast<GByte>(anRed[iColor]),
@@ -515,6 +561,23 @@ int GDALComputeMedianCutPCTInternal(
                                            static_cast<GByte>(anBlue[iColor]),
                                            255};
             GDALSetColorEntry(hColorTable, iColor, &sEntry);
+            if (panPixelCountPerColorTableEntry)
+            {
+                if (psHashHistogram)
+                {
+                    int *pnColor = FindAndInsertColorCount(
+                        psHashHistogram,
+                        MAKE_COLOR_CODE(anRed[iColor], anGreen[iColor],
+                                        anBlue[iColor]));
+                    panPixelCountPerColorTableEntry->push_back(*pnColor);
+                }
+                else
+                {
+                    T *pnColor = HISTOGRAM(histogram, nCLevels, anRed[iColor],
+                                           anGreen[iColor], anBlue[iColor]);
+                    panPixelCountPerColorTableEntry->push_back(*pnColor);
+                }
+            }
         }
         goto end_and_cleanup;
     }
@@ -539,6 +602,11 @@ int GDALComputeMedianCutPCTInternal(
     /* ==================================================================== */
     {
         Colorbox *ptr = usedboxes;
+        if (panPixelCountPerColorTableEntry)
+        {
+            panPixelCountPerColorTableEntry->clear();
+            panPixelCountPerColorTableEntry->reserve(nColors);
+        }
         for (int i = 0; ptr != nullptr; ++i, ptr = ptr->next)
         {
             const GDALColorEntry sEntry = {
@@ -550,6 +618,9 @@ int GDALComputeMedianCutPCTInternal(
                                    2),
                 255};
             GDALSetColorEntry(hColorTable, i, &sEntry);
+            if (panPixelCountPerColorTableEntry)
+                panPixelCountPerColorTableEntry->push_back(
+                    static_cast<T>(ptr->total));
         }
     }
 
@@ -1213,11 +1284,41 @@ template int GDALComputeMedianCutPCTInternal<GUInt32>(
     GByte *pabyRedBand, GByte *pabyGreenBand, GByte *pabyBlueBand,
     int (*pfnIncludePixel)(int, int, void *), int nColors, int nBits,
     GUInt32 *panHistogram, GDALColorTableH hColorTable,
-    GDALProgressFunc pfnProgress, void *pProgressArg);
+    GDALProgressFunc pfnProgress, void *pProgressArg,
+    std::vector<GUInt32> *panPixelCountPerColorTableEntry);
 
 template int GDALComputeMedianCutPCTInternal<GUIntBig>(
     GDALRasterBandH hRed, GDALRasterBandH hGreen, GDALRasterBandH hBlue,
     GByte *pabyRedBand, GByte *pabyGreenBand, GByte *pabyBlueBand,
     int (*pfnIncludePixel)(int, int, void *), int nColors, int nBits,
     GUIntBig *panHistogram, GDALColorTableH hColorTable,
-    GDALProgressFunc pfnProgress, void *pProgressArg);
+    GDALProgressFunc pfnProgress, void *pProgressArg,
+    std::vector<GUIntBig> *panPixelCountPerColorTableEntry);
+
+int GDALComputeMedianCutPCT(
+    GDALRasterBandH hRed, GDALRasterBandH hGreen, GDALRasterBandH hBlue,
+    GByte *pabyRedBand, GByte *pabyGreenBand, GByte *pabyBlueBand,
+    int (*pfnIncludePixel)(int, int, void *), int nColors, int nBits,
+    GUInt32 *panHistogram, GDALColorTableH hColorTable,
+    GDALProgressFunc pfnProgress, void *pProgressArg,
+    std::vector<GUInt32> *panPixelCountPerColorTableEntry)
+{
+    return GDALComputeMedianCutPCTInternal<GUInt32>(
+        hRed, hGreen, hBlue, pabyRedBand, pabyGreenBand, pabyBlueBand,
+        pfnIncludePixel, nColors, nBits, panHistogram, hColorTable, pfnProgress,
+        pProgressArg, panPixelCountPerColorTableEntry);
+}
+
+int GDALComputeMedianCutPCT(
+    GDALRasterBandH hRed, GDALRasterBandH hGreen, GDALRasterBandH hBlue,
+    GByte *pabyRedBand, GByte *pabyGreenBand, GByte *pabyBlueBand,
+    int (*pfnIncludePixel)(int, int, void *), int nColors, int nBits,
+    GUIntBig *panHistogram, GDALColorTableH hColorTable,
+    GDALProgressFunc pfnProgress, void *pProgressArg,
+    std::vector<GUIntBig> *panPixelCountPerColorTableEntry)
+{
+    return GDALComputeMedianCutPCTInternal<GUIntBig>(
+        hRed, hGreen, hBlue, pabyRedBand, pabyGreenBand, pabyBlueBand,
+        pfnIncludePixel, nColors, nBits, panHistogram, hColorTable, pfnProgress,
+        pProgressArg, panPixelCountPerColorTableEntry);
+}

@@ -77,7 +77,7 @@
 #include "gtadrivercore.h"
 
 /************************************************************************/
-/* Helper functions                                                     */
+/*                           Helper functions                           */
 /************************************************************************/
 
 static void ScanDoubles(const char *pszString, double *padfDoubles, int nCount)
@@ -193,7 +193,7 @@ class GTAIO final : public gta::custom_io
     void seek(intmax_t offset, int whence, bool *error) throw() override
     {
         int r;
-        r = VSIFSeekL(fp, offset, whence);
+        r = VSIFSeekL(fp, static_cast<vsi_l_offset>(offset), whence);
         if (r != 0)
         {
             errno = EIO;
@@ -323,7 +323,7 @@ GTARasterBand::GTARasterBand(GTADataset *poDSIn, int nBandIn)
             eDataType = GDT_Int8;
             break;
         case gta::uint8:
-            eDataType = GDT_Byte;
+            eDataType = GDT_UInt8;
             break;
         case gta::int16:
             eDataType = GDT_Int16;
@@ -421,7 +421,7 @@ GTARasterBand::~GTARasterBand()
 }
 
 /************************************************************************/
-/*                             GetCategoryNames()                       */
+/*                          GetCategoryNames()                          */
 /************************************************************************/
 
 char **GTARasterBand::GetCategoryNames()
@@ -454,14 +454,14 @@ char **GTARasterBand::GetCategoryNames()
 }
 
 /************************************************************************/
-/*                             SetCategoryName()                        */
+/*                          SetCategoryName()                           */
 /************************************************************************/
 
 CPLErr GTARasterBand::SetCategoryNames(char **)
 
 {
     CPLError(CE_Warning, CPLE_NotSupported,
-             "The GTA driver does not support metadata updates.\n");
+             "The GTA driver does not support metadata updates.");
     return CE_Failure;
 }
 
@@ -510,7 +510,7 @@ double GTARasterBand::GetMaximum(int *pbSuccess)
 }
 
 /************************************************************************/
-/*                             GetNoDataValue()                         */
+/*                           GetNoDataValue()                           */
 /************************************************************************/
 
 double GTARasterBand::GetNoDataValue(int *pbSuccess)
@@ -532,14 +532,14 @@ double GTARasterBand::GetNoDataValue(int *pbSuccess)
 }
 
 /************************************************************************/
-/*                             SetNoDataValue()                         */
+/*                           SetNoDataValue()                           */
 /************************************************************************/
 
 CPLErr GTARasterBand::SetNoDataValue(double)
 
 {
     CPLError(CE_Warning, CPLE_NotSupported,
-             "The GTA driver does not support metadata updates.\n");
+             "The GTA driver does not support metadata updates.");
     return CE_Failure;
 }
 
@@ -573,12 +573,12 @@ CPLErr GTARasterBand::SetOffset(double)
 
 {
     CPLError(CE_Warning, CPLE_NotSupported,
-             "The GTA driver does not support metadata updates.\n");
+             "The GTA driver does not support metadata updates.");
     return CE_Failure;
 }
 
 /************************************************************************/
-/*                             GetScale()                               */
+/*                              GetScale()                              */
 /************************************************************************/
 
 double GTARasterBand::GetScale(int *pbSuccess)
@@ -600,19 +600,19 @@ double GTARasterBand::GetScale(int *pbSuccess)
 }
 
 /************************************************************************/
-/*                             SetScale()                               */
+/*                              SetScale()                              */
 /************************************************************************/
 
 CPLErr GTARasterBand::SetScale(double)
 
 {
     CPLError(CE_Warning, CPLE_NotSupported,
-             "The GTA driver does not support metadata updates.\n");
+             "The GTA driver does not support metadata updates.");
     return CE_Failure;
 }
 
 /************************************************************************/
-/*                             GetUnitType()                            */
+/*                            GetUnitType()                             */
 /************************************************************************/
 
 const char *GTARasterBand::GetUnitType()
@@ -625,19 +625,19 @@ const char *GTARasterBand::GetUnitType()
 }
 
 /************************************************************************/
-/*                             SetUnitType()                            */
+/*                            SetUnitType()                             */
 /************************************************************************/
 
 CPLErr GTARasterBand::SetUnitType(const char *)
 
 {
     CPLError(CE_Warning, CPLE_NotSupported,
-             "The GTA driver does not support metadata updates.\n");
+             "The GTA driver does not support metadata updates.");
     return CE_Failure;
 }
 
 /************************************************************************/
-/*                             GetColorInterpretation()                 */
+/*                       GetColorInterpretation()                       */
 /************************************************************************/
 
 GDALColorInterp GTARasterBand::GetColorInterpretation()
@@ -683,14 +683,14 @@ GDALColorInterp GTARasterBand::GetColorInterpretation()
 }
 
 /************************************************************************/
-/*                             SetColorInterpretation()                 */
+/*                       SetColorInterpretation()                       */
 /************************************************************************/
 
 CPLErr GTARasterBand::SetColorInterpretation(GDALColorInterp)
 
 {
     CPLError(CE_Warning, CPLE_NotSupported,
-             "The GTA driver does not support metadata updates.\n");
+             "The GTA driver does not support metadata updates.");
     return CE_Failure;
 }
 
@@ -731,7 +731,7 @@ CPLErr GTARasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
 }
 
 /************************************************************************/
-/*                             IWriteBlock()                            */
+/*                            IWriteBlock()                             */
 /************************************************************************/
 
 CPLErr GTARasterBand::IWriteBlock(int nBlockXOff, int nBlockYOff, void *pImage)
@@ -742,7 +742,7 @@ CPLErr GTARasterBand::IWriteBlock(int nBlockXOff, int nBlockYOff, void *pImage)
     if (poGDS->oHeader.compression() != gta::none)
     {
         CPLError(CE_Warning, CPLE_NotSupported,
-                 "The GTA driver cannot update compressed GTAs.\n");
+                 "The GTA driver cannot update compressed GTAs.");
         return CE_Failure;
     }
 
@@ -778,7 +778,7 @@ CPLErr GTARasterBand::IWriteBlock(int nBlockXOff, int nBlockYOff, void *pImage)
 /************************************************************************/
 
 /************************************************************************/
-/*                            GTADataset()                              */
+/*                             GTADataset()                             */
 /************************************************************************/
 
 GTADataset::GTADataset()
@@ -826,7 +826,7 @@ CPLErr GTADataset::ReadBlock(int nBlockXOff, int nBlockYOff)
                 CPLError(CE_Failure, CPLE_OutOfMemory,
                          "Cannot allocate buffer for the complete data set.\n"
                          "Try to uncompress the data set to allow block-wise "
-                         "reading.\n");
+                         "reading.");
                 return CE_Failure;
             }
 
@@ -934,7 +934,7 @@ CPLErr GTADataset::SetGeoTransform(const GDALGeoTransform &)
 
 {
     CPLError(CE_Warning, CPLE_NotSupported,
-             "The GTA driver does not support metadata updates.\n");
+             "The GTA driver does not support metadata updates.");
     return CE_Failure;
 }
 
@@ -954,19 +954,19 @@ const OGRSpatialReference *GTADataset::GetSpatialRef() const
 }
 
 /************************************************************************/
-/*                          SetSpatialRef()                             */
+/*                           SetSpatialRef()                            */
 /************************************************************************/
 
 CPLErr GTADataset::SetSpatialRef(const OGRSpatialReference *)
 
 {
     CPLError(CE_Warning, CPLE_NotSupported,
-             "The GTA driver does not support metadata updates.\n");
+             "The GTA driver does not support metadata updates.");
     return CE_Failure;
 }
 
 /************************************************************************/
-/*                          GetGCPCount()                               */
+/*                            GetGCPCount()                             */
 /************************************************************************/
 
 int GTADataset::GetGCPCount()
@@ -986,7 +986,7 @@ const OGRSpatialReference *GTADataset::GetGCPSpatialRef() const
 }
 
 /************************************************************************/
-/*                          GetGCPs()                                   */
+/*                              GetGCPs()                               */
 /************************************************************************/
 
 const GDAL_GCP *GTADataset::GetGCPs()
@@ -996,14 +996,14 @@ const GDAL_GCP *GTADataset::GetGCPs()
 }
 
 /************************************************************************/
-/*                          SetGCPs()                                   */
+/*                              SetGCPs()                               */
 /************************************************************************/
 
 CPLErr GTADataset::SetGCPs(int, const GDAL_GCP *, const OGRSpatialReference *)
 
 {
     CPLError(CE_Warning, CPLE_NotSupported,
-             "The GTA driver does not support metadata updates.\n");
+             "The GTA driver does not support metadata updates.");
     return CE_Failure;
 }
 
@@ -1025,7 +1025,7 @@ GDALDataset *GTADataset::Open(GDALOpenInfo *poOpenInfo)
     if (poDS->oGTAIO.open(poOpenInfo->pszFilename,
                           poOpenInfo->eAccess == GA_Update ? "r+" : "r") != 0)
     {
-        CPLError(CE_Failure, CPLE_OpenFailed, "Cannot open file.\n");
+        CPLError(CE_Failure, CPLE_OpenFailed, "Cannot open file.");
         delete poDS;
         return nullptr;
     }
@@ -1052,7 +1052,7 @@ GDALDataset *GTADataset::Open(GDALOpenInfo *poOpenInfo)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "The GTA driver does not support update access to compressed "
-                 "data sets.\nUncompress the data set first.\n");
+                 "data sets.\nUncompress the data set first.");
         delete poDS;
         return nullptr;
     }
@@ -1072,9 +1072,8 @@ GDALDataset *GTADataset::Open(GDALOpenInfo *poOpenInfo)
     if (poDS->oHeader.dimension_size(0) > INT_MAX ||
         poDS->oHeader.dimension_size(1) > INT_MAX)
     {
-        CPLError(
-            CE_Failure, CPLE_NotSupported,
-            "The GTA driver does not support the size of this data set.\n");
+        CPLError(CE_Failure, CPLE_NotSupported,
+                 "The GTA driver does not support the size of this data set.");
         delete poDS;
         return nullptr;
     }
@@ -1087,7 +1086,7 @@ GDALDataset *GTADataset::Open(GDALOpenInfo *poOpenInfo)
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "The GTA driver does not support the number or size of bands "
-                 "in this data set.\n");
+                 "in this data set.");
         delete poDS;
         return nullptr;
     }
@@ -1109,7 +1108,7 @@ GDALDataset *GTADataset::Open(GDALOpenInfo *poOpenInfo)
         {
             CPLError(CE_Failure, CPLE_NotSupported,
                      "The GTA driver does not support some of the data types "
-                     "used in this data set.\n");
+                     "used in this data set.");
             delete poDS;
             return nullptr;
         }
@@ -1282,7 +1281,7 @@ GDALDataset *GTADataset::Open(GDALOpenInfo *poOpenInfo)
 /************************************************************************/
 
 static GDALDataset *GTACreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
-                                  int bStrict, char **papszOptions,
+                                  int bStrict, CSLConstList papszOptions,
                                   GDALProgressFunc pfnProgress,
                                   void *pProgressData)
 
@@ -1343,14 +1342,14 @@ static GDALDataset *GTACreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
         if (poSrcBand->GetColorInterpretation() == GCI_PaletteIndex)
         {
             CPLError(CE_Failure, CPLE_NotSupported,
-                     "The GTA driver does not support color palettes.\n");
+                     "The GTA driver does not support color palettes.");
             VSIFree(peGTATypes);
             return nullptr;
         }
         GDALDataType eDT = poSrcBand->GetRasterDataType();
         switch (eDT)
         {
-            case GDT_Byte:
+            case GDT_UInt8:
             {
                 const char *pszPixelType =
                     poSrcBand->GetMetadataItem("PIXELTYPE", "IMAGE_STRUCTURE");
@@ -1388,7 +1387,7 @@ static GDALDataset *GTACreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
                              "The GTA driver does not support the CInt16 data "
                              "type.\n"
                              "(If no strict copy is required, the driver can "
-                             "use CFloat32 instead.)\n");
+                             "use CFloat32 instead.)");
                     VSIFree(peGTATypes);
                     return nullptr;
                 }
@@ -1401,7 +1400,7 @@ static GDALDataset *GTACreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
                              "The GTA driver does not support the CInt32 data "
                              "type.\n"
                              "(If no strict copy is required, the driver can "
-                             "use CFloat64 instead.)\n");
+                             "use CFloat64 instead.)");
                     VSIFree(peGTATypes);
                     return nullptr;
                 }
@@ -1417,7 +1416,7 @@ static GDALDataset *GTACreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
                 CPLError(
                     CE_Failure, CPLE_NotSupported,
                     "The GTA driver does not support source data sets using "
-                    "unknown data types.\n");
+                    "unknown data types.");
                 VSIFree(peGTATypes);
                 return nullptr;
         }
@@ -1441,24 +1440,25 @@ static GDALDataset *GTACreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
             sizeof(papszMetadataDomains) / sizeof(papszMetadataDomains[0]);
         for (size_t iDomain = 0; iDomain < nMetadataDomains; iDomain++)
         {
-            char **papszMetadata =
+            CSLConstList papszMetadata =
                 poSrcDS->GetMetadata(papszMetadataDomains[iDomain]);
             if (papszMetadata)
             {
                 for (int i = 0; papszMetadata[i]; i++)
                 {
-                    char *pEqualSign = strchr(papszMetadata[i], '=');
+                    const char *pEqualSign = strchr(papszMetadata[i], '=');
                     if (pEqualSign && pEqualSign - papszMetadata[i] > 0)
                     {
-                        *pEqualSign = '\0';
+                        const std::string osVal(
+                            papszMetadata[i],
+                            static_cast<size_t>(pEqualSign - papszMetadata[i]));
                         oHeader.global_taglist().set(
                             CPLSPrintf("GDAL/META/%s/%s",
                                        papszMetadataDomains[iDomain]
                                            ? papszMetadataDomains[iDomain]
                                            : "DEFAULT",
-                                       papszMetadata[i]),
+                                       osVal.c_str()),
                             pEqualSign + 1);
-                        *pEqualSign = '=';
                     }
                 }
             }
@@ -1518,24 +1518,27 @@ static GDALDataset *GTACreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
             }
             for (size_t iDomain = 0; iDomain < nMetadataDomains; iDomain++)
             {
-                char **papszBandMetadata =
+                CSLConstList papszBandMetadata =
                     poSrcBand->GetMetadata(papszMetadataDomains[iDomain]);
                 if (papszBandMetadata)
                 {
                     for (int i = 0; papszBandMetadata[i]; i++)
                     {
-                        char *pEqualSign = strchr(papszBandMetadata[i], '=');
+                        const char *pEqualSign =
+                            strchr(papszBandMetadata[i], '=');
                         if (pEqualSign && pEqualSign - papszBandMetadata[i] > 0)
                         {
-                            *pEqualSign = '\0';
+                            const std::string osVal(
+                                papszBandMetadata[i],
+                                static_cast<size_t>(pEqualSign -
+                                                    papszBandMetadata[i]));
                             oHeader.component_taglist(iBand).set(
                                 CPLSPrintf("GDAL/META/%s/%s",
                                            papszMetadataDomains[iDomain]
                                                ? papszMetadataDomains[iDomain]
                                                : "DEFAULT",
-                                           papszBandMetadata[i]),
+                                           osVal.c_str()),
                                 pEqualSign + 1);
-                            *pEqualSign = '=';
                         }
                     }
                 }
@@ -1690,7 +1693,7 @@ static GDALDataset *GTACreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
                 if (eErr != CE_None)
                 {
                     CPLError(CE_Failure, CPLE_FileIO,
-                             "Cannot read source data set.\n");
+                             "Cannot read source data set.");
                     VSIFree(pLine);
                     return nullptr;
                 }

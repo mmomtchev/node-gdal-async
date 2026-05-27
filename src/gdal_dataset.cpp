@@ -183,11 +183,11 @@ GDAL_ASYNCABLE_DEFINE(Dataset::getMetadata) {
   std::string domain("");
   NODE_ARG_OPT_STR(0, "domain", domain);
 
-  GDALAsyncableJob<char **> job(ds->uid);
+  GDALAsyncableJob<CSLConstList> job(ds->uid);
   job.main = [raw, domain](const GDALExecutionProgress &) {
     return raw->GetMetadata(domain.empty() ? nullptr : domain.c_str());
   };
-  job.rval = [](char **md, const GetFromPersistentFunc &) { return MajorObject::getMetadata(md); };
+  job.rval = [](CSLConstList md, const GetFromPersistentFunc &) { return MajorObject::getMetadata(md); };
   job.run(info, async, 1);
 }
 

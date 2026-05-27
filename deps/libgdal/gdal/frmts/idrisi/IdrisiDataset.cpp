@@ -303,7 +303,7 @@ static int GetToMeterIndex(const char *pszToMeter);
 static int SaveAsCRLF(char **papszStrList, const char *pszFname);
 
 /************************************************************************/
-/*                     myCSLFetchNameValue()                            */
+/*                        myCSLFetchNameValue()                         */
 /************************************************************************/
 
 static const char *myCSLFetchNameValue(char **papszStrList, const char *pszName)
@@ -333,7 +333,7 @@ static const char *myCSLFetchNameValue(char **papszStrList, const char *pszName)
 }
 
 /************************************************************************/
-/*                   myCSLSetNameValueSeparator()                       */
+/*                     myCSLSetNameValueSeparator()                     */
 /************************************************************************/
 
 static void myCSLSetNameValueSeparator(char **papszList,
@@ -400,10 +400,10 @@ class IdrisiDataset final : public GDALPamDataset
     static GDALDataset *Open(GDALOpenInfo *poOpenInfo);
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
                                int nBands, GDALDataType eType,
-                               char **papszOptions);
+                               CSLConstList papszOptions);
     static GDALDataset *CreateCopy(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
-                                   char **papszOptions,
+                                   CSLConstList papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
     char **GetFileList(void) override;
@@ -623,7 +623,7 @@ GDALDataset *IdrisiDataset::Open(GDALOpenInfo *poOpenInfo)
     if (EQUAL(pszDataType, rstBYTE))
     {
         poDS->nBands = 1;
-        poDS->SetBand(1, new IdrisiRasterBand(poDS, 1, GDT_Byte));
+        poDS->SetBand(1, new IdrisiRasterBand(poDS, 1, GDT_UInt8));
     }
     else if (EQUAL(pszDataType, rstINTEGER))
     {
@@ -638,9 +638,9 @@ GDALDataset *IdrisiDataset::Open(GDALOpenInfo *poOpenInfo)
     else if (EQUAL(pszDataType, rstRGB24))
     {
         poDS->nBands = 3;
-        poDS->SetBand(1, new IdrisiRasterBand(poDS, 1, GDT_Byte));
-        poDS->SetBand(2, new IdrisiRasterBand(poDS, 2, GDT_Byte));
-        poDS->SetBand(3, new IdrisiRasterBand(poDS, 3, GDT_Byte));
+        poDS->SetBand(1, new IdrisiRasterBand(poDS, 1, GDT_UInt8));
+        poDS->SetBand(2, new IdrisiRasterBand(poDS, 2, GDT_UInt8));
+        poDS->SetBand(3, new IdrisiRasterBand(poDS, 3, GDT_UInt8));
     }
     else
     {
@@ -692,12 +692,12 @@ GDALDataset *IdrisiDataset::Open(GDALOpenInfo *poOpenInfo)
         dfYPixSz = (dfMinY - dfMaxY) / poDS->nRasterYSize;
         dfXPixSz = (dfMaxX - dfMinX) / poDS->nRasterXSize;
 
-        poDS->m_gt[0] = dfMinX;
-        poDS->m_gt[1] = dfXPixSz;
-        poDS->m_gt[2] = 0.0;
-        poDS->m_gt[3] = dfMaxY;
-        poDS->m_gt[4] = 0.0;
-        poDS->m_gt[5] = dfYPixSz;
+        poDS->m_gt.xorig = dfMinX;
+        poDS->m_gt.xscale = dfXPixSz;
+        poDS->m_gt.xrot = 0.0;
+        poDS->m_gt.yorig = dfMaxY;
+        poDS->m_gt.yrot = 0.0;
+        poDS->m_gt.yscale = dfYPixSz;
     }
 
     // --------------------------------------------------------------------
@@ -717,7 +717,8 @@ GDALDataset *IdrisiDataset::Open(GDALOpenInfo *poOpenInfo)
                 atoi_nz(myCSLFetchNameValue(poDS->papszRDC, rdcLEGEND_CATS));
             if (nCatCount == 0)
                 dfMaxValue = 255;
-            VSIFSeekL(fpSMP, smpHEADERSIZE, SEEK_SET);
+            VSIFSeekL(fpSMP, static_cast<vsi_l_offset>(smpHEADERSIZE),
+                      SEEK_SET);
             GDALColorEntry oEntry;
             unsigned char aucRGB[3];
             int i = 0;
@@ -847,7 +848,7 @@ GDALDataset *IdrisiDataset::Open(GDALOpenInfo *poOpenInfo)
 
 GDALDataset *IdrisiDataset::Create(const char *pszFilename, int nXSize,
                                    int nYSize, int nBandsIn, GDALDataType eType,
-                                   char ** /* papszOptions */)
+                                   CSLConstList /* papszOptions */)
 {
     // --------------------------------------------------------------------
     //      Check input options
@@ -863,7 +864,7 @@ GDALDataset *IdrisiDataset::Create(const char *pszFilename, int nXSize,
         return nullptr;
     }
 
-    if (nBandsIn == 3 && eType != GDT_Byte)
+    if (nBandsIn == 3 && eType != GDT_UInt8)
     {
         CPLError(
             CE_Failure, CPLE_AppDefined,
@@ -881,7 +882,7 @@ GDALDataset *IdrisiDataset::Create(const char *pszFilename, int nXSize,
 
     switch (eType)
     {
-        case GDT_Byte:
+        case GDT_UInt8:
             if (nBandsIn == 1)
                 pszLDataType = rstBYTE;
             else
@@ -1000,7 +1001,7 @@ GDALDataset *IdrisiDataset::Create(const char *pszFilename, int nXSize,
 
 GDALDataset *IdrisiDataset::CreateCopy(const char *pszFilename,
                                        GDALDataset *poSrcDS, int bStrict,
-                                       char **papszOptions,
+                                       CSLConstList papszOptions,
                                        GDALProgressFunc pfnProgress,
                                        void *pProgressData)
 {
@@ -1020,15 +1021,15 @@ GDALDataset *IdrisiDataset::CreateCopy(const char *pszFilename,
         return nullptr;
     }
     if ((poSrcDS->GetRasterCount() == 3) &&
-        ((poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_Byte) ||
-         (poSrcDS->GetRasterBand(2)->GetRasterDataType() != GDT_Byte) ||
-         (poSrcDS->GetRasterBand(3)->GetRasterDataType() != GDT_Byte)))
+        ((poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_UInt8) ||
+         (poSrcDS->GetRasterBand(2)->GetRasterDataType() != GDT_UInt8) ||
+         (poSrcDS->GetRasterBand(3)->GetRasterDataType() != GDT_UInt8)))
     {
         CPLError(
             CE_Failure, CPLE_AppDefined,
             "Attempt to create IDRISI dataset with an unsupported "
             "data type when there are three bands. Only BYTE allowed.\n"
-            "Try again by selecting a specific band to convert if possible.\n");
+            "Try again by selecting a specific band to convert if possible.");
         return nullptr;
     }
 
@@ -1042,7 +1043,8 @@ GDALDataset *IdrisiDataset::CreateCopy(const char *pszFilename,
 
         if (bStrict)
         {
-            if (eType != GDT_Byte && eType != GDT_Int16 && eType != GDT_Float32)
+            if (eType != GDT_UInt8 && eType != GDT_Int16 &&
+                eType != GDT_Float32)
             {
                 CPLError(CE_Failure, CPLE_AppDefined,
                          "Attempt to create IDRISI dataset in strict mode "
@@ -1053,7 +1055,7 @@ GDALDataset *IdrisiDataset::CreateCopy(const char *pszFilename,
         }
         else
         {
-            if (eType != GDT_Byte && eType != GDT_Int16 &&
+            if (eType != GDT_UInt8 && eType != GDT_Int16 &&
                 eType != GDT_UInt16 && eType != GDT_UInt32 &&
                 eType != GDT_Int32 && eType != GDT_Float32 &&
                 eType != GDT_Float64)
@@ -1085,7 +1087,7 @@ GDALDataset *IdrisiDataset::CreateCopy(const char *pszFilename,
         poBand->GetStatistics(false, true, &dfMin, &dfMax, nullptr, nullptr);
     }
 
-    if (!((eType == GDT_Byte) || (eType == GDT_Int16) ||
+    if (!((eType == GDT_UInt8) || (eType == GDT_Int16) ||
           (eType == GDT_Float32)))
     {
         if (eType == GDT_Float64)
@@ -1276,11 +1278,11 @@ CPLErr IdrisiDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 CPLErr IdrisiDataset::SetGeoTransform(const GDALGeoTransform &gt)
 {
-    if (gt[2] != 0.0 || gt[4] != 0.0)
+    if (gt.xrot != 0.0 || gt.yrot != 0.0)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Attempt to set rotated geotransform on Idrisi Raster file.\n"
-                 "Idrisi Raster does not support rotation.\n");
+                 "Idrisi Raster does not support rotation.");
         return CE_Failure;
     }
 
@@ -1288,21 +1290,21 @@ CPLErr IdrisiDataset::SetGeoTransform(const GDALGeoTransform &gt)
     // Update the .rdc file
     // --------------------------------------------------------------------
 
-    double dfXPixSz = gt[1];
-    double dfYPixSz = gt[5];
-    double dfMinX = gt[0];
+    double dfXPixSz = gt.xscale;
+    double dfYPixSz = gt.yscale;
+    double dfMinX = gt.xorig;
     double dfMaxX = (dfXPixSz * nRasterXSize) + dfMinX;
 
     double dfMinY, dfMaxY;
     if (dfYPixSz < 0)
     {
-        dfMaxY = gt[3];
-        dfMinY = (dfYPixSz * nRasterYSize) + gt[3];
+        dfMaxY = gt.yorig;
+        dfMinY = (dfYPixSz * nRasterYSize) + gt.yorig;
     }
     else
     {
-        dfMaxY = (dfYPixSz * nRasterYSize) + gt[3];
-        dfMinY = gt[3];
+        dfMaxY = (dfYPixSz * nRasterYSize) + gt.yorig;
+        dfMinY = gt.yorig;
     }
 
     papszRDC = CSLSetNameValue(papszRDC, rdcMIN_X, CPLSPrintf("%.7f", dfMinX));
@@ -1322,7 +1324,7 @@ CPLErr IdrisiDataset::SetGeoTransform(const GDALGeoTransform &gt)
 }
 
 /************************************************************************/
-/*                          GetSpatialRef()                             */
+/*                           GetSpatialRef()                            */
 /************************************************************************/
 
 const OGRSpatialReference *IdrisiDataset::GetSpatialRef() const
@@ -1889,7 +1891,7 @@ CPLErr IdrisiRasterBand::SetColorTable(GDALColorTable *poColorTable)
 }
 
 /************************************************************************/
-/*                           GetUnitType()                              */
+/*                            GetUnitType()                             */
 /************************************************************************/
 
 const char *IdrisiRasterBand::GetUnitType()
@@ -2752,7 +2754,7 @@ CPLErr IdrisiGeoReference2Wkt(const char *pszFilename, const char *pszRefSystem,
 }
 
 /************************************************************************/
-/*                        Wkt2GeoReference()                            */
+/*                          Wkt2GeoReference()                          */
 /************************************************************************/
 
 /***
@@ -3179,7 +3181,7 @@ const char *GetStateName(int nCode)
 }
 
 /************************************************************************/
-/*                            GetSpcs()                                 */
+/*                              GetSpcs()                               */
 /************************************************************************/
 
 char *GetSpcs(double dfLon, double dfLat)
@@ -3196,7 +3198,7 @@ char *GetSpcs(double dfLon, double dfLat)
 }
 
 /************************************************************************/
-/*                            NAD83to27()                               */
+/*                             NAD83to27()                              */
 /************************************************************************/
 void NAD83to27(char *pszOutRef, char *pszInRef)
 {
@@ -3230,7 +3232,7 @@ int GetUnitIndex(const char *pszUnitName)
 }
 
 /************************************************************************/
-/*                            GetToMeterIndex()                         */
+/*                          GetToMeterIndex()                           */
 /************************************************************************/
 
 int GetToMeterIndex(const char *pszToMeter)
@@ -3252,7 +3254,7 @@ int GetToMeterIndex(const char *pszToMeter)
 }
 
 /************************************************************************/
-/*                            GetUnitDefault()                          */
+/*                           GetUnitDefault()                           */
 /************************************************************************/
 
 char *GetUnitDefault(const char *pszUnitName, const char *pszToMeter)
@@ -3274,7 +3276,7 @@ char *GetUnitDefault(const char *pszUnitName, const char *pszToMeter)
 }
 
 /************************************************************************/
-/*                               CSLSaveCRLF()                          */
+/*                            CSLSaveCRLF()                             */
 /************************************************************************/
 
 /***

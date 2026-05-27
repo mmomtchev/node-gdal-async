@@ -35,7 +35,7 @@ class NDFDataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(NDFDataset)
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
   public:
     NDFDataset();
@@ -55,7 +55,7 @@ class NDFDataset final : public RawDataset
 };
 
 /************************************************************************/
-/*                            NDFDataset()                             */
+/*                             NDFDataset()                             */
 /************************************************************************/
 
 NDFDataset::NDFDataset() : papszExtraFiles(nullptr), papszHeader(nullptr)
@@ -74,10 +74,10 @@ NDFDataset::~NDFDataset()
 }
 
 /************************************************************************/
-/*                              Close()                                 */
+/*                               Close()                                */
 /************************************************************************/
 
-CPLErr NDFDataset::Close()
+CPLErr NDFDataset::Close(GDALProgressFunc, void *)
 {
     CPLErr eErr = CE_None;
     if (nOpenFlags != OPEN_FLAGS_CLOSED)
@@ -139,7 +139,7 @@ char **NDFDataset::GetFileList()
 }
 
 /************************************************************************/
-/*                            Identify()                                */
+/*                              Identify()                              */
 /************************************************************************/
 
 int NDFDataset::Identify(GDALOpenInfo *poOpenInfo)
@@ -302,7 +302,7 @@ GDALDataset *NDFDataset::Open(GDALOpenInfo *poOpenInfo)
         poDS->papszExtraFiles = CSLAddString(poDS->papszExtraFiles, osFilename);
 
         auto poBand = RawRasterBand::Create(
-            poDS.get(), iBand + 1, fpRaw, 0, 1, poDS->nRasterXSize, GDT_Byte,
+            poDS.get(), iBand + 1, fpRaw, 0, 1, poDS->nRasterXSize, GDT_UInt8,
             RawRasterBand::ByteOrder::ORDER_LITTLE_ENDIAN,
             RawRasterBand::OwnFP::YES);
         if (!poBand)
@@ -382,23 +382,23 @@ GDALDataset *NDFDataset::Open(GDALOpenInfo *poOpenInfo)
     if (CSLCount(papszUL) == 4 && CSLCount(papszUR) == 4 &&
         CSLCount(papszLL) == 4)
     {
-        poDS->m_gt[0] = CPLAtof(papszUL[2]);
-        poDS->m_gt[1] = (CPLAtof(papszUR[2]) - CPLAtof(papszUL[2])) /
-                        (poDS->nRasterXSize - 1);
-        poDS->m_gt[2] = (CPLAtof(papszUR[3]) - CPLAtof(papszUL[3])) /
-                        (poDS->nRasterXSize - 1);
+        poDS->m_gt.xorig = CPLAtof(papszUL[2]);
+        poDS->m_gt.xscale = (CPLAtof(papszUR[2]) - CPLAtof(papszUL[2])) /
+                            (poDS->nRasterXSize - 1);
+        poDS->m_gt.xrot = (CPLAtof(papszUR[3]) - CPLAtof(papszUL[3])) /
+                          (poDS->nRasterXSize - 1);
 
-        poDS->m_gt[3] = CPLAtof(papszUL[3]);
-        poDS->m_gt[4] = (CPLAtof(papszLL[2]) - CPLAtof(papszUL[2])) /
-                        (poDS->nRasterYSize - 1);
-        poDS->m_gt[5] = (CPLAtof(papszLL[3]) - CPLAtof(papszUL[3])) /
-                        (poDS->nRasterYSize - 1);
+        poDS->m_gt.yorig = CPLAtof(papszUL[3]);
+        poDS->m_gt.yrot = (CPLAtof(papszLL[2]) - CPLAtof(papszUL[2])) /
+                          (poDS->nRasterYSize - 1);
+        poDS->m_gt.yscale = (CPLAtof(papszLL[3]) - CPLAtof(papszUL[3])) /
+                            (poDS->nRasterYSize - 1);
 
         // Move origin up-left half a pixel.
-        poDS->m_gt[0] -= poDS->m_gt[1] * 0.5;
-        poDS->m_gt[0] -= poDS->m_gt[4] * 0.5;
-        poDS->m_gt[3] -= poDS->m_gt[2] * 0.5;
-        poDS->m_gt[3] -= poDS->m_gt[5] * 0.5;
+        poDS->m_gt.xorig -= poDS->m_gt.xscale * 0.5;
+        poDS->m_gt.xorig -= poDS->m_gt.yrot * 0.5;
+        poDS->m_gt.yorig -= poDS->m_gt.xrot * 0.5;
+        poDS->m_gt.yorig -= poDS->m_gt.yscale * 0.5;
     }
 
     CSLDestroy(papszUL);

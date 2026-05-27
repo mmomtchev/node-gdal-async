@@ -25,6 +25,8 @@
 #include <array>
 #include <map>
 
+struct CADRGCreateCopyContext;
+
 CPLErr NITFSetColorInterpretation(NITFImage *psImage, int nBand,
                                   GDALColorInterp eInterp);
 
@@ -90,7 +92,7 @@ class NITFDataset final : public GDALPamDataset
     bool InitializeTREMetadata(bool bValidate);
     void InitializeImageStructureMetadata();
 
-    GIntBig *panJPEGBlockOffset = nullptr;
+    vsi_l_offset *panJPEGBlockOffset = nullptr;
     GByte *pabyJPEGBlock = nullptr;
     int nQLevel = 0;
 
@@ -135,12 +137,12 @@ class NITFDataset final : public GDALPamDataset
     NITFDataset();
     ~NITFDataset() override;
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
     CPLErr AdviseRead(int nXOff, int nYOff, int nXSize, int nYSize,
                       int nBufXSize, int nBufYSize, GDALDataType eDT,
                       int nBandCount, int *panBandList,
-                      char **papszOptions) override;
+                      CSLConstList papszOptions) override;
 
     CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
                      GDALDataType, int, BANDMAP_TYPE, GSpacing nPixelSpace,
@@ -161,7 +163,7 @@ class NITFDataset final : public GDALPamDataset
     char **GetFileList() override;
 
     char **GetMetadataDomainList() override;
-    char **GetMetadata(const char *pszDomain = "") override;
+    CSLConstList GetMetadata(const char *pszDomain = "") override;
     virtual const char *GetMetadataItem(const char *pszName,
                                         const char *pszDomain = "") override;
     CPLErr FlushCache(bool bAtClosing) override;
@@ -175,13 +177,18 @@ class NITFDataset final : public GDALPamDataset
     static GDALDataset *Open(GDALOpenInfo *);
     static GDALDataset *NITFCreateCopy(const char *pszFilename,
                                        GDALDataset *poSrcDS, int bStrict,
-                                       char **papszOptions,
+                                       CSLConstList papszOptions,
                                        GDALProgressFunc pfnProgress,
                                        void *pProgressData);
+    static std::unique_ptr<GDALDataset>
+    CreateCopy(const char *pszFilename, GDALDataset *poSrcDS, int bStrict,
+               CSLConstList papszOptions, GDALProgressFunc pfnProgress,
+               void *pProgressData, int nRecLevel,
+               CADRGCreateCopyContext *copyContext);
     static GDALDataset *NITFDatasetCreate(const char *pszFilename, int nXSize,
                                           int nYSize, int nBands,
                                           GDALDataType eType,
-                                          char **papszOptions);
+                                          CSLConstList papszOptions);
 };
 
 /************************************************************************/
@@ -252,7 +259,7 @@ class NITFProxyPamRasterBand CPL_NON_FINAL : public GDALPamRasterBand
   public:
     ~NITFProxyPamRasterBand() override;
 
-    char **GetMetadata(const char *pszDomain = "") override;
+    CSLConstList GetMetadata(const char *pszDomain = "") override;
     /*virtual CPLErr      SetMetadata( char ** papszMetadata,
                                     const char * pszDomain = ""  );*/
     virtual const char *GetMetadataItem(const char *pszName,
@@ -304,7 +311,7 @@ class NITFProxyPamRasterBand CPL_NON_FINAL : public GDALPamRasterBand
 
     CPLErr AdviseRead(int nXOff, int nYOff, int nXSize, int nYSize,
                       int nBufXSize, int nBufYSize, GDALDataType eDT,
-                      char **papszOptions) override;
+                      CSLConstList papszOptions) override;
 
     /*virtual CPLErr  GetHistogram( double dfMin, double dfMax,
                         int nBuckets, GUIntBig * panHistogram,

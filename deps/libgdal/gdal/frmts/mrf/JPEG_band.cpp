@@ -829,13 +829,13 @@ static size_t brunsli_fun_callback(void *out, const GByte *data, size_t size)
 CPLErr JPEG_Band::Decompress(buf_mgr &dst, buf_mgr &src)
 {
 #if defined(JPEG12_SUPPORTED)
-    if (GDT_Byte != img.dt)
+    if (GDT_UInt8 != img.dt)
         return codec.DecompressJPEG12(dst, src);
 #endif
     if (!isbrunsli(src))
         return codec.DecompressJPEG(dst, src);
 
-        // Need conversion to JFIF first
+    // Need conversion to JFIF first
 #if !defined(BRUNSLI)
     CPLError(CE_Failure, CPLE_NotSupported,
              "MRF: JPEG-XL content, yet this GDAL was not compiled with "
@@ -862,13 +862,13 @@ CPLErr JPEG_Band::Decompress(buf_mgr &dst, buf_mgr &src)
 CPLErr JPEG_Band::Compress(buf_mgr &dst, buf_mgr &src)
 {
 #if defined(JPEG12_SUPPORTED)
-    if (GDT_Byte != img.dt)
+    if (GDT_UInt8 != img.dt)
         return codec.CompressJPEG12(dst, src);
 #endif
 #if !defined(BRUNSLI)
     return codec.CompressJPEG(dst, src);
 #else
-    auto dst_size = dst.size;          // Save the original size
+    auto dst_size = dst.size;  // Save the original size
     auto err_code = codec.CompressJPEG(dst, src);
     if (codec.JFIF || err_code != CE_None)
         return err_code;
@@ -902,9 +902,9 @@ JPEG_Band::JPEG_Band(MRFDataset *pDS, const ILImage &image, int b, int level)
     const int nbands = image.pagesize.c;
     // Check behavior on signed 16bit.  Does the libjpeg sign extend?
 #if defined(JPEG12_SUPPORTED)
-    if (GDT_Byte != image.dt && GDT_UInt16 != image.dt)
+    if (GDT_UInt8 != image.dt && GDT_UInt16 != image.dt)
 #else
-    if (GDT_Byte != image.dt)
+    if (GDT_UInt8 != image.dt)
 #endif
     {
         CPLError(CE_Failure, CPLE_NotSupported,
@@ -924,7 +924,7 @@ JPEG_Band::JPEG_Band(MRFDataset *pDS, const ILImage &image, int b, int level)
             codec.sameres = TRUE;
     }
 
-    if (GDT_Byte == image.dt)
+    if (GDT_UInt8 == image.dt)
     {
         codec.optimize = GetOptlist().FetchBoolean("OPTIMIZE", FALSE) != FALSE;
         codec.JFIF = GetOptlist().FetchBoolean("JFIF", FALSE) != FALSE;

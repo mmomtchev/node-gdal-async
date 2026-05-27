@@ -17,7 +17,7 @@
 #include <algorithm>
 
 /************************************************************************/
-/*                         OGRJSONFGWriteLayer()                        */
+/*                        OGRJSONFGWriteLayer()                         */
 /************************************************************************/
 
 OGRJSONFGWriteLayer::OGRJSONFGWriteLayer(
@@ -124,7 +124,7 @@ OGRJSONFGWriteLayer::~OGRJSONFGWriteLayer()
 }
 
 /************************************************************************/
-/*                           SyncToDisk()                               */
+/*                             SyncToDisk()                             */
 /************************************************************************/
 
 OGRErr OGRJSONFGWriteLayer::SyncToDisk()
@@ -133,7 +133,7 @@ OGRErr OGRJSONFGWriteLayer::SyncToDisk()
 }
 
 /************************************************************************/
-/*                       GetValueAsDateOrDateTime()                     */
+/*                      GetValueAsDateOrDateTime()                      */
 /************************************************************************/
 
 static const char *GetValueAsDateOrDateTime(const OGRField *psRawValue,
@@ -181,7 +181,7 @@ static const char *GetValueAsDateOrDateTime(const OGRField *psRawValue,
 }
 
 /************************************************************************/
-/*                     OGRJSONFGWriteGeometry()                         */
+/*                       OGRJSONFGWriteGeometry()                       */
 /************************************************************************/
 
 static json_object *
@@ -342,7 +342,7 @@ OGRErr OGRJSONFGWriteLayer::ICreateFeature(OGRFeature *poFeature)
     json_object *poPlace = nullptr;
     if (const OGRGeometry *poGeom = poFeature->GetGeometryRef())
     {
-        const bool bHasCurve = poGeom->hasCurveGeometry(true);
+        const bool bHasCurve = CPL_TO_BOOL(poGeom->hasCurveGeometry(true));
         if (bHasCurve)
             m_bCurveWritten = true;
         const bool bHasMeasure = CPL_TO_BOOL(poGeom->IsMeasured());
@@ -450,7 +450,7 @@ OGRErr OGRJSONFGWriteLayer::ICreateFeature(OGRFeature *poFeature)
 }
 
 /************************************************************************/
-/*                           CreateField()                              */
+/*                            CreateField()                             */
 /************************************************************************/
 
 OGRErr OGRJSONFGWriteLayer::CreateField(const OGRFieldDefn *poField,

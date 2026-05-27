@@ -53,9 +53,6 @@
 // multiband handling, and an inability to read and write at the same time. Do
 // not use it unless you're ready to fix it.
 
-// Define SUPPORT_CREATE to enable use of the Create() call.
-// #define SUPPORT_CREATE
-
 #ifdef _MSC_VER
 #pragma warning(disable : 4611)
 #endif
@@ -74,7 +71,7 @@ static void png_gdal_warning(png_structp png_ptr, const char *error_message);
 #ifdef ENABLE_WHOLE_IMAGE_OPTIMIZATION
 
 /************************************************************************/
-/*                      IsCompatibleOfSingleBlock()                     */
+/*                     IsCompatibleOfSingleBlock()                      */
 /************************************************************************/
 
 bool PNGDataset::IsCompatibleOfSingleBlock() const
@@ -100,7 +97,7 @@ PNGRasterBand::PNGRasterBand(PNGDataset *poDSIn, int nBandIn)
     if (poDSIn->nBitDepth == 16)
         eDataType = GDT_UInt16;
     else
-        eDataType = GDT_Byte;
+        eDataType = GDT_UInt8;
 
     nBlockXSize = poDSIn->nRasterXSize;
 #ifdef ENABLE_WHOLE_IMAGE_OPTIMIZATION
@@ -113,10 +110,6 @@ PNGRasterBand::PNGRasterBand(PNGDataset *poDSIn, int nBandIn)
     {
         nBlockYSize = 1;
     }
-
-#ifdef SUPPORT_CREATE
-    reset_band_provision_flags();
-#endif
 }
 
 /************************************************************************/
@@ -333,10 +326,10 @@ PNGDataset::~PNGDataset()
 }
 
 /************************************************************************/
-/*                                Close()                               */
+/*                               Close()                                */
 /************************************************************************/
 
-CPLErr PNGDataset::Close()
+CPLErr PNGDataset::Close(GDALProgressFunc, void *)
 {
     CPLErr eErr = CE_None;
 
@@ -354,7 +347,7 @@ CPLErr PNGDataset::Close()
 }
 
 /************************************************************************/
-/*                         LoadWholeImage()                             */
+/*                           LoadWholeImage()                           */
 /************************************************************************/
 
 #ifdef ENABLE_WHOLE_IMAGE_OPTIMIZATION
@@ -457,9 +450,9 @@ CPLErr PNGDataset::LoadWholeImage(void *pSingleBuffer, GSpacing nPixelSpace,
     }
 
     const auto nPosBefore = VSIFTellL(fpImage);
-    VSIFSeekL(fpImage, 8, SEEK_SET);
+    bError = VSIFSeekL(fpImage, 8, SEEK_SET) != 0;
     // Iterate over PNG chunks
-    while (true)
+    while (!bError)
     {
         uint32_t nChunkSize;
         if (VSIFReadL(&nChunkSize, sizeof(nChunkSize), 1, fpImage) == 0)
@@ -492,9 +485,17 @@ CPLErr PNGDataset::LoadWholeImage(void *pSingleBuffer, GSpacing nPixelSpace,
             if (nCompressedDataSize + nChunkSize > 100 * 1024 * 1024)
             {
                 const auto nCurPos = VSIFTellL(fpImage);
-                VSIFSeekL(fpImage, 0, SEEK_END);
+                if (VSIFSeekL(fpImage, 0, SEEK_END) != 0)
+                {
+                    bError = true;
+                    break;
+                }
                 const auto nSize = VSIFTellL(fpImage);
-                VSIFSeekL(fpImage, nCurPos, SEEK_SET);
+                if (VSIFSeekL(fpImage, nCurPos, SEEK_SET) != 0)
+                {
+                    bError = true;
+                    break;
+                }
                 if (nSize < 100 * 1024 * 1024)
                 {
                     CPLError(CE_Failure, CPLE_OutOfMemory,
@@ -539,11 +540,12 @@ CPLErr PNGDataset::LoadWholeImage(void *pSingleBuffer, GSpacing nPixelSpace,
         {
             // CPLDebug("PNG", "Skipping chunk %s of size %u", szChunkName,
             // nChunkSize);
-            VSIFSeekL(fpImage, nChunkSize, SEEK_CUR);
+            bError = VSIFSeekL(fpImage, static_cast<vsi_l_offset>(nChunkSize),
+                               SEEK_CUR) != 0;
         }
-        VSIFSeekL(fpImage, 4, SEEK_CUR);  // CRC
+        bError = bError || VSIFSeekL(fpImage, 4, SEEK_CUR) != 0;  // CRC
     }
-    VSIFSeekL(fpImage, nPosBefore, SEEK_SET);
+    bError = VSIFSeekL(fpImage, nPosBefore, SEEK_SET) != 0 || bError;
     if (bError)
         return CE_Failure;
 
@@ -970,8 +972,8 @@ CPLErr PNGDataset::LoadWholeImage(void *pSingleBuffer, GSpacing nPixelSpace,
                     apDestBuffers[1] = pabyDest + nBandSpace;
                     apDestBuffers[2] = pabyDest + 2 * nBandSpace;
                     apDestBuffers[3] = pabyDest + 3 * nBandSpace;
-                    GDALDeinterleave(pabyOutputLine, GDT_Byte, nBands,
-                                     apDestBuffers, GDT_Byte, nRasterXSize);
+                    GDALDeinterleave(pabyOutputLine, GDT_UInt8, nBands,
+                                     apDestBuffers, GDT_UInt8, nRasterXSize);
                 }
                 else if (nPixelSpace <= nBands && nBandSpace > nBands)
                 {
@@ -980,8 +982,8 @@ CPLErr PNGDataset::LoadWholeImage(void *pSingleBuffer, GSpacing nPixelSpace,
                     {
                         GByte *pabyDest2 = pabyDest + iBand * nBandSpace;
                         const GByte *pabyScanline2 = pabyOutputLine + iBand;
-                        GDALCopyWords(pabyScanline2, GDT_Byte, nBands,
-                                      pabyDest2, GDT_Byte,
+                        GDALCopyWords(pabyScanline2, GDT_UInt8, nBands,
+                                      pabyDest2, GDT_UInt8,
                                       static_cast<int>(nPixelSpace),
                                       nRasterXSize);
                     }
@@ -1012,8 +1014,8 @@ CPLErr PNGDataset::LoadWholeImage(void *pSingleBuffer, GSpacing nPixelSpace,
                 {
                     // Cache friendly way for typical band interleaved case.
                     GDALDeinterleave(
-                        pabyOutputLine, GDT_Byte, nBands,
-                        reinterpret_cast<void **>(apabyDestBuffers), GDT_Byte,
+                        pabyOutputLine, GDT_UInt8, nBands,
+                        reinterpret_cast<void **>(apabyDestBuffers), GDT_UInt8,
                         nRasterXSize);
                 }
                 else
@@ -1061,7 +1063,7 @@ CPLErr PNGDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
     if ((eRWFlag == GF_Read) && (nBandCount == nBands) && (nXOff == 0) &&
         (nYOff == 0) && (nXSize == nBufXSize) && (nXSize == nRasterXSize) &&
         (nYSize == nBufYSize) && (nYSize == nRasterYSize) &&
-        (eBufType == GDT_Byte) &&
+        (eBufType == GDT_UInt8) &&
         (eBufType == GetRasterBand(1)->GetRasterDataType()) &&
         (pData != nullptr) && IsAllBands(nBands, panBandMap))
     {
@@ -1138,8 +1140,9 @@ CPLErr PNGDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
                         apDestBuffers[1] = pabyDest + nBandSpace;
                         apDestBuffers[2] = pabyDest + 2 * nBandSpace;
                         apDestBuffers[3] = pabyDest + 3 * nBandSpace;
-                        GDALDeinterleave(pabyScanline, GDT_Byte, nBands,
-                                         apDestBuffers, GDT_Byte, nRasterXSize);
+                        GDALDeinterleave(pabyScanline, GDT_UInt8, nBands,
+                                         apDestBuffers, GDT_UInt8,
+                                         nRasterXSize);
                     }
                     else if (nPixelSpace <= nBands && nBandSpace > nBands)
                     {
@@ -1148,8 +1151,8 @@ CPLErr PNGDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
                         {
                             GByte *pabyDest2 = pabyDest + iBand * nBandSpace;
                             const GByte *pabyScanline2 = pabyScanline + iBand;
-                            GDALCopyWords(pabyScanline2, GDT_Byte, nBands,
-                                          pabyDest2, GDT_Byte,
+                            GDALCopyWords(pabyScanline2, GDT_UInt8, nBands,
+                                          pabyDest2, GDT_UInt8,
                                           static_cast<int>(nPixelSpace),
                                           nXSize);
                         }
@@ -1195,7 +1198,7 @@ CPLErr PNGRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
     if ((eRWFlag == GF_Read) && (nXOff == 0) && (nYOff == 0) &&
         (nXSize == nBufXSize) && (nXSize == nRasterXSize) &&
         (nYSize == nBufYSize) && (nYSize == nRasterYSize) &&
-        (eBufType == GDT_Byte) && (eBufType == eDataType))
+        (eBufType == GDT_UInt8) && (eBufType == eDataType))
     {
         bool bBlockAlreadyLoaded = false;
         if (nBlockYSize > 1)
@@ -1350,7 +1353,7 @@ void PNGDataset::Restart()
 
     psPNGInfo = png_create_info_struct(hPNG);
 
-    VSIFSeekL(fpImage, 0, SEEK_SET);
+    CPL_IGNORE_RET_VAL(VSIFSeekL(fpImage, 0, SEEK_SET));
     png_set_read_fn(hPNG, fpImage, png_vsi_read_data);
     png_read_info(hPNG, psPNGInfo);
 
@@ -1473,7 +1476,7 @@ CPLErr PNGDataset::LoadInterlacedChunk(int iLine)
 }
 
 /************************************************************************/
-/*                        safe_png_read_rows()                          */
+/*                         safe_png_read_rows()                         */
 /************************************************************************/
 
 static bool safe_png_read_rows(png_structp hPNG, png_bytep row,
@@ -1597,7 +1600,7 @@ void PNGDataset::CollectMetadata()
 }
 
 /************************************************************************/
-/*                       CollectXMPMetadata()                           */
+/*                         CollectXMPMetadata()                         */
 /************************************************************************/
 
 // See §2.1.5 of
@@ -1613,10 +1616,10 @@ void PNGDataset::CollectXMPMetadata()
     const vsi_l_offset nCurOffset = VSIFTellL(fpImage);
 
     vsi_l_offset nOffset = 8;
-    VSIFSeekL(fpImage, nOffset, SEEK_SET);
+    bool bError = VSIFSeekL(fpImage, nOffset, SEEK_SET) != 0;
 
     // Loop over chunks.
-    while (true)
+    while (!bError)
     {
         int nLength;
 
@@ -1671,7 +1674,7 @@ void PNGDataset::CollectXMPMetadata()
         else
         {
             nOffset += nLength;
-            VSIFSeekL(fpImage, nOffset, SEEK_SET);
+            bError = VSIFSeekL(fpImage, nOffset, SEEK_SET) != 0;
         }
 
         nOffset += 4;
@@ -1680,7 +1683,7 @@ void PNGDataset::CollectXMPMetadata()
             break;
     }
 
-    VSIFSeekL(fpImage, nCurOffset, SEEK_SET);
+    CPL_IGNORE_RET_VAL(VSIFSeekL(fpImage, nCurOffset, SEEK_SET));
 
     bHasReadXMPMetadata = TRUE;
 }
@@ -1780,7 +1783,7 @@ void PNGDataset::LoadICCProfile()
 }
 
 /************************************************************************/
-/*                      GetMetadataDomainList()                         */
+/*                       GetMetadataDomainList()                        */
 /************************************************************************/
 
 char **PNGDataset::GetMetadataDomainList()
@@ -1790,10 +1793,10 @@ char **PNGDataset::GetMetadataDomainList()
 }
 
 /************************************************************************/
-/*                           GetMetadata()                              */
+/*                            GetMetadata()                             */
 /************************************************************************/
 
-char **PNGDataset::GetMetadata(const char *pszDomain)
+CSLConstList PNGDataset::GetMetadata(const char *pszDomain)
 {
     if (fpImage == nullptr)
         return nullptr;
@@ -1807,7 +1810,7 @@ char **PNGDataset::GetMetadata(const char *pszDomain)
 }
 
 /************************************************************************/
-/*                       GetMetadataItem()                              */
+/*                          GetMetadataItem()                           */
 /************************************************************************/
 const char *PNGDataset::GetMetadataItem(const char *pszName,
                                         const char *pszDomain)
@@ -2060,14 +2063,16 @@ GDALDataset *PNGDataset::OpenStage2(GDALOpenInfo *poOpenInfo, PNGDataset *&poDS)
             poDS->SetSubdatasetName(pszSubdatasetName);
         }
         poDS->TryLoadXML();
+
+        poDS->oOvManager.Initialize(poDS, ":::VIRTUAL:::");
     }
     else
     {
         poDS->TryLoadXML(poOpenInfo->GetSiblingFiles());
-    }
 
-    // Open overviews.
-    poDS->oOvManager.Initialize(poDS, poOpenInfo);
+        // Open overviews.
+        poDS->oOvManager.Initialize(poDS, poOpenInfo);
+    }
 
     // Used by JPEG FLIR
     poDS->m_bByteOrderIsLittleEndian = CPLTestBool(CSLFetchNameValueDef(
@@ -2077,7 +2082,7 @@ GDALDataset *PNGDataset::OpenStage2(GDALOpenInfo *poOpenInfo, PNGDataset *&poDS)
 }
 
 /************************************************************************/
-/*                        LoadWorldFile()                               */
+/*                           LoadWorldFile()                            */
 /************************************************************************/
 
 void PNGDataset::LoadWorldFile()
@@ -2124,7 +2129,7 @@ char **PNGDataset::GetFileList()
 }
 
 /************************************************************************/
-/*                          WriteMetadataAsText()                       */
+/*                        WriteMetadataAsText()                         */
 /************************************************************************/
 
 static bool IsASCII(const char *pszStr)
@@ -2280,7 +2285,7 @@ static bool safe_png_write_end(jmp_buf sSetJmpContext, png_structp png_ptr,
 
 GDALDataset *PNGDataset::CreateCopy(const char *pszFilename,
                                     GDALDataset *poSrcDS, int bStrict,
-                                    char **papszOptions,
+                                    CSLConstList papszOptions,
                                     GDALProgressFunc pfnProgress,
                                     void *pProgressData)
 
@@ -2297,7 +2302,7 @@ GDALDataset *PNGDataset::CreateCopy(const char *pszFilename,
         return nullptr;
     }
 
-    if (poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_Byte &&
+    if (poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_UInt8 &&
         poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_UInt16)
     {
         CPLError(
@@ -2353,7 +2358,7 @@ GDALDataset *PNGDataset::CreateCopy(const char *pszFilename,
     GDALDataType eType;
     if (poSrcDS->GetRasterBand(1)->GetRasterDataType() != GDT_UInt16)
     {
-        eType = GDT_Byte;
+        eType = GDT_UInt8;
         nBitDepth = 8;
         if (nBands == 1)
         {
@@ -2374,7 +2379,7 @@ GDALDataset *PNGDataset::CreateCopy(const char *pszFilename,
     }
 
     const char *pszNbits = CSLFetchNameValue(papszOptions, "NBITS");
-    if (eType == GDT_Byte && pszNbits != nullptr)
+    if (eType == GDT_UInt8 && pszNbits != nullptr)
     {
         nBitDepth = atoi(pszNbits);
         if (!(nBitDepth == 1 || nBitDepth == 2 || nBitDepth == 4 ||
@@ -2796,7 +2801,7 @@ GDALDataset *PNGDataset::CreateCopy(const char *pszFilename,
     }
     if (bWriteMetadataAsText)
     {
-        char **papszSrcMD = poSrcDS->GetMetadata();
+        CSLConstList papszSrcMD = poSrcDS->GetMetadata();
         for (; papszSrcMD && *papszSrcMD; papszSrcMD++)
         {
             char *pszKey = nullptr;
@@ -3027,355 +3032,6 @@ void GDALRegister_PNG()
 
     poDriver->pfnOpen = PNGDataset::Open;
     poDriver->pfnCreateCopy = PNGDataset::CreateCopy;
-#ifdef SUPPORT_CREATE
-    poDriver->pfnCreate = PNGDataset::Create;
-#endif
 
     GetGDALDriverManager()->RegisterDriver(poDriver);
 }
-
-#ifdef SUPPORT_CREATE
-/************************************************************************/
-/*                         IWriteBlock()                                */
-/************************************************************************/
-
-CPLErr PNGRasterBand::IWriteBlock(int x, int y, void *pvData)
-{
-    PNGDataset &ds = *cpl::down_cast<PNGDataset *>(poDS);
-
-    // Write the block (or consolidate into multichannel block) and then write.
-
-    const GDALDataType dt = GetRasterDataType();
-    const size_t wordsize = ds.m_nBitDepth / 8;
-    GDALCopyWords(pvData, dt, wordsize,
-                  ds.m_pabyBuffer + (nBand - 1) * wordsize, dt,
-                  ds.nBands * wordsize, nBlockXSize);
-
-    // See if we have all the bands.
-    m_bBandProvided[nBand - 1] = TRUE;
-    for (size_t i = 0; i < static_cast<size_t>(ds.nBands); i++)
-    {
-        if (!m_bBandProvided[i])
-            return CE_None;
-    }
-
-    // We received all the bands, so reset band flags and write pixels out.
-    this->reset_band_provision_flags();
-
-    // If it is the first block, write out the file header.
-    if (x == 0 && y == 0)
-    {
-        CPLErr err = ds.write_png_header();
-        if (err != CE_None)
-            return err;
-    }
-
-#ifdef CPL_LSB
-    if (ds.m_nBitDepth == 16)
-        GDALSwapWords(ds.m_pabyBuffer, 2, nBlockXSize * ds.nBands, 2);
-#endif
-    png_write_rows(ds.m_hPNG, &ds.m_pabyBuffer, 1);
-
-    return CE_None;
-}
-
-/************************************************************************/
-/*                          SetGeoTransform()                           */
-/************************************************************************/
-
-CPLErr PNGDataset::SetGeoTransform(const GDALGeoTransform &gt)
-{
-    m_gt = gt;
-
-    if (m_pszFilename)
-    {
-        if (GDALWriteWorldFile(m_pszFilename, "wld", m_gt.data()) == FALSE)
-        {
-            CPLError(CE_Failure, CPLE_FileIO, "Can't write world file.");
-            return CE_Failure;
-        }
-    }
-
-    return CE_None;
-}
-
-/************************************************************************/
-/*                           SetColorTable()                            */
-/************************************************************************/
-
-CPLErr PNGRasterBand::SetColorTable(GDALColorTable *poCT)
-{
-    if (poCT == NULL)
-        return CE_Failure;
-
-    // We get called even for grayscale files, since some formats need a palette
-    // even then. PNG doesn't, so if a gray palette is given, just ignore it.
-
-    GDALColorEntry sEntry;
-    for (size_t i = 0; i < static_cast<size_t>(poCT->GetColorEntryCount()); i++)
-    {
-        poCT->GetColorEntryAsRGB(i, &sEntry);
-        if (sEntry.c1 != sEntry.c2 || sEntry.c1 != sEntry.c3)
-        {
-            CPLErr err = GDALPamRasterBand::SetColorTable(poCT);
-            if (err != CE_None)
-                return err;
-
-            PNGDataset &ds = *cpl::down_cast<PNGDataset *>(poDS);
-            ds.m_nColorType = PNG_COLOR_TYPE_PALETTE;
-            break;
-            // band::IWriteBlock will emit color table as part of the header
-            // preceding the first block write.
-        }
-    }
-
-    return CE_None;
-}
-
-/************************************************************************/
-/*                  PNGDataset::write_png_header()                      */
-/************************************************************************/
-
-CPLErr PNGDataset::write_png_header()
-{
-    // Initialize PNG access to the file.
-    m_hPNG = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL,
-                                     png_gdal_error, png_gdal_warning);
-
-    m_psPNGInfo = png_create_info_struct(m_hPNG);
-
-    png_set_write_fn(m_hPNG, m_fpImage, png_vsi_write_data, png_vsi_flush);
-
-    png_set_IHDR(m_hPNG, m_psPNGInfo, nRasterXSize, nRasterYSize, m_nBitDepth,
-                 m_nColorType, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
-                 PNG_FILTER_TYPE_DEFAULT);
-
-    png_set_compression_level(m_hPNG, Z_BEST_COMPRESSION);
-
-    // png_set_swap_alpha(m_hPNG); // Use RGBA order, not ARGB.
-
-    // Try to handle nodata values as a tRNS block (note that for paletted
-    // images, we save the effect to apply as part of the palette).
-    // m_bHaveNoData = FALSE;
-    // m_dfNoDataValue = -1;
-    png_color_16 sTRNSColor;
-
-    int bHaveNoData = FALSE;
-    double dfNoDataValue = -1;
-
-    if (m_nColorType == PNG_COLOR_TYPE_GRAY)
-    {
-        dfNoDataValue = GetRasterBand(1)->GetNoDataValue(&bHaveNoData);
-
-        if (bHaveNoData && dfNoDataValue >= 0 && dfNoDataValue < 65536)
-        {
-            sTRNSColor.gray = static_cast<png_uint_16>(dfNoDataValue);
-            png_set_tRNS(m_hPNG, m_psPNGInfo, NULL, 0, &sTRNSColor);
-        }
-    }
-
-    // RGB nodata.
-    if (nColorType == PNG_COLOR_TYPE_RGB)
-    {
-        // First, try to use the NODATA_VALUES metadata item.
-        if (GetMetadataItem("NODATA_VALUES") != NULL)
-        {
-            char **papszValues =
-                CSLTokenizeString(GetMetadataItem("NODATA_VALUES"));
-
-            if (CSLCount(papszValues) >= 3)
-            {
-                sTRNSColor.red = static_cast<png_uint_16>(atoi(papszValues[0]));
-                sTRNSColor.green =
-                    static_cast<png_uint_16>(atoi(papszValues[1]));
-                sTRNSColor.blue =
-                    static_cast<png_uint_16>(atoi(papszValues[2]));
-                png_set_tRNS(m_hPNG, m_psPNGInfo, NULL, 0, &sTRNSColor);
-            }
-
-            CSLDestroy(papszValues);
-        }
-        // Otherwise, get the nodata value from the bands.
-        else
-        {
-            int bHaveNoDataRed = FALSE;
-            const double dfNoDataValueRed =
-                GetRasterBand(1)->GetNoDataValue(&bHaveNoDataRed);
-
-            int bHaveNoDataGreen = FALSE;
-            const double dfNoDataValueGreen =
-                GetRasterBand(2)->GetNoDataValue(&bHaveNoDataGreen);
-
-            int bHaveNoDataBlue = FALSE;
-            const double dfNoDataValueBlue =
-                GetRasterBand(3)->GetNoDataValue(&bHaveNoDataBlue);
-
-            if ((bHaveNoDataRed && dfNoDataValueRed >= 0 &&
-                 dfNoDataValueRed < 65536) &&
-                (bHaveNoDataGreen && dfNoDataValueGreen >= 0 &&
-                 dfNoDataValueGreen < 65536) &&
-                (bHaveNoDataBlue && dfNoDataValueBlue >= 0 &&
-                 dfNoDataValueBlue < 65536))
-            {
-                sTRNSColor.red = static_cast<png_uint_16>(dfNoDataValueRed);
-                sTRNSColor.green = static_cast<png_uint_16>(dfNoDataValueGreen);
-                sTRNSColor.blue = static_cast<png_uint_16>(dfNoDataValueBlue);
-                png_set_tRNS(m_hPNG, m_psPNGInfo, NULL, 0, &sTRNSColor);
-            }
-        }
-    }
-
-    // Write the palette if there is one. Technically, it may be possible
-    // to write 16-bit palettes for PNG, but for now, doing so is omitted.
-    if (nColorType == PNG_COLOR_TYPE_PALETTE)
-    {
-        GDALColorTable *poCT = GetRasterBand(1)->GetColorTable();
-
-        int bHaveNoData = FALSE;
-        double dfNoDataValue = GetRasterBand(1)->GetNoDataValue(&bHaveNoData);
-
-        m_pasPNGColors = reinterpret_cast<png_color *>(
-            CPLMalloc(sizeof(png_color) * poCT->GetColorEntryCount()));
-
-        GDALColorEntry sEntry;
-        bool bFoundTrans = false;
-        for (int iColor = 0; iColor < poCT->GetColorEntryCount(); iColor++)
-        {
-            poCT->GetColorEntryAsRGB(iColor, &sEntry);
-            if (sEntry.c4 != 255)
-                bFoundTrans = true;
-
-            m_pasPNGColors[iColor].red = static_cast<png_byte>(sEntry.c1);
-            m_pasPNGColors[iColor].green = static_cast<png_byte>(sEntry.c2);
-            m_pasPNGColors[iColor].blue = static_cast<png_byte>(sEntry.c3);
-        }
-
-        png_set_PLTE(m_hPNG, m_psPNGInfo, m_pasPNGColors,
-                     poCT->GetColorEntryCount());
-
-        // If we have transparent elements in the palette, we need to write a
-        // transparency block.
-        if (bFoundTrans || bHaveNoData)
-        {
-            m_pabyAlpha = reinterpret_cast<unsigned char *>(
-                CPLMalloc(poCT->GetColorEntryCount()));
-
-            for (int iColor = 0; iColor < poCT->GetColorEntryCount(); iColor++)
-            {
-                poCT->GetColorEntryAsRGB(iColor, &sEntry);
-                m_pabyAlpha[iColor] = static_cast<unsigned char>(sEntry.c4);
-
-                if (bHaveNoData && iColor == static_cast<int>(dfNoDataValue))
-                    m_pabyAlpha[iColor] = 0;
-            }
-
-            png_set_tRNS(m_hPNG, m_psPNGInfo, m_pabyAlpha,
-                         poCT->GetColorEntryCount(), NULL);
-        }
-    }
-
-    png_write_info(m_hPNG, m_psPNGInfo);
-    return CE_None;
-}
-
-/************************************************************************/
-/*                               Create()                               */
-/************************************************************************/
-
-GDALDataset *PNGDataset::Create(const char *pszFilename, int nXSize, int nYSize,
-                                int nBands, GDALDataType eType,
-                                char **papszOptions)
-{
-    if (eType != GDT_Byte && eType != GDT_UInt16)
-    {
-        CPLError(
-            CE_Failure, CPLE_AppDefined,
-            "Attempt to create PNG dataset with an illegal\n"
-            "data type (%s), only Byte and UInt16 supported by the format.\n",
-            GDALGetDataTypeName(eType));
-
-        return NULL;
-    }
-
-    if (nBands < 1 || nBands > 4)
-    {
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "PNG driver doesn't support %d bands. "
-                 "Must be 1 (gray/indexed color),\n"
-                 "2 (gray+alpha), 3 (rgb) or 4 (rgba) bands.\n",
-                 nBands);
-
-        return NULL;
-    }
-
-    // Bands are:
-    // 1: Grayscale or indexed color.
-    // 2: Gray plus alpha.
-    // 3: RGB.
-    // 4: RGB plus alpha.
-
-    if (nXSize < 1 || nYSize < 1)
-    {
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "Specified pixel dimensions (% d x %d) are bad.\n", nXSize,
-                 nYSize);
-    }
-
-    // Set up some parameters.
-    PNGDataset *poDS = new PNGDataset();
-
-    poDS->nRasterXSize = nXSize;
-    poDS->nRasterYSize = nYSize;
-    poDS->eAccess = GA_Update;
-    poDS->nBands = nBands;
-
-    switch (nBands)
-    {
-        case 1:
-            poDS->m_nColorType = PNG_COLOR_TYPE_GRAY;
-            break;  // If a non-gray palette is set, we'll change this.
-
-        case 2:
-            poDS->m_nColorType = PNG_COLOR_TYPE_GRAY_ALPHA;
-            break;
-
-        case 3:
-            poDS->m_nColorType = PNG_COLOR_TYPE_RGB;
-            break;
-
-        case 4:
-            poDS->m_nColorType = PNG_COLOR_TYPE_RGB_ALPHA;
-            break;
-    }
-
-    poDS->m_nBitDepth = (eType == GDT_Byte ? 8 : 16);
-
-    poDS->m_pabyBuffer = reinterpret_cast<GByte *>(
-        CPLMalloc(nBands * nXSize * poDS->m_nBitDepth / 8));
-
-    // Create band information objects.
-    for (int iBand = 1; iBand <= poDS->nBands; iBand++)
-        poDS->SetBand(iBand, new PNGRasterBand(poDS, iBand));
-
-    // Do we need a world file?
-    if (CPLFetchBool(papszOptions, "WORLDFILE", false))
-        poDS->m_bGeoTransformValid = TRUE;
-
-    // Create the file.
-
-    poDS->m_fpImage = VSIFOpenL(pszFilename, "wb");
-    if (poDS->m_fpImage == NULL)
-    {
-        CPLError(CE_Failure, CPLE_OpenFailed,
-                 "Unable to create PNG file %s: %s\n", pszFilename,
-                 VSIStrerror(errno));
-        delete poDS;
-        return NULL;
-    }
-
-    poDS->m_pszFilename = CPLStrdup(pszFilename);
-
-    return poDS;
-}
-
-#endif

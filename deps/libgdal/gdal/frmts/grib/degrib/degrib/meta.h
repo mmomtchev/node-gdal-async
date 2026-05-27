@@ -16,6 +16,8 @@
 #ifndef META_H
 #define META_H
 
+#include "cpl_vsi.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
@@ -25,10 +27,6 @@ extern "C" {
 #include "type.h"
 #ifdef MEMWATCH
   #include "memwatch.h"
-#endif
-
-#ifdef __cplusplus
-#include "cpl_vsi.h"
 #endif
 
 #ifndef GRIB2BIT_ENUM
@@ -400,7 +398,7 @@ typedef struct {
 /*   uChar center, subcenter; */ /* Who produced it. */
    uChar genProcess;         /* Generating Process ID. ?Sect 4? */
    uChar cat;                /* General category of Meteo Product. */
-   uChar gridID;             /* The Grid Defin ID number (GRIB1 specific) */
+   uChar gridID;             /* The Grid Define ID number (GRIB1 specific) */
    uChar levelType;          /* Type of level. ?sect 4 fstSurf? */
    int levelVal;             /* Value of level. */
    double refTime;           /* Reference time in seconds UTC */
@@ -638,7 +636,7 @@ int MetaPrint (grib_MetaData *meta, char **ans, sChar decimal, sChar f_unit);
 sInt4 sbit_2Comp_fourByte(sInt4 data);
 
 sChar sbit_2Comp_oneByte(sChar data);
- 
+
 #ifdef __cplusplus
 }
 #endif  /* __cplusplus */

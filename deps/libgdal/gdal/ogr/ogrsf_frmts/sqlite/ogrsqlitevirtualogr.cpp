@@ -31,7 +31,7 @@
 #include "cpl_string.h"
 
 /************************************************************************/
-/*                  OGR2SQLITE_GetNameForGeometryColumn()               */
+/*                OGR2SQLITE_GetNameForGeometryColumn()                 */
 /************************************************************************/
 
 CPLString OGR2SQLITE_GetNameForGeometryColumn(OGRLayer *poLayer)
@@ -77,7 +77,7 @@ int OGR2SQLITE_AddExtraDS(OGR2SQLITEModule *, GDALDataset *)
 #else
 
 /************************************************************************/
-/*                           OGR2SQLITE_Register()                      */
+/*                        OGR2SQLITE_Register()                         */
 /************************************************************************/
 
 CPL_C_START
@@ -199,7 +199,7 @@ static SQLITE_EXTENSION_INIT1
 };
 
 /************************************************************************/
-/*                        OGR2SQLITEModule()                            */
+/*                          OGR2SQLITEModule()                          */
 /************************************************************************/
 
 OGR2SQLITEModule::OGR2SQLITEModule()
@@ -225,7 +225,7 @@ OGR2SQLITEModule::~OGR2SQLITEModule()
 }
 
 /************************************************************************/
-/*                        SetHandleSQLFunctions()                       */
+/*                       SetHandleSQLFunctions()                        */
 /************************************************************************/
 
 void OGR2SQLITEModule::SetHandleSQLFunctions(void *hHandleSQLFunctionsIn)
@@ -235,7 +235,7 @@ void OGR2SQLITEModule::SetHandleSQLFunctions(void *hHandleSQLFunctionsIn)
 }
 
 /************************************************************************/
-/*                            AddExtraDS()                              */
+/*                             AddExtraDS()                             */
 /************************************************************************/
 
 int OGR2SQLITEModule::AddExtraDS(GDALDataset *poDSIn)
@@ -246,7 +246,7 @@ int OGR2SQLITEModule::AddExtraDS(GDALDataset *poDSIn)
 }
 
 /************************************************************************/
-/*                            GetExtraDS()                              */
+/*                             GetExtraDS()                             */
 /************************************************************************/
 
 GDALDataset *OGR2SQLITEModule::GetExtraDS(int nIndex)
@@ -257,7 +257,7 @@ GDALDataset *OGR2SQLITEModule::GetExtraDS(int nIndex)
 }
 
 /************************************************************************/
-/*                                Setup()                               */
+/*                               Setup()                                */
 /************************************************************************/
 
 int OGR2SQLITEModule::Setup(GDALDataset *poDSIn,
@@ -271,7 +271,7 @@ int OGR2SQLITEModule::Setup(GDALDataset *poDSIn,
 }
 
 /************************************************************************/
-/*                            FetchSRSId()                              */
+/*                             FetchSRSId()                             */
 /************************************************************************/
 
 // TODO(schwehr): Refactor FetchSRSId to be much simpler.
@@ -289,10 +289,10 @@ int OGR2SQLITEModule::FetchSRSId(const OGRSpatialReference *poSRS)
     {
         if (poSRS != nullptr)
         {
-            const char *pszAuthorityName = poSRS->GetAuthorityName(nullptr);
+            const char *pszAuthorityName = poSRS->GetAuthorityName();
             if (pszAuthorityName != nullptr && EQUAL(pszAuthorityName, "EPSG"))
             {
-                const char *pszAuthorityCode = poSRS->GetAuthorityCode(nullptr);
+                const char *pszAuthorityCode = poSRS->GetAuthorityCode();
                 if (pszAuthorityCode != nullptr && strlen(pszAuthorityCode) > 0)
                 {
                     nSRSId = atoi(pszAuthorityCode);
@@ -305,7 +305,7 @@ int OGR2SQLITEModule::FetchSRSId(const OGRSpatialReference *poSRS)
 }
 
 /************************************************************************/
-/*                          RegisterVTable()                            */
+/*                           RegisterVTable()                           */
 /************************************************************************/
 
 void OGR2SQLITEModule::RegisterVTable(const char *pszVTableName,
@@ -324,7 +324,7 @@ void OGR2SQLITEModule::UnregisterVTable(const char *pszVTableName)
 }
 
 /************************************************************************/
-/*                          GetLayerForVTable()                         */
+/*                         GetLayerForVTable()                          */
 /************************************************************************/
 
 OGRLayer *OGR2SQLITEModule::GetLayerForVTable(const char *pszVTableName)
@@ -359,7 +359,7 @@ OGRLayer *OGR2SQLITEModule::GetLayerForVTable(const char *pszVTableName)
    implement a new module for the Virtual Table mechanism. */
 
 /************************************************************************/
-/*                            OGR2SQLITE_vtab                           */
+/*                           OGR2SQLITE_vtab                            */
 /************************************************************************/
 
 typedef struct
@@ -380,7 +380,7 @@ typedef struct
 } OGR2SQLITE_vtab;
 
 /************************************************************************/
-/*                          OGR2SQLITE_vtab_cursor                      */
+/*                        OGR2SQLITE_vtab_cursor                        */
 /************************************************************************/
 
 typedef struct
@@ -408,7 +408,7 @@ typedef struct
 #ifdef VIRTUAL_OGR_DYNAMIC_EXTENSION_ENABLED
 
 /************************************************************************/
-/*                     OGR2SQLITEDetectSuspiciousUsage()                */
+/*                  OGR2SQLITEDetectSuspiciousUsage()                   */
 /************************************************************************/
 
 static int OGR2SQLITEDetectSuspiciousUsage(sqlite3 *hDB,
@@ -1018,7 +1018,7 @@ static int OGR2SQLITE_BestIndex(sqlite3_vtab *pVTab, sqlite3_index_info *pIndex)
 }
 
 /************************************************************************/
-/*                      OGR2SQLITE_DisconnectDestroy()                  */
+/*                    OGR2SQLITE_DisconnectDestroy()                    */
 /************************************************************************/
 
 static int OGR2SQLITE_DisconnectDestroy(sqlite3_vtab *pVTab)
@@ -1040,7 +1040,7 @@ static int OGR2SQLITE_DisconnectDestroy(sqlite3_vtab *pVTab)
 }
 
 /************************************************************************/
-/*                           OGR2SQLITE_Open()                          */
+/*                          OGR2SQLITE_Open()                           */
 /************************************************************************/
 
 static int OGR2SQLITE_Open(sqlite3_vtab *pVTab, sqlite3_vtab_cursor **ppCursor)
@@ -1098,7 +1098,7 @@ static int OGR2SQLITE_Open(sqlite3_vtab *pVTab, sqlite3_vtab_cursor **ppCursor)
 }
 
 /************************************************************************/
-/*                           OGR2SQLITE_Close()                         */
+/*                          OGR2SQLITE_Close()                          */
 /************************************************************************/
 
 static int OGR2SQLITE_Close(sqlite3_vtab_cursor *pCursor)
@@ -1123,7 +1123,7 @@ static int OGR2SQLITE_Close(sqlite3_vtab_cursor *pCursor)
 }
 
 /************************************************************************/
-/*                          OGR2SQLITE_Filter()                         */
+/*                         OGR2SQLITE_Filter()                          */
 /************************************************************************/
 
 static int OGR2SQLITE_Filter(sqlite3_vtab_cursor *pCursor,
@@ -1367,7 +1367,7 @@ static int OGR2SQLITE_Next(sqlite3_vtab_cursor *pCursor)
 }
 
 /************************************************************************/
-/*                          OGR2SQLITE_Eof()                            */
+/*                           OGR2SQLITE_Eof()                           */
 /************************************************************************/
 
 static int OGR2SQLITE_Eof(sqlite3_vtab_cursor *pCursor)
@@ -1389,7 +1389,7 @@ static int OGR2SQLITE_Eof(sqlite3_vtab_cursor *pCursor)
 }
 
 /************************************************************************/
-/*                      OGR2SQLITE_GoToWishedIndex()                    */
+/*                     OGR2SQLITE_GoToWishedIndex()                     */
 /************************************************************************/
 
 static void OGR2SQLITE_GoToWishedIndex(OGR2SQLITE_vtab_cursor *pMyCursor)
@@ -1419,7 +1419,7 @@ static void OGR2SQLITE_GoToWishedIndex(OGR2SQLITE_vtab_cursor *pMyCursor)
 }
 
 /************************************************************************/
-/*                    OGR2SQLITE_ExportGeometry()                       */
+/*                     OGR2SQLITE_ExportGeometry()                      */
 /************************************************************************/
 
 static void OGR2SQLITE_ExportGeometry(OGRGeometry *poGeom, int nSRSId,
@@ -1660,7 +1660,7 @@ static int OGR2SQLITE_Column(sqlite3_vtab_cursor *pCursor,
 }
 
 /************************************************************************/
-/*                         OGR2SQLITE_Rowid()                           */
+/*                          OGR2SQLITE_Rowid()                          */
 /************************************************************************/
 
 static int OGR2SQLITE_Rowid(sqlite3_vtab_cursor *pCursor, sqlite3_int64 *pRowid)
@@ -1694,7 +1694,7 @@ static int OGR2SQLITE_Rename(CPL_UNUSED sqlite3_vtab *pVtab,
 
 #if 0
 /************************************************************************/
-/*                        OGR2SQLITE_FindFunction()                     */
+/*                      OGR2SQLITE_FindFunction()                       */
 /************************************************************************/
 
 static
@@ -1853,7 +1853,7 @@ static OGRFeature *OGR2SQLITE_FeatureFromArgs(OGR2SQLITE_vtab *pMyVTab,
 }
 
 /************************************************************************/
-/*                            OGR2SQLITE_Update()                       */
+/*                         OGR2SQLITE_Update()                          */
 /************************************************************************/
 
 static int OGR2SQLITE_Update(sqlite3_vtab *pVTab, int argc,
@@ -1911,7 +1911,7 @@ static int OGR2SQLITE_Update(sqlite3_vtab *pVTab, int argc,
 }
 
 /************************************************************************/
-/*                        sOGR2SQLITEModule                             */
+/*                          sOGR2SQLITEModule                           */
 /************************************************************************/
 
 static const struct sqlite3_module sOGR2SQLITEModule = {
@@ -1947,14 +1947,15 @@ static const struct sqlite3_module sOGR2SQLITEModule = {
 };
 
 /************************************************************************/
-/*                           OGR2SQLITE_GetLayer()                      */
+/*                        OGR2SQLITE_GetLayer()                         */
 /************************************************************************/
 
 static OGRLayer *OGR2SQLITE_GetLayer(const char *pszFuncName,
                                      sqlite3_context *pContext, int argc,
-                                     sqlite3_value **argv)
+                                     sqlite3_value **argv,
+                                     int iLayerNameArg = 0)
 {
-    if (argc != 1)
+    if (argc <= iLayerNameArg)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "%s: %s(): %s", "VirtualOGR",
                  pszFuncName, "Invalid number of arguments");
@@ -1962,7 +1963,7 @@ static OGRLayer *OGR2SQLITE_GetLayer(const char *pszFuncName,
         return nullptr;
     }
 
-    if (sqlite3_value_type(argv[0]) != SQLITE_TEXT)
+    if (sqlite3_value_type(argv[iLayerNameArg]) != SQLITE_TEXT)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "%s: %s(): %s", "VirtualOGR",
                  pszFuncName, "Invalid argument type");
@@ -1971,7 +1972,7 @@ static OGRLayer *OGR2SQLITE_GetLayer(const char *pszFuncName,
     }
 
     const char *pszVTableName =
-        reinterpret_cast<const char *>(sqlite3_value_text(argv[0]));
+        reinterpret_cast<const char *>(sqlite3_value_text(argv[iLayerNameArg]));
 
     OGR2SQLITEModule *poModule =
         static_cast<OGR2SQLITEModule *>(sqlite3_user_data(pContext));
@@ -1979,8 +1980,8 @@ static OGRLayer *OGR2SQLITE_GetLayer(const char *pszFuncName,
     OGRLayer *poLayer = poModule->GetLayerForVTable(SQLUnescape(pszVTableName));
     if (poLayer == nullptr)
     {
-        CPLError(CE_Failure, CPLE_AppDefined, "%s: %s(): %s", "VirtualOGR",
-                 pszFuncName, "Unknown virtual table");
+        CPLError(CE_Failure, CPLE_AppDefined, "%s: %s(): %s '%s'", "VirtualOGR",
+                 pszFuncName, "unknown layer", pszVTableName);
         sqlite3_result_null(pContext);
         return nullptr;
     }
@@ -1989,7 +1990,7 @@ static OGRLayer *OGR2SQLITE_GetLayer(const char *pszFuncName,
 }
 
 /************************************************************************/
-/*                       OGR2SQLITE_ogr_layer_Extent()                  */
+/*                    OGR2SQLITE_ogr_layer_Extent()                     */
 /************************************************************************/
 
 static void OGR2SQLITE_ogr_layer_Extent(sqlite3_context *pContext, int argc,
@@ -2043,7 +2044,7 @@ static void OGR2SQLITE_ogr_layer_Extent(sqlite3_context *pContext, int argc,
 }
 
 /************************************************************************/
-/*                       OGR2SQLITE_ogr_layer_SRID()                    */
+/*                     OGR2SQLITE_ogr_layer_SRID()                      */
 /************************************************************************/
 
 static void OGR2SQLITE_ogr_layer_SRID(sqlite3_context *pContext, int argc,
@@ -2096,7 +2097,7 @@ static void OGR2SQLITE_ogr_layer_GeometryType(sqlite3_context *pContext,
 }
 
 /************************************************************************/
-/*                OGR2SQLITE_ogr_layer_FeatureCount()                   */
+/*                 OGR2SQLITE_ogr_layer_FeatureCount()                  */
 /************************************************************************/
 
 static void OGR2SQLITE_ogr_layer_FeatureCount(sqlite3_context *pContext,
@@ -2108,6 +2109,164 @@ static void OGR2SQLITE_ogr_layer_FeatureCount(sqlite3_context *pContext,
         return;
 
     sqlite3_result_int64(pContext, poLayer->GetFeatureCount());
+}
+
+/************************************************************************/
+/*                OGR2SQLITE_ST_Hilbert_X_Y_TableName()                 */
+/************************************************************************/
+
+static void OGR2SQLITE_ST_Hilbert_X_Y_TableName(sqlite3_context *pContext,
+                                                int argc, sqlite3_value **argv)
+{
+    CPLAssert(argc == 3);
+    const double dfX = sqlite3_value_double(argv[0]);
+    const double dfY = sqlite3_value_double(argv[1]);
+
+    OGRLayer *poLayer =
+        OGR2SQLITE_GetLayer("ST_Hilbert", pContext, argc, argv, 2);
+    if (poLayer == nullptr)
+    {
+        sqlite3_result_null(pContext);
+        return;
+    }
+
+    OGREnvelope sExtent;
+    if (poLayer->GetExtent(&sExtent, true) != OGRERR_NONE)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "%s: Cannot fetch layer extent",
+                 "ST_Hilbert()");
+        sqlite3_result_null(pContext);
+        return;
+    }
+    if (!(dfX >= sExtent.MinX && dfY >= sExtent.MinY && dfX <= sExtent.MaxX &&
+          dfY <= sExtent.MaxY))
+    {
+        CPLError(CE_Warning, CPLE_AppDefined,
+                 "ST_Hilbert(): (%g, %g) is not within passed bounding box",
+                 dfX, dfY);
+        sqlite3_result_null(pContext);
+        return;
+    }
+    sqlite3_result_int64(pContext, GDALHilbertCode(&sExtent, dfX, dfY));
+}
+
+/************************************************************************/
+/*                         OGR2SQLITE_GetGeom()                         */
+/************************************************************************/
+
+static std::unique_ptr<OGRGeometry>
+OGR2SQLITE_GetGeom(sqlite3_context * /*pContext*/, int /* argc */,
+                   sqlite3_value **argv, int *pnSRSId, int iGeomArg)
+{
+    if (sqlite3_value_type(argv[iGeomArg]) != SQLITE_BLOB)
+    {
+        return nullptr;
+    }
+
+    const GByte *pabySLBLOB =
+        reinterpret_cast<const GByte *>(sqlite3_value_blob(argv[iGeomArg]));
+    int nBLOBLen = sqlite3_value_bytes(argv[iGeomArg]);
+    OGRGeometry *poGeom = nullptr;
+    if (OGRSQLiteLayer::ImportSpatiaLiteGeometry(pabySLBLOB, nBLOBLen, &poGeom,
+                                                 pnSRSId) != OGRERR_NONE)
+    {
+        delete poGeom;
+        return nullptr;
+    }
+
+    return std::unique_ptr<OGRGeometry>(poGeom);
+}
+
+/************************************************************************/
+/*                  OGR2SQLITE_ST_Hilbert_Geom_BBOX()                   */
+/************************************************************************/
+
+static void OGR2SQLITE_ST_Hilbert_Geom_BBOX(sqlite3_context *pContext, int argc,
+                                            sqlite3_value **argv)
+{
+    CPLAssert(argc == 5);
+    auto poGeom = OGR2SQLITE_GetGeom(pContext, argc, argv, nullptr, 0);
+    if (!poGeom || poGeom->IsEmpty())
+    {
+        sqlite3_result_null(pContext);
+        return;
+    }
+    OGREnvelope sGeomEnvelope;
+    poGeom->getEnvelope(&sGeomEnvelope);
+    const double dfX = (sGeomEnvelope.MinX + sGeomEnvelope.MaxX) / 2;
+    const double dfY = (sGeomEnvelope.MinY + sGeomEnvelope.MaxY) / 2;
+
+    OGREnvelope sExtent;
+    sExtent.MinX = sqlite3_value_double(argv[1]);
+    sExtent.MinY = sqlite3_value_double(argv[2]);
+    sExtent.MaxX = sqlite3_value_double(argv[3]);
+    sExtent.MaxY = sqlite3_value_double(argv[4]);
+    if (!(dfX >= sExtent.MinX && dfY >= sExtent.MinY && dfX <= sExtent.MaxX &&
+          dfY <= sExtent.MaxY))
+    {
+        CPLError(CE_Warning, CPLE_AppDefined,
+                 "ST_Hilbert(): (%g, %g) is not within passed bounding box",
+                 dfX, dfY);
+        sqlite3_result_null(pContext);
+        return;
+    }
+    sqlite3_result_int64(pContext, GDALHilbertCode(&sExtent, dfX, dfY));
+}
+
+/************************************************************************/
+/*                OGR2SQLITE_ST_Hilbert_Geom_TableName()                */
+/************************************************************************/
+
+static void OGR2SQLITE_ST_Hilbert_Geom_TableName(sqlite3_context *pContext,
+                                                 int argc, sqlite3_value **argv)
+{
+    CPLAssert(argc == 2);
+    auto poGeom = OGR2SQLITE_GetGeom(pContext, argc, argv, nullptr, 0);
+    if (!poGeom || poGeom->IsEmpty())
+    {
+        sqlite3_result_null(pContext);
+        return;
+    }
+    OGREnvelope sGeomEnvelope;
+    poGeom->getEnvelope(&sGeomEnvelope);
+    const double dfX = (sGeomEnvelope.MinX + sGeomEnvelope.MaxX) / 2;
+    const double dfY = (sGeomEnvelope.MinY + sGeomEnvelope.MaxY) / 2;
+
+    if (sqlite3_value_type(argv[1]) != SQLITE_TEXT)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "%s: Invalid argument type for 2nd argument. Text expected",
+                 "ST_Hilbert()");
+        sqlite3_result_null(pContext);
+        return;
+    }
+
+    OGRLayer *poLayer =
+        OGR2SQLITE_GetLayer("ST_Hilbert", pContext, argc, argv, 1);
+    if (poLayer == nullptr)
+    {
+        sqlite3_result_null(pContext);
+        return;
+    }
+
+    OGREnvelope sExtent;
+    if (poLayer->GetExtent(&sExtent, true) != OGRERR_NONE)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "%s: Cannot fetch layer extent",
+                 "ST_Hilbert()");
+        sqlite3_result_null(pContext);
+        return;
+    }
+    if (!(dfX >= sExtent.MinX && dfY >= sExtent.MinY && dfX <= sExtent.MaxX &&
+          dfY <= sExtent.MaxY))
+    {
+        CPLError(CE_Warning, CPLE_AppDefined,
+                 "ST_Hilbert(): (%g, %g) is not within passed bounding box",
+                 dfX, dfY);
+        sqlite3_result_null(pContext);
+        return;
+    }
+    sqlite3_result_int64(pContext, GDALHilbertCode(&sExtent, dfX, dfY));
 }
 
 /************************************************************************/
@@ -2127,7 +2286,7 @@ static void OGR2SQLITEDestroyModule(void *pData)
 #ifdef ENABLE_VIRTUAL_OGR_SPATIAL_INDEX
 
 /************************************************************************/
-/*                    OGR2SQLITESpatialIndex_vtab                       */
+/*                     OGR2SQLITESpatialIndex_vtab                      */
 /************************************************************************/
 
 typedef struct
@@ -2167,7 +2326,7 @@ typedef struct
 } OGR2SQLITESpatialIndex_vtab_cursor;
 
 /************************************************************************/
-/*                   OGR2SQLITESpatialIndex_ConnectCreate()             */
+/*                OGR2SQLITESpatialIndex_ConnectCreate()                */
 /************************************************************************/
 
 static int OGR2SQLITESpatialIndex_ConnectCreate(sqlite3 *hDB, void *pAux,
@@ -2274,7 +2433,7 @@ static int OGR2SQLITESpatialIndex_ConnectCreate(sqlite3 *hDB, void *pAux,
 }
 
 /************************************************************************/
-/*                      OGR2SQLITESpatialIndex_BestIndex()              */
+/*                  OGR2SQLITESpatialIndex_BestIndex()                  */
 /************************************************************************/
 
 static int OGR2SQLITESpatialIndex_BestIndex(sqlite3_vtab *pVTab,
@@ -2375,7 +2534,7 @@ static int OGR2SQLITESpatialIndex_BestIndex(sqlite3_vtab *pVTab,
 }
 
 /************************************************************************/
-/*                  OGR2SQLITESpatialIndex_DisconnectDestroy()          */
+/*              OGR2SQLITESpatialIndex_DisconnectDestroy()              */
 /************************************************************************/
 
 static int OGR2SQLITESpatialIndex_DisconnectDestroy(sqlite3_vtab *pVTab)
@@ -2450,7 +2609,7 @@ static int OGR2SQLITESpatialIndex_Open(sqlite3_vtab *pVTab,
 }
 
 /************************************************************************/
-/*                      OGR2SQLITESpatialIndex_Close()                  */
+/*                    OGR2SQLITESpatialIndex_Close()                    */
 /************************************************************************/
 
 static int OGR2SQLITESpatialIndex_Close(sqlite3_vtab_cursor *pCursor)
@@ -2473,7 +2632,7 @@ static int OGR2SQLITESpatialIndex_Close(sqlite3_vtab_cursor *pCursor)
 }
 
 /************************************************************************/
-/*                     OGR2SQLITESpatialIndex_Filter()                  */
+/*                   OGR2SQLITESpatialIndex_Filter()                    */
 /************************************************************************/
 
 static int OGR2SQLITESpatialIndex_Filter(sqlite3_vtab_cursor *pCursor,
@@ -2556,7 +2715,7 @@ static int OGR2SQLITESpatialIndex_Next(sqlite3_vtab_cursor *pCursor)
 }
 
 /************************************************************************/
-/*                      OGR2SQLITESpatialIndex_Eof()                    */
+/*                     OGR2SQLITESpatialIndex_Eof()                     */
 /************************************************************************/
 
 static int OGR2SQLITESpatialIndex_Eof(sqlite3_vtab_cursor *pCursor)
@@ -2571,7 +2730,7 @@ static int OGR2SQLITESpatialIndex_Eof(sqlite3_vtab_cursor *pCursor)
 }
 
 /************************************************************************/
-/*                    OGR2SQLITESpatialIndex_Column()                   */
+/*                   OGR2SQLITESpatialIndex_Column()                    */
 /************************************************************************/
 
 static int OGR2SQLITESpatialIndex_Column(sqlite3_vtab_cursor *pCursor,
@@ -2691,8 +2850,18 @@ static const struct sqlite3_module sOGR2SQLITESpatialIndex = {
 #endif  // ENABLE_VIRTUAL_OGR_SPATIAL_INDEX
 
 /************************************************************************/
-/*                              Setup()                                 */
+/*                               Setup()                                */
 /************************************************************************/
+
+#ifndef SQLITE_DETERMINISTIC
+#define SQLITE_DETERMINISTIC 0
+#endif
+
+#ifndef SQLITE_INNOCUOUS
+#define SQLITE_INNOCUOUS 0
+#endif
+
+#define UTF8_INNOCUOUS (SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_INNOCUOUS)
 
 int OGR2SQLITEModule::Setup(sqlite3 *hDBIn)
 {
@@ -2732,13 +2901,27 @@ int OGR2SQLITEModule::Setup(sqlite3 *hDBIn)
     if (rc != SQLITE_OK)
         return FALSE;
 
+    // X,Y,table_name
+    sqlite3_create_function(hDB, "ST_Hilbert", 2 + 1, UTF8_INNOCUOUS, this,
+                            OGR2SQLITE_ST_Hilbert_X_Y_TableName, nullptr,
+                            nullptr);
+
+    // geometry,minX,minY,maxX,maxY
+    sqlite3_create_function(hDB, "ST_Hilbert", 1 + 4, UTF8_INNOCUOUS, nullptr,
+                            OGR2SQLITE_ST_Hilbert_Geom_BBOX, nullptr, nullptr);
+
+    // geometry,table_name
+    sqlite3_create_function(hDB, "ST_Hilbert", 1 + 1, UTF8_INNOCUOUS, this,
+                            OGR2SQLITE_ST_Hilbert_Geom_TableName, nullptr,
+                            nullptr);
+
     SetHandleSQLFunctions(OGRSQLiteRegisterSQLFunctions(hDB));
 
     return TRUE;
 }
 
 /************************************************************************/
-/*                        OGR2SQLITE_Setup()                            */
+/*                          OGR2SQLITE_Setup()                          */
 /************************************************************************/
 
 OGR2SQLITEModule *OGR2SQLITE_Setup(GDALDataset *poDS,
@@ -2781,7 +2964,7 @@ int OGR2SQLITE_AddExtraDS(OGR2SQLITEModule *poModule, GDALDataset *poDS)
 #ifdef VIRTUAL_OGR_DYNAMIC_EXTENSION_ENABLED
 
 /************************************************************************/
-/*                        sqlite3_extension_init()                      */
+/*                       sqlite3_extension_init()                       */
 /************************************************************************/
 
 CPL_C_START
@@ -2851,7 +3034,7 @@ int sqlite3_extension_init(sqlite3 *hDB, char **pzErrMsg,
 #endif  // VIRTUAL_OGR_DYNAMIC_EXTENSION_ENABLED
 
 /************************************************************************/
-/*                        OGR2SQLITE_static_register()                  */
+/*                     OGR2SQLITE_static_register()                     */
 /************************************************************************/
 
 #ifndef _WIN32

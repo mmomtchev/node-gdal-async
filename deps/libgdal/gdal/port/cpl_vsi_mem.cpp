@@ -161,8 +161,8 @@ class VSIMemHandle final : public VSIVirtualHandle
 
     int Seek(vsi_l_offset nOffset, int nWhence) override;
     vsi_l_offset Tell() override;
-    size_t Read(void *pBuffer, size_t nSize, size_t nMemb) override;
-    size_t Write(const void *pBuffer, size_t nSize, size_t nMemb) override;
+    size_t Read(void *pBuffer, size_t nBytes) override;
+    size_t Write(const void *pBuffer, size_t nBytes) override;
     void ClearErr() override;
     int Error() override;
     int Eof() override;
@@ -214,7 +214,13 @@ class VSIMemFilesystemHandler final : public VSIFilesystemHandler
                void *) override;
     GIntBig GetDiskFreeSpace(const char *pszDirname) override;
 
-    static std::string NormalizePath(const std::string &in);
+    static CPLString NormalizePath(const std::string &in);
+
+    std::string
+    GetCanonicalFilename(const std::string &osFilename) const override
+    {
+        return NormalizePath(osFilename);
+    }
 
     int Unlink_unlocked(const char *pszFilename);
 
@@ -336,7 +342,7 @@ bool VSIMemFile::SetLength(vsi_l_offset nNewLength)
 /************************************************************************/
 
 /************************************************************************/
-/*                            ~VSIMemHandle()                           */
+/*                           ~VSIMemHandle()                            */
 /************************************************************************/
 
 VSIMemHandle::~VSIMemHandle()
@@ -418,20 +424,13 @@ vsi_l_offset VSIMemHandle::Tell()
 /*                                Read()                                */
 /************************************************************************/
 
-size_t VSIMemHandle::Read(void *pBuffer, size_t nSize, size_t nCount)
+size_t VSIMemHandle::Read(void *pBuffer, size_t nBytesToRead)
 
 {
     const vsi_l_offset nOffset = m_nOffset;
 
-    size_t nBytesToRead = nSize * nCount;
     if (nBytesToRead == 0)
         return 0;
-
-    if (nCount > 0 && nBytesToRead / nCount != nSize)
-    {
-        bEOF = true;
-        return 0;
-    }
 
     if (!m_bReadAllowed)
     {
@@ -440,10 +439,12 @@ size_t VSIMemHandle::Read(void *pBuffer, size_t nSize, size_t nCount)
     }
 
     bool bEOFTmp = bEOF;
+    size_t nBytesRead = nBytesToRead;
+
     // Do not access/modify bEOF under the lock to avoid confusing Coverity
     // Scan since we access it in other methods outside of the lock.
     const auto DoUnderLock =
-        [this, nOffset, pBuffer, nSize, &nBytesToRead, &nCount, &bEOFTmp]
+        [this, nOffset, pBuffer, &nBytesToRead, &nBytesRead, &bEOFTmp]
     {
         CPL_SHARED_LOCK oLock(poFile->m_oMutex);
 
@@ -454,14 +455,12 @@ size_t VSIMemHandle::Read(void *pBuffer, size_t nSize, size_t nCount)
         }
         if (nBytesToRead + nOffset > poFile->nLength)
         {
-            nBytesToRead = static_cast<size_t>(poFile->nLength - nOffset);
-            nCount = nBytesToRead / nSize;
+            nBytesRead = static_cast<size_t>(poFile->nLength - nOffset);
             bEOFTmp = true;
         }
 
         if (nBytesToRead)
-            memcpy(pBuffer, poFile->pabyData + nOffset,
-                   static_cast<size_t>(nBytesToRead));
+            memcpy(pBuffer, poFile->pabyData + nOffset, nBytesRead);
         return true;
     };
 
@@ -470,13 +469,13 @@ size_t VSIMemHandle::Read(void *pBuffer, size_t nSize, size_t nCount)
     if (!bRet)
         return 0;
 
-    m_nOffset += nBytesToRead;
+    m_nOffset += nBytesRead;
 
-    return nCount;
+    return nBytesRead;
 }
 
 /************************************************************************/
-/*                              PRead()                                 */
+/*                               PRead()                                */
 /************************************************************************/
 
 size_t VSIMemHandle::PRead(void *pBuffer, size_t nSize,
@@ -500,7 +499,7 @@ size_t VSIMemHandle::PRead(void *pBuffer, size_t nSize,
 /*                               Write()                                */
 /************************************************************************/
 
-size_t VSIMemHandle::Write(const void *pBuffer, size_t nSize, size_t nCount)
+size_t VSIMemHandle::Write(const void *pBuffer, size_t nBytesToWrite)
 
 {
     const vsi_l_offset nOffset = m_nOffset;
@@ -511,15 +510,9 @@ size_t VSIMemHandle::Write(const void *pBuffer, size_t nSize, size_t nCount)
         return 0;
     }
 
-    const size_t nBytesToWrite = nSize * nCount;
-
     {
         CPL_EXCLUSIVE_LOCK oLock(poFile->m_oMutex);
 
-        if (nCount > 0 && nBytesToWrite / nCount != nSize)
-        {
-            return 0;
-        }
         if (nBytesToWrite + nOffset < nBytesToWrite)
         {
             return 0;
@@ -539,11 +532,11 @@ size_t VSIMemHandle::Write(const void *pBuffer, size_t nSize, size_t nCount)
 
     m_nOffset += nBytesToWrite;
 
-    return nCount;
+    return nBytesToWrite;
 }
 
 /************************************************************************/
-/*                             ClearErr()                               */
+/*                              ClearErr()                              */
 /************************************************************************/
 
 void VSIMemHandle::ClearErr()
@@ -555,7 +548,7 @@ void VSIMemHandle::ClearErr()
 }
 
 /************************************************************************/
-/*                              Error()                                 */
+/*                               Error()                                */
 /************************************************************************/
 
 int VSIMemHandle::Error()
@@ -577,7 +570,7 @@ int VSIMemHandle::Eof()
 }
 
 /************************************************************************/
-/*                             Truncate()                               */
+/*                              Truncate()                              */
 /************************************************************************/
 
 int VSIMemHandle::Truncate(vsi_l_offset nNewSize)
@@ -625,7 +618,7 @@ VSIMemFilesystemHandler::Open(const char *pszFilename, const char *pszAccess,
 
 {
     CPLMutexHolder oHolder(&hMutex);
-    const std::string osFilename = NormalizePath(pszFilename);
+    const CPLString osFilename = NormalizePath(pszFilename);
     if (osFilename.empty())
         return nullptr;
 
@@ -711,7 +704,7 @@ VSIMemFilesystemHandler::Open(const char *pszFilename, const char *pszAccess,
     poHandle->m_bReadAllowed = strchr(pszAccess, 'r') || strchr(pszAccess, '+');
 
 #ifdef DEBUG_VERBOSE
-    CPLDebug("VSIMEM", "Opening handle %p on %s: ref_count=%d", poHandle,
+    CPLDebug("VSIMEM", "Opening handle %p on %s: ref_count=%d", poHandle.get(),
              pszFilename, static_cast<int>(poFile.use_count()));
 #endif
     if (strchr(pszAccess, 'a'))
@@ -737,7 +730,7 @@ int VSIMemFilesystemHandler::Stat(const char *pszFilename,
 {
     CPLMutexHolder oHolder(&hMutex);
 
-    const std::string osFilename = NormalizePath(pszFilename);
+    const CPLString osFilename = NormalizePath(pszFilename);
 
     memset(pStatBuf, 0, sizeof(VSIStatBufL));
 
@@ -796,13 +789,13 @@ int VSIMemFilesystemHandler::Unlink(const char *pszFilename)
 }
 
 /************************************************************************/
-/*                           Unlink_unlocked()                          */
+/*                          Unlink_unlocked()                           */
 /************************************************************************/
 
 int VSIMemFilesystemHandler::Unlink_unlocked(const char *pszFilename)
 
 {
-    const std::string osFilename = NormalizePath(pszFilename);
+    const CPLString osFilename = NormalizePath(pszFilename);
 
     auto oIter = oFileList.find(osFilename);
     if (oIter == oFileList.end())
@@ -830,7 +823,7 @@ int VSIMemFilesystemHandler::Mkdir(const char *pszPathname, long /* nMode */)
 {
     CPLMutexHolder oHolder(&hMutex);
 
-    const std::string osPathname = NormalizePath(pszPathname);
+    const CPLString osPathname = NormalizePath(pszPathname);
     if (STARTS_WITH(osPathname.c_str(), szHIDDEN_DIRNAME))
     {
         if (osPathname.size() == strlen(szHIDDEN_DIRNAME))
@@ -873,7 +866,7 @@ int VSIMemFilesystemHandler::Rmdir(const char *pszPathname)
 }
 
 /************************************************************************/
-/*                          RmdirRecursive()                            */
+/*                           RmdirRecursive()                           */
 /************************************************************************/
 
 int VSIMemFilesystemHandler::RmdirRecursive(const char *pszDirname)
@@ -1087,26 +1080,18 @@ int VSIMemFilesystemHandler::Rename(const char *pszOldPath,
 /*                           NormalizePath()                            */
 /************************************************************************/
 
-std::string VSIMemFilesystemHandler::NormalizePath(const std::string &in)
+CPLString VSIMemFilesystemHandler::NormalizePath(const std::string &in)
 {
     CPLString s(in);
     std::replace(s.begin(), s.end(), '\\', '/');
     s.replaceAll("//", '/');
     if (!s.empty() && s.back() == '/')
         s.pop_back();
-#if __GNUC__ >= 13
-    // gcc 13 complains about below explicit std::move()
     return s;
-#else
-    // Android NDK (and probably other compilers) warn about
-    // "warning: local variable 's' will be copied despite being returned by name [-Wreturn-std-move]"
-    // if not specifying std::move()
-    return std::move(s);
-#endif
 }
 
 /************************************************************************/
-/*                        GetDiskFreeSpace()                            */
+/*                          GetDiskFreeSpace()                          */
 /************************************************************************/
 
 GIntBig VSIMemFilesystemHandler::GetDiskFreeSpace(const char * /*pszDirname*/)
@@ -1120,7 +1105,7 @@ GIntBig VSIMemFilesystemHandler::GetDiskFreeSpace(const char * /*pszDirname*/)
 //! @endcond
 
 /************************************************************************/
-/*                       VSIInstallMemFileHandler()                     */
+/*                      VSIInstallMemFileHandler()                      */
 /************************************************************************/
 
 /**
@@ -1172,8 +1157,8 @@ GIntBig VSIMemFilesystemHandler::GetDiskFreeSpace(const char * /*pszDirname*/)
 
 void VSIInstallMemFileHandler()
 {
-    VSIFileManager::InstallHandler("/vsimem/",
-                                   new VSIMemFilesystemHandler("/vsimem/"));
+    VSIFileManager::InstallHandler(
+        "/vsimem/", std::make_shared<VSIMemFilesystemHandler>("/vsimem/"));
 }
 
 /************************************************************************/

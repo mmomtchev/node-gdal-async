@@ -74,15 +74,15 @@ void ILI2Handler::endDocument()
 }
 
 void ILI2Handler::startElement(const XMLCh *const /* uri */,
-                               const XMLCh *const /* localname */,
-                               const XMLCh *const qname,
+                               const XMLCh *const localname,
+                               const XMLCh *const /* qname */,
                                const Attributes &attrs)
 {
     // start to add the layers, features with the DATASECTION
     char *tmpC = nullptr;
     m_nEntityCounter = 0;
     if ((level >= 0) ||
-        (cmpStr(ILI2_DATASECTION, tmpC = XMLString::transcode(qname)) == 0))
+        (cmpStr(ILI2_DATASECTION, tmpC = XMLString::transcode(localname)) == 0))
     {
         level++;
 
@@ -90,8 +90,8 @@ void ILI2Handler::startElement(const XMLCh *const /* uri */,
         {
 
             // create the dom tree
-            DOMElement *elem =
-                reinterpret_cast<DOMElement *>(dom_doc->createElement(qname));
+            DOMElement *elem = reinterpret_cast<DOMElement *>(
+                dom_doc->createElement(localname));
 
             // add all attributes
             unsigned int len = static_cast<unsigned int>(attrs.getLength());
@@ -136,7 +136,7 @@ void ILI2Handler::endElement(CPL_UNUSED const XMLCh *const uri,
 }
 
 /************************************************************************/
-/*                     characters() (xerces 3 version)                  */
+/*                   characters() (xerces 3 version)                    */
 /************************************************************************/
 
 void ILI2Handler::characters(const XMLCh *const chars,

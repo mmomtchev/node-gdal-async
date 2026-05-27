@@ -204,48 +204,44 @@ class S57ClassContentExplorer
 /*      Maintain an index of DDF records based on an integer key.       */
 /************************************************************************/
 
-typedef struct
+struct DDFIndexedRecord
 {
-    int nKey;
-    DDFRecord *poRecord;
-    void *pClientData;
-} DDFIndexedRecord;
+    int nKey = 0;
+    std::unique_ptr<DDFRecord> poRecord;
+    const void *pClientData = nullptr;
+};
 
 class CPL_DLL DDFRecordIndex
 {
-    bool bSorted;
+    mutable bool bSorted = false;
+    mutable std::vector<DDFIndexedRecord> asRecords{};
 
-    int nRecordCount;
-    int nRecordMax;
+    void Sort() const;
 
-    int nLastObjlPos;  // Added for FindRecordByObjl().
-    int nLastObjl;     // Added for FindRecordByObjl().
-
-    DDFIndexedRecord *pasRecords;
-
-    void Sort();
+    DDFRecordIndex(const DDFRecordIndex &) = delete;
+    DDFRecordIndex &operator=(const DDFRecordIndex &) = delete;
+    DDFRecordIndex(DDFRecordIndex &&) = delete;
+    DDFRecordIndex &operator=(DDFRecordIndex &&) = delete;
 
   public:
     DDFRecordIndex();
     ~DDFRecordIndex();
 
-    void AddRecord(int nKey, DDFRecord *);
+    void AddRecord(int nKey, std::unique_ptr<DDFRecord> poRecord);
     bool RemoveRecord(int nKey);
 
-    DDFRecord *FindRecord(int nKey);
-
-    DDFRecord *FindRecordByObjl(int nObjl);  // Added for FindRecordByObjl().
+    DDFRecord *FindRecord(int nKey) const;
 
     void Clear();
 
-    int GetCount()
+    int GetCount() const
     {
-        return nRecordCount;
+        return static_cast<int>(asRecords.size());
     }
 
-    DDFRecord *GetByIndex(int i);
-    void *GetClientInfoByIndex(int i);
-    void SetClientInfoByIndex(int i, void *pClientInfo);
+    const DDFRecord *GetByIndex(int i) const;
+    const void *GetClientInfoByIndex(int i) const;
+    void SetClientInfoByIndex(int i, const void *pClientInfo);
 };
 
 /************************************************************************/
@@ -254,87 +250,87 @@ class CPL_DLL DDFRecordIndex
 
 class CPL_DLL S57Reader
 {
-    S57ClassRegistrar *poRegistrar;
-    S57ClassContentExplorer *poClassContentExplorer;
+    S57ClassRegistrar *poRegistrar = nullptr;
+    S57ClassContentExplorer *poClassContentExplorer = nullptr;
 
-    int nFDefnCount;
-    OGRFeatureDefn **papoFDefnList;
+    int nFDefnCount = 0;
+    OGRFeatureDefn **papoFDefnList = nullptr;
 
-    std::vector<OGRFeatureDefn *> apoFDefnByOBJL;
+    std::vector<OGRFeatureDefn *> apoFDefnByOBJL{};
 
-    char *pszModuleName;
-    char *pszDSNM;
+    char *pszModuleName = nullptr;
+    char *pszDSNM = nullptr;
 
-    DDFModule *poModule;
+    std::unique_ptr<DDFModule> poModule{};
 
-    int nCOMF; /* Coordinate multiplier */
-    int nSOMF; /* Vertical (sounding) multiplier */
+    int nCOMF = 1000000; /* Coordinate multiplier */
+    int nSOMF = 10;      /* Vertical (sounding) multiplier */
 
-    bool bFileIngested;
-    DDFRecordIndex oVI_Index;
-    DDFRecordIndex oVC_Index;
-    DDFRecordIndex oVE_Index;
-    DDFRecordIndex oVF_Index;
+    bool bFileIngested = false;
+    DDFRecordIndex oVI_Index{};
+    DDFRecordIndex oVC_Index{};
+    DDFRecordIndex oVE_Index{};
+    DDFRecordIndex oVF_Index{};
 
-    int nNextVIIndex;
-    int nNextVCIndex;
-    int nNextVEIndex;
-    int nNextVFIndex;
+    int nNextVIIndex = 0;
+    int nNextVCIndex = 0;
+    int nNextVEIndex = 0;
+    int nNextVFIndex = 0;
 
-    int nNextFEIndex;
-    DDFRecordIndex oFE_Index;
+    int nNextFEIndex = 0;
+    DDFRecordIndex oFE_Index{};
 
-    int nNextDSIDIndex;
-    DDFRecord *poDSIDRecord;
-    DDFRecord *poDSPMRecord;
-    std::string m_osEDTNUpdate;
-    std::string m_osUPDNUpdate;
-    std::string m_osISDTUpdate;
+    int nNextDSIDIndex = 0;
+    std::unique_ptr<DDFRecord> poDSIDRecord{};
+    std::unique_ptr<DDFRecord> poDSPMRecord{};
+    std::string m_osEDTNUpdate{};
+    std::string m_osUPDNUpdate{};
+    std::string m_osISDTUpdate{};
 
-    char **papszOptions;
+    char **papszOptions = nullptr;
 
-    int nOptionFlags;
+    int nOptionFlags = S57M_UPDATES;
 
-    int iPointOffset;
-    OGRFeature *poMultiPoint;
+    int iPointOffset = 0;
+    std::unique_ptr<OGRFeature> poMultiPoint{};
 
-    int Aall;                // see RecodeByDSSI() function
-    int Nall;                // see RecodeByDSSI() function
-    bool needAallNallSetup;  // see RecodeByDSSI() function
+    int Aall = 0;                   // see RecodeByDSSI() function
+    int Nall = 0;                   // see RecodeByDSSI() function
+    bool needAallNallSetup = true;  // see RecodeByDSSI() function
 
     void ClearPendingMultiPoint();
     OGRFeature *NextPendingMultiPoint();
 
-    OGRFeature *AssembleFeature(DDFRecord *, OGRFeatureDefn *);
+    OGRFeature *AssembleFeature(const DDFRecord *, OGRFeatureDefn *);
 
-    void ApplyObjectClassAttributes(DDFRecord *, OGRFeature *);
-    static void GenerateLNAMAndRefs(DDFRecord *, OGRFeature *);
-    void GenerateFSPTAttributes(DDFRecord *, OGRFeature *);
+    void ApplyObjectClassAttributes(const DDFRecord *, OGRFeature *);
+    static void GenerateLNAMAndRefs(const DDFRecord *, OGRFeature *);
+    void GenerateFSPTAttributes(const DDFRecord *, OGRFeature *);
 
-    void AssembleSoundingGeometry(DDFRecord *, OGRFeature *);
+    void AssembleSoundingGeometry(const DDFRecord *, OGRFeature *);
     // cppcheck-suppress functionStatic
-    void AssemblePointGeometry(DDFRecord *, OGRFeature *);
-    bool AssembleLineGeometry(DDFRecord *, OGRFeature *);
+    void AssemblePointGeometry(const DDFRecord *, OGRFeature *);
+    bool AssembleLineGeometry(const DDFRecord *, OGRFeature *);
     void AssembleAreaGeometry(const DDFRecord *, OGRFeature *);
 
     bool FetchPoint(int, int, double *, double *, double * = nullptr);
-    bool FetchLine(DDFRecord *, int, int, OGRLineString *);
+    bool FetchLine(const DDFRecord *, int, int, OGRLineString *);
 
-    OGRFeatureDefn *FindFDefn(DDFRecord *);
+    const OGRFeatureDefn *FindFDefn(const DDFRecord *);
     int ParseName(const DDFField *, int = 0, int * = nullptr);
 
     // cppcheck-suppress functionStatic
     bool ApplyRecordUpdate(DDFRecord *, DDFRecord *);
 
-    bool bMissingWarningIssued;
-    bool bAttrWarningIssued;
+    bool bMissingWarningIssued = false;
+    bool bAttrWarningIssued = false;
 
   public:
     explicit S57Reader(const char *);
     ~S57Reader();
 
     void SetClassBased(S57ClassRegistrar *, S57ClassContentExplorer *);
-    bool SetOptions(char **);
+    bool SetOptions(CSLConstList);
 
     int GetOptionFlags()
     {
@@ -346,7 +342,7 @@ class CPL_DLL S57Reader
 
     DDFModule *GetModule()
     {
-        return poModule;
+        return poModule.get();
     }
 
     const char *GetDSNM()

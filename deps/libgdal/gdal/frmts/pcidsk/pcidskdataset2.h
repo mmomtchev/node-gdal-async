@@ -32,7 +32,7 @@ using namespace PCIDSK;
 class OGRPCIDSKLayer;
 
 /************************************************************************/
-/*                              PCIDSK2Dataset                           */
+/*                            PCIDSK2Dataset                            */
 /************************************************************************/
 
 class PCIDSK2Dataset final : public GDALPamDataset
@@ -63,7 +63,7 @@ class PCIDSK2Dataset final : public GDALPamDataset
                                char **papszSiblingFiles = nullptr);
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
                                int nBands, GDALDataType eType,
-                               char **papszParamList);
+                               CSLConstList papszParamList);
 
     char **GetFileList() override;
     CPLErr GetGeoTransform(GDALGeoTransform &gt) const override;
@@ -74,8 +74,8 @@ class PCIDSK2Dataset final : public GDALPamDataset
     CPLErr SetSpatialRef(const OGRSpatialReference *poSRS) override;
 
     char **GetMetadataDomainList() override;
-    CPLErr SetMetadata(char **, const char *) override;
-    char **GetMetadata(const char *) override;
+    CPLErr SetMetadata(CSLConstList, const char *) override;
+    CSLConstList GetMetadata(const char *) override;
     CPLErr SetMetadataItem(const char *, const char *, const char *) override;
     const char *GetMetadataItem(const char *, const char *) override;
 
@@ -144,16 +144,18 @@ class PCIDSK2Band final : public GDALPamRasterBand
     void SetDescription(const char *) override;
 
     char **GetMetadataDomainList() override;
-    CPLErr SetMetadata(char **, const char *) override;
-    char **GetMetadata(const char *) override;
+    CPLErr SetMetadata(CSLConstList, const char *) override;
+    CSLConstList GetMetadata(const char *) override;
     CPLErr SetMetadataItem(const char *, const char *, const char *) override;
     const char *GetMetadataItem(const char *, const char *) override;
+    double GetNoDataValue(int *) override;
+    CPLErr SetNoDataValue(double dfNoData) override;
 
     char **GetCategoryNames() override;
 };
 
 /************************************************************************/
-/*                             OGRPCIDSKLayer                              */
+/*                            OGRPCIDSKLayer                            */
 /************************************************************************/
 
 class OGRPCIDSKLayer final : public OGRLayer,

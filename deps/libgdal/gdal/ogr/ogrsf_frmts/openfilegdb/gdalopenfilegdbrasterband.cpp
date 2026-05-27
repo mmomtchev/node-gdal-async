@@ -28,9 +28,9 @@
 
 using namespace OpenFileGDB;
 
-/***********************************************************************/
-/*                         OpenRaster()                                */
-/***********************************************************************/
+/************************************************************************/
+/*                             OpenRaster()                             */
+/************************************************************************/
 
 bool OGROpenFileGDBDataSource::OpenRaster(const GDALOpenInfo *poOpenInfo,
                                           const std::string &osLayerName,
@@ -284,7 +284,7 @@ bool OGROpenFileGDBDataSource::OpenRaster(const GDALOpenInfo *poOpenInfo,
     const double dfBlockOriginY = psField->Real;
 
     // Figure out data type
-    GDALDataType eDT = GDT_Byte;
+    GDALDataType eDT = GDT_UInt8;
     const int nBitWidth = (nBandTypes >> 19) & ((1 << 7) - 1);
     const int nBitType = (nBandTypes >> 16) & ((1 << 2) - 1);
     constexpr int IS_UNSIGNED = 0;
@@ -292,11 +292,11 @@ bool OGROpenFileGDBDataSource::OpenRaster(const GDALOpenInfo *poOpenInfo,
     constexpr int IS_FLOATING_POINT = 2;
     if ((nBitWidth >= 1 && nBitWidth < 8) && nBitType == IS_UNSIGNED)
     {
-        eDT = GDT_Byte;
+        eDT = GDT_UInt8;
     }
     else if (nBitWidth == 8 && nBitType <= IS_SIGNED)
     {
-        eDT = nBitType == IS_SIGNED ? GDT_Int8 : GDT_Byte;
+        eDT = nBitType == IS_SIGNED ? GDT_Int8 : GDT_UInt8;
     }
     else if (nBitWidth == 16 && nBitType <= IS_SIGNED)
     {
@@ -472,7 +472,6 @@ bool OGROpenFileGDBDataSource::OpenRaster(const GDALOpenInfo *poOpenInfo,
                             if (poSRS)
                             {
                                 m_oRasterSRS = *poSRS;
-                                poSRS->Release();
                             }
                         }
                     }
@@ -553,7 +552,6 @@ bool OGROpenFileGDBDataSource::OpenRaster(const GDALOpenInfo *poOpenInfo,
                         if (poSRS)
                         {
                             m_oRasterSRS = *poSRS;
-                            poSRS->Release();
                         }
                     }
                 }
@@ -683,13 +681,13 @@ bool OGROpenFileGDBDataSource::OpenRaster(const GDALOpenInfo *poOpenInfo,
         else
         {
             poMaskBand = std::make_unique<GDALOpenFileGDBRasterBand>(
-                this, 1, GDT_Byte, 8, nBlockWidth, nBlockHeight, 0, true);
+                this, 1, GDT_UInt8, 8, nBlockWidth, nBlockHeight, 0, true);
         }
     }
     else if (EQUAL(pszNoDataOrMask, "MASK"))
     {
         poMaskBand = std::make_unique<GDALOpenFileGDBRasterBand>(
-            this, 1, GDT_Byte, 8, nBlockWidth, nBlockHeight, 0, true);
+            this, 1, GDT_UInt8, 8, nBlockWidth, nBlockHeight, 0, true);
     }
     else if (!EQUAL(pszNoDataOrMask, "NONE"))
     {
@@ -717,7 +715,7 @@ bool OGROpenFileGDBDataSource::OpenRaster(const GDALOpenInfo *poOpenInfo,
                     dfMin = std::numeric_limits<int8_t>::min();
                     dfMax = std::numeric_limits<int8_t>::max();
                     break;
-                case GDT_Byte:
+                case GDT_UInt8:
                     dfMin = std::numeric_limits<uint8_t>::min();
                     dfMax = std::numeric_limits<uint8_t>::max();
                     break;
@@ -810,7 +808,7 @@ bool OGROpenFileGDBDataSource::OpenRaster(const GDALOpenInfo *poOpenInfo,
                     // Make the mask band owned by the first raster band
                     poOvrBand->m_poMaskBandOwned =
                         std::make_unique<GDALOpenFileGDBRasterBand>(
-                            this, 1, GDT_Byte, 8, nBlockWidth, nBlockHeight,
+                            this, 1, GDT_UInt8, 8, nBlockWidth, nBlockHeight,
                             iOvr + 1, true);
                     poMaskBandRef = poOvrBand->m_poMaskBandOwned.get();
                     poMaskBandRef->m_poMainBand = poOvrBand;
@@ -841,7 +839,7 @@ bool OGROpenFileGDBDataSource::OpenRaster(const GDALOpenInfo *poOpenInfo,
 }
 
 /************************************************************************/
-/*                       GuessJPEGQuality()                             */
+/*                          GuessJPEGQuality()                          */
 /************************************************************************/
 
 void OGROpenFileGDBDataSource::GuessJPEGQuality(int nOverviewCount)
@@ -917,7 +915,7 @@ void OGROpenFileGDBDataSource::GuessJPEGQuality(int nOverviewCount)
 }
 
 /************************************************************************/
-/*                        ReadAuxTable()                                */
+/*                            ReadAuxTable()                            */
 /************************************************************************/
 
 // Record type=9 of table fras_ras_XXXX contains a PropertySet object,
@@ -1065,7 +1063,7 @@ void OGROpenFileGDBDataSource::ReadAuxTable(const std::string &osLayerName)
 }
 
 /************************************************************************/
-/*                         GetGeoTransform()                            */
+/*                          GetGeoTransform()                           */
 /************************************************************************/
 
 CPLErr OGROpenFileGDBDataSource::GetGeoTransform(GDALGeoTransform &gt) const
@@ -1075,7 +1073,7 @@ CPLErr OGROpenFileGDBDataSource::GetGeoTransform(GDALGeoTransform &gt) const
 }
 
 /************************************************************************/
-/*                         GetSpatialRef()                              */
+/*                           GetSpatialRef()                            */
 /************************************************************************/
 
 const OGRSpatialReference *OGROpenFileGDBDataSource::GetSpatialRef() const
@@ -1143,7 +1141,7 @@ static void SetNoDataFromMask(void *pImage, const GByte *pabyMask,
 }
 
 /************************************************************************/
-/*                         IReadBlock()                                 */
+/*                             IReadBlock()                             */
 /************************************************************************/
 
 CPLErr GDALOpenFileGDBRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
@@ -1734,7 +1732,7 @@ CPLErr GDALOpenFileGDBRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
     }
     else if (m_bHasNoData)
     {
-        if (eImageDT == GDT_Byte)
+        if (eImageDT == GDT_UInt8)
         {
             SetNoDataFromMask<uint8_t>(pImage, pabyMask, nPixels, m_dfNoData);
         }
@@ -1793,7 +1791,7 @@ CPLErr GDALOpenFileGDBRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
 
 #if 0
     printf("Data:\n"); // ok
-    if (eDataType == GDT_Byte)
+    if (eDataType == GDT_UInt8)
     {
         for (int y = 0; y < nBlockYSize; ++y)
         {
@@ -1914,7 +1912,7 @@ CPLErr GDALOpenFileGDBRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff,
 }
 
 /************************************************************************/
-/*                         GetDefaultRAT()                              */
+/*                           GetDefaultRAT()                            */
 /************************************************************************/
 
 GDALRasterAttributeTable *GDALOpenFileGDBRasterBand::GetDefaultRAT()
@@ -1941,7 +1939,7 @@ GDALRasterAttributeTable *GDALOpenFileGDBRasterBand::GetDefaultRAT()
 }
 
 /************************************************************************/
-/*               GDALOpenFileGDBRasterAttributeTable::Clone()           */
+/*             GDALOpenFileGDBRasterAttributeTable::Clone()             */
 /************************************************************************/
 
 GDALRasterAttributeTable *GDALOpenFileGDBRasterAttributeTable::Clone() const

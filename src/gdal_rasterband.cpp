@@ -531,11 +531,11 @@ GDAL_ASYNCABLE_DEFINE(RasterBand::getMetadata) {
   NODE_UNWRAP_CHECK(RasterBand, info.This(), band);
   GDAL_RAW_CHECK(GDALRasterBand *, band, raw);
 
-  GDALAsyncableJob<char **> job(band->parent_uid);
+  GDALAsyncableJob<CSLConstList> job(band->parent_uid);
   job.main = [raw, domain](const GDALExecutionProgress &) {
     return raw->GetMetadata(domain.empty() ? nullptr : domain.c_str());
   };
-  job.rval = [](char **md, const GetFromPersistentFunc &) { return MajorObject::getMetadata(md); };
+  job.rval = [](CSLConstList md, const GetFromPersistentFunc &) { return MajorObject::getMetadata(md); };
   job.run(info, async, 1);
 }
 

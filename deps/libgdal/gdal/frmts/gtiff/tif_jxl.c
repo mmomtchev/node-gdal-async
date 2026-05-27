@@ -168,7 +168,7 @@ static int SetupUncompressedBuffer(TIFF *tif, JXLState *sp, const char *module)
     else
     {
         sp->segment_width = td->td_imagewidth;
-        sp->segment_height = td->td_imagelength - tif->tif_row;
+        sp->segment_height = td->td_imagelength - td->td_row;
         if (sp->segment_height > td->td_rowsperstrip)
             sp->segment_height = td->td_rowsperstrip;
     }

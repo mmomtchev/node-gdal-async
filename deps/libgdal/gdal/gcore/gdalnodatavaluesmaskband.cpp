@@ -26,7 +26,7 @@
 
 //! @cond Doxygen_Suppress
 /************************************************************************/
-/*                   GDALNoDataValuesMaskBand()                         */
+/*                      GDALNoDataValuesMaskBand()                      */
 /************************************************************************/
 
 GDALNoDataValuesMaskBand::GDALNoDataValuesMaskBand(GDALDataset *poDSIn)
@@ -51,12 +51,12 @@ GDALNoDataValuesMaskBand::GDALNoDataValuesMaskBand(GDALDataset *poDSIn)
     nRasterXSize = poDS->GetRasterXSize();
     nRasterYSize = poDS->GetRasterYSize();
 
-    eDataType = GDT_Byte;
+    eDataType = GDT_UInt8;
     poDS->GetRasterBand(1)->GetBlockSize(&nBlockXSize, &nBlockYSize);
 }
 
 /************************************************************************/
-/*                    ~GDALNoDataValuesMaskBand()                       */
+/*                     ~GDALNoDataValuesMaskBand()                      */
 /************************************************************************/
 
 GDALNoDataValuesMaskBand::~GDALNoDataValuesMaskBand()
@@ -66,7 +66,7 @@ GDALNoDataValuesMaskBand::~GDALNoDataValuesMaskBand()
 }
 
 /************************************************************************/
-/*                            FillOutBuffer()                           */
+/*                           FillOutBuffer()                            */
 /************************************************************************/
 
 template <class T>
@@ -110,8 +110,8 @@ CPLErr GDALNoDataValuesMaskBand::IReadBlock(int nXBlockOff, int nYBlockOff,
     /* -------------------------------------------------------------------- */
     switch (poDS->GetRasterBand(1)->GetRasterDataType())
     {
-        case GDT_Byte:
-            eWrkDT = GDT_Byte;
+        case GDT_UInt8:
+            eWrkDT = GDT_UInt8;
             break;
 
         case GDT_UInt16:
@@ -196,7 +196,7 @@ CPLErr GDALNoDataValuesMaskBand::IReadBlock(int nXBlockOff, int nYBlockOff,
     /* -------------------------------------------------------------------- */
     switch (eWrkDT)
     {
-        case GDT_Byte:
+        case GDT_UInt8:
         {
             FillOutBuffer<GByte>(nBlockOffsetPixels, nBands, pabySrc,
                                  padfNodataValues, pImage);
@@ -242,7 +242,7 @@ CPLErr GDALNoDataValuesMaskBand::IReadBlock(int nXBlockOff, int nYBlockOff,
 }
 
 /************************************************************************/
-/*                   EmitErrorMessageIfWriteNotSupported()              */
+/*                EmitErrorMessageIfWriteNotSupported()                 */
 /************************************************************************/
 
 bool GDALNoDataValuesMaskBand::EmitErrorMessageIfWriteNotSupported(

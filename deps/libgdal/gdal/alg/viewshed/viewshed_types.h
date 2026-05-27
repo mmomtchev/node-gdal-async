@@ -60,6 +60,8 @@ struct Options
     Point observer{0, 0, 0};  //!< x, y, and z of the observer
     double visibleVal{255};   //!< raster output value for visible pixels.
     double invisibleVal{0};   //!< raster output value for non-visible pixels.
+    double maybeVisibleVal{
+        2};  //!< raster output for potentially visible pixels.
     double outOfRangeVal{
         0};  //!< raster output value for pixels outside of max distance.
     double nodataVal{-1};      //!< raster output value for pixels with no data
@@ -76,7 +78,7 @@ struct Options
         90.0};  //!< maximum pitch (vertical angle) of observable points
     double curveCoeff{.85714};  //!< coefficient for atmospheric refraction
     OutputMode outputMode{OutputMode::Normal};  //!< Output information.
-        //!< Normal, Height from DEM or Height from ground
+    //!< Normal, Height from DEM or Height from ground
     std::string outputFormat{};         //!< output raster format
     std::string outputFilename{};       //!< output raster filename
     CPLStringList creationOpts{};       //!< options for output raster creation

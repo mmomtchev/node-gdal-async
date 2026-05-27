@@ -33,13 +33,14 @@
 #include "../frmts/vrt/vrtdataset.h"
 #include "gdal_priv.h"
 #include "gdal_priv_templates.hpp"
+#include "gdal_thread_pool.h"
 // #include "gdalsse_priv.h"
 
 // Limit types to practical use cases.
 #define LIMIT_TYPES 1
 
 /************************************************************************/
-/*                     GDALCreatePansharpenOptions()                    */
+/*                    GDALCreatePansharpenOptions()                     */
 /************************************************************************/
 
 /** Create pansharpening options.
@@ -59,7 +60,7 @@ GDALPansharpenOptions *GDALCreatePansharpenOptions()
 }
 
 /************************************************************************/
-/*                     GDALDestroyPansharpenOptions()                   */
+/*                    GDALDestroyPansharpenOptions()                    */
 /************************************************************************/
 
 /** Destroy pansharpening options.
@@ -80,7 +81,7 @@ void GDALDestroyPansharpenOptions(GDALPansharpenOptions *psOptions)
 }
 
 /************************************************************************/
-/*                      GDALClonePansharpenOptions()                    */
+/*                     GDALClonePansharpenOptions()                     */
 /************************************************************************/
 
 /** Clone pansharpening options.
@@ -134,7 +135,7 @@ GDALClonePansharpenOptions(const GDALPansharpenOptions *psOptions)
 }
 
 /************************************************************************/
-/*                        GDALPansharpenOperation()                     */
+/*                      GDALPansharpenOperation()                       */
 /************************************************************************/
 
 /** Pansharpening operation constructor.
@@ -144,7 +145,7 @@ GDALClonePansharpenOptions(const GDALPansharpenOptions *psOptions)
 GDALPansharpenOperation::GDALPansharpenOperation() = default;
 
 /************************************************************************/
-/*                       ~GDALPansharpenOperation()                     */
+/*                      ~GDALPansharpenOperation()                      */
 /************************************************************************/
 
 /** Pansharpening operation destructor.
@@ -159,7 +160,7 @@ GDALPansharpenOperation::~GDALPansharpenOperation()
 }
 
 /************************************************************************/
-/*                              Initialize()                            */
+/*                             Initialize()                             */
 /************************************************************************/
 
 /** Initialize the pansharpening operation.
@@ -359,7 +360,7 @@ GDALPansharpenOperation::Initialize(const GDALPansharpenOptions *psOptionsIn)
     if (psOptionsIn->nBitDepth)
     {
         if (psOptionsIn->nBitDepth < 0 || psOptionsIn->nBitDepth > 31 ||
-            (eWorkDataType == GDT_Byte && psOptionsIn->nBitDepth > 8) ||
+            (eWorkDataType == GDT_UInt8 && psOptionsIn->nBitDepth > 8) ||
             (eWorkDataType == GDT_UInt16 && psOptionsIn->nBitDepth > 16))
         {
             CPLError(CE_Failure, CPLE_AppDefined,
@@ -374,7 +375,7 @@ GDALPansharpenOperation::Initialize(const GDALPansharpenOptions *psOptionsIn)
     if (psOptions->nBitDepth == GDALGetDataTypeSizeBits(eWorkDataType))
         psOptions->nBitDepth = 0;
     if (psOptions->nBitDepth &&
-        !(eWorkDataType == GDT_Byte || eWorkDataType == GDT_UInt16 ||
+        !(eWorkDataType == GDT_UInt8 || eWorkDataType == GDT_UInt16 ||
           eWorkDataType == GDT_UInt32 || eWorkDataType == GDT_UInt64))
     {
         CPLError(CE_Warning, CPLE_AppDefined,
@@ -461,15 +462,8 @@ GDALPansharpenOperation::Initialize(const GDALPansharpenOptions *psOptionsIn)
         nThreads = CPLGetNumCPUs();
     else if (nThreads == 0)
     {
-        const char *pszNumThreads =
-            CPLGetConfigOption("GDAL_NUM_THREADS", nullptr);
-        if (pszNumThreads)
-        {
-            if (EQUAL(pszNumThreads, "ALL_CPUS"))
-                nThreads = CPLGetNumCPUs();
-            else
-                nThreads = std::max(0, std::min(128, atoi(pszNumThreads)));
-        }
+        nThreads = GDALGetNumThreads(GDAL_DEFAULT_MAX_THREAD_COUNT,
+                                     /* bDefaultAllCPUs = */ false);
     }
     if (nThreads > 1)
     {
@@ -505,7 +499,7 @@ GDALPansharpenOperation::Initialize(const GDALPansharpenOptions *psOptionsIn)
 }
 
 /************************************************************************/
-/*                    WeightedBroveyWithNoData()                        */
+/*                      WeightedBroveyWithNoData()                      */
 /************************************************************************/
 
 template <class WorkDataType, class OutDataType>
@@ -591,7 +585,7 @@ template <class T> static inline T ClampAndRound(double dfVal, T nMaxValue)
 }
 
 /************************************************************************/
-/*                         WeightedBrovey()                             */
+/*                           WeightedBrovey()                           */
 /************************************************************************/
 
 template <class WorkDataType, class OutDataType, int bHasBitDepth>
@@ -953,7 +947,7 @@ CPLErr GDALPansharpenOperation::WeightedBrovey(
 {
     switch (eBufDataType)
     {
-        case GDT_Byte:
+        case GDT_UInt8:
             WeightedBrovey(pPanBuffer, pUpsampledSpectralBuffer,
                            static_cast<GByte *>(pDataBuf), nValues, nBandValues,
                            nMaxValue);
@@ -1039,7 +1033,7 @@ CPLErr GDALPansharpenOperation::WeightedBrovey(
 {
     switch (eBufDataType)
     {
-        case GDT_Byte:
+        case GDT_UInt8:
             WeightedBrovey3<WorkDataType, GByte, FALSE>(
                 pPanBuffer, pUpsampledSpectralBuffer,
                 static_cast<GByte *>(pDataBuf), nValues, nBandValues, 0);
@@ -1119,7 +1113,7 @@ CPLErr GDALPansharpenOperation::WeightedBrovey(
 }
 
 /************************************************************************/
-/*                           ClampValues()                              */
+/*                            ClampValues()                             */
 /************************************************************************/
 
 template <class T>
@@ -1133,7 +1127,7 @@ static void ClampValues(T *panBuffer, size_t nValues, T nMaxVal)
 }
 
 /************************************************************************/
-/*                         ProcessRegion()                              */
+/*                           ProcessRegion()                            */
 /************************************************************************/
 
 /** Executes a pansharpening operation on a rectangular region of the
@@ -1171,7 +1165,7 @@ CPLErr GDALPansharpenOperation::ProcessRegion(int nXOff, int nYOff, int nXSize,
         GDALRasterBand::FromHandle(psOptions->hPanchroBand);
     GDALDataType eWorkDataType = poPanchroBand->GetRasterDataType();
 #ifdef LIMIT_TYPES
-    if (eWorkDataType != GDT_Byte && eWorkDataType != GDT_UInt16)
+    if (eWorkDataType != GDT_UInt8 && eWorkDataType != GDT_UInt16)
         eWorkDataType = GDT_Float64;
 #endif
     const int nDataTypeSize = GDALGetDataTypeSizeBytes(eWorkDataType);
@@ -1495,7 +1489,7 @@ CPLErr GDALPansharpenOperation::ProcessRegion(int nXOff, int nYOff, int nXSize,
                 nBandBitDepth = atoi(pszNBITS);
             if (nBandBitDepth < nBitDepth)
             {
-                if (eWorkDataType == GDT_Byte && nBitDepth >= 0 &&
+                if (eWorkDataType == GDT_UInt8 && nBitDepth >= 0 &&
                     nBitDepth <= 8)
                 {
                     ClampValues(
@@ -1535,7 +1529,7 @@ CPLErr GDALPansharpenOperation::ProcessRegion(int nXOff, int nYOff, int nXSize,
     void *pDataBufOri = pDataBuf;
     // CFloat64 is the query type used by gdallocationinfo...
 #ifdef LIMIT_TYPES
-    if (eBufDataType != GDT_Byte && eBufDataType != GDT_UInt16)
+    if (eBufDataType != GDT_UInt8 && eBufDataType != GDT_UInt16)
 #else
     if (eBufDataType == GDT_CFloat64)
 #endif
@@ -1628,7 +1622,7 @@ CPLErr GDALPansharpenOperation::ProcessRegion(int nXOff, int nYOff, int nXSize,
 }
 
 /************************************************************************/
-/*                   PansharpenResampleJobThreadFunc()                  */
+/*                  PansharpenResampleJobThreadFunc()                   */
 /************************************************************************/
 
 void GDALPansharpenOperation::PansharpenResampleJobThreadFunc(void *pUserData)
@@ -1723,7 +1717,7 @@ void GDALPansharpenOperation::PansharpenJobThreadFunc(void *pUserData)
 }
 
 /************************************************************************/
-/*                           PansharpenChunk()                          */
+/*                          PansharpenChunk()                           */
 /************************************************************************/
 
 CPLErr GDALPansharpenOperation::PansharpenChunk(
@@ -1735,7 +1729,7 @@ CPLErr GDALPansharpenOperation::PansharpenChunk(
 
     switch (eWorkDataType)
     {
-        case GDT_Byte:
+        case GDT_UInt8:
             eErr = WeightedBrovey(
                 static_cast<const GByte *>(pPanBuffer),
                 static_cast<const GByte *>(pUpsampledSpectralBuffer), pDataBuf,
@@ -1838,7 +1832,7 @@ GDALPansharpenOptions *GDALPansharpenOperation::GetOptions()
 }
 
 /************************************************************************/
-/*                     GDALCreatePansharpenOperation()                  */
+/*                   GDALCreatePansharpenOperation()                    */
 /************************************************************************/
 
 /** Instantiate a pansharpening operation.
@@ -1862,7 +1856,7 @@ GDALCreatePansharpenOperation(const GDALPansharpenOptions *psOptions)
 }
 
 /************************************************************************/
-/*                     GDALDestroyPansharpenOperation()                 */
+/*                   GDALDestroyPansharpenOperation()                   */
 /************************************************************************/
 
 /** Destroy a pansharpening operation.
@@ -1877,7 +1871,7 @@ void GDALDestroyPansharpenOperation(GDALPansharpenOperationH hOperation)
 }
 
 /************************************************************************/
-/*                       GDALPansharpenProcessRegion()                  */
+/*                    GDALPansharpenProcessRegion()                     */
 /************************************************************************/
 
 /** Executes a pansharpening operation on a rectangular region of the

@@ -336,7 +336,7 @@ class OGRPMTilesVectorLayer final
 #ifdef HAVE_MVT_WRITE_SUPPORT
 
 /************************************************************************/
-/*                     OGRPMTilesWriterDataset                          */
+/*                       OGRPMTilesWriterDataset                        */
 /************************************************************************/
 
 class OGRPMTilesWriterDataset final : public GDALDataset
@@ -350,7 +350,7 @@ class OGRPMTilesWriterDataset final : public GDALDataset
 
     bool Create(const char *pszFilename, CSLConstList papszOptions);
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
     OGRLayer *ICreateLayer(const char *pszName,
                            const OGRGeomFieldDefn *poGeomFieldDefn,

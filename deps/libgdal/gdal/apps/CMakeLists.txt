@@ -34,9 +34,11 @@ target_sources(appslib PRIVATE
   gdalalg_info.cpp
   gdalalg_dataset.cpp
   gdalalg_dataset_identify.cpp
+  gdalalg_dataset_check.cpp
   gdalalg_dataset_copy.cpp
   gdalalg_dataset_rename.cpp
   gdalalg_dataset_delete.cpp
+  gdalalg_external.cpp
   gdalalg_materialize.cpp
   gdalalg_mdim.cpp
   gdalalg_mdim_info.cpp
@@ -100,9 +102,15 @@ target_sources(appslib PRIVATE
   gdalalg_vector_check_geometry.cpp
   gdalalg_vector_clip.cpp
   gdalalg_vector_clean_coverage.cpp
+  gdalalg_vector_combine.cpp
   gdalalg_vector_concat.cpp
+  gdalalg_vector_concave_hull.cpp
   gdalalg_vector_convert.cpp
+  gdalalg_vector_convex_hull.cpp
+  gdalalg_vector_create.cpp
+  gdalalg_vector_dissolve.cpp
   gdalalg_vector_edit.cpp
+  gdalalg_vector_export_schema.cpp
   gdalalg_vector_pipeline.cpp
   gdalalg_vector_rasterize.cpp
   gdalalg_vector_read.cpp
@@ -129,10 +137,13 @@ target_sources(appslib PRIVATE
   gdalalg_vector_layer_algebra.cpp
   gdalalg_vector_output_abstract.cpp
   gdalalg_vector_partition.cpp
+  gdalalg_vector_rename_layer.cpp
   gdalalg_vector_reproject.cpp
   gdalalg_vector_select.cpp
   gdalalg_vector_set_field_type.cpp
+  gdalalg_vector_sort.cpp
   gdalalg_vector_sql.cpp
+  gdalalg_vector_update.cpp
   gdalalg_vector_write.cpp
   gdalalg_vsi.cpp
   gdalalg_vsi_copy.cpp
@@ -148,6 +159,8 @@ add_dependencies(appslib generate_gdal_version_h)
 target_sources(${GDAL_LIB_TARGET_NAME} PRIVATE $<TARGET_OBJECTS:appslib>)
 gdal_standard_includes(appslib)
 target_compile_options(appslib PRIVATE ${GDAL_CXX_WARNING_FLAGS} ${WFLAG_OLD_STYLE_CAST} ${WFLAG_EFFCXX} ${WFLAG_DOUBLE_PROMOTION})
+target_compile_definitions(appslib PRIVATE DEPRECATE_OGRFEATUREDEFN_REF_COUNTING)
+target_compile_definitions(appslib PRIVATE DEPRECATE_OGRSPATIALREFERENCE_REF_COUNTING)
 target_include_directories(
   appslib PRIVATE $<TARGET_PROPERTY:gdal_vrt,SOURCE_DIR> $<TARGET_PROPERTY:ogrsf_generic,SOURCE_DIR>)
 if (HAVE_ATOMIC_UINT64_T_WITH_ATOMIC)
@@ -314,6 +327,10 @@ if (BUILD_APPS)
     endif ()
     target_link_libraries(${UTILCMD} PRIVATE $<TARGET_NAME:${GDAL_LIB_TARGET_NAME}> utils_common)
 
+    if(GDAL_INSTALL_RPATH)
+      set_target_properties(${UTILCMD} PROPERTIES INSTALL_RPATH "${GDAL_INSTALL_RPATH};${GDAL_INSTALL_RPATH_FOR_BINARY}")
+    endif()
+
     if (NOT GDAL_ENABLE_DRIVER_GTI OR GDAL_ENABLE_DRIVER_GTI_PLUGIN)
         target_compile_definitions(${UTILCMD} PRIVATE -DGTI_DRIVER_DISABLED_OR_PLUGIN)
     endif()
@@ -325,25 +342,29 @@ if (BUILD_APPS)
   add_executable(dumpoverviews EXCLUDE_FROM_ALL dumpoverviews.cpp)
   add_executable(gdalflattenmask EXCLUDE_FROM_ALL gdalflattenmask.c)
   add_executable(gdaltorture EXCLUDE_FROM_ALL gdaltorture.cpp)
-  add_executable(gdal2ogr EXCLUDE_FROM_ALL gdal2ogr.c)
   add_executable(gdalasyncread EXCLUDE_FROM_ALL gdalasyncread.cpp)
   add_executable(multireadtest EXCLUDE_FROM_ALL multireadtest.cpp)
   if(NOT MSVC AND CMAKE_THREAD_LIBS_INIT)
     target_link_libraries(multireadtest PRIVATE ${CMAKE_THREAD_LIBS_INIT})
   endif()
-  add_executable(test_ogrsf test_ogrsf.cpp)
+  if(BUILD_TESTING)
+    add_executable(test_ogrsf test_ogrsf.cpp)
+  endif()
   add_executable(testreprojmulti EXCLUDE_FROM_ALL testreprojmulti.cpp)
 
+  set(APPS_NON_DEFAULT_TARGETS
+      dumpoverviews
+      gdalasyncread
+      gdaltorture
+      gdalflattenmask
+      multireadtest
+      testreprojmulti)
+  if(BUILD_TESTING)
+    list(APPEND APPS_NON_DEFAULT_TARGETS test_ogrsf)
+  endif()
   foreach (
     UTILCMD IN
-    ITEMS dumpoverviews
-          gdal2ogr
-          gdalasyncread
-          gdaltorture
-          gdalflattenmask
-          multireadtest
-          test_ogrsf
-          testreprojmulti)
+    ITEMS ${APPS_NON_DEFAULT_TARGETS})
     if (WIN32)
         target_sources(${UTILCMD} PRIVATE longpathaware.manifest)
     endif()
@@ -351,7 +372,9 @@ if (BUILD_APPS)
     # gcore/gdal_version.h
     target_include_directories(${UTILCMD} PRIVATE $<TARGET_PROPERTY:gcore,BINARY_DIR>/gdal_version_full)
     gdal_standard_includes(${UTILCMD})
-    target_compile_options(${UTILCMD} PRIVATE ${GDAL_CXX_WARNING_FLAGS} ${WFLAG_OLD_STYLE_CAST})
+    if (NOT "${UTILCMD}" STREQUAL "gdalflattenmask")
+        target_compile_options(${UTILCMD} PRIVATE ${GDAL_CXX_WARNING_FLAGS} ${WFLAG_OLD_STYLE_CAST})
+    endif()
     add_dependencies(${UTILCMD} generate_gdal_version_h)
     if (MSVC OR MINGW)
       target_compile_definitions(${UTILCMD} PRIVATE -DSUPPORTS_WMAIN)
@@ -370,6 +393,11 @@ if (BUILD_APPS)
     target_include_directories(
       ${UTILCMD} PRIVATE $<TARGET_PROPERTY:gdal_vrt,SOURCE_DIR> $<TARGET_PROPERTY:ogrsf_generic,SOURCE_DIR>)
     target_link_libraries(${UTILCMD} PRIVATE $<TARGET_NAME:${GDAL_LIB_TARGET_NAME}>)
+
+    if(GDAL_INSTALL_RPATH)
+      set_target_properties(${UTILCMD} PROPERTIES INSTALL_RPATH "${GDAL_INSTALL_RPATH};${GDAL_INSTALL_RPATH_FOR_BINARY}")
+    endif()
+
   endforeach ()
 endif ()
 

@@ -56,7 +56,7 @@ class RRASTERDataset final : public RawDataset
 
     CPL_DISALLOW_COPY_ASSIGN(RRASTERDataset)
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
   public:
     RRASTERDataset();
@@ -68,10 +68,10 @@ class RRASTERDataset final : public RawDataset
     static int Identify(GDALOpenInfo *);
     static GDALDataset *Create(const char *pszFilename, int nXSize, int nYSize,
                                int nBandsIn, GDALDataType eType,
-                               char **papszOptions);
+                               CSLConstList papszOptions);
     static GDALDataset *CreateCopy(const char *pszFilename,
                                    GDALDataset *poSrcDS, int bStrict,
-                                   char **papszOptions,
+                                   CSLConstList papszOptions,
                                    GDALProgressFunc pfnProgress,
                                    void *pProgressData);
 
@@ -80,7 +80,7 @@ class RRASTERDataset final : public RawDataset
     const OGRSpatialReference *GetSpatialRef() const override;
     CPLErr SetSpatialRef(const OGRSpatialReference *poSRS) override;
 
-    CPLErr SetMetadata(char **papszMetadata,
+    CPLErr SetMetadata(CSLConstList papszMetadata,
                        const char *pszDomain = "") override;
     CPLErr SetMetadataItem(const char *pszName, const char *pszValue,
                            const char *pszDomain = "") override;
@@ -172,7 +172,7 @@ void RRASTERRasterBand::SetMinMax(double dfMin, double dfMax)
 }
 
 /************************************************************************/
-/*                            GetMinimum()                              */
+/*                             GetMinimum()                             */
 /************************************************************************/
 
 double RRASTERRasterBand::GetMinimum(int *pbSuccess)
@@ -187,7 +187,7 @@ double RRASTERRasterBand::GetMinimum(int *pbSuccess)
 }
 
 /************************************************************************/
-/*                            GetMaximum()                              */
+/*                             GetMaximum()                             */
 /************************************************************************/
 
 double RRASTERRasterBand::GetMaximum(int *pbSuccess)
@@ -240,7 +240,7 @@ GDALRasterAttributeTable *RRASTERRasterBand::GetDefaultRAT()
 }
 
 /************************************************************************/
-/*                            SetDefaultRAT()                           */
+/*                           SetDefaultRAT()                            */
 /************************************************************************/
 
 CPLErr RRASTERRasterBand::SetDefaultRAT(const GDALRasterAttributeTable *poRAT)
@@ -330,7 +330,7 @@ static void GetMinMax(const void *pBuffer, GDALDataType eDT, int nBufXSize,
 {
     switch (eDT)
     {
-        case GDT_Byte:
+        case GDT_UInt8:
             GetMinMax(static_cast<const GByte *>(pBuffer), nBufXSize, nBufYSize,
                       nPixelSpace, nLineSpace, dfNoDataValue, dfMin, dfMax);
             break;
@@ -443,10 +443,10 @@ RRASTERDataset::~RRASTERDataset()
 }
 
 /************************************************************************/
-/*                              Close()                                 */
+/*                               Close()                                */
 /************************************************************************/
 
-CPLErr RRASTERDataset::Close()
+CPLErr RRASTERDataset::Close(GDALProgressFunc, void *)
 {
     CPLErr eErr = CE_None;
     if (nOpenFlags != OPEN_FLAGS_CLOSED)
@@ -469,7 +469,7 @@ CPLErr RRASTERDataset::Close()
 }
 
 /************************************************************************/
-/*                        InitImageIfNeeded()                           */
+/*                         InitImageIfNeeded()                          */
 /************************************************************************/
 
 void RRASTERDataset::InitImageIfNeeded()
@@ -521,7 +521,7 @@ void RRASTERDataset::RewriteHeader()
     GDALDataType eDT = GetRasterBand(1)->GetRasterDataType();
     VSIFPrintfL(fp, "datatype=%s\n",
                 (eDT == GDT_Int8 || m_bSignedByte) ? "INT1S"
-                : (eDT == GDT_Byte)                ? "INT1U"
+                : (eDT == GDT_UInt8)               ? "INT1U"
                 : (eDT == GDT_UInt16)              ? "INT2U"
                 : (eDT == GDT_UInt32)              ? "INT4U"
                 : (eDT == GDT_Int16)               ? "INT2S"
@@ -535,11 +535,8 @@ void RRASTERDataset::RewriteHeader()
     if (bGotNoDataValue)
         VSIFPrintfL(fp, "nodatavalue=%.17g\n", dfNoDataValue);
 
-#if CPL_IS_LSB
-    VSIFPrintfL(fp, "byteorder=%s\n", m_bNativeOrder ? "little" : "big");
-#else
-    VSIFPrintfL(fp, "byteorder=%s\n", !m_bNativeOrder ? "little" : "big");
-#endif
+    VSIFPrintfL(fp, "byteorder=%s\n",
+                (m_bNativeOrder ^ CPL_IS_LSB) ? "big" : "little");
     VSIFPrintfL(fp, "nbands=%d\n", nBands);
     if (nBands > 1)
         VSIFPrintfL(fp, "bandorder=%s\n", m_osBandOrder.c_str());
@@ -754,10 +751,10 @@ void RRASTERDataset::RewriteHeader()
     VSIFPrintfL(fp, "nrows=%d\n", nRasterYSize);
     VSIFPrintfL(fp, "ncols=%d\n", nRasterXSize);
 
-    VSIFPrintfL(fp, "xmin=%.17g\n", m_gt[0]);
-    VSIFPrintfL(fp, "ymin=%.17g\n", m_gt[3] + nRasterYSize * m_gt[5]);
-    VSIFPrintfL(fp, "xmax=%.17g\n", m_gt[0] + nRasterXSize * m_gt[1]);
-    VSIFPrintfL(fp, "ymax=%.17g\n", m_gt[3]);
+    VSIFPrintfL(fp, "xmin=%.17g\n", m_gt.xorig);
+    VSIFPrintfL(fp, "ymin=%.17g\n", m_gt.yorig + nRasterYSize * m_gt.yscale);
+    VSIFPrintfL(fp, "xmax=%.17g\n", m_gt.xorig + nRasterXSize * m_gt.xscale);
+    VSIFPrintfL(fp, "ymax=%.17g\n", m_gt.yorig);
 
     if (!m_oSRS.IsEmpty())
     {
@@ -824,7 +821,7 @@ CPLErr RRASTERDataset::SetGeoTransform(const GDALGeoTransform &gt)
     }
 
     // We only support non-rotated images with info in the .HDR file.
-    if (gt[2] != 0.0 || gt[4] != 0.0)
+    if (gt.xrot != 0.0 || gt.yrot != 0.0)
     {
         CPLError(CE_Warning, CPLE_NotSupported,
                  "Rotated / skewed images not supported");
@@ -873,7 +870,8 @@ CPLErr RRASTERDataset::SetSpatialRef(const OGRSpatialReference *poSRS)
 /*                            SetMetadata()                             */
 /************************************************************************/
 
-CPLErr RRASTERDataset::SetMetadata(char **papszMetadata, const char *pszDomain)
+CPLErr RRASTERDataset::SetMetadata(CSLConstList papszMetadata,
+                                   const char *pszDomain)
 {
     if (pszDomain == nullptr || EQUAL(pszDomain, ""))
     {
@@ -909,7 +907,7 @@ CPLErr RRASTERDataset::SetMetadataItem(const char *pszName,
 }
 
 /************************************************************************/
-/*                            Identify()                                */
+/*                              Identify()                              */
 /************************************************************************/
 
 int RRASTERDataset::Identify(GDALOpenInfo *poOpenInfo)
@@ -947,7 +945,7 @@ int RRASTERDataset::Identify(GDALOpenInfo *poOpenInfo)
 }
 
 /************************************************************************/
-/*                          ComputeSpacing()                            */
+/*                           ComputeSpacing()                           */
 /************************************************************************/
 
 bool RRASTERDataset::ComputeSpacings(const CPLString &osBandOrder, int nCols,
@@ -1118,7 +1116,7 @@ GDALDataset *RRASTERDataset::Open(GDALOpenInfo *poOpenInfo)
 
     GDALDataType eDT = GDT_Unknown;
     if (EQUAL(osDataType, "LOG1S"))
-        eDT = GDT_Byte;  // mapping TBC
+        eDT = GDT_UInt8;  // mapping TBC
     else if (EQUAL(osDataType, "INT1S"))
         eDT = GDT_Int8;
     else if (EQUAL(osDataType, "INT2S"))
@@ -1128,7 +1126,7 @@ GDALDataset *RRASTERDataset::Open(GDALOpenInfo *poOpenInfo)
     // else if( EQUAL(osDataType, "INT8S") )
     //     eDT = GDT_UInt64; // unhandled
     else if (EQUAL(osDataType, "INT1U"))
-        eDT = GDT_Byte;
+        eDT = GDT_UInt8;
     else if (EQUAL(osDataType, "INT2U"))
         eDT = GDT_UInt16;
     else if (EQUAL(osDataType, "INT4U"))  // Not documented
@@ -1217,12 +1215,12 @@ GDALDataset *RRASTERDataset::Open(GDALOpenInfo *poOpenInfo)
     poDS->nRasterXSize = nCols;
     poDS->nRasterYSize = nRows;
     poDS->m_bGeoTransformValid = true;
-    poDS->m_gt[0] = dfXMin;
-    poDS->m_gt[1] = (dfXMax - dfXMin) / nCols;
-    poDS->m_gt[2] = 0.0;
-    poDS->m_gt[3] = dfYMax;
-    poDS->m_gt[4] = 0.0;
-    poDS->m_gt[5] = -(dfYMax - dfYMin) / nRows;
+    poDS->m_gt.xorig = dfXMin;
+    poDS->m_gt.xscale = (dfXMax - dfXMin) / nCols;
+    poDS->m_gt.xrot = 0.0;
+    poDS->m_gt.yorig = dfYMax;
+    poDS->m_gt.yrot = 0.0;
+    poDS->m_gt.yscale = -(dfYMax - dfYMin) / nRows;
     poDS->m_fpImage = fpImage;
     poDS->m_bNativeOrder = bNativeOrder;
 
@@ -1398,7 +1396,8 @@ GDALDataset *RRASTERDataset::Open(GDALOpenInfo *poOpenInfo)
 
 GDALDataset *RRASTERDataset::Create(const char *pszFilename, int nXSize,
                                     int nYSize, int nBandsIn,
-                                    GDALDataType eType, char **papszOptions)
+                                    GDALDataType eType,
+                                    CSLConstList papszOptions)
 
 {
     // Verify input options.
@@ -1409,7 +1408,7 @@ GDALDataset *RRASTERDataset::Create(const char *pszFilename, int nXSize,
         return nullptr;
     }
 
-    if (eType != GDT_Byte && eType != GDT_Int8 && eType != GDT_UInt16 &&
+    if (eType != GDT_UInt8 && eType != GDT_Int8 && eType != GDT_UInt16 &&
         eType != GDT_Int16 && eType != GDT_Int32 && eType != GDT_UInt32 &&
         eType != GDT_Float32 && eType != GDT_Float64)
     {
@@ -1464,7 +1463,7 @@ GDALDataset *RRASTERDataset::Create(const char *pszFilename, int nXSize,
     poDS->m_bInitRaster = CPLFetchBool(papszOptions, "@INIT_RASTER", true);
 
     const char *pszPixelType = CSLFetchNameValue(papszOptions, "PIXELTYPE");
-    const bool bByteSigned = (eType == GDT_Byte && pszPixelType &&
+    const bool bByteSigned = (eType == GDT_UInt8 && pszPixelType &&
                               EQUAL(pszPixelType, "SIGNEDBYTE"));
     if (bByteSigned)
         poDS->m_bSignedByte = true;
@@ -1486,7 +1485,7 @@ GDALDataset *RRASTERDataset::Create(const char *pszFilename, int nXSize,
 
 GDALDataset *RRASTERDataset::CreateCopy(const char *pszFilename,
                                         GDALDataset *poSrcDS, int bStrict,
-                                        char **papszOptions,
+                                        CSLConstList papszOptions,
                                         GDALProgressFunc pfnProgress,
                                         void *pProgressData)
 
@@ -1510,7 +1509,7 @@ GDALDataset *RRASTERDataset::CreateCopy(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                   GDALRegister_RRASTER()                             */
+/*                        GDALRegister_RRASTER()                        */
 /************************************************************************/
 
 void GDALRegister_RRASTER()

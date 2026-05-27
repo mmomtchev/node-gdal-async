@@ -26,7 +26,7 @@ namespace OGRODS
 constexpr int PARSER_BUF_SIZE = 8192;
 
 /************************************************************************/
-/*                          ODSCellEvaluator                            */
+/*                           ODSCellEvaluator                           */
 /************************************************************************/
 
 class ODSCellEvaluator : public IODSCellEvaluator
@@ -69,7 +69,7 @@ OGRODSLayer::~OGRODSLayer()
 }
 
 /************************************************************************/
-/*                             Updated()                                */
+/*                              Updated()                               */
 /************************************************************************/
 
 void OGRODSLayer::SetUpdated(bool bUpdatedIn)
@@ -86,7 +86,7 @@ void OGRODSLayer::SetUpdated(bool bUpdatedIn)
 }
 
 /************************************************************************/
-/*                           SyncToDisk()                               */
+/*                             SyncToDisk()                             */
 /************************************************************************/
 
 OGRErr OGRODSLayer::SyncToDisk()
@@ -106,7 +106,7 @@ GIntBig OGRODSLayer::TranslateFIDFromMemLayer(GIntBig nFID) const
 }
 
 /************************************************************************/
-/*                        TranslateFIDToMemLayer()                      */
+/*                       TranslateFIDToMemLayer()                       */
 /************************************************************************/
 
 // Translate a FID from ODS convention to MEM convention (0-based)
@@ -118,7 +118,7 @@ GIntBig OGRODSLayer::TranslateFIDToMemLayer(GIntBig nFID) const
 }
 
 /************************************************************************/
-/*                          GetNextFeature()                            */
+/*                           GetNextFeature()                           */
 /************************************************************************/
 
 OGRFeature *OGRODSLayer::GetNextFeature()
@@ -139,7 +139,7 @@ OGRFeature *OGRODSLayer::GetNextFeature()
 }
 
 /************************************************************************/
-/*                           GetFeature()                               */
+/*                             GetFeature()                             */
 /************************************************************************/
 
 OGRFeature *OGRODSLayer::GetFeature(GIntBig nFeatureId)
@@ -163,7 +163,7 @@ GIntBig OGRODSLayer::GetFeatureCount(int bForce)
 }
 
 /************************************************************************/
-/*                           ISetFeature()                              */
+/*                            ISetFeature()                             */
 /************************************************************************/
 
 OGRErr OGRODSLayer::ISetFeature(OGRFeature *poFeature)
@@ -187,7 +187,29 @@ OGRErr OGRODSLayer::ISetFeature(OGRFeature *poFeature)
 }
 
 /************************************************************************/
-/*                         IUpdateFeature()                             */
+/*                         ISetFeatureUniqPtr()                         */
+/************************************************************************/
+
+OGRErr OGRODSLayer::ISetFeatureUniqPtr(std::unique_ptr<OGRFeature> poFeature)
+{
+    const GIntBig nFIDOrigin = poFeature->GetFID();
+    if (nFIDOrigin > 0)
+    {
+        const GIntBig nFIDMemLayer = TranslateFIDToMemLayer(nFIDOrigin);
+        if (!GetFeatureRef(nFIDMemLayer))
+            return OGRERR_NON_EXISTING_FEATURE;
+        poFeature->SetFID(nFIDMemLayer);
+    }
+    else
+    {
+        return OGRERR_NON_EXISTING_FEATURE;
+    }
+    SetUpdated();
+    return OGRMemLayer::ISetFeatureUniqPtr(std::move(poFeature));
+}
+
+/************************************************************************/
+/*                           IUpdateFeature()                           */
 /************************************************************************/
 
 OGRErr OGRODSLayer::IUpdateFeature(OGRFeature *poFeature,
@@ -209,7 +231,7 @@ OGRErr OGRODSLayer::IUpdateFeature(OGRFeature *poFeature,
 }
 
 /************************************************************************/
-/*                          ICreateFeature()                            */
+/*                           ICreateFeature()                           */
 /************************************************************************/
 
 OGRErr OGRODSLayer::ICreateFeature(OGRFeature *poFeature)
@@ -235,7 +257,38 @@ OGRErr OGRODSLayer::ICreateFeature(OGRFeature *poFeature)
 }
 
 /************************************************************************/
-/*                          DeleteFeature()                             */
+/*                       ICreateFeatureUniqPtr()                        */
+/************************************************************************/
+
+OGRErr OGRODSLayer::ICreateFeatureUniqPtr(std::unique_ptr<OGRFeature> poFeature,
+                                          GIntBig *pnFID)
+{
+    const GIntBig nFIDOrigin = poFeature->GetFID();
+    if (nFIDOrigin > 0)
+    {
+        const GIntBig nFIDModified = TranslateFIDToMemLayer(nFIDOrigin);
+        if (GetFeatureRef(nFIDModified))
+        {
+            SetUpdated();
+            poFeature->SetFID(nFIDModified);
+            OGRErr eErr = OGRMemLayer::ISetFeatureUniqPtr(std::move(poFeature));
+            if (pnFID)
+                *pnFID = nFIDOrigin;
+            return eErr;
+        }
+    }
+    SetUpdated();
+    poFeature->SetFID(OGRNullFID);
+    GIntBig nNewFID = OGRNullFID;
+    const OGRErr eErr =
+        OGRMemLayer::ICreateFeatureUniqPtr(std::move(poFeature), &nNewFID);
+    if (pnFID)
+        *pnFID = TranslateFIDFromMemLayer(nNewFID);
+    return eErr;
+}
+
+/************************************************************************/
+/*                           DeleteFeature()                            */
 /************************************************************************/
 
 OGRErr OGRODSLayer::DeleteFeature(GIntBig nFID)
@@ -315,10 +368,10 @@ OGRODSDataSource::~OGRODSDataSource()
 }
 
 /************************************************************************/
-/*                              Close()                                 */
+/*                               Close()                                */
 /************************************************************************/
 
-CPLErr OGRODSDataSource::Close()
+CPLErr OGRODSDataSource::Close(GDALProgressFunc, void *)
 {
     CPLErr eErr = CE_None;
     if (nOpenFlags != OPEN_FLAGS_CLOSED)
@@ -383,7 +436,7 @@ const OGRLayer *OGRODSDataSource::GetLayer(int iLayer) const
 }
 
 /************************************************************************/
-/*                            GetLayerCount()                           */
+/*                           GetLayerCount()                            */
 /************************************************************************/
 
 int OGRODSDataSource::GetLayerCount() const
@@ -411,11 +464,11 @@ int OGRODSDataSource::Open(const char *pszFilename, VSILFILE *fpContentIn,
 }
 
 /************************************************************************/
-/*                             Create()                                 */
+/*                               Create()                               */
 /************************************************************************/
 
 int OGRODSDataSource::Create(const char *pszFilename,
-                             char ** /* papszOptions */)
+                             CSLConstList /* papszOptions */)
 {
     bUpdated = true;
     bUpdatable = true;
@@ -427,7 +480,7 @@ int OGRODSDataSource::Create(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                           startElementCbk()                          */
+/*                          startElementCbk()                           */
 /************************************************************************/
 
 static void XMLCALL startElementCbk(void *pUserData, const char *pszName,
@@ -467,7 +520,7 @@ void OGRODSDataSource::startElementCbk(const char *pszNameIn,
 }
 
 /************************************************************************/
-/*                            endElementCbk()                           */
+/*                           endElementCbk()                            */
 /************************************************************************/
 
 static void XMLCALL endElementCbk(void *pUserData, const char *pszName)
@@ -507,7 +560,7 @@ void OGRODSDataSource::endElementCbk(const char *pszNameIn)
 }
 
 /************************************************************************/
-/*                            dataHandlerCbk()                          */
+/*                           dataHandlerCbk()                           */
 /************************************************************************/
 
 static void XMLCALL dataHandlerCbk(void *pUserData, const char *data, int nLen)
@@ -551,7 +604,7 @@ void OGRODSDataSource::dataHandlerCbk(const char *data, int nLen)
 }
 
 /************************************************************************/
-/*                                PushState()                           */
+/*                             PushState()                              */
 /************************************************************************/
 
 void OGRODSDataSource::PushState(HandlerStateEnum eVal)
@@ -567,7 +620,7 @@ void OGRODSDataSource::PushState(HandlerStateEnum eVal)
 }
 
 /************************************************************************/
-/*                          GetAttributeValue()                         */
+/*                         GetAttributeValue()                          */
 /************************************************************************/
 
 static const char *GetAttributeValue(const char **ppszAttr, const char *pszKey,
@@ -583,7 +636,7 @@ static const char *GetAttributeValue(const char **ppszAttr, const char *pszKey,
 }
 
 /************************************************************************/
-/*                            GetOGRFieldType()                         */
+/*                          GetOGRFieldType()                           */
 /************************************************************************/
 
 OGRFieldType OGRODSDataSource::GetOGRFieldType(const char *pszValue,
@@ -736,7 +789,7 @@ void OGRODSDataSource::DetectHeaderLine()
 }
 
 /************************************************************************/
-/*                          startElementDefault()                       */
+/*                        startElementDefault()                         */
 /************************************************************************/
 
 void OGRODSDataSource::startElementDefault(const char *pszNameIn,
@@ -762,7 +815,7 @@ void OGRODSDataSource::startElementDefault(const char *pszNameIn,
 }
 
 /************************************************************************/
-/*                          startElementTable()                        */
+/*                         startElementTable()                          */
 /************************************************************************/
 
 void OGRODSDataSource::startElementTable(const char *pszNameIn,
@@ -809,7 +862,7 @@ void OGRODSDataSource::startElementTable(const char *pszNameIn,
 }
 
 /************************************************************************/
-/*                      ReserveAndLimitFieldCount()                     */
+/*                     ReserveAndLimitFieldCount()                      */
 /************************************************************************/
 
 static void ReserveAndLimitFieldCount(OGRLayer *poLayer,
@@ -837,7 +890,7 @@ static void ReserveAndLimitFieldCount(OGRLayer *poLayer,
 }
 
 /************************************************************************/
-/*                           endElementTable()                          */
+/*                          endElementTable()                           */
 /************************************************************************/
 
 void OGRODSDataSource::endElementTable(
@@ -926,7 +979,7 @@ void OGRODSDataSource::endElementTable(
 }
 
 /************************************************************************/
-/*                           FillRepeatedCells()                        */
+/*                         FillRepeatedCells()                          */
 /************************************************************************/
 
 void OGRODSDataSource::FillRepeatedCells(bool wasLastCell)
@@ -999,7 +1052,7 @@ void OGRODSDataSource::FillRepeatedCells(bool wasLastCell)
 }
 
 /************************************************************************/
-/*                            startElementRow()                         */
+/*                          startElementRow()                           */
 /************************************************************************/
 
 void OGRODSDataSource::startElementRow(const char *pszNameIn,
@@ -1066,7 +1119,7 @@ void OGRODSDataSource::startElementRow(const char *pszNameIn,
 }
 
 /************************************************************************/
-/*                            endElementRow()                           */
+/*                           endElementRow()                            */
 /************************************************************************/
 
 void OGRODSDataSource::endElementRow(
@@ -1311,7 +1364,7 @@ void OGRODSDataSource::endElementRow(
 }
 
 /************************************************************************/
-/*                           startElementCell()                         */
+/*                          startElementCell()                          */
 /************************************************************************/
 
 void OGRODSDataSource::startElementCell(const char *pszNameIn,
@@ -1326,7 +1379,7 @@ void OGRODSDataSource::startElementCell(const char *pszNameIn,
 }
 
 /************************************************************************/
-/*                            endElementCell()                          */
+/*                           endElementCell()                           */
 /************************************************************************/
 
 void OGRODSDataSource::endElementCell(
@@ -1339,7 +1392,7 @@ void OGRODSDataSource::endElementCell(
 }
 
 /************************************************************************/
-/*                           dataHandlerTextP()                         */
+/*                          dataHandlerTextP()                          */
 /************************************************************************/
 
 void OGRODSDataSource::dataHandlerTextP(const char *data, int nLen)
@@ -1348,7 +1401,7 @@ void OGRODSDataSource::dataHandlerTextP(const char *data, int nLen)
 }
 
 /************************************************************************/
-/*                             AnalyseFile()                            */
+/*                            AnalyseFile()                             */
 /************************************************************************/
 
 void OGRODSDataSource::AnalyseFile()
@@ -1412,7 +1465,7 @@ void OGRODSDataSource::AnalyseFile()
 }
 
 /************************************************************************/
-/*                        startElementStylesCbk()                       */
+/*                       startElementStylesCbk()                        */
 /************************************************************************/
 
 static void XMLCALL startElementStylesCbk(void *pUserData, const char *pszName,
@@ -1499,7 +1552,7 @@ void OGRODSDataSource::endElementStylesCbk(const char * /*pszName*/)
 }
 
 /************************************************************************/
-/*                         dataHandlerStylesCbk()                       */
+/*                        dataHandlerStylesCbk()                        */
 /************************************************************************/
 
 static void XMLCALL dataHandlerStylesCbk(void *pUserData, const char *data,
@@ -1593,7 +1646,7 @@ void OGRODSDataSource::AnalyseSettings()
 }
 
 /************************************************************************/
-/*                           ICreateLayer()                             */
+/*                            ICreateLayer()                            */
 /************************************************************************/
 
 OGRLayer *
@@ -1749,7 +1802,7 @@ static bool HasHeaderLine(OGRLayer *poLayer)
 }
 
 /************************************************************************/
-/*                            WriteLayer()                              */
+/*                             WriteLayer()                             */
 /************************************************************************/
 
 static void WriteLayer(VSILFILE *fp, OGRLayer *poLayer)
@@ -1962,7 +2015,7 @@ static void WriteLayer(VSILFILE *fp, OGRLayer *poLayer)
 }
 
 /************************************************************************/
-/*                            FlushCache()                              */
+/*                             FlushCache()                             */
 /************************************************************************/
 
 CPLErr OGRODSDataSource::FlushCache(bool /* bAtClosing */)
@@ -2261,7 +2314,7 @@ CPLErr OGRODSDataSource::FlushCache(bool /* bAtClosing */)
 }
 
 /************************************************************************/
-/*                          EvaluateRange()                             */
+/*                           EvaluateRange()                            */
 /************************************************************************/
 
 int ODSCellEvaluator::EvaluateRange(int nRow1, int nCol1, int nRow2, int nCol2,
@@ -2397,7 +2450,7 @@ int ODSCellEvaluator::EvaluateRange(int nRow1, int nCol1, int nRow2, int nCol2,
 }
 
 /************************************************************************/
-/*                            Evaluate()                                */
+/*                              Evaluate()                              */
 /************************************************************************/
 
 int ODSCellEvaluator::Evaluate(int nRow, int nCol)

@@ -15,15 +15,13 @@
 #include "cpl_conv.h"
 #include "s57.h"
 
+#include <algorithm>
+
 /************************************************************************/
 /*                           DDFRecordIndex()                           */
 /************************************************************************/
 
-DDFRecordIndex::DDFRecordIndex()
-    : bSorted(false), nRecordCount(0), nRecordMax(0), nLastObjlPos(0),
-      nLastObjl(0), pasRecords(nullptr)
-{
-}
+DDFRecordIndex::DDFRecordIndex() = default;
 
 /************************************************************************/
 /*                          ~DDFRecordIndex()                           */
@@ -45,24 +43,8 @@ DDFRecordIndex::~DDFRecordIndex()
 void DDFRecordIndex::Clear()
 
 {
-    // Deleting these records is very expensive
-    // due to the linear search in DDFModule::RemoveClone().  For now,
-    // just leave the clones depending on DDFModule::~DDFModule() to clean
-    // them up eventually.
-
-    // for( int i = 0; i < nRecordCount; i++ )
-    //   delete pasRecords[i].poRecord;
-
     bSorted = false;
-
-    nRecordCount = 0;
-    nRecordMax = 0;
-
-    nLastObjlPos = 0;
-    nLastObjl = 0;
-
-    CPLFree(pasRecords);
-    pasRecords = nullptr;
+    asRecords.clear();
 }
 
 /************************************************************************/
@@ -74,34 +56,24 @@ void DDFRecordIndex::Clear()
 /*      record first.                                                   */
 /************************************************************************/
 
-void DDFRecordIndex::AddRecord(int nKey, DDFRecord *poRecord)
+void DDFRecordIndex::AddRecord(int nKey, std::unique_ptr<DDFRecord> poRecord)
 
 {
-    if (nRecordCount == nRecordMax)
-    {
-        nRecordMax = static_cast<int>(nRecordCount * 1.3 + 100);
-        pasRecords = static_cast<DDFIndexedRecord *>(
-            CPLRealloc(pasRecords, sizeof(DDFIndexedRecord) * nRecordMax));
-    }
-
+    DDFIndexedRecord indexRec;
+    indexRec.nKey = nKey;
+    indexRec.poRecord = std::move(poRecord);
+    asRecords.push_back(std::move(indexRec));
     bSorted = false;
-
-    pasRecords[nRecordCount].nKey = nKey;
-    pasRecords[nRecordCount].poRecord = poRecord;
-    pasRecords[nRecordCount].pClientData = nullptr;
-
-    nRecordCount++;
 }
 
 /************************************************************************/
 /*                             FindRecord()                             */
 /*                                                                      */
-/*      Though the returned pointer is not const, it should be          */
-/*      considered internal to the index and not modified or freed      */
-/*      by application code.                                            */
+/*      Though the returned pointer is not const, it should not         */
+/*      be freed by application code.                                   */
 /************************************************************************/
 
-DDFRecord *DDFRecordIndex::FindRecord(int nKey)
+DDFRecord *DDFRecordIndex::FindRecord(int nKey) const
 
 {
     if (!bSorted)
@@ -110,58 +82,23 @@ DDFRecord *DDFRecordIndex::FindRecord(int nKey)
     /* -------------------------------------------------------------------- */
     /*      Do a binary search based on the key to find the desired record. */
     /* -------------------------------------------------------------------- */
-    int nMinIndex = 0;
-    int nMaxIndex = nRecordCount - 1;
-
-    while (nMinIndex <= nMaxIndex)
+    if (!asRecords.empty() && nKey >= asRecords[0].nKey)
     {
-        const int nTestIndex = (nMaxIndex + nMinIndex) / 2;
+        size_t nMinIndex = 0;
+        size_t nMaxIndex = asRecords.size() - 1;
 
-        if (pasRecords[nTestIndex].nKey < nKey)
-            nMinIndex = nTestIndex + 1;
-        else if (pasRecords[nTestIndex].nKey > nKey)
-            nMaxIndex = nTestIndex - 1;
-        else
-            return pasRecords[nTestIndex].poRecord;
-    }
-
-    return nullptr;
-}
-
-/************************************************************************/
-/*                       FindRecordByObjl()                             */
-/*      Rodney Jensen                                                   */
-/*      Though the returned pointer is not const, it should be          */
-/*      considered internal to the index and not modified or freed      */
-/*      by application code.                                            */
-/************************************************************************/
-
-DDFRecord *DDFRecordIndex::FindRecordByObjl(int nObjl)
-{
-    if (!bSorted)
-        Sort();
-
-    /* -------------------------------------------------------------------- */
-    /*      Do a linear search based on the nObjl to find the desired record. */
-    /* -------------------------------------------------------------------- */
-    int nMinIndex = 0;
-    if (nLastObjl != nObjl)
-        nLastObjlPos = 0;
-
-    for (nMinIndex = nLastObjlPos; nMinIndex < nRecordCount; nMinIndex++)
-    {
-        if (nObjl == pasRecords[nMinIndex].poRecord->GetIntSubfield("FRID", 0,
-                                                                    "OBJL", 0))
+        while (nMinIndex <= nMaxIndex)
         {
-            // Add 1.  Do not want to look at same again.
-            nLastObjlPos = nMinIndex + 1;
-            nLastObjl = nObjl;
-            return pasRecords[nMinIndex].poRecord;
+            const size_t nTestIndex = (nMaxIndex + nMinIndex) / 2;
+
+            if (asRecords[nTestIndex].nKey < nKey)
+                nMinIndex = nTestIndex + 1;
+            else if (asRecords[nTestIndex].nKey > nKey)
+                nMaxIndex = nTestIndex - 1;
+            else
+                return asRecords[nTestIndex].poRecord.get();
         }
     }
-
-    nLastObjlPos = 0;
-    nLastObjl = 0;
 
     return nullptr;
 }
@@ -176,20 +113,23 @@ bool DDFRecordIndex::RemoveRecord(int nKey)
     if (!bSorted)
         Sort();
 
+    if (asRecords.empty() || nKey < asRecords[0].nKey)
+        return false;
+
     /* -------------------------------------------------------------------- */
     /*      Do a binary search based on the key to find the desired record. */
     /* -------------------------------------------------------------------- */
-    int nMinIndex = 0;
-    int nMaxIndex = nRecordCount - 1;
-    int nTestIndex = 0;
+    size_t nMinIndex = 0;
+    size_t nMaxIndex = asRecords.size() - 1;
+    size_t nTestIndex = 0;
 
     while (nMinIndex <= nMaxIndex)
     {
         nTestIndex = (nMaxIndex + nMinIndex) / 2;
 
-        if (pasRecords[nTestIndex].nKey < nKey)
+        if (asRecords[nTestIndex].nKey < nKey)
             nMinIndex = nTestIndex + 1;
-        else if (pasRecords[nTestIndex].nKey > nKey)
+        else if (asRecords[nTestIndex].nKey > nKey)
             nMaxIndex = nTestIndex - 1;
         else
             break;
@@ -201,37 +141,9 @@ bool DDFRecordIndex::RemoveRecord(int nKey)
     /* -------------------------------------------------------------------- */
     /*      Delete this record.                                             */
     /* -------------------------------------------------------------------- */
-    delete pasRecords[nTestIndex].poRecord;
-
-    /* -------------------------------------------------------------------- */
-    /*      Move all the list entries back one to fill the hole, and        */
-    /*      update the total count.                                         */
-    /* -------------------------------------------------------------------- */
-    memmove(pasRecords + nTestIndex, pasRecords + nTestIndex + 1,
-            (nRecordCount - nTestIndex - 1) * sizeof(DDFIndexedRecord));
-
-    nRecordCount--;
+    asRecords.erase(asRecords.begin() + nTestIndex);
 
     return true;
-}
-
-/************************************************************************/
-/*                             DDFCompare()                             */
-/*                                                                      */
-/*      Compare two DDFIndexedRecord objects for qsort().               */
-/************************************************************************/
-
-static int DDFCompare(const void *pRec1, const void *pRec2)
-
-{
-    if (((const DDFIndexedRecord *)pRec1)->nKey ==
-        ((const DDFIndexedRecord *)pRec2)->nKey)
-        return 0;
-    if (((const DDFIndexedRecord *)pRec1)->nKey <
-        ((const DDFIndexedRecord *)pRec2)->nKey)
-        return -1;
-
-    return 1;
 }
 
 /************************************************************************/
@@ -240,13 +152,15 @@ static int DDFCompare(const void *pRec1, const void *pRec2)
 /*      Sort the records based on the key.                              */
 /************************************************************************/
 
-void DDFRecordIndex::Sort()
+void DDFRecordIndex::Sort() const
 
 {
     if (bSorted)
         return;
 
-    qsort(pasRecords, nRecordCount, sizeof(DDFIndexedRecord), DDFCompare);
+    std::sort(asRecords.begin(), asRecords.end(),
+              [](const DDFIndexedRecord &a, const DDFIndexedRecord &b)
+              { return a.nKey < b.nKey; });
 
     bSorted = true;
 }
@@ -255,46 +169,46 @@ void DDFRecordIndex::Sort()
 /*                             GetByIndex()                             */
 /************************************************************************/
 
-DDFRecord *DDFRecordIndex::GetByIndex(int nIndex)
+const DDFRecord *DDFRecordIndex::GetByIndex(int nIndex) const
 
 {
     if (!bSorted)
         Sort();
 
-    if (nIndex < 0 || nIndex >= nRecordCount)
+    if (nIndex < 0 || nIndex >= GetCount())
         return nullptr;
 
-    return pasRecords[nIndex].poRecord;
+    return asRecords[nIndex].poRecord.get();
 }
 
 /************************************************************************/
 /*                        GetClientInfoByIndex()                        */
 /************************************************************************/
 
-void *DDFRecordIndex::GetClientInfoByIndex(int nIndex)
+const void *DDFRecordIndex::GetClientInfoByIndex(int nIndex) const
 
 {
     if (!bSorted)
         Sort();
 
-    if (nIndex < 0 || nIndex >= nRecordCount)
+    if (nIndex < 0 || nIndex >= GetCount())
         return nullptr;
 
-    return pasRecords[nIndex].pClientData;
+    return asRecords[nIndex].pClientData;
 }
 
 /************************************************************************/
 /*                        SetClientInfoByIndex()                        */
 /************************************************************************/
 
-void DDFRecordIndex::SetClientInfoByIndex(int nIndex, void *pClientData)
+void DDFRecordIndex::SetClientInfoByIndex(int nIndex, const void *pClientData)
 
 {
     if (!bSorted)
         Sort();
 
-    if (nIndex < 0 || nIndex >= nRecordCount)
+    if (nIndex < 0 || nIndex >= GetCount())
         return;
 
-    pasRecords[nIndex].pClientData = pClientData;
+    asRecords[nIndex].pClientData = pClientData;
 }

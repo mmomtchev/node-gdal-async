@@ -18,7 +18,7 @@
 #include "ogrpmtilesfrommbtiles.h"
 
 /************************************************************************/
-/*                     ~OGRPMTilesWriterDataset()                       */
+/*                      ~OGRPMTilesWriterDataset()                      */
 /************************************************************************/
 
 OGRPMTilesWriterDataset::~OGRPMTilesWriterDataset()
@@ -27,10 +27,10 @@ OGRPMTilesWriterDataset::~OGRPMTilesWriterDataset()
 }
 
 /************************************************************************/
-/*                             Close()                                  */
+/*                               Close()                                */
 /************************************************************************/
 
-CPLErr OGRPMTilesWriterDataset::Close()
+CPLErr OGRPMTilesWriterDataset::Close(GDALProgressFunc, void *)
 {
     CPLErr eErr = CE_None;
     if (nOpenFlags != OPEN_FLAGS_CLOSED)
@@ -62,7 +62,7 @@ CPLErr OGRPMTilesWriterDataset::Close()
 }
 
 /************************************************************************/
-/*                             Create()                                 */
+/*                               Create()                               */
 /************************************************************************/
 
 bool OGRPMTilesWriterDataset::Create(const char *pszFilename,
@@ -94,7 +94,7 @@ bool OGRPMTilesWriterDataset::Create(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                           ICreateLayer()                             */
+/*                            ICreateLayer()                            */
 /************************************************************************/
 
 OGRLayer *
@@ -107,7 +107,7 @@ OGRPMTilesWriterDataset::ICreateLayer(const char *pszLayerName,
 }
 
 /************************************************************************/
-/*                            TestCapability()                          */
+/*                           TestCapability()                           */
 /************************************************************************/
 
 int OGRPMTilesWriterDataset::TestCapability(const char *pszCap) const

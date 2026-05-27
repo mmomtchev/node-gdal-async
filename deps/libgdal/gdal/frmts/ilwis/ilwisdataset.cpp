@@ -346,7 +346,7 @@ static GDALDataType ILWIS2GDALType(ilwisStoreType stStoreType)
     {
         case stByte:
         {
-            eDataType = GDT_Byte;
+            eDataType = GDT_UInt8;
             break;
         }
         case stInt:
@@ -384,7 +384,7 @@ static std::string GDALType2ILWIS(GDALDataType type)
     std::string sStoreType = "";
     switch (type)
     {
-        case GDT_Byte:
+        case GDT_UInt8:
         {
             sStoreType = "Byte";
             break;
@@ -461,7 +461,7 @@ ILWISDataset::ILWISDataset() : bGeoDirty(FALSE), bNewDataset(FALSE)
 }
 
 /************************************************************************/
-/*                  ~ILWISDataset()                                     */
+/*                           ~ILWISDataset()                            */
 /************************************************************************/
 
 ILWISDataset::~ILWISDataset()
@@ -522,19 +522,19 @@ void ILWISDataset::CollectTransformCoef(std::string &osRefname)
 
             if (EQUAL(IsCorner.c_str(), "Yes"))
             {
-                m_gt[0] = CPLAtof(sMinX.c_str());
-                m_gt[3] = CPLAtof(sMaxY.c_str());
+                m_gt.xorig = CPLAtof(sMinX.c_str());
+                m_gt.yorig = CPLAtof(sMaxY.c_str());
             }
             else
             {
-                m_gt[0] = CPLAtof(sMinX.c_str()) - PixelSizeX / 2.0;
-                m_gt[3] = CPLAtof(sMaxY.c_str()) + PixelSizeY / 2.0;
+                m_gt.xorig = CPLAtof(sMinX.c_str()) - PixelSizeX / 2.0;
+                m_gt.yorig = CPLAtof(sMaxY.c_str()) + PixelSizeY / 2.0;
             }
 
-            m_gt[1] = PixelSizeX;
-            m_gt[2] = 0.0;
-            m_gt[4] = 0.0;
-            m_gt[5] = -PixelSizeY;
+            m_gt.xscale = PixelSizeX;
+            m_gt.xrot = 0.0;
+            m_gt.yrot = 0.0;
+            m_gt.yscale = -PixelSizeY;
         }
     }
 }
@@ -549,18 +549,18 @@ void ILWISDataset::WriteGeoReference()
 {
     // Check whether we should write out a georeference file.
     // Dataset must be north up.
-    if (m_gt[0] != 0.0 || m_gt[1] != 1.0 || m_gt[2] != 0.0 || m_gt[3] != 0.0 ||
-        m_gt[4] != 0.0 || fabs(m_gt[5]) != 1.0)
+    if (m_gt.xorig != 0.0 || m_gt.xscale != 1.0 || m_gt.xrot != 0.0 ||
+        m_gt.yorig != 0.0 || m_gt.yrot != 0.0 || fabs(m_gt.yscale) != 1.0)
     {
         SetGeoTransform(m_gt);  // is this needed?
-        if (m_gt[2] == 0.0 && m_gt[4] == 0.0)
+        if (m_gt.xrot == 0.0 && m_gt.yrot == 0.0)
         {
             int nXSize = GetRasterXSize();
             int nYSize = GetRasterYSize();
-            double dLLLat = (m_gt[3] + nYSize * m_gt[5]);
-            double dLLLong = (m_gt[0]);
-            double dURLat = (m_gt[3]);
-            double dURLong = (m_gt[0] + nXSize * m_gt[1]);
+            double dLLLat = (m_gt.yorig + nYSize * m_gt.yscale);
+            double dLLLong = (m_gt.xorig);
+            double dURLat = (m_gt.yorig);
+            double dURLong = (m_gt.xorig + nXSize * m_gt.xscale);
 
             std::string grFileName = CPLResetExtensionSafe(osFileName, "grf");
             WriteElement("Ilwis", "Type", grFileName, "GeoRef");
@@ -603,7 +603,7 @@ void ILWISDataset::WriteGeoReference()
 }
 
 /************************************************************************/
-/*                          GetSpatialRef()                             */
+/*                           GetSpatialRef()                            */
 /************************************************************************/
 
 const OGRSpatialReference *ILWISDataset::GetSpatialRef() const
@@ -647,7 +647,7 @@ CPLErr ILWISDataset::SetGeoTransform(const GDALGeoTransform &gt)
 {
     m_gt = gt;
 
-    if (m_gt[2] == 0.0 && m_gt[4] == 0.0)
+    if (m_gt.xrot == 0.0 && m_gt.yrot == 0.0)
         bGeoDirty = TRUE;
 
     return CE_None;
@@ -665,7 +665,7 @@ static bool CheckASCII(unsigned char *buf, int size)
 }
 
 /************************************************************************/
-/*                       Open()                                         */
+/*                                Open()                                */
 /************************************************************************/
 
 GDALDataset *ILWISDataset::Open(GDALOpenInfo *poOpenInfo)
@@ -736,7 +736,7 @@ GDALDataset *ILWISDataset::Open(GDALOpenInfo *poOpenInfo)
             {
                 CPLError(CE_Failure, CPLE_AppDefined,
                          "Unsupported ILWIS data file. \n"
-                         "can't treat as raster.\n");
+                         "can't treat as raster.");
                 return nullptr;
             }
         }
@@ -755,7 +755,7 @@ GDALDataset *ILWISDataset::Open(GDALOpenInfo *poOpenInfo)
         {
             // CPLError( CE_Failure, CPLE_AppDefined,
             //           "Unsupported ILWIS data file. \n"
-            //           "can't treat as raster.\n" );
+            //           "can't treat as raster." );
             return nullptr;
         }
     }
@@ -763,7 +763,7 @@ GDALDataset *ILWISDataset::Open(GDALOpenInfo *poOpenInfo)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Unsupported ILWIS data file. \n"
-                 "can't treat as raster.\n");
+                 "can't treat as raster.");
         return nullptr;
     }
 
@@ -886,12 +886,12 @@ CPLErr ILWISDataset::FlushCache(bool bAtClosing)
 
 GDALDataset *ILWISDataset::Create(const char *pszFilename, int nXSize,
                                   int nYSize, int nBandsIn, GDALDataType eType,
-                                  CPL_UNUSED char **papszParamList)
+                                  CSLConstList)
 {
     /* -------------------------------------------------------------------- */
     /*      Verify input options.                                           */
     /* -------------------------------------------------------------------- */
-    if (eType != GDT_Byte && eType != GDT_Int16 && eType != GDT_Int32 &&
+    if (eType != GDT_UInt8 && eType != GDT_Int16 && eType != GDT_Int32 &&
         eType != GDT_Float32 && eType != GDT_Float64 && eType != GDT_UInt16 &&
         eType != GDT_UInt32)
     {
@@ -1057,7 +1057,7 @@ GDALDataset *ILWISDataset::Create(const char *pszFilename, int nXSize,
 
 GDALDataset *ILWISDataset::CreateCopy(const char *pszFilename,
                                       GDALDataset *poSrcDS, int /* bStrict */,
-                                      char **papszOptions,
+                                      CSLConstList papszOptions,
                                       GDALProgressFunc pfnProgress,
                                       void *pProgressData)
 
@@ -1100,11 +1100,11 @@ GDALDataset *ILWISDataset::CreateCopy(const char *pszFilename,
     // Check whether we should create georeference file.
     // Source dataset must be north up.
     if (poSrcDS->GetGeoTransform(gt) == CE_None &&
-        (gt[0] != 0.0 || gt[1] != 1.0 || gt[2] != 0.0 || gt[3] != 0.0 ||
-         gt[4] != 0.0 || fabs(gt[5]) != 1.0))
+        (gt.xorig != 0.0 || gt.xscale != 1.0 || gt.xrot != 0.0 ||
+         gt.yorig != 0.0 || gt.yrot != 0.0 || fabs(gt.yscale) != 1.0))
     {
         poDS->SetGeoTransform(gt);
-        if (gt[2] == 0.0 && gt[4] == 0.0)
+        if (gt.xrot == 0.0 && gt.yrot == 0.0)
             georef = osBaseName + ".grf";
     }
 
@@ -1293,7 +1293,7 @@ GDALDataset *ILWISDataset::CreateCopy(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                       ILWISRasterBand()                              */
+/*                          ILWISRasterBand()                           */
 /************************************************************************/
 
 ILWISRasterBand::ILWISRasterBand(ILWISDataset *poDSIn, int nBandIn,
@@ -1338,7 +1338,7 @@ ILWISRasterBand::ILWISRasterBand(ILWISDataset *poDSIn, int nBandIn,
     if (poDSIn->bNewDataset)
     {
         // Called from Create():
-        // eDataType is defaulted to GDT_Byte by GDALRasterBand::GDALRasterBand
+        // eDataType is defaulted to GDT_UInt8 by GDALRasterBand::GDALRasterBand
         // Here we set it to match the value of sStoreType (that was set in
         // ILWISDataset::Create) Unfortunately we can't take advantage of the
         // ILWIS "ValueRange" object that would use the most compact storeType
@@ -1356,7 +1356,7 @@ ILWISRasterBand::ILWISRasterBand(ILWISDataset *poDSIn, int nBandIn,
     switch (psInfo.stStoreType)
     {
         case stByte:
-            nSizePerPixel = GDALGetDataTypeSizeBytes(GDT_Byte);
+            nSizePerPixel = GDALGetDataTypeSizeBytes(GDT_UInt8);
             break;
         case stInt:
             nSizePerPixel = GDALGetDataTypeSizeBytes(GDT_Int16);
@@ -1389,7 +1389,7 @@ ILWISRasterBand::~ILWISRasterBand()
 }
 
 /************************************************************************/
-/*                             ILWISOpen()                             */
+/*                             ILWISOpen()                              */
 /************************************************************************/
 void ILWISRasterBand::ILWISOpen(const std::string &pszFileName)
 {
@@ -1402,7 +1402,7 @@ void ILWISRasterBand::ILWISOpen(const std::string &pszFileName)
 }
 
 /************************************************************************/
-/*                 ReadValueDomainProperties()                          */
+/*                     ReadValueDomainProperties()                      */
 /************************************************************************/
 // Helper function for GetILWISInfo, to avoid code-duplication
 // Unfortunately with side-effect (changes members psInfo and eDataType)
@@ -1422,7 +1422,7 @@ void ILWISRasterBand::ReadValueDomainProperties(const std::string &pszFileName)
             rStep - (int)rStep == 0.0)  // Integer values
         {
             if (rMin >= 0 && rMax <= UCHAR_MAX)
-                eDataType = GDT_Byte;
+                eDataType = GDT_UInt8;
             else if (rMin >= SHRT_MIN && rMax <= SHRT_MAX)
                 eDataType = GDT_Int16;
             else if (rMin >= 0 && rMax <= USHRT_MAX)
@@ -1454,7 +1454,7 @@ void ILWISRasterBand::ReadValueDomainProperties(const std::string &pszFileName)
 }
 
 /************************************************************************/
-/*                       GetILWISInfo()                                 */
+/*                            GetILWISInfo()                            */
 /************************************************************************/
 // Calculates members psInfo and eDataType
 CPLErr ILWISRasterBand::GetILWISInfo(const std::string &pszFileName)
@@ -1505,7 +1505,7 @@ CPLErr ILWISRasterBand::GetILWISInfo(const std::string &pszFileName)
              EQUAL(osBaseName.c_str(), "hortonratio") ||
              EQUAL(osBaseName.c_str(), "yesno"))
     {
-        eDataType = GDT_Byte;
+        eDataType = GDT_UInt8;
         if (EQUAL(osBaseName.c_str(), "image") ||
             EQUAL(osBaseName.c_str(), "colorcmp"))
             psInfo.stDomain = std::move(osBaseName);
@@ -1681,7 +1681,7 @@ void ILWISRasterBand::SetValue(void *pImage, int i, double rV)
 {
     switch (eDataType)
     {
-        case GDT_Byte:
+        case GDT_UInt8:
             ((GByte *)pImage)[i] = (GByte)rV;
             break;
         case GDT_UInt16:
@@ -1712,7 +1712,7 @@ double ILWISRasterBand::GetValue(void *pImage, int i)
     double rV = 0;  // Does GDAL have an official nodata value?
     switch (eDataType)
     {
-        case GDT_Byte:
+        case GDT_UInt8:
             rV = ((GByte *)pImage)[i];
             break;
         case GDT_UInt16:
@@ -1944,7 +1944,7 @@ double ILWISRasterBand::GetNoDataValue(int *pbSuccess)
 }
 
 /************************************************************************/
-/*                      ValueRange()                                    */
+/*                             ValueRange()                             */
 /************************************************************************/
 
 static double doubleConv(const char *s)
@@ -2177,7 +2177,7 @@ int ValueRange::iRaw(double rValueIn) const
 }  // namespace GDAL
 
 /************************************************************************/
-/*                    GDALRegister_ILWIS()                              */
+/*                         GDALRegister_ILWIS()                         */
 /************************************************************************/
 
 void GDALRegister_ILWIS()

@@ -37,7 +37,7 @@ OGREDIGEODataSource::OGREDIGEODataSource()
 }
 
 /************************************************************************/
-/*                      ~OGREDIGEODataSource()                          */
+/*                        ~OGREDIGEODataSource()                        */
 /************************************************************************/
 
 OGREDIGEODataSource::~OGREDIGEODataSource()
@@ -69,7 +69,7 @@ const OGRLayer *OGREDIGEODataSource::GetLayer(int iLayer) const
 }
 
 /************************************************************************/
-/*                         GetLayerCount()                              */
+/*                           GetLayerCount()                            */
 /************************************************************************/
 
 int OGREDIGEODataSource::GetLayerCount() const
@@ -148,7 +148,7 @@ int OGREDIGEODataSource::ReadTHF(VSILFILE *fp) const
 }
 
 /************************************************************************/
-/*                             OpenFile()                               */
+/*                              OpenFile()                              */
 /************************************************************************/
 
 VSILFILE *OGREDIGEODataSource::OpenFile(const char *pszType,
@@ -530,7 +530,7 @@ int OGREDIGEODataSource::ReadQAL() const
 }
 
 /************************************************************************/
-/*                       CreateLayerFromObjectDesc()                    */
+/*                     CreateLayerFromObjectDesc()                      */
 /************************************************************************/
 
 int OGREDIGEODataSource::CreateLayerFromObjectDesc(
@@ -879,7 +879,7 @@ int OGREDIGEODataSource::ReadVEC(const char *pszVECName) const
 }
 
 /************************************************************************/
-/*                        CreateFeature()                               */
+/*                           CreateFeature()                            */
 /************************************************************************/
 
 OGRFeature *OGREDIGEODataSource::CreateFeature(const CPLString &osFEA) const
@@ -941,7 +941,7 @@ OGRFeature *OGREDIGEODataSource::CreateFeature(const CPLString &osFEA) const
 }
 
 /************************************************************************/
-/*                             SetStyle()                               */
+/*                              SetStyle()                              */
 /************************************************************************/
 
 int OGREDIGEODataSource::SetStyle(const CPLString &osFEA,
@@ -954,7 +954,7 @@ int OGREDIGEODataSource::SetStyle(const CPLString &osFEA,
     if (strcmp(poFeature->GetDefnRef()->GetName(), "ID_S_OBJ_Z_1_2_2") == 0 &&
         iATR != -1 && (pszATR = poFeature->GetFieldAsString(iATR)) != nullptr)
     {
-        const CPLString osATR = pszATR;
+        const CPLString osATR(pszATR);
         std::map<CPLString, CPLString>::iterator itFEA_FEA =
             mapFEA_FEA.find(osFEA);
         if (itFEA_FEA != mapFEA_FEA.end())
@@ -1029,7 +1029,7 @@ int OGREDIGEODataSource::SetStyle(const CPLString &osFEA,
 }
 
 /************************************************************************/
-/*                           BuildPoints()                              */
+/*                            BuildPoints()                             */
 /************************************************************************/
 
 int OGREDIGEODataSource::BuildPoints() const
@@ -1064,7 +1064,7 @@ int OGREDIGEODataSource::BuildPoints() const
 }
 
 /************************************************************************/
-/*                        BuildLineStrings()                            */
+/*                          BuildLineStrings()                          */
 /************************************************************************/
 
 int OGREDIGEODataSource::BuildLineStrings() const
@@ -1124,7 +1124,7 @@ int OGREDIGEODataSource::BuildLineStrings() const
 }
 
 /************************************************************************/
-/*                           BuildPolygon()                             */
+/*                            BuildPolygon()                            */
 /************************************************************************/
 
 int OGREDIGEODataSource::BuildPolygon(const CPLString &osFEA,
@@ -1246,36 +1246,33 @@ int OGREDIGEODataSource::BuildPolygon(const CPLString &osFEA,
     OGRFeature *poFeature = CreateFeature(osFEA);
     if (poFeature)
     {
-        std::vector<OGRGeometry *> aosPolygons;
-        for (int j = 0; j < (int)aoXYList.size(); j++)
+        std::vector<std::unique_ptr<OGRGeometry>> apoPolygons;
+        apoPolygons.reserve(aoXYList.size());
+        for (const xyPairListType &aoXY : aoXYList)
         {
-            const xyPairListType &aoXY = aoXYList[j];
-            OGRLinearRing *poLS = new OGRLinearRing();
+            auto poLS = std::make_unique<OGRLinearRing>();
             poLS->setNumPoints((int)aoXY.size());
             for (int i = 0; i < (int)aoXY.size(); i++)
                 poLS->setPoint(i, aoXY[i].first, aoXY[i].second);
             poLS->closeRings();
-            OGRPolygon *poPolygon = new OGRPolygon();
-            poPolygon->addRingDirectly(poLS);
-            aosPolygons.push_back(poPolygon);
+            auto poPolygon = std::make_unique<OGRPolygon>();
+            poPolygon->addRing(std::move(poLS));
+            apoPolygons.push_back(std::move(poPolygon));
         }
 
-        int bIsValidGeometry = FALSE;
-        OGRGeometry *poGeom = OGRGeometryFactory::organizePolygons(
-            &aosPolygons[0], (int)aosPolygons.size(), &bIsValidGeometry,
-            nullptr);
+        auto poGeom = OGRGeometryFactory::organizePolygons(apoPolygons);
         if (poGeom)
         {
             if (poSRS)
                 poGeom->assignSpatialReference(poSRS);
-            poFeature->SetGeometryDirectly(poGeom);
+            poFeature->SetGeometry(std::move(poGeom));
         }
     }
     return TRUE;
 }
 
 /************************************************************************/
-/*                          BuildPolygons()                             */
+/*                           BuildPolygons()                            */
 /************************************************************************/
 
 int OGREDIGEODataSource::BuildPolygons() const
@@ -1291,7 +1288,7 @@ int OGREDIGEODataSource::BuildPolygons() const
 }
 
 /************************************************************************/
-/*                  OGREDIGEOSortForQGIS()                              */
+/*                        OGREDIGEOSortForQGIS()                        */
 /************************************************************************/
 
 static int OGREDIGEOSortForQGIS(const void *a, const void *b)
@@ -1386,7 +1383,7 @@ int OGREDIGEODataSource::Open(const char *pszFilename)
 }
 
 /************************************************************************/
-/*                           ReadEDIGEO()                               */
+/*                             ReadEDIGEO()                             */
 /************************************************************************/
 
 void OGREDIGEODataSource::ReadEDIGEO() const

@@ -21,20 +21,15 @@
 
 #include "cpl_string.h"
 #include "cpl_conv.h"
-#ifdef OGR_P_WITH_SRS_CACHE
-#include "cpl_mem_cache.h"
-#endif
 #include "cpl_minixml.h"
 
 #include "ogr_core.h"
 
 #include <limits>
-#include <memory>
 #include <string_view>
 
 class OGRGeometry;
 class OGRFieldDefn;
-class OGRSpatialReference;
 
 /* A default name for the default geometry column, instead of '' */
 #define OGR_GEOMETRY_DEFAULT_NON_EMPTY_NAME "_ogr_geometry_"
@@ -179,7 +174,7 @@ int CPL_DLL OGRGeneralCmdLineProcessor(int nArgc, char ***ppapszArgv,
 extern const char *const SpecialFieldNames[SPECIAL_FIELD_COUNT];
 
 /************************************************************************/
-/*     Some SRS related stuff, search in SRS data files.                */
+/*          Some SRS related stuff, search in SRS data files.           */
 /************************************************************************/
 
 OGRErr CPL_DLL OSRGetEllipsoidInfo(int, char **, double *, double *);
@@ -189,23 +184,6 @@ double OGRFastAtof(const char *pszStr);
 
 OGRErr CPL_DLL OGRCheckPermutation(const int *panPermutation, int nSize);
 
-/* GML related */
-
-OGRGeometry CPL_DLL *GML2OGRGeometry_XMLNode(
-    const CPLXMLNode *psNode, int nPseudoBoolGetSecondaryGeometryOption,
-    int nRecLevel = 0, int nSRSDimension = 0, bool bIgnoreGSG = false,
-    bool bOrientation = true, bool bFaceHoleNegative = false,
-    const char *pszId = nullptr);
-
-#ifdef OGR_P_WITH_SRS_CACHE
-OGRGeometry CPL_DLL *GML2OGRGeometry_XMLNode(
-    const CPLXMLNode *psNode, int nPseudoBoolGetSecondaryGeometryOption,
-    lru11::Cache<std::string, std::shared_ptr<OGRSpatialReference>> &oSRSCache,
-    int nRecLevel = 0, int nSRSDimension = 0, bool bIgnoreGSG = false,
-    bool bOrientation = true, bool bFaceHoleNegative = false,
-    const char *pszId = nullptr);
-#endif
-
 /************************************************************************/
 /*                        PostGIS EWKB encoding                         */
 /************************************************************************/
@@ -214,11 +192,11 @@ OGRGeometry CPL_DLL *OGRGeometryFromEWKB(GByte *pabyWKB, int nLength,
                                          int *pnSRID, int bIsPostGIS1_EWKB);
 OGRGeometry CPL_DLL *OGRGeometryFromHexEWKB(const char *pszBytea, int *pnSRID,
                                             int bIsPostGIS1_EWKB);
-char CPL_DLL *OGRGeometryToHexEWKB(OGRGeometry *poGeometry, int nSRSId,
+char CPL_DLL *OGRGeometryToHexEWKB(const OGRGeometry *poGeometry, int nSRSId,
                                    int nPostGISMajor, int nPostGISMinor);
 
 /************************************************************************/
-/*                        WKB Type Handling encoding                    */
+/*                      WKB Type Handling encoding                      */
 /************************************************************************/
 
 OGRErr CPL_DLL OGRReadWKBGeometryType(const unsigned char *pabyData,
@@ -226,21 +204,21 @@ OGRErr CPL_DLL OGRReadWKBGeometryType(const unsigned char *pabyData,
                                       OGRwkbGeometryType *eGeometryType);
 
 /************************************************************************/
-/*                        WKT Type Handling encoding                    */
+/*                      WKT Type Handling encoding                      */
 /************************************************************************/
 
 OGRErr CPL_DLL OGRReadWKTGeometryType(const char *pszWKT,
                                       OGRwkbGeometryType *peGeometryType);
 
 /************************************************************************/
-/*                            Other                                     */
+/*                                Other                                 */
 /************************************************************************/
 
 void CPL_DLL OGRUpdateFieldType(OGRFieldDefn *poFDefn, OGRFieldType eNewType,
                                 OGRFieldSubType eNewSubType);
 
 /************************************************************************/
-/*                         OGRRoundValueIEEE754()                       */
+/*                        OGRRoundValueIEEE754()                        */
 /************************************************************************/
 
 /** Set to zero least significants bits of a double precision floating-point
@@ -281,7 +259,7 @@ inline uint64_t OGRRoundValueIEEE754(uint64_t nVal, int nBitsPrecision)
 }
 
 /************************************************************************/
-/*                   OGRRoundCoordinatesIEEE754XYValues()               */
+/*                 OGRRoundCoordinatesIEEE754XYValues()                 */
 /************************************************************************/
 
 /** Quantize XY values.

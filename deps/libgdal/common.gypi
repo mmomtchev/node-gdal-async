@@ -4,12 +4,14 @@
 	],
 	"variables": {
 		"shared_geos%": "false",
+		"enable_simd%": "false",
 		"endianness": "<!(<(python) -c \"import sys;print(sys.byteorder.upper())\")",
 	},
 	"target_defaults": {
 		"include_dirs": [
 			"./gdal/alg",
 			"./gdal/gcore",
+			"./gdal/gcore/multidim",
 			"./gdal/apps",
 			"./gdal/port",
 			"./gdal/frmts",
@@ -23,6 +25,7 @@
 			"./gdal/ogr/ogrsf_frmts/shape",
 			"./gdal/ogr/ogrsf_frmts/avc",
 			"./gdal/ogr/ogrsf_frmts/vrt",
+			"./gdal/ogr/ogrsf_frmts/gmlutils",
 			"./gdal/ogr/ogrsf_frmts/geojson",
 			"./gdal/ogr/ogrsf_frmts/geojson/libjson"
 		],
@@ -72,21 +75,85 @@
 			"<(deps_dir)/libaec/libaec.gyp:libaec"
 		],
 		"conditions": [
+			["target_arch == 'x64' and enable_simd != 'false'", {
+				"defines": [
+          # This is a preliminary undocumented support
+					# for enabling SIMD
+					# Alas, producing prebuilt binaries that can
+					# autodetect SIMD and use it when available would
+					# require far too many changes to the current build process
+          "HAVE_AVX_AT_COMPILE_TIME=1",
+          "HAVE_AVX2_AT_COMPILE_TIME=1",
+          "HAVE_SSSE3_AT_COMPILE_TIME=1",
+          "HAVE_SSE41_AT_COMPILE_TIME=1",
+          "HAVE_FMA_AT_COMPILE_TIME=1"
+        ]
+      }],
 			["OS == 'win'", {
 				"include_dirs": ["./arch/win"],
 				"VCCLCompilerTool": {
 					"DebugInformationFormat": "0"
 				},
 				"VCLinkerTool": {
-					"GenerateDebugInformation": "false",
+					"GenerateDebugInformation": "false"
+				},
+				"defines": [
+					"VSI_LSEEK64=lseek",
+			    "VSI_OPEN64=open"
+        ]
+			}],
+			["OS == 'win' and target_arch == 'x64' and enable_simd != 'false'", {
+				"VCCLCompilerTool": {
+					"AdditionalOptions": [
+						"-arch:AVX2",
+            "-arch:AVX"
+          ]
 				},
 			}],
 			["OS == 'linux'", {
 				"defines": [
 					"ENABLE_UFFD=1",
 					"HAVE_5ARGS_MREMAP=1",
-					"HAVE_SC_PHYS_PAGES=1"
-				]
+					"HAVE_SC_PHYS_PAGES=1",
+					"VSI_LSEEK64=lseek64",
+          "VSI_OPEN64=open64"
+				],
+      }],
+			["OS == 'linux' and target_arch == 'x64' and enable_simd != 'false'", {
+				"cflags": [
+					"-mavx",
+					"-mavx2"
+        ],
+				"cflags_cc": [
+					"-mavx",
+					"-mavx2"
+        ]
+      }],
+			["OS == 'mac'", {
+        "defines": [
+          "VSI_LSEEK64=lseek",
+          "VSI_OPEN64=open"
+        ]
+      }],
+			["OS == 'mac' and target_arch == 'x64' and enable_simd != 'false'", {
+				"xcode_settings": {
+					"OTHER_CFLAGS": [
+            "-mavx",
+            "-mavx2"
+          ],
+          "OTHER_CPLUSPLUSFLAGS": [
+            "-mavx",
+            "-mavx2"
+          ]
+        }
+			}],
+			["OS == 'mac' and target_arch == 'arm64' and enable_simd != 'false'", {
+				"defines": [
+					# Alas, this requires separating alg and gcore targets
+          #"HAVE_SSE_AT_COMPILE_TIME=1",
+					#"HAVE_SSSE3_AT_COMPILE_TIME=1",
+					#"USE_NEON_OPTIMIZATIONS=1"
+        ]
 			}],
 			["OS == 'freebsd'", {
 				"include_dirs": ["./arch/bsd"]

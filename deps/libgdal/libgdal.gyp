@@ -242,6 +242,7 @@
 				'<!@(<(python) ../glob-files.py "./gdal/alg/viewshed/*.cpp")',
 				'<!@(<(python) ../glob-files.py "./gdal/alg/*.c")',
 				'<!@(<(python) ../glob-files.py "./gdal/gcore/*.cpp")',
+				'<!@(<(python) ../glob-files.py "./gdal/gcore/multidim/*.cpp")',
 				'<!@(<(python) ../glob-files.py "./gdal/gcore/mdreader/*.cpp")',
 
 				# "./gdal/port/vsipreload.cpp",
@@ -375,6 +376,7 @@
 				"include_dirs": [
 					"./gdal/alg",
 					"./gdal/gcore",
+					"./gdal/gcore/multidim",
 					"./gdal/port",
 					"./gdal/apps",
 					"./gdal/ogr",

@@ -121,6 +121,12 @@ CPLErr GDALProxyDataset::IRasterIO(
     return ret;
 }
 
+D_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, Close,
+                        (GDALProgressFunc pfnProgress, void *pProgressData),
+                        (pfnProgress, pProgressData))
+
+D_PROXY_METHOD_WITH_RET(bool, false, GetCloseReportsProgress, () const, ())
+
 D_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, BlockBasedRasterIO,
                         (GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSize,
                          int nYSize, void *pData, int nBufXSize, int nBufYSize,
@@ -158,10 +164,10 @@ D_PROXY_METHOD_WITH_RET(CPLErr, CE_None, FlushCache, (bool bAtClosing),
                         (bAtClosing))
 
 D_PROXY_METHOD_WITH_RET(char **, nullptr, GetMetadataDomainList, (), ())
-D_PROXY_METHOD_WITH_RET(char **, nullptr, GetMetadata, (const char *pszDomain),
-                        (pszDomain))
+D_PROXY_METHOD_WITH_RET(CSLConstList, nullptr, GetMetadata,
+                        (const char *pszDomain), (pszDomain))
 D_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, SetMetadata,
-                        (char **papszMetadata, const char *pszDomain),
+                        (CSLConstList papszMetadata, const char *pszDomain),
                         (papszMetadata, pszDomain))
 D_PROXY_METHOD_WITH_RET(const char *, nullptr, GetMetadataItem,
                         (const char *pszName, const char *pszDomain),
@@ -182,7 +188,7 @@ D_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, SetGeoTransform,
 
 D_PROXY_METHOD_WITH_RET(void *, nullptr, GetInternalHandle, (const char *arg1),
                         (arg1))
-D_PROXY_METHOD_WITH_RET(GDALDriver *, nullptr, GetDriver, (), ())
+D_PROXY_METHOD_WITH_RET(GDALDriver *, nullptr, GetDriver, () const, ())
 D_PROXY_METHOD_WITH_RET(char **, nullptr, GetFileList, (), ())
 D_PROXY_METHOD_WITH_RET(int, 0, GetGCPCount, (), ())
 D_PROXY_METHOD_WITH_RET(const OGRSpatialReference *, nullptr, GetGCPSpatialRef,
@@ -195,14 +201,15 @@ D_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, SetGCPs,
 D_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, AdviseRead,
                         (int nXOff, int nYOff, int nXSize, int nYSize,
                          int nBufXSize, int nBufYSize, GDALDataType eDT,
-                         int nBandCount, int *panBandList, char **papszOptions),
+                         int nBandCount, int *panBandList,
+                         CSLConstList papszOptions),
                         (nXOff, nYOff, nXSize, nYSize, nBufXSize, nBufYSize,
                          eDT, nBandCount, panBandList, papszOptions))
 D_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, CreateMaskBand, (int nFlagsIn),
                         (nFlagsIn))
 
 /************************************************************************/
-/*                    UnrefUnderlyingDataset()                        */
+/*                       UnrefUnderlyingDataset()                       */
 /************************************************************************/
 
 void GDALProxyDataset::UnrefUnderlyingDataset(
@@ -345,10 +352,10 @@ int GDALProxyRasterBand::IGetDataCoverageStatus(int nXOff, int nYOff,
 }
 
 RB_PROXY_METHOD_WITH_RET(char **, nullptr, GetMetadataDomainList, (), ())
-RB_PROXY_METHOD_WITH_RET(char **, nullptr, GetMetadata, (const char *pszDomain),
-                         (pszDomain))
+RB_PROXY_METHOD_WITH_RET(CSLConstList, nullptr, GetMetadata,
+                         (const char *pszDomain), (pszDomain))
 RB_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, SetMetadata,
-                         (char **papszMetadata, const char *pszDomain),
+                         (CSLConstList papszMetadata, const char *pszDomain),
                          (papszMetadata, pszDomain))
 
 const char *GDALProxyRasterBand::GetMetadataItem(const char *pszKey,
@@ -468,7 +475,7 @@ RB_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, BuildOverviews,
 RB_PROXY_METHOD_WITH_RET(CPLErr, CE_Failure, AdviseRead,
                          (int nXOff, int nYOff, int nXSize, int nYSize,
                           int nBufXSize, int nBufYSize, GDALDataType eDT,
-                          char **papszOptions),
+                          CSLConstList papszOptions),
                          (nXOff, nYOff, nXSize, nYSize, nBufXSize, nBufYSize,
                           eDT, papszOptions))
 
@@ -507,7 +514,7 @@ RB_PROXY_METHOD_WITH_RET(GDALMaskValueRange, GMVR_UNKNOWN, GetMaskValueRange,
 
 RB_PROXY_METHOD_WITH_RET(CPLVirtualMem *, nullptr, GetVirtualMemAuto,
                          (GDALRWFlag eRWFlag, int *pnPixelSpace,
-                          GIntBig *pnLineSpace, char **papszOptions),
+                          GIntBig *pnLineSpace, CSLConstList papszOptions),
                          (eRWFlag, pnPixelSpace, pnLineSpace, papszOptions))
 
 RB_PROXY_METHOD_WITH_RET(
@@ -527,7 +534,7 @@ void GDALProxyRasterBand::EnablePixelTypeSignedByteWarning(bool b)
 }
 
 /************************************************************************/
-/*                 UnrefUnderlyingRasterBand()                        */
+/*                     UnrefUnderlyingRasterBand()                      */
 /************************************************************************/
 
 void GDALProxyRasterBand::UnrefUnderlyingRasterBand(

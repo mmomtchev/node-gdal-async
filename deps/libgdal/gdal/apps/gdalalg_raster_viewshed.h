@@ -19,7 +19,7 @@
 //! @cond Doxygen_Suppress
 
 /************************************************************************/
-/*                   GDALRasterViewshedAlgorithm                       */
+/*                     GDALRasterViewshedAlgorithm                      */
 /************************************************************************/
 
 class GDALRasterViewshedAlgorithm /* non final */
@@ -43,6 +43,7 @@ class GDALRasterViewshedAlgorithm /* non final */
     std::string m_outputMode = "normal";
     int m_band = 1;
     int m_numThreads = 3;
+    GDALArgDatasetValue m_sdFilename{};
 
     // Work variables
     std::string m_numThreadsStr{};

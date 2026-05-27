@@ -16,6 +16,7 @@
 #error See comment in file
 #endif
 
+#include "gdal_alg.h"
 #include "gdal_priv.h"
 #include "ogr_geocoding.h"
 
@@ -87,7 +88,7 @@ class OGRSQLiteExtensionData
 };
 
 /************************************************************************/
-/*                     OGRSQLiteExtensionData()                         */
+/*                       OGRSQLiteExtensionData()                       */
 /************************************************************************/
 
 OGRSQLiteExtensionData::OGRSQLiteExtensionData(CPL_UNUSED sqlite3 *hDB)
@@ -100,7 +101,7 @@ OGRSQLiteExtensionData::OGRSQLiteExtensionData(CPL_UNUSED sqlite3 *hDB)
 }
 
 /************************************************************************/
-/*                       ~OGRSQLiteExtensionData()                      */
+/*                      ~OGRSQLiteExtensionData()                       */
 /************************************************************************/
 
 OGRSQLiteExtensionData::~OGRSQLiteExtensionData()
@@ -115,7 +116,7 @@ OGRSQLiteExtensionData::~OGRSQLiteExtensionData()
 }
 
 /************************************************************************/
-/*                          GetTransform()                              */
+/*                            GetTransform()                            */
 /************************************************************************/
 
 #ifdef DEFINE_OGRSQLiteExtensionData_GetTransform
@@ -143,7 +144,7 @@ OGRCoordinateTransformation *OGRSQLiteExtensionData::GetTransform(int nSrcSRSId,
 #endif
 
 /************************************************************************/
-/*                          GetDataset()                                */
+/*                             GetDataset()                             */
 /************************************************************************/
 
 GDALDataset *OGRSQLiteExtensionData::GetDataset(const char *pszDSName)
@@ -165,7 +166,7 @@ GDALDataset *OGRSQLiteExtensionData::GetDataset(const char *pszDSName)
 }  // namespace
 
 /************************************************************************/
-/*                    OGRSQLITE_gdal_get_pixel_value()                  */
+/*                   OGRSQLITE_gdal_get_pixel_value()                   */
 /************************************************************************/
 
 static void OGRSQLITE_gdal_get_pixel_value(sqlite3_context *pContext, int argc,
@@ -206,7 +207,7 @@ static void OGRSQLITE_gdal_get_pixel_value(sqlite3_context *pContext, int argc,
 }
 
 /************************************************************************/
-/*                             OGRSQLITE_LIKE()                         */
+/*                           OGRSQLITE_LIKE()                           */
 /************************************************************************/
 
 static void OGRSQLITE_LIKE(sqlite3_context *pContext, int argc,
@@ -277,7 +278,7 @@ static void OGRSQLITE_STDDEV_Step(sqlite3_context *pContext, int /* argc*/,
 }
 
 /************************************************************************/
-/*                    OGRSQLITE_STDDEV_POP_Finalize()                   */
+/*                   OGRSQLITE_STDDEV_POP_Finalize()                    */
 /************************************************************************/
 
 static void OGRSQLITE_STDDEV_POP_Finalize(sqlite3_context *pContext)
@@ -293,7 +294,7 @@ static void OGRSQLITE_STDDEV_POP_Finalize(sqlite3_context *pContext)
 }
 
 /************************************************************************/
-/*                    OGRSQLITE_STDDEV_SAMP_Finalize()                  */
+/*                   OGRSQLITE_STDDEV_SAMP_Finalize()                   */
 /************************************************************************/
 
 static void OGRSQLITE_STDDEV_SAMP_Finalize(sqlite3_context *pContext)
@@ -469,7 +470,7 @@ static void OGRSQLITE_Percentile_Finalize(sqlite3_context *pCtx)
 }
 
 /************************************************************************/
-/*                         OGRSQLITE_Mode_Step()                        */
+/*                        OGRSQLITE_Mode_Step()                         */
 /************************************************************************/
 
 namespace
@@ -551,7 +552,7 @@ static void OGRSQLITE_Mode_Step(sqlite3_context *pCtx, int /*argc*/,
 }
 
 /************************************************************************/
-/*                       OGRSQLITE_Mode_Finalize()                      */
+/*                      OGRSQLITE_Mode_Finalize()                       */
 /************************************************************************/
 
 static void OGRSQLITE_Mode_Finalize(sqlite3_context *pCtx)
@@ -580,7 +581,35 @@ static void OGRSQLITE_Mode_Finalize(sqlite3_context *pCtx)
 }
 
 /************************************************************************/
-/*                 OGRSQLiteRegisterSQLFunctionsCommon()                */
+/*                   OGRSQLITE_ST_Hilbert_X_Y_BBOX()                    */
+/************************************************************************/
+
+static void OGRSQLITE_ST_Hilbert_X_Y_BBOX(sqlite3_context *pContext,
+                                          [[maybe_unused]] int argc,
+                                          sqlite3_value **argv)
+{
+    CPLAssert(argc == 6);
+    const double dfX = sqlite3_value_double(argv[0]);
+    const double dfY = sqlite3_value_double(argv[1]);
+    OGREnvelope sExtent;
+    sExtent.MinX = sqlite3_value_double(argv[2]);
+    sExtent.MinY = sqlite3_value_double(argv[3]);
+    sExtent.MaxX = sqlite3_value_double(argv[4]);
+    sExtent.MaxY = sqlite3_value_double(argv[5]);
+    if (!(dfX >= sExtent.MinX && dfY >= sExtent.MinY && dfX <= sExtent.MaxX &&
+          dfY <= sExtent.MaxY))
+    {
+        CPLError(CE_Warning, CPLE_AppDefined,
+                 "ST_Hilbert(): (%g, %g) is not within passed bounding box",
+                 dfX, dfY);
+        sqlite3_result_null(pContext);
+        return;
+    }
+    sqlite3_result_int64(pContext, GDALHilbertCode(&sExtent, dfX, dfY));
+}
+
+/************************************************************************/
+/*                OGRSQLiteRegisterSQLFunctionsCommon()                 */
 /************************************************************************/
 
 #ifndef SQLITE_DETERMINISTIC
@@ -634,13 +663,19 @@ static OGRSQLiteExtensionData *OGRSQLiteRegisterSQLFunctionsCommon(sqlite3 *hDB)
     sqlite3_create_function(hDB, "mode", 1, UTF8_INNOCUOUS, nullptr, nullptr,
                             OGRSQLITE_Mode_Step, OGRSQLITE_Mode_Finalize);
 
+    // ST_Hilbert() inspired from https://duckdb.org/docs/stable/core_extensions/spatial/functions#st_hilbert
+
+    // X,Y,minX,minY,maxX,maxY
+    sqlite3_create_function(hDB, "ST_Hilbert", 2 + 4, UTF8_INNOCUOUS, nullptr,
+                            OGRSQLITE_ST_Hilbert_X_Y_BBOX, nullptr, nullptr);
+
     pData->SetRegExpCache(OGRSQLiteRegisterRegExpFunction(hDB));
 
     return pData;
 }
 
 /************************************************************************/
-/*                   OGRSQLiteUnregisterSQLFunctions()                  */
+/*                  OGRSQLiteUnregisterSQLFunctions()                   */
 /************************************************************************/
 
 static void OGRSQLiteUnregisterSQLFunctions(void *hHandle)
@@ -652,7 +687,7 @@ static void OGRSQLiteUnregisterSQLFunctions(void *hHandle)
 
 #ifdef DEFINE_OGRSQLiteSQLFunctionsSetCaseSensitiveLike
 /************************************************************************/
-/*                OGRSQLiteSQLFunctionsSetCaseSensitiveLike()           */
+/*             OGRSQLiteSQLFunctionsSetCaseSensitiveLike()              */
 /************************************************************************/
 
 static void OGRSQLiteSQLFunctionsSetCaseSensitiveLike(void *hHandle, bool b)

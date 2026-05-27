@@ -151,7 +151,7 @@ static CPLString GIFCollectXMPMetadata(VSILFILE *fp)
 }
 
 /************************************************************************/
-/*                       CollectXMPMetadata()                           */
+/*                         CollectXMPMetadata()                         */
 /************************************************************************/
 
 void GIFAbstractDataset::CollectXMPMetadata()
@@ -179,7 +179,7 @@ void GIFAbstractDataset::CollectXMPMetadata()
 }
 
 /************************************************************************/
-/*                      GetMetadataDomainList()                         */
+/*                       GetMetadataDomainList()                        */
 /************************************************************************/
 
 char **GIFAbstractDataset::GetMetadataDomainList()
@@ -189,10 +189,10 @@ char **GIFAbstractDataset::GetMetadataDomainList()
 }
 
 /************************************************************************/
-/*                           GetMetadata()                              */
+/*                            GetMetadata()                             */
 /************************************************************************/
 
-char **GIFAbstractDataset::GetMetadata(const char *pszDomain)
+CSLConstList GIFAbstractDataset::GetMetadata(const char *pszDomain)
 {
     if (fp == nullptr)
         return nullptr;
@@ -232,7 +232,7 @@ int GIFAbstractDataset::GetGCPCount()
 }
 
 /************************************************************************/
-/*                               GetGCPs()                              */
+/*                              GetGCPs()                               */
 /************************************************************************/
 
 const GDAL_GCP *GIFAbstractDataset::GetGCPs()
@@ -263,7 +263,7 @@ char **GIFAbstractDataset::GetFileList()
 }
 
 /************************************************************************/
-/*                         DetectGeoreferencing()                       */
+/*                        DetectGeoreferencing()                        */
 /************************************************************************/
 
 void GIFAbstractDataset::DetectGeoreferencing(GDALOpenInfo *poOpenInfo)
@@ -288,7 +288,7 @@ void GIFAbstractDataset::DetectGeoreferencing(GDALOpenInfo *poOpenInfo)
 }
 
 /************************************************************************/
-/*                            myDGifOpen()                              */
+/*                             myDGifOpen()                             */
 /************************************************************************/
 
 GifFileType *GIFAbstractDataset::myDGifOpen(void *userPtr, InputFunc readFunc)
@@ -346,7 +346,7 @@ int GIFAbstractDataset::ReadFunc(GifFileType *psGFile, GifByteType *pabyBuffer,
 }
 
 /************************************************************************/
-/*                          FindFirstImage()                            */
+/*                           FindFirstImage()                           */
 /************************************************************************/
 
 GifRecordType GIFAbstractDataset::FindFirstImage(GifFileType *hGifFile)
@@ -376,7 +376,7 @@ GifRecordType GIFAbstractDataset::FindFirstImage(GifFileType *hGifFile)
 }
 
 /************************************************************************/
-/*                        GIFAbstractRasterBand()                       */
+/*                       GIFAbstractRasterBand()                        */
 /************************************************************************/
 
 GIFAbstractRasterBand::GIFAbstractRasterBand(GIFAbstractDataset *poDSIn,
@@ -390,7 +390,7 @@ GIFAbstractRasterBand::GIFAbstractRasterBand(GIFAbstractDataset *poDSIn,
     poDS = poDSIn;
     nBand = nBandIn;
 
-    eDataType = GDT_Byte;
+    eDataType = GDT_UInt8;
 
     nBlockXSize = poDS->GetRasterXSize();
     nBlockYSize = 1;

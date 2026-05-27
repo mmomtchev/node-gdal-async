@@ -20,7 +20,7 @@
 #include <set>
 
 /************************************************************************/
-/*                       GDALPluginDriverProxy                          */
+/*                        GDALPluginDriverProxy                         */
 /************************************************************************/
 
 // clang-format off
@@ -115,7 +115,7 @@ class GDALPluginDriverProxy final : public GDALDriver
     CPLErr SetMetadataItem(const char *pszName, const char *pszValue,
                            const char *pszDomain = "") override;
 
-    char **GetMetadata(const char *pszDomain) override;
+    CSLConstList GetMetadata(const char *pszDomain) override;
 
     const char *GetMetadataItem(const char *pszName,
                                 const char *pszDomain = "") override;

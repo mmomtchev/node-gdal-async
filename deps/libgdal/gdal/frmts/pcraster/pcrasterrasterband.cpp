@@ -265,7 +265,7 @@ CPLErr PCRasterRasterBand::IWriteBlock(CPL_UNUSED int nBlockXoff,
 
     if (valuescale == VS_LDD)
     {
-        if ((d_create_in == GDT_Byte) || (d_create_in == GDT_Float32) ||
+        if ((d_create_in == GDT_UInt8) || (d_create_in == GDT_Float32) ||
             (d_create_in == GDT_Float64))
         {
             CPLError(CE_Failure, CPLE_NotSupported,
@@ -285,11 +285,11 @@ CPLErr PCRasterRasterBand::IWriteBlock(CPL_UNUSED int nBlockXoff,
         GDALGeoTransform gt;
         if (this->poDS->GetGeoTransform(gt) == CE_None)
         {
-            if (gt[2] == 0.0 && gt[4] == 0.0)
+            if (gt.xrot == 0.0 && gt.yrot == 0.0)
             {
-                west = static_cast<REAL8>(gt[0]);
-                north = static_cast<REAL8>(gt[3]);
-                cellSize = static_cast<REAL8>(gt[1]);
+                west = static_cast<REAL8>(gt.xorig);
+                north = static_cast<REAL8>(gt.yorig);
+                cellSize = static_cast<REAL8>(gt.xscale);
             }
         }
         (void)RputXUL(d_dataset->map(), west);

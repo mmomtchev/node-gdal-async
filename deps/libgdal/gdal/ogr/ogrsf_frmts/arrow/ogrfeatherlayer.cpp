@@ -28,7 +28,7 @@
 #include "../arrow_common/ograrrowdataset.hpp"
 
 /************************************************************************/
-/*                        OGRFeatherLayer()                             */
+/*                          OGRFeatherLayer()                           */
 /************************************************************************/
 
 OGRFeatherLayer::OGRFeatherLayer(
@@ -46,7 +46,7 @@ OGRFeatherLayer::OGRFeatherLayer(
 }
 
 /************************************************************************/
-/*                        OGRFeatherLayer()                             */
+/*                          OGRFeatherLayer()                           */
 /************************************************************************/
 
 OGRFeatherLayer::OGRFeatherLayer(
@@ -68,7 +68,7 @@ OGRFeatherLayer::OGRFeatherLayer(
 }
 
 /************************************************************************/
-/*                           GetDataset()                               */
+/*                             GetDataset()                             */
 /************************************************************************/
 
 GDALDataset *OGRFeatherLayer::GetDataset()
@@ -202,7 +202,10 @@ void OGRFeatherLayer::EstablishFeatureDefn()
 
         bool bRegularField = true;
         auto oIter = m_oMapGeometryColumns.find(fieldName);
-        if (oIter != m_oMapGeometryColumns.end() || !osExtensionName.empty())
+        if (oIter != m_oMapGeometryColumns.end() ||
+            (osExtensionName != EXTENSION_NAME_ARROW_JSON &&
+             osExtensionName != EXTENSION_NAME_ARROW_TIMESTAMP_WITH_OFFSET &&
+             !osExtensionName.empty()))
         {
             CPLJSONObject oJSONDef;
             if (oIter != m_oMapGeometryColumns.end())
@@ -282,10 +285,8 @@ void OGRFeatherLayer::EstablishFeatureDefn()
                                 SET_FROM_USER_INPUT_LIMITATIONS_get()) ==
                         OGRERR_NONE)
                     {
-                        const char *pszAuthName =
-                            poSRS->GetAuthorityName(nullptr);
-                        const char *pszAuthCode =
-                            poSRS->GetAuthorityCode(nullptr);
+                        const char *pszAuthName = poSRS->GetAuthorityName();
+                        const char *pszAuthCode = poSRS->GetAuthorityCode();
                         if (pszAuthName && pszAuthCode &&
                             EQUAL(pszAuthName, "OGC") &&
                             EQUAL(pszAuthCode, "CRS84"))
@@ -424,7 +425,7 @@ OGRwkbGeometryType OGRFeatherLayer::ComputeGeometryColumnType(int iGeomCol,
 }
 
 /************************************************************************/
-/*                          BuildDomain()                               */
+/*                            BuildDomain()                             */
 /************************************************************************/
 
 std::unique_ptr<OGRFieldDomain>
@@ -462,7 +463,7 @@ OGRFeatherLayer::BuildDomain(const std::string &osDomainName,
 }
 
 /************************************************************************/
-/*                           ResetReading()                             */
+/*                            ResetReading()                            */
 /************************************************************************/
 
 void OGRFeatherLayer::ResetReading()
@@ -538,7 +539,7 @@ bool OGRFeatherLayer::ReadNextBatchFile()
 }
 
 /************************************************************************/
-/*                         ReadNextBatchStream()                        */
+/*                        ReadNextBatchStream()                         */
 /************************************************************************/
 
 bool OGRFeatherLayer::ReadNextBatchStream()
@@ -646,7 +647,7 @@ void OGRFeatherLayer::TryToCacheFirstTwoBatches()
 }
 
 /************************************************************************/
-/*                          CanPostFilterArrowArray()                   */
+/*                      CanPostFilterArrowArray()                       */
 /************************************************************************/
 
 bool OGRFeatherLayer::CanPostFilterArrowArray(
@@ -658,7 +659,7 @@ bool OGRFeatherLayer::CanPostFilterArrowArray(
 }
 
 /************************************************************************/
-/*                     InvalidateCachedBatches()                        */
+/*                      InvalidateCachedBatches()                       */
 /************************************************************************/
 
 void OGRFeatherLayer::InvalidateCachedBatches()
@@ -671,7 +672,7 @@ void OGRFeatherLayer::InvalidateCachedBatches()
 }
 
 /************************************************************************/
-/*                        GetFeatureCount()                             */
+/*                          GetFeatureCount()                           */
 /************************************************************************/
 
 GIntBig OGRFeatherLayer::GetFeatureCount(int bForce)
@@ -722,7 +723,7 @@ GIntBig OGRFeatherLayer::GetFeatureCount(int bForce)
 }
 
 /************************************************************************/
-/*                       CanRunNonForcedGetExtent()                     */
+/*                      CanRunNonForcedGetExtent()                      */
 /************************************************************************/
 
 bool OGRFeatherLayer::CanRunNonForcedGetExtent()
@@ -741,7 +742,7 @@ bool OGRFeatherLayer::CanRunNonForcedGetExtent()
 }
 
 /************************************************************************/
-/*                         TestCapability()                             */
+/*                           TestCapability()                           */
 /************************************************************************/
 
 int OGRFeatherLayer::TestCapability(const char *pszCap) const
@@ -761,7 +762,7 @@ int OGRFeatherLayer::TestCapability(const char *pszCap) const
 }
 
 /************************************************************************/
-/*                         GetMetadataItem()                            */
+/*                          GetMetadataItem()                           */
 /************************************************************************/
 
 const char *OGRFeatherLayer::GetMetadataItem(const char *pszName,
@@ -830,10 +831,10 @@ const char *OGRFeatherLayer::GetMetadataItem(const char *pszName,
 }
 
 /************************************************************************/
-/*                           GetMetadata()                              */
+/*                            GetMetadata()                             */
 /************************************************************************/
 
-char **OGRFeatherLayer::GetMetadata(const char *pszDomain)
+CSLConstList OGRFeatherLayer::GetMetadata(const char *pszDomain)
 {
     // Mostly for unit test purposes
     if (pszDomain != nullptr && EQUAL(pszDomain, "_ARROW_METADATA_"))

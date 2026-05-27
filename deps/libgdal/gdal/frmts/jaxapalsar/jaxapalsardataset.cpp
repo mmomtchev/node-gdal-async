@@ -223,7 +223,7 @@ class PALSARJaxaRasterBand final : public GDALRasterBand
 };
 
 /************************************************************************/
-/*                         PALSARJaxaRasterBand()                       */
+/*                        PALSARJaxaRasterBand()                        */
 /************************************************************************/
 
 PALSARJaxaRasterBand::PALSARJaxaRasterBand(PALSARJaxaDataset *poDSIn,
@@ -303,7 +303,7 @@ PALSARJaxaRasterBand::PALSARJaxaRasterBand(PALSARJaxaDataset *poDSIn,
 }
 
 /************************************************************************/
-/*                        ~PALSARJaxaRasterBand()                       */
+/*                       ~PALSARJaxaRasterBand()                        */
 /************************************************************************/
 
 PALSARJaxaRasterBand::~PALSARJaxaRasterBand()
@@ -329,8 +329,9 @@ CPLErr PALSARJaxaRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff,
         nNumBytes = 2;
     }
 
-    int nOffset =
-        IMAGE_OPT_DESC_LENGTH + ((nBlockYOff - 1) * nRecordSize) +
+    const vsi_l_offset nOffset =
+        IMAGE_OPT_DESC_LENGTH +
+        (static_cast<vsi_l_offset>(nBlockYOff - 1) * nRecordSize) +
         (nFileType == level_11 ? SIG_DAT_REC_OFFSET : PROC_DAT_REC_OFFSET);
 
     VSIFSeekL(fp, nOffset, SEEK_SET);
@@ -353,7 +354,7 @@ CPLErr PALSARJaxaRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff,
 /************************************************************************/
 
 /************************************************************************/
-/*                          ReadMetadata()                              */
+/*                            ReadMetadata()                            */
 /************************************************************************/
 
 int PALSARJaxaDataset::GetGCPCount()
@@ -362,7 +363,7 @@ int PALSARJaxaDataset::GetGCPCount()
 }
 
 /************************************************************************/
-/*                             GetGCPs()                                */
+/*                              GetGCPs()                               */
 /************************************************************************/
 
 const GDAL_GCP *PALSARJaxaDataset::GetGCPs()

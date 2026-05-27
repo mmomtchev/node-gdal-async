@@ -49,18 +49,41 @@ add_library(
   overview.cpp
   rasterio.cpp
   rawdataset.cpp
-  gdalmultidim.cpp
-  gdalmultidim_gridded.cpp
-  gdalmultidim_gltorthorectification.cpp
-  gdalmultidim_meshgrid.cpp
-  gdalmultidim_subsetdimension.cpp
-  gdalmultidim_rat.cpp
   gdalpython.cpp
   gdalpythondriverloader.cpp
   tilematrixset.cpp
   gdal_thread_pool.cpp
   nasakeywordhandler.cpp
   tiff_common.cpp
+  enviutils.cpp
+)
+
+target_sources(gcore PRIVATE
+  multidim/gdalmultidim_abstract_array.cpp
+  multidim/gdalmultidim_array.cpp
+  multidim/gdalmultidim_array_bridge_classic.cpp
+  multidim/gdalmultidim_array_gltorthorectification.cpp
+  multidim/gdalmultidim_array_gridded.cpp
+  multidim/gdalmultidim_array_mask.cpp
+  multidim/gdalmultidim_array_meshgrid.cpp
+  multidim/gdalmultidim_array_regularly_spaced.cpp
+  multidim/gdalmultidim_array_resampled.cpp
+  multidim/gdalmultidim_array_transposed.cpp
+  multidim/gdalmultidim_array_unscaled.cpp
+  multidim/gdalmultidim_array_view.cpp
+  multidim/gdalmultidim_attribute.cpp
+  multidim/gdalmultidim_c_api_array.cpp
+  multidim/gdalmultidim_c_api_attribute.cpp
+  multidim/gdalmultidim_c_api_dimension.cpp
+  multidim/gdalmultidim_c_api_extended_data_type.cpp
+  multidim/gdalmultidim_c_api_group.cpp
+  multidim/gdalmultidim_dimension.cpp
+  multidim/gdalmultidim_extended_data_type.cpp
+  multidim/gdalmultidim_group.cpp
+  multidim/gdalmultidim_misc.cpp
+  multidim/gdalmultidim_pam.cpp
+  multidim/gdalmultidim_subsetdimension.cpp
+  multidim/gdalmultidim_rat.cpp
 )
 
 add_library(gcore_gdal_misc OBJECT gdal_misc.cpp)
@@ -80,13 +103,18 @@ add_dependencies(gcore generate_gdal_version_h)
 target_compile_options(gcore PRIVATE ${GDAL_CXX_WARNING_FLAGS} ${WFLAG_OLD_STYLE_CAST} ${WFLAG_EFFCXX} ${WFLAG_DOUBLE_PROMOTION})
 target_include_directories(
   gcore
-  PRIVATE $<TARGET_PROPERTY:ogrsf_generic,SOURCE_DIR> $<TARGET_PROPERTY:gdal_MEM,SOURCE_DIR>
+  PRIVATE $<TARGET_PROPERTY:ogrsf_generic,SOURCE_DIR>
+          $<TARGET_PROPERTY:gdal_MEM,SOURCE_DIR>
           $<TARGET_PROPERTY:gdal_vrt,SOURCE_DIR>)
 set_property(TARGET gcore PROPERTY POSITION_INDEPENDENT_CODE ${GDAL_OBJECT_LIBRARIES_POSITION_INDEPENDENT_CODE})
 
 if (GDAL_ENABLE_DRIVER_GTIFF)
   target_include_directories(gcore PRIVATE $<TARGET_PROPERTY:gdal_GTIFF,SOURCE_DIR>)
   target_compile_definitions(gcore PRIVATE -DHAVE_TIFF)
+endif()
+
+if (GDAL_ENABLE_ALGORITHMS)
+target_compile_definitions(gcore PRIVATE -DGDAL_ENABLE_ALGORITHMS)
 endif()
 
 if (NOT DEFINED GDAL_RESOURCE_PATH)
@@ -128,6 +156,10 @@ elseif (HAVE_SSSE3_AT_COMPILE_TIME)
     SOURCE rasterio_ssse3.cpp
     APPEND
     PROPERTY COMPILE_FLAGS ${GDAL_SSSE3_FLAG})
+endif ()
+
+if (HAVE_AVX2_AT_COMPILE_TIME)
+  target_compile_definitions(gcore PRIVATE -DHAVE_AVX2_AT_COMPILE_TIME)
 endif ()
 
 if (EMBED_RESOURCE_FILES)
@@ -211,6 +243,33 @@ if (CMAKE_SYSTEM_NAME MATCHES "Windows")
   gdal_target_link_libraries(gcore PRIVATE psapi)
 endif ()
 
+if (GDAL_USE_OPENMP AND OpenMP_C_LIBRARIES)
+    gdal_target_link_libraries(gcore PRIVATE ${OpenMP_C_LIBRARIES})
+endif()
+
+# Build some files with AVX2 and FMA, if those are not by default enabled,
+# and detect at runtime if we can use them
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$" AND
+    (CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM" OR
+     CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR
+     (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 9)) AND
+    HAVE_AVX2_AT_COMPILE_TIME AND
+    HAVE_FMA_AT_COMPILE_TIME AND
+    (NOT HAVE_AVX2_FMA_WITHOUT_FLAG) AND
+    (NOT "${GDAL_AVX2_FLAG}" STREQUAL "") AND (NOT "${GDAL_FMA_FLAG}" STREQUAL ""))
+
+  target_compile_definitions(gcore PRIVATE CAN_DETECT_AVX2_FMA_AT_RUNTIME)
+
+  add_library(gcore_avx2_fma OBJECT gdal_matrix_avx2_fma.cpp)
+  add_dependencies(gcore_avx2_fma generate_gdal_version_h)
+  target_compile_options(gcore_avx2_fma PRIVATE ${WFLAG_DOUBLE_PROMOTION})
+  gdal_standard_includes(gcore_avx2_fma)
+  set_property(TARGET gcore_avx2_fma PROPERTY POSITION_INDEPENDENT_CODE ${GDAL_OBJECT_LIBRARIES_POSITION_INDEPENDENT_CODE})
+  set_property(TARGET gcore_avx2_fma PROPERTY COMPILE_FLAGS ${GDAL_AVX2_FLAG})
+  set_property(TARGET gcore_avx2_fma PROPERTY COMPILE_FLAGS ${GDAL_FMA_FLAG})
+  target_sources(${GDAL_LIB_TARGET_NAME} PRIVATE $<TARGET_OBJECTS:gcore_avx2_fma>)
+endif ()
+
 include(TargetPublicHeader)
 target_public_header(
   TARGET
@@ -219,7 +278,6 @@ target_public_header(
   ${CMAKE_CURRENT_BINARY_DIR}/gdal_version_full/gdal_version.h
   gdal.h
   gdal_raster_cpp.h
-  gdal_multidim_cpp.h
   gdal_vector_cpp.h
   gdal_multidomainmetadata.h
   gdal_majorobject.h
@@ -236,7 +294,6 @@ target_public_header(
   gdal_driver.h
   gdal_drivermanager.h
   gdal_asyncreader.h
-  gdal_multidim.h
   gdal_relationship.h
   gdal_cpp_functions.h
   gdal_fwd.h
@@ -247,7 +304,6 @@ target_public_header(
   gdaljp2abstractdataset.h
   gdal_frmts.h
   gdal_pam.h
-  gdal_pam_multidim.h
   gdal_priv.h
   gdal_proxy.h
   gdal_rat.h
@@ -261,6 +317,10 @@ target_public_header(
   gdal_minmax_element.hpp
   gdal_priv_templates.hpp  # Required by gdal_minmax_element.hpp
   geoheif.h
+  gdal_thread_pool.h
+  multidim/gdal_multidim_cpp.h
+  multidim/gdal_multidim.h
+  multidim/gdal_pam_multidim.h
 )
 
 set(GDAL_DATA_FILES

@@ -40,6 +40,11 @@ static void Usage()
     exit(1);
 }
 
+static void IgnoreErr(CPLErr eErr)
+{
+    (void)eErr;
+}
+
 /************************************************************************/
 /*                                main()                                */
 /************************************************************************/
@@ -145,10 +150,10 @@ int main(int argc, char *argv[])
             }
         }
 
-        if (eDataType != GDT_Byte)
+        if (eDataType != GDT_UInt8)
         {
             fprintf(stderr,
-                    "Only GDT_Byte type supported for source dataset\n");
+                    "Only GDT_UInt8 type supported for source dataset\n");
             exit(1);
         }
     }
@@ -164,7 +169,7 @@ int main(int argc, char *argv[])
     }
 
     hDstDS = GDALCreate(hDriver, pszDstFilename, nXSize, nYSize,
-                        nBands + ((bSetAlpha) ? 1 : 0), GDT_Byte,
+                        nBands + ((bSetAlpha) ? 1 : 0), GDT_UInt8,
                         papszCreateOptions);
     if (hDstDS == NULL)
     {
@@ -249,22 +254,23 @@ int main(int argc, char *argv[])
 
         eDataType = GDALGetRasterDataType(hSrcBand);
         pabyBuffer =
-            (GByte *)CPLMalloc(nXSize * GDALGetDataTypeSize(eDataType));
+            (GByte *)CPLMalloc(nXSize * GDALGetDataTypeSizeBytes(eDataType));
         dfNoDataValue = GDALGetRasterNoDataValue(hSrcBand, &bHasNoData);
         if (!bHasNoData)
             dfNoDataValue = dfDstNoData;
 
         for (iLine = 0; iLine < nYSize; iLine++)
         {
-            GDALRasterIO(hSrcBand, GF_Read, 0, iLine, nXSize, 1, pabyBuffer,
-                         nXSize, 1, eDataType, 0, 0);
+            IgnoreErr(GDALRasterIO(hSrcBand, GF_Read, 0, iLine, nXSize, 1,
+                                   pabyBuffer, nXSize, 1, eDataType, 0, 0));
             if (!bSetAlpha)
             {
-                GDALRasterIO(hMaskBand, GF_Read, 0, iLine, nXSize, 1,
-                             pabyMaskBuffer, nXSize, 1, GDT_Byte, 0, 0);
+                IgnoreErr(GDALRasterIO(hMaskBand, GF_Read, 0, iLine, nXSize, 1,
+                                       pabyMaskBuffer, nXSize, 1, GDT_UInt8, 0,
+                                       0));
                 switch (eDataType)
                 {
-                    case GDT_Byte:
+                    case GDT_UInt8:
                     {
                         for (iCol = 0; iCol < nXSize; iCol++)
                         {
@@ -286,8 +292,8 @@ int main(int argc, char *argv[])
                 }
             }
 
-            GDALRasterIO(hDstBand, GF_Write, 0, iLine, nXSize, 1, pabyBuffer,
-                         nXSize, 1, eDataType, 0, 0);
+            IgnoreErr(GDALRasterIO(hDstBand, GF_Write, 0, iLine, nXSize, 1,
+                                   pabyBuffer, nXSize, 1, eDataType, 0, 0));
         }
 
         CPLFree(pabyBuffer);
@@ -307,16 +313,16 @@ int main(int argc, char *argv[])
         int iLine;
         for (iLine = 0; iLine < nYSize; iLine++)
         {
-            GDALRasterIO(hMaskBand, GF_Read, 0, iLine, nXSize, 1,
-                         pabyMaskBuffer, nXSize, 1, GDT_Byte, 0, 0);
+            IgnoreErr(GDALRasterIO(hMaskBand, GF_Read, 0, iLine, nXSize, 1,
+                                   pabyMaskBuffer, nXSize, 1, GDT_UInt8, 0, 0));
             for (iCol = 0; iCol < nXSize; iCol++)
             {
                 /* If the mask is 1-bit, expand 1 to 255 */
                 if (pabyMaskBuffer[iCol] == 1 && (nMaskFlag & GMF_ALPHA) == 0)
                     pabyMaskBuffer[iCol] = 255;
             }
-            GDALRasterIO(hDstAlphaBand, GF_Write, 0, iLine, nXSize, 1,
-                         pabyMaskBuffer, nXSize, 1, GDT_Byte, 0, 0);
+            IgnoreErr(GDALRasterIO(hDstAlphaBand, GF_Write, 0, iLine, nXSize, 1,
+                                   pabyMaskBuffer, nXSize, 1, GDT_UInt8, 0, 0));
         }
     }
 

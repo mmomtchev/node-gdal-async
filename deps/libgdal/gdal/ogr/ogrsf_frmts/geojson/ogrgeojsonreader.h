@@ -45,7 +45,7 @@ class OGRGeoJSONLayer;
 class OGRSpatialReference;
 
 /************************************************************************/
-/*                        OGRGeoJSONBaseReader                          */
+/*                         OGRGeoJSONBaseReader                         */
 /************************************************************************/
 
 class OGRGeoJSONBaseReader
@@ -199,8 +199,10 @@ class OGRGeoJSONReader : public OGRGeoJSONBaseReader
     //
     bool GenerateLayerDefn(OGRGeoJSONLayer *poLayer, json_object *poGJObject);
 
-    static bool AddFeature(OGRGeoJSONLayer *poLayer, OGRGeometry *poGeometry);
-    static bool AddFeature(OGRGeoJSONLayer *poLayer, OGRFeature *poFeature);
+    static bool AddFeature(OGRGeoJSONLayer *poLayer,
+                           std::unique_ptr<OGRGeometry> poGeometry);
+    static bool AddFeature(OGRGeoJSONLayer *poLayer,
+                           std::unique_ptr<OGRFeature> poFeature);
 
     void ReadFeatureCollection(OGRGeoJSONLayer *poLayer, json_object *poObj);
     size_t SkipPrologEpilogAndUpdateJSonPLikeWrapper(size_t nRead);
@@ -227,7 +229,7 @@ void OGRGeoJSONReaderAddOrUpdateField(
     std::set<int> &aoSetUndeterminedTypeFields);
 
 /************************************************************************/
-/*                 GeoJSON Parsing Utilities                            */
+/*                      GeoJSON Parsing Utilities                       */
 /************************************************************************/
 
 bool OGRGeoJSONUpdateLayerGeomType(bool &bFirstGeom,
@@ -270,7 +272,7 @@ class OGRESRIJSONReader
     //
     bool GenerateLayerDefn();
     bool ParseField(json_object *poObj);
-    bool AddFeature(OGRFeature *poFeature);
+    bool AddFeature(std::unique_ptr<OGRFeature> poFeature);
 
     OGRFeature *ReadFeature(json_object *poObj);
     OGRGeoJSONLayer *ReadFeatureCollection(json_object *poObj);

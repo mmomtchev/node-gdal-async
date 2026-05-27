@@ -27,7 +27,7 @@
 #endif
 
 /************************************************************************/
-/*          GDALRasterContourAlgorithm::GDALRasterContourAlgorithm()    */
+/*       GDALRasterContourAlgorithm::GDALRasterContourAlgorithm()       */
 /************************************************************************/
 
 GDALRasterContourAlgorithm::GDALRasterContourAlgorithm(bool standaloneStep)
@@ -52,6 +52,7 @@ GDALRasterContourAlgorithm::GDALRasterContourAlgorithm(bool standaloneStep)
     }
     else
     {
+        AddRasterHiddenInputDatasetArg();
         AddOutputLayerNameArg(/* hiddenForCLI = */ false,
                               /* shortNameOutputLayerAllowed = */ false);
     }
@@ -65,12 +66,14 @@ GDALRasterContourAlgorithm::GDALRasterContourAlgorithm(bool standaloneStep)
     AddArg("max-name", 0, _("Name of the maximum elevation field"), &m_amax);
     AddArg("3d", 0, _("Force production of 3D vectors instead of 2D"), &m_3d);
 
-    AddArg("src-nodata", 0, _("Input pixel value to treat as 'nodata'"),
-           &m_sNodata);
+    AddArg("input-nodata", 0, _("Input pixel value to treat as 'nodata'"),
+           &m_sNodata)
+        .AddHiddenAlias("src-nodata");
     AddArg("interval", 0, _("Elevation interval between contours"), &m_interval)
         .SetMutualExclusionGroup("levels")
         .SetMinValueExcluded(0);
     AddArg("levels", 0, _("List of contour levels"), &m_levels)
+        .SetDuplicateValuesAllowed(false)
         .SetMutualExclusionGroup("levels");
     AddArg("exp-base", 'e', _("Base for exponential contour level generation"),
            &m_expBase)
@@ -86,7 +89,7 @@ GDALRasterContourAlgorithm::GDALRasterContourAlgorithm(bool standaloneStep)
 }
 
 /************************************************************************/
-/*                  GDALRasterContourAlgorithm::RunImpl()               */
+/*                GDALRasterContourAlgorithm::RunImpl()                 */
 /************************************************************************/
 
 bool GDALRasterContourAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
@@ -99,7 +102,7 @@ bool GDALRasterContourAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
 }
 
 /************************************************************************/
-/*                  GDALRasterContourAlgorithm::RunStep()               */
+/*                GDALRasterContourAlgorithm::RunStep()                 */
 /************************************************************************/
 
 bool GDALRasterContourAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)

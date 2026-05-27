@@ -12,9 +12,13 @@
 
 #include "cpl_port.h"
 
+#include "gdalalgorithm.h"
+#include "gdal_proxy.h"
 #include "gdal_priv.h"
 #include "gdal_frmts.h"
+#include "gdalpython.h"
 #include "gtiff.h"
+#include "gtiffdataset.h"
 #include "gt_overview.h"
 #include "gdal_utils.h"
 #include "gdalwarper.h"
@@ -30,8 +34,10 @@
 
 static bool gbHasLZW = false;
 
+using namespace GDALPy;
+
 /************************************************************************/
-/*                        HasZSTDCompression()                          */
+/*                         HasZSTDCompression()                         */
 /************************************************************************/
 
 static bool HasZSTDCompression()
@@ -74,7 +80,7 @@ static CPLString GetTmpFilename(const char *pszFilename, const char *pszExt)
 }
 
 /************************************************************************/
-/*                             GetResampling()                          */
+/*                           GetResampling()                            */
 /************************************************************************/
 
 static const char *GetResampling(GDALDataset *poSrcDS)
@@ -87,7 +93,7 @@ static const char *GetResampling(GDALDataset *poSrcDS)
 }
 
 /************************************************************************/
-/*                             GetPredictor()                          */
+/*                            GetPredictor()                            */
 /************************************************************************/
 static const char *GetPredictor(GDALDataset *poSrcDS, const char *pszPredictor)
 {
@@ -115,7 +121,7 @@ static const char *GetPredictor(GDALDataset *poSrcDS, const char *pszPredictor)
 }
 
 /************************************************************************/
-/*                            COGGetTargetSRS()                         */
+/*                          COGGetTargetSRS()                           */
 /************************************************************************/
 
 static bool COGGetTargetSRS(const char *const *papszOptions,
@@ -165,8 +171,8 @@ static bool COGGetTargetSRS(const char *const *papszOptions,
         oTargetSRS.SetFromUserInput(
             osTargetSRS,
             OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get());
-        const char *pszAuthCode = oTargetSRS.GetAuthorityCode(nullptr);
-        const char *pszAuthName = oTargetSRS.GetAuthorityName(nullptr);
+        const char *pszAuthCode = oTargetSRS.GetAuthorityCode();
+        const char *pszAuthName = oTargetSRS.GetAuthorityName();
         if (pszAuthName && pszAuthCode)
         {
             osTargetSRS = pszAuthName;
@@ -195,7 +201,7 @@ std::string COGGetResampling(GDALDataset *poSrcDS,
 }
 
 /************************************************************************/
-/*                     COGGetWarpingCharacteristics()                   */
+/*                    COGGetWarpingCharacteristics()                    */
 /************************************************************************/
 
 static bool COGGetWarpingCharacteristics(
@@ -216,7 +222,7 @@ static bool COGGetWarpingCharacteristics(
     oTargetSRS.SetFromUserInput(
         osTargetSRS,
         OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get());
-    const char *pszAuthCode = oTargetSRS.GetAuthorityCode(nullptr);
+    const char *pszAuthCode = oTargetSRS.GetAuthorityCode();
     const int nEPSGCode = pszAuthCode ? atoi(pszAuthCode) : 0;
 
     // Hack to compensate for GDALSuggestedWarpOutput2() failure (or not
@@ -287,13 +293,12 @@ static bool COGGetWarpingCharacteristics(
 
     GDALTransformerInfo *psInfo =
         static_cast<GDALTransformerInfo *>(hTransformArg);
-    double adfGeoTransform[6];
+    GDALGeoTransform gt;
     double adfExtent[4];
 
     if (GDALSuggestedWarpOutput2(poTmpDS ? poTmpDS.get() : poSrcDS,
-                                 psInfo->pfnTransform, hTransformArg,
-                                 adfGeoTransform, &nXSize, &nYSize, adfExtent,
-                                 0) != CE_None)
+                                 psInfo->pfnTransform, hTransformArg, gt.data(),
+                                 &nXSize, &nYSize, adfExtent, 0) != CE_None)
     {
         GDALDestroyGenImgProjTransformer(hTransformArg);
         return false;
@@ -307,7 +312,7 @@ static bool COGGetWarpingCharacteristics(
     dfMinY = adfExtent[1];
     dfMaxX = adfExtent[2];
     dfMaxY = adfExtent[3];
-    dfRes = adfGeoTransform[1];
+    dfRes = gt.xscale;
 
     const CPLString osExtent(CSLFetchNameValueDef(papszOptions, "EXTENT", ""));
     const CPLString osRes(CSLFetchNameValueDef(papszOptions, "RES", ""));
@@ -364,7 +369,7 @@ static bool COGGetWarpingCharacteristics(
         }
         else
         {
-            double dfComputedRes = adfGeoTransform[1];
+            double dfComputedRes = gt.xscale;
             double dfPrevRes = 0.0;
             for (; nZoomLevel < static_cast<int>(tmList.size()); nZoomLevel++)
             {
@@ -676,11 +681,12 @@ static std::unique_ptr<GDALDataset> CreateReprojectedDS(
     std::unique_ptr<CPLConfigOptionSetter> poWarpThreadSetter;
     if (pszNumThreads)
     {
-        poWarpThreadSetter.reset(new CPLConfigOptionSetter(
-            "GDAL_NUM_THREADS", pszNumThreads, false));
+        poWarpThreadSetter = std::make_unique<CPLConfigOptionSetter>(
+            "GDAL_NUM_THREADS", pszNumThreads, false);
     }
 
     auto hRet = GDALWarp(osTmpFile, nullptr, 1, &hSrcDS, psOptions, nullptr);
+    CPL_IGNORE_RET_VAL(poWarpThreadSetter);
     GDALWarpAppOptionsFree(psOptions);
     CPLDebug("COG", "Reprojecting source dataset: end");
 
@@ -703,13 +709,15 @@ struct GDALCOGCreator final
 
     ~GDALCOGCreator();
 
-    GDALDataset *Create(const char *pszFilename, GDALDataset *const poSrcDS,
-                        char **papszOptions, GDALProgressFunc pfnProgress,
-                        void *pProgressData);
+    std::unique_ptr<GDALDataset> Create(const char *pszFilename,
+                                        GDALDataset *const poSrcDS,
+                                        CSLConstList papszOptions,
+                                        GDALProgressFunc pfnProgress,
+                                        void *pProgressData);
 };
 
 /************************************************************************/
-/*                    GDALCOGCreator::~GDALCOGCreator()                 */
+/*                  GDALCOGCreator::~GDALCOGCreator()                   */
 /************************************************************************/
 
 GDALCOGCreator::~GDALCOGCreator()
@@ -741,14 +749,13 @@ GDALCOGCreator::~GDALCOGCreator()
 }
 
 /************************************************************************/
-/*                    GDALCOGCreator::Create()                          */
+/*                       GDALCOGCreator::Create()                       */
 /************************************************************************/
 
-GDALDataset *GDALCOGCreator::Create(const char *pszFilename,
-                                    GDALDataset *const poSrcDS,
-                                    char **papszOptions,
-                                    GDALProgressFunc pfnProgress,
-                                    void *pProgressData)
+std::unique_ptr<GDALDataset>
+GDALCOGCreator::Create(const char *pszFilename, GDALDataset *const poSrcDS,
+                       CSLConstList papszOptions, GDALProgressFunc pfnProgress,
+                       void *pProgressData)
 {
     if (pfnProgress == nullptr)
         pfnProgress = GDALDummyProgress;
@@ -835,8 +842,8 @@ GDALDataset *GDALCOGCreator::Create(const char *pszFilename,
         const auto poSrcSRS = poCurDS->GetSpatialRef();
         if (poSrcSRS)
         {
-            const char *pszAuthName = poSrcSRS->GetAuthorityName(nullptr);
-            const char *pszAuthCode = poSrcSRS->GetAuthorityCode(nullptr);
+            const char *pszAuthName = poSrcSRS->GetAuthorityName();
+            const char *pszAuthCode = poSrcSRS->GetAuthorityCode();
             if (pszAuthName && pszAuthCode)
             {
                 osSrcSRS = pszAuthName;
@@ -1388,9 +1395,9 @@ GDALDataset *GDALCOGCreator::Create(const char *pszFilename,
                             CSLFetchNameValue(papszOptions, "@SUPPRESS_ASAP"));
 
     CPLDebug("COG", "Generating final product: start");
-    auto poRet =
+    auto poRet = std::unique_ptr<GDALDataset>(
         poGTiffDrv->CreateCopy(pszFilename, poCurDS, false, aosOptions.List(),
-                               GDALScaledProgress, pScaledProgress);
+                               GDALScaledProgress, pScaledProgress));
 
     GDALDestroyScaledProgress(pScaledProgress);
 
@@ -1399,16 +1406,153 @@ GDALDataset *GDALCOGCreator::Create(const char *pszFilename,
 }
 
 /************************************************************************/
-/*                            COGCreateCopy()                           */
+/*                           COGCreateCopy()                            */
 /************************************************************************/
 
 static GDALDataset *COGCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
-                                  int /*bStrict*/, char **papszOptions,
+                                  int /*bStrict*/, CSLConstList papszOptions,
                                   GDALProgressFunc pfnProgress,
                                   void *pProgressData)
 {
-    return GDALCOGCreator().Create(pszFilename, poSrcDS, papszOptions,
-                                   pfnProgress, pProgressData);
+    return GDALCOGCreator()
+        .Create(pszFilename, poSrcDS, papszOptions, pfnProgress, pProgressData)
+        .release();
+}
+
+/************************************************************************/
+/*                           COGProxyDataset                            */
+/************************************************************************/
+
+class COGProxyDataset final : public GDALProxyDataset
+{
+  public:
+    COGProxyDataset(GDALDriver *poCOGDriver, const char *pszFilename,
+                    CSLConstList papszOptions,
+                    std::unique_ptr<GDALDataset> poGTiffTmpDS)
+        : m_poCOGDriver(poCOGDriver), m_osFilename(pszFilename),
+          m_aosOptions(papszOptions), m_poGTiffTmpDS(std::move(poGTiffTmpDS))
+    {
+        eAccess = GA_Update;
+        nRasterXSize = m_poGTiffTmpDS->GetRasterXSize();
+        nRasterYSize = m_poGTiffTmpDS->GetRasterYSize();
+        nBands = m_poGTiffTmpDS->GetRasterCount();
+        papoBands = static_cast<GDALRasterBand **>(
+            CPLMalloc(sizeof(GDALRasterBand *) * nBands));
+        for (int i = 0; i < nBands; ++i)
+            papoBands[i] = m_poGTiffTmpDS->GetRasterBand(i + 1);
+    }
+
+    ~COGProxyDataset() override;
+
+    CPLErr Close(GDALProgressFunc pfnProgress = nullptr,
+                 void *pProgressData = nullptr) override;
+
+    bool GetCloseReportsProgress() const override
+    {
+        return true;
+    }
+
+    GDALDriver *GetDriver() const override
+    {
+        return m_poCOGDriver;
+    }
+
+  protected:
+    GDALDataset *RefUnderlyingDataset() const override
+    {
+        return m_poGTiffTmpDS.get();
+    }
+
+  private:
+    GDALDriver *const m_poCOGDriver;
+    const std::string m_osFilename;
+    const CPLStringList m_aosOptions;
+    std::unique_ptr<GDALDataset> m_poGTiffTmpDS;
+
+    CPL_DISALLOW_COPY_ASSIGN(COGProxyDataset)
+};
+
+/************************************************************************/
+/*                 COGProxyDataset::~COGProxyDataset()                  */
+/************************************************************************/
+
+COGProxyDataset::~COGProxyDataset()
+{
+    COGProxyDataset::Close();
+}
+
+/************************************************************************/
+/*                               Close()                                */
+/************************************************************************/
+
+CPLErr COGProxyDataset::Close(GDALProgressFunc pfnProgress, void *pProgressData)
+{
+    CPLErr eErr = CE_None;
+    if (nOpenFlags != OPEN_FLAGS_CLOSED)
+    {
+        if (IsMarkedSuppressOnClose())
+        {
+            m_poGTiffTmpDS->MarkSuppressOnClose();
+        }
+        else if (!GDALCOGCreator().Create(
+                     m_osFilename.c_str(), m_poGTiffTmpDS.get(),
+                     m_aosOptions.List(), pfnProgress, pProgressData))
+
+        {
+            eErr = CE_Failure;
+        }
+
+        eErr = GDAL::Combine(eErr, m_poGTiffTmpDS->Close());
+        m_poGTiffTmpDS.reset();
+
+        CPLFree(papoBands);
+        papoBands = nullptr;
+        nBands = 0;
+
+        eErr = GDAL::Combine(eErr, GDALDataset::Close());
+    }
+    return eErr;
+}
+
+/************************************************************************/
+/*                             COGCreate()                              */
+/************************************************************************/
+
+static GDALDataset *COGCreate(const char *pszFilename, int nXSize, int nYSize,
+                              int nBands, GDALDataType eType,
+                              CSLConstList papszOptions)
+{
+    const std::string osTmpFile(GetTmpFilename(pszFilename, "create.tif"));
+    CPLStringList aosOptions;
+    aosOptions.SetNameValue("@CREATE_ONLY_VISIBLE_AT_CLOSE_TIME", "YES");
+    aosOptions.SetNameValue("@SUPPRESS_ASAP", "YES");
+    aosOptions.SetNameValue("TILED", "YES");
+    const char *pszBlockSize =
+        CSLFetchNameValueDef(papszOptions, "BLOCKSIZE", "512");
+    aosOptions.SetNameValue("BLOCKXSIZE", pszBlockSize);
+    aosOptions.SetNameValue("BLOCKYSIZE", pszBlockSize);
+
+    bool bHasLZW = false;
+    bool bHasDEFLATE = false;
+    bool bHasLZMA = false;
+    bool bHasZSTD = false;
+    bool bHasJPEG = false;
+    bool bHasWebP = false;
+    bool bHasLERC = false;
+    CPL_IGNORE_RET_VAL(GTiffGetCompressValues(bHasLZW, bHasDEFLATE, bHasLZMA,
+                                              bHasZSTD, bHasJPEG, bHasWebP,
+                                              bHasLERC, true /* bForCOG */));
+    aosOptions.SetNameValue("COMPRESS", bHasZSTD ? "ZSTD" : "LZW");
+
+    auto poGTiffTmpDS = std::unique_ptr<GDALDataset>(GTiffDataset::Create(
+        osTmpFile.c_str(), nXSize, nYSize, nBands, eType, aosOptions.List()));
+    if (!poGTiffTmpDS)
+        return nullptr;
+
+    auto poCOGDriver = GetGDALDriverManager()->GetDriverByName("COG");
+    return std::make_unique<COGProxyDataset>(
+               poCOGDriver, pszFilename, papszOptions, std::move(poGTiffTmpDS))
+        .release();
 }
 
 /************************************************************************/
@@ -1437,7 +1581,7 @@ class GDALCOGDriver final : public GDALDriver
     const char *GetMetadataItem(const char *pszName,
                                 const char *pszDomain) override;
 
-    char **GetMetadata(const char *pszDomain) override
+    CSLConstList GetMetadata(const char *pszDomain) override
     {
         std::lock_guard oLock(m_oMutex);
         InitializeCreationOptionList();
@@ -1661,6 +1805,155 @@ void GDALCOGDriver::InitializeCreationOptionList()
     SetMetadataItem(GDAL_DMD_CREATIONOPTIONLIST, osOptions.c_str());
 }
 
+/************************************************************************/
+/*                         COGValidateAlgorithm                         */
+/************************************************************************/
+
+#ifndef _
+#define _(x) x
+#endif
+
+class COGValidateAlgorithm final : public GDALAlgorithm
+{
+  public:
+    COGValidateAlgorithm()
+        : GDALAlgorithm("validate",
+                        "Validate if a TIFF file is a Cloud Optimized GeoTIFF",
+                        "/programs/gdal_driver_cog_validate.html")
+    {
+        constexpr int type = GDAL_OF_RASTER;
+        auto &arg = AddArg("dataset", 0, _("COG dataset"), &m_dataset, type)
+                        .AddAlias("input")
+                        .SetPositional()
+                        .SetRequired();
+        SetAutoCompleteFunctionForFilename(arg, type);
+
+        AddArg("full-check", 0, _("Whether to perform full check"),
+               &m_fullCheck)
+            .SetChoices("auto", "yes", "no")
+            .SetDefault(m_fullCheck);
+
+        AddOutputStringArg(&m_output);
+        AddProgressArg();
+    }
+
+  protected:
+    bool RunImpl(GDALProgressFunc, void *) override;
+
+  private:
+    GDALArgDatasetValue m_dataset{};
+    std::string m_output{};
+    std::string m_fullCheck{"auto"};
+};
+
+/************************************************************************/
+/*                              RunImpl()                               */
+/************************************************************************/
+
+bool COGValidateAlgorithm::RunImpl(GDALProgressFunc, void *)
+{
+    auto poDS = m_dataset.GetDatasetRef();
+    CPLAssert(poDS);
+    auto poDriver = poDS->GetDriver();
+    if (!poDriver || !EQUAL(poDriver->GetDescription(), "GTIFF"))
+    {
+        ReportError(CE_Failure, CPLE_AppDefined, "%s is not a TIFF file",
+                    m_dataset.GetName().c_str());
+        return false;
+    }
+
+    if (!GDALPythonInitialize())
+        return false;
+
+    GIL_Holder oHolder(false);
+
+    const CPLString osModuleName(CPLSPrintf("cog_validate_module_%p", this));
+    PyObject *poCompiledString = Py_CompileString(
+        "from osgeo_utils.samples.validate_cloud_optimized_geotiff import "
+        "main, get_output_string\n",
+        osModuleName, Py_file_input);
+    if (poCompiledString == nullptr || PyErr_Occurred())
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "Couldn't compile code:\n%s",
+                 GetPyExceptionString().c_str());
+        return false;
+    }
+    PyObject *poModule =
+        PyImport_ExecCodeModule(osModuleName, poCompiledString);
+    Py_DecRef(poCompiledString);
+
+    if (poModule == nullptr || PyErr_Occurred())
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "%s",
+                 GetPyExceptionString().c_str());
+        return false;
+    }
+
+    PyObject *poMain = PyObject_GetAttrString(poModule, "main");
+    CPLAssert(poMain);
+    PyObject *poGetOutput =
+        PyObject_GetAttrString(poModule, "get_output_string");
+    CPLAssert(poGetOutput);
+
+    Py_DecRef(poModule);
+
+    PyObject *pyArgv = PyTuple_New(3);
+    PyTuple_SetItem(pyArgv, 0, PyUnicode_FromString("dummy"));
+    PyTuple_SetItem(pyArgv, 1,
+                    PyUnicode_FromString(m_dataset.GetName().c_str()));
+    PyTuple_SetItem(
+        pyArgv, 2,
+        PyUnicode_FromString(("--full-check=" + m_fullCheck).c_str()));
+    PyObject *pyKwargs = PyDict_New();
+    PyDict_SetItemString(pyKwargs, "argv", pyArgv);
+    PyDict_SetItemString(pyKwargs, "output_in_string", PyBool_FromLong(true));
+    PyObject *pyArgs = PyTuple_New(0);
+    PyObject *pRetValue = PyObject_Call(poMain, pyArgs, pyKwargs);
+    const auto nRetValue = pRetValue ? PyLong_AsLong(pRetValue) : -1;
+    Py_DecRef(pyArgs);
+    Py_DecRef(pyKwargs);
+    Py_DecRef(pRetValue);
+
+    if (!m_quiet || nRetValue)
+    {
+        pyArgs = PyTuple_New(0);
+        pyKwargs = PyDict_New();
+        PyObject *poMsg = PyObject_Call(poGetOutput, pyArgs, pyKwargs);
+        Py_DecRef(pyArgs);
+        Py_DecRef(pyKwargs);
+        if (poMsg)
+            m_output = GetString(poMsg);
+        Py_DecRef(poMsg);
+    }
+
+    Py_DecRef(poMain);
+    Py_DecRef(poGetOutput);
+
+    if (nRetValue && !IsCalledFromCommandLine())
+    {
+        ReportError(CE_Failure, CPLE_AppDefined, "%s", m_output.c_str());
+    }
+
+    return nRetValue == 0;
+}
+
+/************************************************************************/
+/*                   COGDriverInstantiateAlgorithm()                    */
+/************************************************************************/
+
+static GDALAlgorithm *
+COGDriverInstantiateAlgorithm(const std::vector<std::string> &aosPath)
+{
+    if (aosPath.size() == 1 && aosPath[0] == "validate")
+    {
+        return std::make_unique<COGValidateAlgorithm>().release();
+    }
+    else
+    {
+        return nullptr;
+    }
+}
+
 void GDALRegister_COG()
 
 {
@@ -1691,6 +1984,10 @@ void GDALRegister_COG()
     poDriver->SetMetadataItem(GDAL_DCAP_COORDINATE_EPOCH, "YES");
 
     poDriver->pfnCreateCopy = COGCreateCopy;
+    poDriver->pfnCreate = COGCreate;
+
+    poDriver->pfnInstantiateAlgorithm = COGDriverInstantiateAlgorithm;
+    poDriver->DeclareAlgorithm({"validate"});
 
     GetGDALDriverManager()->RegisterDriver(poDriver);
 }
