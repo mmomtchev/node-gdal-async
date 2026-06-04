@@ -812,18 +812,17 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::srsGetter) {
 
   GDALAsyncableJob<OGRSpatialReference *> job(ds->uid);
 
-  job.main = [raw](const GDALExecutionProgress &) {
-    // get projection wkt and return null if not set
-    OGRChar *wkt = (OGRChar *)raw->GetProjectionRef();
-    if (*wkt == '\0') {
-      // getProjectionRef returns string of length 0 if no srs set
-      return (OGRSpatialReference *)nullptr;
-    }
-    // otherwise construct and return SpatialReference from wkt
-    OGRSpatialReference *srs = new OGRSpatialReference();
-    int err = srs->importFromWkt(&wkt);
-    if (err) throw getOGRErrMsg(err);
-    return srs;
+  job.main = [raw](const GDALExecutionProgress &) -> OGRSpatialReference * {
+    // The pointer returned references an ephemere object
+    // We immediately copy it in order to avoid storing
+    // it in the Object Store.
+    // Alternatively, this could have been stored as
+    // children in the Object Store Dataset object, but
+    // an SRS is a standalone object and does not have a parent
+    // (unlike a RasterBand).
+    auto *srs = raw->GetSpatialRef();
+    if (srs == nullptr) return nullptr;
+    return srs->Clone();
   };
 
   job.rval = [](OGRSpatialReference *srs, const GetFromPersistentFunc &) {

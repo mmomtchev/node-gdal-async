@@ -66,6 +66,7 @@ jobs:
         linux-version:
           - ubuntu:22.04
           - ubuntu:24.04
+          - ubuntu:26.04
           - debian:bullseye
           - fedora:42
           # CentOS is disabled because of
@@ -74,16 +75,16 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
-    - name: Use Node.js 20.x
+    - name: Use Node.js 24.x
       uses: actions/setup-node@v6
       with:
-        node-version: 20.x
+        node-version: 24.x
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         max-size: 1000M
         key: distros-shared-${{ matrix.linux-version }}
-    - run: npm run container dev ${{ matrix.linux-version }} 20 shared
+    - run: npm run container dev ${{ matrix.linux-version }} 24 shared
       env:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
 
