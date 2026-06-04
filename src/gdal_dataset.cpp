@@ -810,14 +810,11 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::srsGetter) {
 
   GDALDataset *raw = ds->get();
 
-  GDALAsyncableJob<OGRSpatialReference const *> job(ds->uid);
+  GDALAsyncableJob<const OGRSpatialReference *> job(ds->uid);
 
-  job.main = [raw](const GDALExecutionProgress &) {
-    auto *srs = raw->GetSpatialRef();
-    return srs;
-  };
+  job.main = [raw](const GDALExecutionProgress &) { return raw->GetSpatialRef(); };
 
-  job.rval = [](OGRSpatialReference const *srs, const GetFromPersistentFunc &) {
+  job.rval = [](const OGRSpatialReference *srs, const GetFromPersistentFunc &) {
     if (srs != nullptr)
       return SpatialReference::New(srs);
     else
