@@ -453,7 +453,8 @@ describe('gdal', () => {
         }
 
         assert.throws(() => {
-          gdal.suggestedWarpOutput(options)
+          const output = gdal.suggestedWarpOutput(options)
+          console.log(output, output.geoTransform, output.rasterSize)
           // gdal has a different error message between versions
         }, /(Cannot find coordinate operations from)|(Mercator_1SP)|(Error converting s_srs to WKT)/)
       })

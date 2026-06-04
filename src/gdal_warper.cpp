@@ -462,6 +462,7 @@ GDAL_ASYNCABLE_DEFINE(Warper::suggestedWarpOutput) {
     }
 
     CPLErr err = GDALSuggestedWarpOutput(gdal_ds, pfnTransformer, hTransformArg, r.geotransform, &r.w, &r.h);
+    printf("err = %d\n", (int)err);
 
     GDALDestroyGenImgProjTransformer(hGenTransformArg);
     if (maxError > 0.0) { GDALDestroyApproxTransformer(hTransformArg); }
