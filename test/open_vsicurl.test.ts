@@ -52,7 +52,7 @@ describe('Open', () => {
 
     after(() => ds && ds.close())
 
-    it('should not throw', () => {
+    before('should not throw', () => {
       ds = gdal.open('/vsigzip//vsicurl/https://s3.amazonaws.com/elevation-tiles-prod/skadi/N40/N40E001.hgt.gz')
     })
 
@@ -63,7 +63,13 @@ describe('Open', () => {
     })
 
     it('should have projection', () => {
-      assert.isTrue(ds.srs?.isSame(gdal.SpatialReference.fromEPSG(4326)))
+      // Starting with gdal-async 3.13, the axis order is
+      // correctly preserved when retrieving the SRS
+      // Converting it to WKT and back allows to ignore this information
+      // TODO: Implement isSame with options
+      const epsg4326 = gdal.SpatialReference.fromEPSG(4326)
+      const srs = gdal.SpatialReference.fromWKT(ds.srs?.toWKT() as string)
+      assert.isTrue(srs.isSame(epsg4326))
     })
   })
 })
