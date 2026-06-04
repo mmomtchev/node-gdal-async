@@ -810,25 +810,16 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::srsGetter) {
 
   GDALDataset *raw = ds->get();
 
-  GDALAsyncableJob<OGRSpatialReference *> job(ds->uid);
+  GDALAsyncableJob<OGRSpatialReference const *> job(ds->uid);
 
   job.main = [raw](const GDALExecutionProgress &) {
-    // get projection wkt and return null if not set
-    OGRChar *wkt = (OGRChar *)raw->GetProjectionRef();
-    if (*wkt == '\0') {
-      // getProjectionRef returns string of length 0 if no srs set
-      return (OGRSpatialReference *)nullptr;
-    }
-    // otherwise construct and return SpatialReference from wkt
-    OGRSpatialReference *srs = new OGRSpatialReference();
-    int err = srs->importFromWkt(&wkt);
-    if (err) throw getOGRErrMsg(err);
+    auto *srs = raw->GetSpatialRef();
     return srs;
   };
 
-  job.rval = [](OGRSpatialReference *srs, const GetFromPersistentFunc &) {
+  job.rval = [](OGRSpatialReference const *srs, const GetFromPersistentFunc &) {
     if (srs != nullptr)
-      return SpatialReference::New(srs, true);
+      return SpatialReference::New(srs);
     else
       return Nan::Null().As<Value>();
   };

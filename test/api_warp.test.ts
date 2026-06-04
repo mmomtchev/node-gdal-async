@@ -455,7 +455,7 @@ describe('gdal', () => {
         assert.throws(() => {
           gdal.suggestedWarpOutput(options)
           // gdal has a different error message between versions
-        }, /(Cannot find coordinate operations from)|(Mercator_1SP)/)
+        }, /(Cannot find coordinate operations from)|(Mercator_1SP)|(Error converting s_srs to WKT)/)
       })
     })
   })
