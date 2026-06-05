@@ -1,11 +1,14 @@
 {
   "compilerOptions": {
-    "downlevelIteration": true,
     "target": "es2020",
-    "moduleResolution": "node",
-    "module": "commonjs",
+    "moduleResolution": "node16",
+    "module": "node16",
     "esModuleInterop": true,
     "strict": true,
+    "types": [
+      "node",
+      "mocha"
+    ],
     "strictNullChecks": true
   },
   "include": [
