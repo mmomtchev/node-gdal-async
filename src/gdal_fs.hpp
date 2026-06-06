@@ -28,6 +28,7 @@ namespace VSI {
 void Initialize(Local<Object> target);
 GDAL_ASYNCABLE_GLOBAL(stat);
 GDAL_ASYNCABLE_GLOBAL(readDir);
+static NAN_METHOD(clearCurlCache);
 
 } // namespace VSI
 } // namespace node_gdal

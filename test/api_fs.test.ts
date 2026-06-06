@@ -52,4 +52,11 @@ describe('gdal.fs', () => {
       assert.isRejected(gdal.fs.readDirAsync(path.resolve(__dirname, 'data2')))
     )
   })
+  describe('clearCurlCache()', () => {
+    it('should be callable and not throw', () => {
+      assert.doesNotThrow(() => {
+        gdal.fs.clearCurlCache()
+      })
+    })
+  })
 })
