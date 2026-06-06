@@ -321,10 +321,6 @@ static inline int64_t findHighest(int64_t w, int64_t h, int64_t px, int64_t ln, 
  * @return {Promise<T>} A `TypedArray` of values.
  */
 GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
-#ifdef DEBUG_MACOS_FREEZE
-  printf("RasterBandPixels::read start\n");
-#endif
-
   RasterBand *band;
   if ((band = parent(info)) == nullptr) return;
 
@@ -406,9 +402,6 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
   }
 
   GDALRasterBand *gdal_band = band->get();
-#ifdef DEBUG_MACOS_FREEZE
-  printf("RasterBandPixels::read acquire dataset\n");
-#endif
   GDALAsyncableJob<CPLErr> job(band->parent_uid);
   job.persist("array", obj);
   job.persist(band->handle());
@@ -417,9 +410,6 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
   data = (uint8_t *)data + offset * bytes_per_pixel;
   job.main = [gdal_band, x, y, w, h, data, buffer_w, buffer_h, type, pixel_space, line_space, resampling, cb](
                const GDALExecutionProgress &progress) {
-#ifdef DEBUG_MACOS_FREEZE
-    printf("RasterBandPixels::read execute\n");
-#endif
     std::shared_ptr<GDALRasterIOExtraArg> extra(new GDALRasterIOExtraArg);
     INIT_RASTERIO_EXTRA_ARG(*extra);
     extra->eResampleAlg = resampling;
@@ -431,23 +421,14 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
     CPLErrorReset();
     CPLErr err =
       gdal_band->RasterIO(GF_Read, x, y, w, h, data, buffer_w, buffer_h, type, pixel_space, line_space, extra.get());
-#ifdef DEBUG_MACOS_FREEZE
-    printf("RasterBandPixels::read RasterIO done, err = %d\n", (int)err);
-#endif
 
     if (err != CE_None) throw CPLGetLastErrorMsg();
     return err;
   };
 
   job.rval = [](CPLErr err, const GetFromPersistentFunc &getter) {
-#ifdef DEBUG_MACOS_FREEZE
-    printf("RasterBandPixels::read return result to JS\n");
-#endif
     return getter("array");
   };
-#ifdef DEBUG_MACOS_FREEZE
-  printf("RasterBandPixels::read schedule\n");
-#endif
   job.run(info, async, 13);
 }
 
