@@ -91,11 +91,18 @@ std::shared_ptr<RETURN[]> NumberArrayToSharedPtr(Local<Array> array, size_t coun
     get##Async,                                                                                                        \
     READ_ONLY_SETTER,                                                                                                  \
     Local<Value>(),                                                                                                    \
-    DEFAULT,                                                                                                           \
+    AccessControl::DEFAULT,                                                                                            \
     DontEnum);
 
 #define ATTR_DONT_ENUM(t, name, get, set)                                                                              \
-  Nan::SetAccessor(t->InstanceTemplate(), Nan::New(name).ToLocalChecked(), get, set, Local<Value>(), DEFAULT, DontEnum);
+  Nan::SetAccessor(                                                                                                    \
+    t->InstanceTemplate(),                                                                                             \
+    Nan::New(name).ToLocalChecked(),                                                                                   \
+    get,                                                                                                               \
+    set,                                                                                                               \
+    Local<Value>(),                                                                                                    \
+    AccessControl::DEFAULT,                                                                                            \
+    DontEnum);
 
 NAN_SETTER(READ_ONLY_SETTER);
 
