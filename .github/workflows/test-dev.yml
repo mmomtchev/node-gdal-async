@@ -24,10 +24,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-    - name: Use Node.js 20.x
+    - name: Use Node.js 24.x
       uses: actions/setup-node@v6
       with:
-        node-version: 20.x
+        node-version: 24.x
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
@@ -67,7 +67,7 @@ jobs:
           - ubuntu:22.04
           - ubuntu:24.04
           - ubuntu:26.04
-          - debian:bullseye
+          - debian:bookworm
           - fedora:42
           # CentOS is disabled because of
           # https://bugzilla.redhat.com/show_bug.cgi?id=2376350
@@ -126,16 +126,16 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-    - name: Use Node.js 20.x
+    - name: Use Node.js 24.x
       uses: actions/setup-node@v6
       with:
-        node-version: 20.x
+        node-version: 24.x
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         max-size: 1000M
         key: node-${{ matrix.node-version }}
-    - run: npm run container dev debian:bullseye ${{ matrix.node-version }} ${{ matrix.gdal-version }}
+    - run: npm run container dev debian-archive:bullseye ${{ matrix.node-version }} ${{ matrix.gdal-version }}
       env:
         MOCHA_TEST_NETWORK: ${{ github.event.inputs.testNetwork }}
 
@@ -152,10 +152,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-    - name: Use Node.js 20.x
+    - name: Use Node.js 24.x
       uses: actions/setup-node@v6
       with:
-        node-version: 20.x
+        node-version: 24.x
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
@@ -172,10 +172,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-    - name: Use Node.js 20.x
+    - name: Use Node.js 24.x
       uses: actions/setup-node@v6
       with:
-        node-version: 20.x
+        node-version: 24.x
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
@@ -194,7 +194,7 @@ jobs:
       fail-fast: false
       matrix:
         mac-version: [ macos-15-intel, macos-15 ]
-        node-version: [ 20.x, 22.x, 24.x, 25.x ]
+        node-version: [ 20.x, 22.x, 24.x, 26.x ]
 
     steps:
     - uses: actions/checkout@v7
@@ -231,10 +231,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-    - name: Use Node.js 20.x
+    - name: Use Node.js 24.x
       uses: actions/setup-node@v6
       with:
-        node-version: 20.x
+        node-version: 24.x
     - uses: actions/setup-python@v7
       with:
         python-version: "3.11"
@@ -289,10 +289,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-    - name: Use Node.js 20.x
+    - name: Use Node.js 24.x
       uses: actions/setup-node@v6
       with:
-        node-version: 20.x
+        node-version: 24.x
     - run: npm install --ignore-scripts
     - run: npx @mapbox/node-pre-gyp configure --debug
     - name: Build from sources

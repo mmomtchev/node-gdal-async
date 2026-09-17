@@ -16,16 +16,16 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - ubuntu-22.04
           - ubuntu-24.04
+          - ubuntu-26.04
           - windows-2022
           - macos-14
           - macos-15-intel
           - macos-15
-        node-version: [ 20, 22, 24 ]
+        node-version: [ 22, 24, 26 ]
         include:
-          - platform: ubuntu-24.04
-            node-version: 25
+          - platform: ubuntu-22.04
+            node-version: 20
 
     steps:
     - name: Use Node.js ${{ matrix.node-version }}
@@ -59,11 +59,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ ubuntu-22.04, ubuntu-24.04, windows-2022, macos-15-intel, macos-15 ]
-        node-version: [ 20, 22, 24 ]
+        platform:
+          - ubuntu-24.04
+          - ubuntu-26.04
+          - windows-2022
+          - macos-14
+          - macos-15-intel
+          - macos-15
+        node-version: [ 22, 24, 26 ]
         include:
-          - platform: ubuntu-24.04
-            node-version: 25
+          - platform: ubuntu-22.04
+            node-version: 20
 
     steps:
     - name: Use Node.js ${{ matrix.node-version }}
