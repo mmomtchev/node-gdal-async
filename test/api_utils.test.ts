@@ -659,7 +659,7 @@ describe('gdal_utils', () => {
       console.time(this.currentTest?.title)
     })
     this.afterEach(function () {
-      process.stdout.write(`::notice title=${this.currentTest?.title}::message=`)
+      process.stdout.write(`::notice title=${this.currentTest?.title}::`)
       console.timeEnd(this.currentTest?.title)
     })
 
