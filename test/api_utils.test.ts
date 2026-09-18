@@ -653,7 +653,16 @@ describe('gdal_utils', () => {
     it('should throw if the Dataset object is of wrong type', () => assert.isRejected(gdal.demAsync('a', {} as gdal.Dataset, 'hillshade')))
   })
 
-  describe('calcAsync', () => {
+  describe('calcAsync', function () {
+    this.timeout('60s')
+    this.beforeEach(function () {
+      console.time(this.currentTest?.title)
+    })
+    this.afterEach(function () {
+      process.stdout.write(`::notice title=${this.currentTest?.title}::message=`)
+      console.timeEnd(this.currentTest?.title)
+    })
+
     it('should perform the given calculation', async () => {
       const tempFile = `/vsimem/cloudbase_${String(Math.random()).substring(2)}.tiff`
       const T2m = await gdal.openAsync(path.resolve(__dirname, 'data','AROME_T2m_10.tiff'))
