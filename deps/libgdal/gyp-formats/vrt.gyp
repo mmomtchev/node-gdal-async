@@ -36,7 +36,18 @@
 			"defines": [
 				"GDAL_VRT_ENABLE_EXPRTK=1",
 				"GDAL_VRT_ENABLE_MUPARSER=1"
-			]
+			],
+      "conditions": [
+				["OS == 'win'", {
+				  "msvs_settings": {
+            "VCCLCompilerTool": {
+              "AdditionalOptions": [
+								"/bigobj"
+              ]
+						}
+					}
+				}]
+      ]
 		}
 	]
 }
