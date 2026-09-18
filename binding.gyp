@@ -8,6 +8,11 @@
 		"enable_logging%": "false",
 		"enable_asan%": "false",
 		"enable_coverage%": "false",
+    "enable_thin_lto": "false",
+    "enable_lto": "false",
+    "lto_jobs": "",
+    "enable_pgo_generate": "false",
+    "enable_pgo_use": "false",
 		"sources_node_gdal": [
 				"src/utils/typed_array.cpp",
 				"src/utils/string_list.cpp",
