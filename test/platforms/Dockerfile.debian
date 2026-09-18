@@ -1,4 +1,4 @@
-ARG VERSION=bullseye
+ARG VERSION=bookworm
 FROM debian:${VERSION}
 
 ARG NODEJS=lts

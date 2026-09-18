@@ -1,4 +1,4 @@
-ARG VERSION=buster
+ARG VERSION=bullseye
 FROM debian:${VERSION}
 
 ARG NODEJS=lts

@@ -83,6 +83,11 @@ std::shared_ptr<RETURN[]> NumberArrayToSharedPtr(Local<Array> array, size_t coun
 
 #define ATTR(t, name, get, set) Nan::SetAccessor(t->InstanceTemplate(), Nan::New(name).ToLocalChecked(), get, set);
 
+#if defined(V8_MAJOR_VERSION) &&                                                                                       \
+  (V8_MAJOR_VERSION > 14 || (V8_MAJOR_VERSION == 14 && defined(V8_MINOR_VERSION) && V8_MINOR_VERSION >= 2))
+#define DEFAULT Nan::DEFAULT
+#endif
+
 #define ATTR_ASYNCABLE(t, name, get, set)                                                                              \
   Nan::SetAccessor(t->InstanceTemplate(), Nan::New(name).ToLocalChecked(), get, set);                                  \
   Nan::SetAccessor(                                                                                                    \

@@ -1843,7 +1843,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
   NODE_DEFINE_CONSTANT(target, CPLE_NoWriteAccess);
   NODE_DEFINE_CONSTANT(target, CPLE_UserInterrupt);
 
-  auto *env = GetCurrentEnvironment(target->GetIsolate()->GetCurrentContext());
+  auto *env = GetCurrentEnvironment(Nan::GetCurrentContext());
   AtExit(env, Cleanup, nullptr);
 }
 }

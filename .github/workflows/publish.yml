@@ -18,7 +18,7 @@ jobs:
       uses: actions/setup-node@v6
       with:
         node-version: 20.x
-    - run: npm run container publish debian:bullseye ${{ matrix.node-version }}
+    - run: npm run container publish debian-archive:bullseye ${{ matrix.node-version }}
       env:
         NODE_PRE_GYP_GITHUB_TOKEN: ${{ secrets.NODE_PRE_GYP_GITHUB_TOKEN }}
 
@@ -29,14 +29,14 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [ 25 ]
+        node-version: [ 26 ]
 
     steps:
     - uses: actions/checkout@v7
-    - name: Use Node.js 24.x
+    - name: Use Node.js 26.x
       uses: actions/setup-node@v6
       with:
-        node-version: 24.x
+        node-version: 26.x
     - run: npm run container publish debian:trixie ${{ matrix.node-version }}
       env:
         NODE_PRE_GYP_GITHUB_TOKEN: ${{ secrets.NODE_PRE_GYP_GITHUB_TOKEN }}
@@ -48,7 +48,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [ 20.x, 22.x, 24.x, 25.x ]
+        node-version: [ 20.x, 22.x, 24.x, 26.x ]
         platforms: [ windows-2022, macos-15-intel, macos-15 ]
 
     steps:
