@@ -74,7 +74,7 @@ NAN_METHOD(Group::New) {
 
   if (info.Length() > 1 && info[0]->IsExternal() && info[1]->IsObject()) {
     Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value();
+    void *ptr = ext->Value(V8_TYPE_TAG);
     Group *f = static_cast<Group *>(ptr);
     f->Wrap(info.This());
 

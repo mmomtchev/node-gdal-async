@@ -94,7 +94,7 @@ NAN_METHOD(Dataset::New) {
   }
   if (info[0]->IsExternal()) {
     Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value();
+    void *ptr = ext->Value(V8_TYPE_TAG);
     Dataset *f = static_cast<Dataset *>(ptr);
     f->Wrap(info.This());
 

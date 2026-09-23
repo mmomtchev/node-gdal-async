@@ -47,7 +47,7 @@ NAN_METHOD(LineStringPoints::New) {
   }
   if (info[0]->IsExternal()) {
     Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value();
+    void *ptr = ext->Value(V8_TYPE_TAG);
     LineStringPoints *geom = static_cast<LineStringPoints *>(ptr);
     geom->Wrap(info.This());
     info.GetReturnValue().Set(info.This());

@@ -58,7 +58,7 @@ class GroupCollection : public Nan::ObjectWrap {
     }
     if (info[0]->IsExternal()) {
       Local<External> ext = info[0].As<External>();
-      void *ptr = ext->Value();
+      void *ptr = ext->Value(V8_TYPE_TAG);
       SELF *f = static_cast<SELF *>(ptr);
       f->Wrap(info.This());
       info.GetReturnValue().Set(info.This());

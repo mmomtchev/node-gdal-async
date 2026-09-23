@@ -73,7 +73,7 @@ NAN_METHOD(RasterBandPixels::New) {
   }
   if (info[0]->IsExternal()) {
     Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value();
+    void *ptr = ext->Value(V8_TYPE_TAG);
     RasterBandPixels *f = static_cast<RasterBandPixels *>(ptr);
     f->Wrap(info.This());
     info.GetReturnValue().Set(info.This());
@@ -426,9 +426,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandPixels::read) {
     return err;
   };
 
-  job.rval = [](CPLErr err, const GetFromPersistentFunc &getter) {
-    return getter("array");
-  };
+  job.rval = [](CPLErr err, const GetFromPersistentFunc &getter) { return getter("array"); };
   job.run(info, async, 13);
 }
 

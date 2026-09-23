@@ -312,7 +312,6 @@ template <class GDALType> class GDALPromiseWorker : public GDALAsyncWorker<GDALT
 
     private:
   Nan::Persistent<v8::Promise::Resolver> *resolver_handle;
-  Nan::Persistent<v8::Context> *context_handle;
 
     public:
   explicit GDALPromiseWorker(
@@ -339,30 +338,36 @@ GDALPromiseWorker<GDALType>::GDALPromiseWorker(
   const std::map<std::string, v8::Local<v8::Object>> &objects,
   const std::vector<long> &ds_uids)
   : GDALAsyncWorker<GDALType>(nullptr, nullptr, doit, rval, objects, ds_uids) {
-  auto context = info.GetIsolate()->GetCurrentContext();
-  context_handle = new Nan::Persistent<v8::Context>(context);
+  auto context = Nan::GetCurrentContext();
   auto resolver = v8::Promise::Resolver::New(context).ToLocalChecked();
   resolver_handle = new Nan::Persistent<v8::Promise::Resolver>(resolver);
 }
 
 template <class GDALType> void GDALPromiseWorker<GDALType>::HandleOKCallback() {
   Nan::HandleScope scope;
-  v8::Local<v8::Context> context = Nan::New(*context_handle);
+#if defined(NODE_MAJOR_VERSION) && NODE_MAJOR_VERSION >= 26
+  v8::Local<v8::Object> async_resource = Nan::New(Nan::AsyncWorker::persistentHandle);
+  node::CallbackScope callbackScope(v8::Isolate::GetCurrent(), async_resource, {0, 0});
+#endif
+  auto context = Nan::GetCurrentContext();
   v8::Local<v8::Promise::Resolver> resolver = Nan::New(*resolver_handle);
   resolver->Resolve(context, this->ProduceRVal()).FromJust();
 }
 
 template <class GDALType> void GDALPromiseWorker<GDALType>::HandleErrorCallback() {
   Nan::HandleScope scope;
-  v8::Local<v8::Context> context = Nan::New(*context_handle);
+
+#if defined(NODE_MAJOR_VERSION) && NODE_MAJOR_VERSION >= 26
+  v8::Local<v8::Object> async_resource = Nan::New(Nan::AsyncWorker::persistentHandle);
+  node::CallbackScope callbackScope(v8::Isolate::GetCurrent(), async_resource, {0, 0});
+#endif
+  auto context = Nan::GetCurrentContext();
   v8::Local<v8::Promise::Resolver> resolver = Nan::New(*resolver_handle);
   resolver->Reject(context, Nan::Error(this->ErrorMessage())).FromJust();
 }
 
 template <class GDALType> GDALPromiseWorker<GDALType>::~GDALPromiseWorker() {
-  context_handle->Reset();
   resolver_handle->Reset();
-  delete context_handle;
   delete resolver_handle;
 }
 

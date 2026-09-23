@@ -70,7 +70,7 @@ NAN_METHOD(Attribute::New) {
 
   if (info.Length() == 1 && info[0]->IsExternal()) {
     Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value();
+    void *ptr = ext->Value(V8_TYPE_TAG);
     Attribute *f = static_cast<Attribute *>(ptr);
     f->Wrap(info.This());
 

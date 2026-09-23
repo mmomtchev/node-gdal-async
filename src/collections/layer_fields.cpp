@@ -48,7 +48,7 @@ NAN_METHOD(LayerFields::New) {
   }
   if (info[0]->IsExternal()) {
     Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value();
+    void *ptr = ext->Value(V8_TYPE_TAG);
     LayerFields *layer = static_cast<LayerFields *>(ptr);
     layer->Wrap(info.This());
     info.GetReturnValue().Set(info.This());
