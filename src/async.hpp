@@ -312,8 +312,6 @@ template <class GDALType> class GDALPromiseWorker : public GDALAsyncWorker<GDALT
 
     private:
   Nan::Persistent<v8::Promise::Resolver> *resolver_handle;
-  Nan::Persistent<v8::Context> *context_handle;
-  v8::Isolate *isolate_;
 
     public:
   explicit GDALPromiseWorker(
@@ -321,8 +319,7 @@ template <class GDALType> class GDALPromiseWorker : public GDALAsyncWorker<GDALT
     const GDALMainFunc &doit,
     const GDALRValFunc &rval,
     const std::map<std::string, v8::Local<v8::Object>> &objects,
-    const std::vector<long> &ds_uids,
-    v8::Isolate *isolate);
+    const std::vector<long> &ds_uids);
 
   ~GDALPromiseWorker();
 
@@ -339,36 +336,33 @@ GDALPromiseWorker<GDALType>::GDALPromiseWorker(
   const GDALMainFunc &doit,
   const GDALRValFunc &rval,
   const std::map<std::string, v8::Local<v8::Object>> &objects,
-  const std::vector<long> &ds_uids,
-  v8::Isolate *isolate)
+  const std::vector<long> &ds_uids)
   : GDALAsyncWorker<GDALType>(nullptr, nullptr, doit, rval, objects, ds_uids) {
   auto context = Nan::GetCurrentContext();
-  context_handle = new Nan::Persistent<v8::Context>(context);
   auto resolver = v8::Promise::Resolver::New(context).ToLocalChecked();
   resolver_handle = new Nan::Persistent<v8::Promise::Resolver>(resolver);
-  isolate_ = isolate;
 }
 
 template <class GDALType> void GDALPromiseWorker<GDALType>::HandleOKCallback() {
   Nan::HandleScope scope;
-  v8::Local<v8::Context> context = Nan::New(*context_handle);
+  v8::Local<v8::Object> async_resource = Nan::New(Nan::AsyncWorker::persistentHandle);
+  node::CallbackScope callbackScope(v8::Isolate::GetCurrent(), async_resource, {0, 0});
+  auto context = Nan::GetCurrentContext();
   v8::Local<v8::Promise::Resolver> resolver = Nan::New(*resolver_handle);
   resolver->Resolve(context, this->ProduceRVal()).FromJust();
-  context->GetMicrotaskQueue()->PerformCheckpoint(isolate_);
 }
 
 template <class GDALType> void GDALPromiseWorker<GDALType>::HandleErrorCallback() {
   Nan::HandleScope scope;
-  v8::Local<v8::Context> context = Nan::New(*context_handle);
+  v8::Local<v8::Object> async_resource = Nan::New(Nan::AsyncWorker::persistentHandle);
+  node::CallbackScope callbackScope(v8::Isolate::GetCurrent(), async_resource, {0, 0});
+  auto context = Nan::GetCurrentContext();
   v8::Local<v8::Promise::Resolver> resolver = Nan::New(*resolver_handle);
   resolver->Reject(context, Nan::Error(this->ErrorMessage())).FromJust();
-  context->GetMicrotaskQueue()->PerformCheckpoint(isolate_);
 }
 
 template <class GDALType> GDALPromiseWorker<GDALType>::~GDALPromiseWorker() {
-  context_handle->Reset();
   resolver_handle->Reset();
-  delete context_handle;
   delete resolver_handle;
 }
 
@@ -449,8 +443,7 @@ template <class GDALType> class GDALAsyncableJob {
   void run(Nan::NAN_GETTER_ARGS_TYPE info, bool async) {
     if (!info.This().IsEmpty() && info.This()->IsObject()) persist("this", info.This());
     if (async) {
-      auto isolate = info.GetIsolate();
-      auto worker = new GDALPromiseWorker<GDALType>(info, main, rval, persistent, ds_uids, isolate);
+      auto worker = new GDALPromiseWorker<GDALType>(info, main, rval, persistent, ds_uids);
       info.GetReturnValue().Set(worker->Promise());
       Nan::AsyncQueueWorker(worker);
       return;
