@@ -79,7 +79,7 @@ NAN_METHOD(MDArray::New) {
 
   if (info.Length() == 2 && info[0]->IsExternal() && info[1]->IsObject()) {
     Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value();
+    void *ptr = ext->Value(V8_TYPE_TAG);
     MDArray *f = static_cast<MDArray *>(ptr);
     f->Wrap(info.This());
 

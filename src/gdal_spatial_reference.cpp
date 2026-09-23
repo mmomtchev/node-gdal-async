@@ -109,7 +109,7 @@ NAN_METHOD(SpatialReference::New) {
 
   if (info[0]->IsExternal()) {
     Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value();
+    void *ptr = ext->Value(V8_TYPE_TAG);
     f = static_cast<SpatialReference *>(ptr);
     f->Wrap(info.This());
   } else {

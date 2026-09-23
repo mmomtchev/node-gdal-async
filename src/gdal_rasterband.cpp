@@ -102,7 +102,7 @@ NAN_METHOD(RasterBand::New) {
 
   if (info[0]->IsExternal()) {
     Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value();
+    void *ptr = ext->Value(V8_TYPE_TAG);
     RasterBand *f = static_cast<RasterBand *>(ptr);
     f->Wrap(info.This());
 

@@ -45,7 +45,7 @@ NAN_METHOD(CompoundCurveCurves::New) {
   }
   if (info[0]->IsExternal()) {
     Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value();
+    void *ptr = ext->Value(V8_TYPE_TAG);
     CompoundCurveCurves *geom = static_cast<CompoundCurveCurves *>(ptr);
     geom->Wrap(info.This());
     info.GetReturnValue().Set(info.This());
