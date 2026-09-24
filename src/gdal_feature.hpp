@@ -2,49 +2,46 @@
 #define __NODE_OGR_FEATURE_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "nan-wrapper.h"
+#include "gdal_common.hpp"
 
 // ogr
 #include <ogrsf_frmts.h>
 
 #include <ogr_featurestyle.h>
-using namespace v8;
-using namespace node;
 
 namespace node_gdal {
 
-class Feature : public Nan::ObjectWrap {
+class Feature : public GDALObject<Feature> {
     public:
-  static Nan::Persistent<FunctionTemplate> constructor;
-  static void Initialize(Local<Object> target);
-  static NAN_METHOD(New);
-  static Local<Value> New(OGRFeature *feature);
-  static Local<Value> New(OGRFeature *feature, bool owned);
-  static NAN_METHOD(toString);
-  static NAN_METHOD(getGeometry);
-  //	static NAN_METHOD(setGeometryDirectly);
-  static NAN_METHOD(setGeometry);
-  //  static NAN_METHOD(stealGeometry);
-  static NAN_METHOD(clone);
-  static NAN_METHOD(equals);
-  static NAN_METHOD(getFieldDefn);
-  static NAN_METHOD(setFrom);
-  static NAN_METHOD(destroy);
-  static NAN_METHOD(getStyleString);
-  static NAN_METHOD(setStyleString);
+  static Napi::FunctionReference constructor;
+  static void Initialize(Napi::Object target);
+  static Napi::Value New(OGRFeature *feature);
+  static Napi::Value New(OGRFeature *feature, bool owned);
+  static NAPI_METHOD(toString);
+  static NAPI_METHOD(getGeometry);
+  //	static NAPI_METHOD(setGeometryDirectly);
+  static NAPI_METHOD(setGeometry);
+  //  static NAPI_METHOD(stealGeometry);
+  static NAPI_METHOD(clone);
+  static NAPI_METHOD(equals);
+  static NAPI_METHOD(getFieldDefn);
+  static NAPI_METHOD(setFrom);
+  static NAPI_METHOD(destroy);
+  static NAPI_METHOD(getStyleString);
+  static NAPI_METHOD(setStyleString);
 
-  static NAN_GETTER(fieldsGetter);
-  static NAN_GETTER(fidGetter);
-  static NAN_GETTER(defnGetter);
+  static NAPI_GETTER(fieldsGetter);
+  static NAPI_GETTER(fidGetter);
+  static NAPI_GETTER(defnGetter);
 
-  static NAN_SETTER(fidSetter);
+  static NAPI_SETTER(fidSetter);
 
-  Feature();
-  Feature(OGRFeature *feature);
+  Feature(const Napi::CallbackInfo &info);
+
+  // Must be accessible: ObjectWrap's finalizer deletes the instance itself
+  ~Feature();
   inline OGRFeature *get() {
     return this_;
   }
@@ -54,7 +51,6 @@ class Feature : public Nan::ObjectWrap {
   void dispose();
 
     private:
-  ~Feature();
   OGRFeature *this_;
   bool owned_;
   // int size_;

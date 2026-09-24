@@ -8,28 +8,31 @@
 
 namespace node_gdal {
 
-Nan::Persistent<FunctionTemplate> Polygon::constructor;
+Napi::FunctionReference Polygon::constructor;
 
-void Polygon::Initialize(Local<Object> target) {
-  Nan::HandleScope scope;
+void Polygon::Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+  SELF_CLASS(Polygon);
 
-  Local<FunctionTemplate> lcons = Nan::New<FunctionTemplate>(Polygon::New);
-  lcons->Inherit(Nan::New(Geometry::constructor));
-  lcons->InstanceTemplate()->SetInternalFieldCount(1);
-  lcons->SetClassName(Nan::New("Polygon").ToLocalChecked());
+  // NOTE: the descriptor macros carry their own trailing comma
+  Napi::Function lcons = GDALDefineClass<SELF>(env, "Polygon",
+    {
+        METHOD(toString)
+        METHOD(getArea)
+        ATTR(lcons, "rings", ringsGetter, READ_ONLY_SETTER)
+    });
 
-  Nan::SetPrototypeMethod(lcons, "toString", toString);
-  Nan::SetPrototypeMethod(lcons, "getArea", getArea);
+  // lcons->Inherit() has no DefineClass equivalent
+  node_gdal::Inherit(lcons, Geometry::constructor.Value());
 
-  ATTR(lcons, "rings", ringsGetter, READ_ONLY_SETTER);
+  target.Set("Polygon", lcons);
 
-  Nan::Set(target, Nan::New("Polygon").ToLocalChecked(), Nan::GetFunction(lcons).ToLocalChecked());
-
-  constructor.Reset(lcons);
+  constructor = Napi::Persistent(lcons);
+  constructor.SuppressDestruct();
 }
 
-void Polygon::SetPrivate(Nan::ADDON_REGISTER_FUNCTION_ARGS_TYPE _this, v8::Local<v8::Value> value) {
-  Nan::SetPrivate(_this, Nan::New("rings_").ToLocalChecked(), value);
+void Polygon::SetPrivate(Napi::Object _this, Napi::Value value) {
+  GDAL_SET_PRIVATE(_this, "rings_", value);
 };
 
 /**
@@ -40,8 +43,8 @@ void Polygon::SetPrivate(Nan::ADDON_REGISTER_FUNCTION_ARGS_TYPE _this, v8::Local
  * @extends Geometry
  */
 
-NAN_METHOD(Polygon::toString) {
-  info.GetReturnValue().Set(Nan::New("Polygon").ToLocalChecked());
+NAPI_METHOD(Polygon::toString) {
+  return Napi::String::New(node_gdal::napi_env(), "Polygon");
 }
 
 /**
@@ -63,8 +66,8 @@ NODE_WRAPPED_METHOD_WITH_RESULT(Polygon, getArea, Number, get_Area);
  * @memberof Polygon
  * @type {PolygonRings}
  */
-NAN_GETTER(Polygon::ringsGetter) {
-  info.GetReturnValue().Set(Nan::GetPrivate(info.This(), Nan::New("rings_").ToLocalChecked()).ToLocalChecked());
+NAPI_GETTER(Polygon::ringsGetter) {
+  return GDAL_GET_PRIVATE(info.This(), "rings_");
 }
 
 } // namespace node_gdal

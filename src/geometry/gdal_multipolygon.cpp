@@ -9,23 +9,27 @@
 
 namespace node_gdal {
 
-Nan::Persistent<FunctionTemplate> MultiPolygon::constructor;
+Napi::FunctionReference MultiPolygon::constructor;
 
-void MultiPolygon::Initialize(Local<Object> target) {
-  Nan::HandleScope scope;
+void MultiPolygon::Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+  SELF_CLASS(MultiPolygon);
 
-  Local<FunctionTemplate> lcons = Nan::New<FunctionTemplate>(MultiPolygon::New);
-  lcons->Inherit(Nan::New(GeometryCollection::constructor));
-  lcons->InstanceTemplate()->SetInternalFieldCount(1);
-  lcons->SetClassName(Nan::New("MultiPolygon").ToLocalChecked());
+  // NOTE: the descriptor macros carry their own trailing comma
+  Napi::Function lcons = GDALDefineClass<SELF>(env, "MultiPolygon",
+    {
+        METHOD(toString)
+        METHOD(unionCascaded)
+        METHOD(getArea)
+    });
 
-  Nan::SetPrototypeMethod(lcons, "toString", toString);
-  Nan::SetPrototypeMethod(lcons, "unionCascaded", unionCascaded);
-  Nan::SetPrototypeMethod(lcons, "getArea", getArea);
+  // lcons->Inherit() has no DefineClass equivalent
+  node_gdal::Inherit(lcons, GeometryCollection::constructor.Value());
 
-  Nan::Set(target, Nan::New("MultiPolygon").ToLocalChecked(), Nan::GetFunction(lcons).ToLocalChecked());
+  target.Set("MultiPolygon", lcons);
 
-  constructor.Reset(lcons);
+  constructor = Napi::Persistent(lcons);
+  constructor.SuppressDestruct();
 }
 
 /**
@@ -34,8 +38,8 @@ void MultiPolygon::Initialize(Local<Object> target) {
  * @extends GeometryCollection
  */
 
-NAN_METHOD(MultiPolygon::toString) {
-  info.GetReturnValue().Set(Nan::New("MultiPolygon").ToLocalChecked());
+NAPI_METHOD(MultiPolygon::toString) {
+  return Napi::String::New(node_gdal::napi_env(), "MultiPolygon");
 }
 
 /**
@@ -46,16 +50,16 @@ NAN_METHOD(MultiPolygon::toString) {
  * @memberof MultiPolygon
  * @return {Geometry}
  */
-NAN_METHOD(MultiPolygon::unionCascaded) {
+NAPI_METHOD(MultiPolygon::unionCascaded) {
 
-  MultiPolygon *geom = Nan::ObjectWrap::Unwrap<MultiPolygon>(info.This());
+  MultiPolygon *geom = node_gdal::UnwrapWrapped<MultiPolygon>(info.This().As<Napi::Object>());
   auto r = geom->this_->UnionCascaded();
   if (r == nullptr) {
     NODE_THROW_LAST_CPLERR;
-    return;
+    return node_gdal::napi_env().Undefined();
   }
 
-  info.GetReturnValue().Set(Geometry::New(r));
+  return Geometry::New(r);
 }
 
 /**

@@ -2,11 +2,9 @@
 #define __NODE_GDAL_MDARRAY_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "nan-wrapper.h"
+#include "gdal_common.hpp"
 
 // gdal
 #include <gdal_priv.h>
@@ -18,35 +16,34 @@
 
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
 
-using namespace v8;
-using namespace node;
-
 namespace node_gdal {
 
-class MDArray : public Nan::ObjectWrap {
+class MDArray : public GDALObject<MDArray> {
     public:
-  static Nan::Persistent<FunctionTemplate> constructor;
-  static void Initialize(Local<Object> target);
-  static NAN_METHOD(New);
-  static Local<Value> New(std::shared_ptr<GDALMDArray> group, GDALDataset *parent_ds);
+  static Napi::FunctionReference constructor;
+  static void Initialize(Napi::Object target);
+  static Napi::Value New(std::shared_ptr<GDALMDArray> group, GDALDataset *parent_ds);
   GDAL_ASYNCABLE_DECLARE(read);
-  static NAN_METHOD(getView);
-  static NAN_METHOD(getMask);
-  static NAN_METHOD(asDataset);
-  static NAN_METHOD(toString);
-  static NAN_GETTER(typeGetter);
-  static NAN_GETTER(lengthGetter);
-  static NAN_GETTER(srsGetter);
-  static NAN_GETTER(unitTypeGetter);
-  static NAN_GETTER(scaleGetter);
-  static NAN_GETTER(offsetGetter);
-  static NAN_GETTER(noDataValueGetter);
-  static NAN_GETTER(dimensionsGetter);
-  static NAN_GETTER(descriptionGetter);
-  static NAN_GETTER(attributesGetter);
-  static NAN_GETTER(uidGetter);
+  static NAPI_METHOD(getView);
+  static NAPI_METHOD(getMask);
+  static NAPI_METHOD(asDataset);
+  static NAPI_METHOD(toString);
+  static NAPI_GETTER(typeGetter);
+  static NAPI_GETTER(lengthGetter);
+  static NAPI_GETTER(srsGetter);
+  static NAPI_GETTER(unitTypeGetter);
+  static NAPI_GETTER(scaleGetter);
+  static NAPI_GETTER(offsetGetter);
+  static NAPI_GETTER(noDataValueGetter);
+  static NAPI_GETTER(dimensionsGetter);
+  static NAPI_GETTER(descriptionGetter);
+  static NAPI_GETTER(attributesGetter);
+  static NAPI_GETTER(uidGetter);
 
-  MDArray(std::shared_ptr<GDALMDArray> ds);
+  MDArray(const Napi::CallbackInfo &info);
+
+  // Must be accessible: ObjectWrap's finalizer deletes the instance itself
+  ~MDArray();
   inline std::shared_ptr<GDALMDArray> get() {
     return this_;
   }
@@ -61,7 +58,6 @@ class MDArray : public Nan::ObjectWrap {
   }
 
     private:
-  ~MDArray();
   std::shared_ptr<GDALMDArray> this_;
   GDALDataset *parent_ds;
 };

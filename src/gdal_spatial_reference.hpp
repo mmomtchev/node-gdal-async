@@ -2,19 +2,14 @@
 #define __NODE_OGR_SPATIALREFERENCE_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "nan-wrapper.h"
+#include "gdal_common.hpp"
 
 // ogr
 #include <ogrsf_frmts.h>
 
 #include "async.hpp"
-
-using namespace v8;
-using namespace node;
 
 namespace node_gdal {
 
@@ -24,58 +19,58 @@ typedef char OGRChar;
 typedef const char OGRChar;
 #endif
 
-class SpatialReference : public Nan::ObjectWrap {
+class SpatialReference : public GDALObject<SpatialReference> {
     public:
-  static Nan::Persistent<FunctionTemplate> constructor;
-  static void Initialize(Local<Object> target);
-
-  static NAN_METHOD(New);
-  static Local<Value> New(const OGRSpatialReference *srs);
-  static Local<Value> New(OGRSpatialReference *srs, bool owned);
-  static NAN_METHOD(toString);
-  static NAN_METHOD(clone);
-  static NAN_METHOD(cloneGeogCS);
-  static NAN_METHOD(exportToWKT);
-  static NAN_METHOD(exportToPrettyWKT);
-  static NAN_METHOD(exportToProj4);
-  static NAN_METHOD(exportToXML);
-  static NAN_METHOD(setWellKnownGeogCS);
-  static NAN_METHOD(morphToESRI);
-  static NAN_METHOD(morphFromESRI);
-  static NAN_METHOD(EPSGTreatsAsLatLong);
-  static NAN_METHOD(EPSGTreatsAsNorthingEasting);
-  static NAN_METHOD(getLinearUnits);
-  static NAN_METHOD(getAngularUnits);
-  static NAN_METHOD(isGeocentric);
-  static NAN_METHOD(isGeographic);
-  static NAN_METHOD(isProjected);
-  static NAN_METHOD(isLocal);
-  static NAN_METHOD(isVertical);
-  static NAN_METHOD(isCompound);
-  static NAN_METHOD(isSameGeogCS);
-  static NAN_METHOD(isSameVertCS);
-  static NAN_METHOD(isSame);
-  static NAN_METHOD(autoIdentifyEPSG);
-  static NAN_METHOD(getAuthorityCode);
-  static NAN_METHOD(getAuthorityName);
-  static NAN_METHOD(getAttrValue);
-  static NAN_METHOD(validate);
+  static Napi::FunctionReference constructor;
+  static void Initialize(Napi::Object target);
+  static Napi::Value New(const OGRSpatialReference *srs);
+  static Napi::Value New(OGRSpatialReference *srs, bool owned);
+  static NAPI_METHOD(toString);
+  static NAPI_METHOD(clone);
+  static NAPI_METHOD(cloneGeogCS);
+  static NAPI_METHOD(exportToWKT);
+  static NAPI_METHOD(exportToPrettyWKT);
+  static NAPI_METHOD(exportToProj4);
+  static NAPI_METHOD(exportToXML);
+  static NAPI_METHOD(setWellKnownGeogCS);
+  static NAPI_METHOD(morphToESRI);
+  static NAPI_METHOD(morphFromESRI);
+  static NAPI_METHOD(EPSGTreatsAsLatLong);
+  static NAPI_METHOD(EPSGTreatsAsNorthingEasting);
+  static NAPI_METHOD(getLinearUnits);
+  static NAPI_METHOD(getAngularUnits);
+  static NAPI_METHOD(isGeocentric);
+  static NAPI_METHOD(isGeographic);
+  static NAPI_METHOD(isProjected);
+  static NAPI_METHOD(isLocal);
+  static NAPI_METHOD(isVertical);
+  static NAPI_METHOD(isCompound);
+  static NAPI_METHOD(isSameGeogCS);
+  static NAPI_METHOD(isSameVertCS);
+  static NAPI_METHOD(isSame);
+  static NAPI_METHOD(autoIdentifyEPSG);
+  static NAPI_METHOD(getAuthorityCode);
+  static NAPI_METHOD(getAuthorityName);
+  static NAPI_METHOD(getAttrValue);
+  static NAPI_METHOD(validate);
 
   GDAL_ASYNCABLE_DECLARE(fromUserInput);
-  static NAN_METHOD(fromWKT);
-  static NAN_METHOD(fromProj4);
-  static NAN_METHOD(fromEPSG);
-  static NAN_METHOD(fromEPSGA);
-  static NAN_METHOD(fromESRI);
-  static NAN_METHOD(fromWMSAUTO);
-  static NAN_METHOD(fromXML);
-  static NAN_METHOD(fromURN);
+  static NAPI_METHOD(fromWKT);
+  static NAPI_METHOD(fromProj4);
+  static NAPI_METHOD(fromEPSG);
+  static NAPI_METHOD(fromEPSGA);
+  static NAPI_METHOD(fromESRI);
+  static NAPI_METHOD(fromWMSAUTO);
+  static NAPI_METHOD(fromXML);
+  static NAPI_METHOD(fromURN);
   GDAL_ASYNCABLE_DECLARE(fromCRSURL);
   GDAL_ASYNCABLE_DECLARE(fromURL);
-  static NAN_METHOD(fromMICoordSys);
+  static NAPI_METHOD(fromMICoordSys);
 
-  SpatialReference();
-  SpatialReference(OGRSpatialReference *srs);
+  SpatialReference(const Napi::CallbackInfo &info);
+
+  // Must be accessible: ObjectWrap's finalizer deletes the instance itself
+  ~SpatialReference();
   inline OGRSpatialReference *get() {
     return this_;
   }
@@ -86,7 +81,6 @@ class SpatialReference : public Nan::ObjectWrap {
   long uid;
 
     private:
-  ~SpatialReference();
   OGRSpatialReference *this_;
   bool owned_;
 };

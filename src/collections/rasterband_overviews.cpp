@@ -4,26 +4,33 @@
 
 namespace node_gdal {
 
-Nan::Persistent<FunctionTemplate> RasterBandOverviews::constructor;
+Napi::FunctionReference RasterBandOverviews::constructor;
 
-void RasterBandOverviews::Initialize(Local<Object> target) {
-  Nan::HandleScope scope;
+void RasterBandOverviews::Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+  SELF_CLASS(RasterBandOverviews);
 
-  Local<FunctionTemplate> lcons = Nan::New<FunctionTemplate>(RasterBandOverviews::New);
-  lcons->InstanceTemplate()->SetInternalFieldCount(1);
-  lcons->SetClassName(Nan::New("RasterBandOverviews").ToLocalChecked());
+  // NOTE: the descriptor macros carry their own trailing comma
+  Napi::Function lcons = GDALDefineClass<SELF>(env, "RasterBandOverviews",
+    {
+        METHOD(toString)
+        METHOD_ASYNCABLE(count)
+        METHOD_ASYNCABLE(get)
+        METHOD_ASYNCABLE(getBySampleCount)
+    });
 
-  Nan::SetPrototypeMethod(lcons, "toString", toString);
-  Nan__SetPrototypeAsyncableMethod(lcons, "count", count);
-  Nan__SetPrototypeAsyncableMethod(lcons, "get", get);
-  Nan__SetPrototypeAsyncableMethod(lcons, "getBySampleCount", getBySampleCount);
+  target.Set("RasterBandOverviews", lcons);
 
-  Nan::Set(target, Nan::New("RasterBandOverviews").ToLocalChecked(), Nan::GetFunction(lcons).ToLocalChecked());
-
-  constructor.Reset(lcons);
+  constructor = Napi::Persistent(lcons);
+  constructor.SuppressDestruct();
 }
 
-RasterBandOverviews::RasterBandOverviews() : Nan::ObjectWrap() {
+RasterBandOverviews::RasterBandOverviews(const Napi::CallbackInfo &info) : GDALObject<RasterBandOverviews>(info) {
+  if (info.Length() < 1 || !info[0].IsObject()) {
+    Napi::Error::New(info.Env(), "Cannot create RasterBandOverviews directly").ThrowAsJavaScriptException();
+    return;
+  }
+  GDAL_SET_PRIVATE(info.This(), "parent_", info[0]);
 }
 
 RasterBandOverviews::~RasterBandOverviews() {
@@ -34,41 +41,17 @@ RasterBandOverviews::~RasterBandOverviews() {
  *
  * @class RasterBandOverviews
  */
-NAN_METHOD(RasterBandOverviews::New) {
 
-  if (!info.IsConstructCall()) {
-    Nan::ThrowError("Cannot call constructor as function, you need to use 'new' keyword");
-    return;
-  }
-  if (info[0]->IsExternal()) {
-    Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value(V8_TYPE_TAG);
-    RasterBandOverviews *f = static_cast<RasterBandOverviews *>(ptr);
-    f->Wrap(info.This());
-    info.GetReturnValue().Set(info.This());
-    return;
-  } else {
-    Nan::ThrowError("Cannot create RasterBandOverviews directly");
-    return;
-  }
+Napi::Value RasterBandOverviews::New(Napi::Value band_obj) {
+
+  std::vector<napi_value> args = {band_obj};
+  Napi::Object obj = RasterBandOverviews::constructor.Value().New(args);
+
+  return obj;
 }
 
-Local<Value> RasterBandOverviews::New(Local<Value> band_obj) {
-  Nan::EscapableHandleScope scope;
-
-  RasterBandOverviews *wrapped = new RasterBandOverviews();
-
-  v8::Local<v8::Value> ext = Nan::New<External>(wrapped);
-  v8::Local<v8::Object> obj =
-    Nan::NewInstance(Nan::GetFunction(Nan::New(RasterBandOverviews::constructor)).ToLocalChecked(), 1, &ext)
-      .ToLocalChecked();
-  Nan::SetPrivate(obj, Nan::New("parent_").ToLocalChecked(), band_obj);
-
-  return scope.Escape(obj);
-}
-
-NAN_METHOD(RasterBandOverviews::toString) {
-  info.GetReturnValue().Set(Nan::New("RasterBandOverviews").ToLocalChecked());
+NAPI_METHOD(RasterBandOverviews::toString) {
+  return Napi::String::New(node_gdal::napi_env(), "RasterBandOverviews");
 }
 
 /**
@@ -96,8 +79,8 @@ NAN_METHOD(RasterBandOverviews::toString) {
  */
 GDAL_ASYNCABLE_DEFINE(RasterBandOverviews::get) {
 
-  Local<Object> parent =
-    Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked()).ToLocalChecked().As<Object>();
+  Napi::Object parent =
+    GDAL_GET_PRIVATE(info.This(), "parent_").As<Napi::Object>();
 
   NODE_UNWRAP_CHECK(RasterBand, parent, band);
 
@@ -115,7 +98,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandOverviews::get) {
   job.rval = [band](GDALRasterBand *result, const GetFromPersistentFunc &) {
     return RasterBand::New(result, band->getParent());
   };
-  job.run(info, async, 1);
+  return job.run(info, async, 1);
 }
 
 /**
@@ -153,8 +136,8 @@ GDAL_ASYNCABLE_DEFINE(RasterBandOverviews::get) {
  */
 GDAL_ASYNCABLE_DEFINE(RasterBandOverviews::getBySampleCount) {
 
-  Local<Object> parent =
-    Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked()).ToLocalChecked().As<Object>();
+  Napi::Object parent =
+    GDAL_GET_PRIVATE(info.This(), "parent_").As<Napi::Object>();
   NODE_UNWRAP_CHECK(RasterBand, parent, band);
 
   int n_samples;
@@ -171,7 +154,7 @@ GDAL_ASYNCABLE_DEFINE(RasterBandOverviews::getBySampleCount) {
   job.rval = [band](GDALRasterBand *result, const GetFromPersistentFunc &) {
     return RasterBand::New(result, band->getParent());
   };
-  job.run(info, async, 1);
+  return job.run(info, async, 1);
 }
 
 /**
@@ -195,8 +178,8 @@ GDAL_ASYNCABLE_DEFINE(RasterBandOverviews::getBySampleCount) {
  */
 GDAL_ASYNCABLE_DEFINE(RasterBandOverviews::count) {
 
-  Local<Object> parent =
-    Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked()).ToLocalChecked().As<Object>();
+  Napi::Object parent =
+    GDAL_GET_PRIVATE(info.This(), "parent_").As<Napi::Object>();
   NODE_UNWRAP_CHECK(RasterBand, parent, band);
 
   GDALAsyncableJob<int> job(band->parent_uid);
@@ -205,8 +188,8 @@ GDAL_ASYNCABLE_DEFINE(RasterBandOverviews::count) {
     int count = band->get()->GetOverviewCount();
     return count;
   };
-  job.rval = [](int count, const GetFromPersistentFunc &) { return Nan::New<Integer>(count); };
-  job.run(info, async, 0);
+  job.rval = [](int count, const GetFromPersistentFunc &) { return Napi::Number::New(node_gdal::napi_env(), count); };
+  return job.run(info, async, 0);
 }
 
 } // namespace node_gdal

@@ -18,58 +18,59 @@ namespace node_gdal {
 
 namespace Algebra {
 
-void Initialize(Local<Object> target) {
-  Local<Object> algebra = Nan::New<Object>();
-  Nan::Set(target, Nan::New("algebra").ToLocalChecked(), algebra);
+void Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+  Napi::Object algebra = Napi::Object::New(env);
+  target.Set("algebra", algebra);
 
   // Unary ops
-  Nan__SetAsyncableMethod(algebra, "abs", abs);
-  Nan__SetAsyncableMethod(algebra, "sqrt", sqrt);
-  Nan__SetAsyncableMethod(algebra, "log", log);
-  Nan__SetAsyncableMethod(algebra, "log10", log10);
-  Nan__SetAsyncableMethod(algebra, "not", gdal_not);
+  GDAL_SetAsyncableMethod(env, algebra, "abs", abs);
+  GDAL_SetAsyncableMethod(env, algebra, "sqrt", sqrt);
+  GDAL_SetAsyncableMethod(env, algebra, "log", log);
+  GDAL_SetAsyncableMethod(env, algebra, "log10", log10);
+  GDAL_SetAsyncableMethod(env, algebra, "not", gdal_not);
 
   // Binary ops
-  Nan__SetAsyncableMethod(algebra, "add", add);
-  Nan__SetAsyncableMethod(algebra, "sub", sub);
-  Nan__SetAsyncableMethod(algebra, "mul", mul);
-  Nan__SetAsyncableMethod(algebra, "div", div);
-  Nan__SetAsyncableMethod(algebra, "pow", pow);
-  Nan__SetAsyncableMethod(algebra, "lt", lt);
-  Nan__SetAsyncableMethod(algebra, "lte", lte);
-  Nan__SetAsyncableMethod(algebra, "gt", gt);
-  Nan__SetAsyncableMethod(algebra, "gte", gte);
-  Nan__SetAsyncableMethod(algebra, "eq", eq);
-  Nan__SetAsyncableMethod(algebra, "notEq", notEq);
-  Nan__SetAsyncableMethod(algebra, "and", gdal_and);
-  Nan__SetAsyncableMethod(algebra, "or", gdal_or);
+  GDAL_SetAsyncableMethod(env, algebra, "add", add);
+  GDAL_SetAsyncableMethod(env, algebra, "sub", sub);
+  GDAL_SetAsyncableMethod(env, algebra, "mul", mul);
+  GDAL_SetAsyncableMethod(env, algebra, "div", div);
+  GDAL_SetAsyncableMethod(env, algebra, "pow", pow);
+  GDAL_SetAsyncableMethod(env, algebra, "lt", lt);
+  GDAL_SetAsyncableMethod(env, algebra, "lte", lte);
+  GDAL_SetAsyncableMethod(env, algebra, "gt", gt);
+  GDAL_SetAsyncableMethod(env, algebra, "gte", gte);
+  GDAL_SetAsyncableMethod(env, algebra, "eq", eq);
+  GDAL_SetAsyncableMethod(env, algebra, "notEq", notEq);
+  GDAL_SetAsyncableMethod(env, algebra, "and", gdal_and);
+  GDAL_SetAsyncableMethod(env, algebra, "or", gdal_or);
 
   // Variadic ops
-  Nan__SetAsyncableMethod(algebra, "min", gdal_min);
-  Nan__SetAsyncableMethod(algebra, "max", gdal_max);
-  Nan__SetAsyncableMethod(algebra, "mean", gdal_mean);
+  GDAL_SetAsyncableMethod(env, algebra, "min", gdal_min);
+  GDAL_SetAsyncableMethod(env, algebra, "max", gdal_max);
+  GDAL_SetAsyncableMethod(env, algebra, "mean", gdal_mean);
 
   // Ternary op
-  Nan__SetAsyncableMethod(algebra, "ifThenElse", ifThenElse);
+  GDAL_SetAsyncableMethod(env, algebra, "ifThenElse", ifThenElse);
 
   // Special case
-  Nan__SetAsyncableMethod(algebra, "asType", asType);
+  GDAL_SetAsyncableMethod(env, algebra, "asType", asType);
 }
 
 #define NODE_ALGEBRA_ARG(num, var)                                                                                     \
   if (info.Length() < num + 1) {                                                                                       \
-    Nan::ThrowError("Two arguments must be given");                                                                    \
-    return;                                                                                                            \
+    Napi::Error::New(node_gdal::napi_env(), "Two arguments must be given").ThrowAsJavaScriptException();                                                                    \
+    return node_gdal::napi_env().Undefined();                                                                                                            \
   }                                                                                                                    \
-  if (info[num]->IsNumber()) {                                                                                         \
-    var##_number = Nan::To<double>(info[num]).ToChecked();                                                             \
+  if (info[num].IsNumber()) {                                                                                         \
+    var##_number = info[num].As<Napi::Number>().DoubleValue();                                                             \
     var##_band = nullptr;                                                                                              \
-  } else if (info[num]->IsObject() && Nan::New(RasterBand::constructor)->HasInstance(info[num])) {                     \
+  } else if (info[num].IsObject() && info[num].As<Napi::Object>().InstanceOf(RasterBand::constructor.Value())) {                     \
     var##_number = NAN;                                                                                                \
-    var##_band = Nan::ObjectWrap::Unwrap<RasterBand>(info[num].As<Object>());                                          \
+    var##_band = node_gdal::UnwrapWrapped<RasterBand>(info[num].As<Napi::Object>());                                          \
   } else {                                                                                                             \
-    Nan::ThrowError("Argument must be either a number or a RasterBand");                                               \
-    return;                                                                                                            \
+    Napi::Error::New(node_gdal::napi_env(), "Argument must be either a number or a RasterBand").ThrowAsJavaScriptException();                                               \
+    return node_gdal::napi_env().Undefined();                                                                          \
   }
 
 #define GDAL_ALGEBRA_UNARY_OP(NAME, OPERATOR)                                                                          \
@@ -79,7 +80,7 @@ void Initialize(Local<Object> target) {
     NODE_ARG_WRAPPED(0, "Argument", RasterBand, arg);                                                                  \
                                                                                                                        \
     GDALAsyncableJob<GDALRasterBand *> job(arg->parent_uid);                                                           \
-    job.persist(arg->handle());                                                                                        \
+    job.persist(arg->Value());                                                                                        \
                                                                                                                        \
     GDALRasterBand *raw = arg->get();                                                                                  \
     job.main = [raw](const GDALExecutionProgress &) { return new GDALComputedRasterBand(OPERATOR(*raw)); };            \
@@ -90,7 +91,7 @@ void Initialize(Local<Object> target) {
       Dataset::New(r->GetDataset(), nullptr, false);                                                                   \
       return RasterBand::New(r, r->GetDataset());                                                                      \
     };                                                                                                                 \
-    job.run(info, async, 1);                                                                                           \
+    return job.run(info, async, 1);                                                                                           \
   }
 
 #define GDAL_ALGEBRA_BINARY_OP(NAME, OPERATOR)                                                                         \
@@ -105,8 +106,8 @@ void Initialize(Local<Object> target) {
     if (arg1_band) ds_uids.push_back(arg1_band->parent_uid);                                                           \
     if (arg2_band) ds_uids.push_back(arg2_band->parent_uid);                                                           \
     GDALAsyncableJob<GDALRasterBand *> job(ds_uids);                                                                   \
-    if (arg1_band) job.persist(arg1_band->handle());                                                                   \
-    if (arg2_band) job.persist(arg2_band->handle());                                                                   \
+    if (arg1_band) job.persist(arg1_band->Value());                                                                   \
+    if (arg2_band) job.persist(arg2_band->Value());                                                                   \
                                                                                                                        \
     if (arg1_band && arg2_band) {                                                                                      \
       GDALRasterBand *arg1 = arg1_band->get();                                                                         \
@@ -127,8 +128,8 @@ void Initialize(Local<Object> target) {
         return new GDALComputedRasterBand(OPERATOR(arg1, *arg2));                                                      \
       };                                                                                                               \
     } else {                                                                                                           \
-      Nan::ThrowError("At least one RasterBand must be given");                                                        \
-      return;                                                                                                          \
+      Napi::Error::New(node_gdal::napi_env(), "At least one RasterBand must be given").ThrowAsJavaScriptException();                                                        \
+      return node_gdal::napi_env().Undefined();                                                                        \
     }                                                                                                                  \
                                                                                                                        \
     job.rval = [](GDALRasterBand *r, const GetFromPersistentFunc &) {                                                  \
@@ -138,7 +139,7 @@ void Initialize(Local<Object> target) {
       Dataset::New(r->GetDataset(), nullptr, false);                                                                   \
       return RasterBand::New(r, r->GetDataset());                                                                      \
     };                                                                                                                 \
-    job.run(info, async, 2);                                                                                           \
+    return job.run(info, async, 2);                                                                                           \
   }
 
 #define GDAL_ALGEBRA_VARIADIC_BANDONLY_OP(NAME, OPERATOR)                                                              \
@@ -147,21 +148,21 @@ void Initialize(Local<Object> target) {
     std::vector<long> uids;                                                                                            \
                                                                                                                        \
     for (int i = 0; i < info.Length(); i++) {                                                                          \
-      if (info[i]->IsFunction()) break;                                                                                \
+      if (info[i].IsFunction()) break;                                                                                \
       RasterBand *arg_band;                                                                                            \
       NODE_ARG_WRAPPED(i, "Argument", RasterBand, arg_band);                                                           \
       args_band.push_back(arg_band);                                                                                   \
       uids.push_back(arg_band->parent_uid);                                                                            \
     }                                                                                                                  \
     if (args_band.size() < 2) {                                                                                        \
-      Nan::ThrowError("At least two arguments must be given");                                                         \
-      return;                                                                                                          \
+      Napi::Error::New(node_gdal::napi_env(), "At least two arguments must be given").ThrowAsJavaScriptException();                                                         \
+      return node_gdal::napi_env().Undefined();                                                                        \
     }                                                                                                                  \
     GDALAsyncableJob<GDALRasterBand *> job(uids);                                                                      \
     GDALRasterBandH *handles = new GDALRasterBandH[args_band.size()];                                                  \
     size_t i = 0;                                                                                                      \
     for (auto arg : args_band) {                                                                                       \
-      job.persist(arg->handle());                                                                                      \
+      job.persist(arg->Value());                                                                                      \
       handles[i++] = GDALRasterBand::ToHandle(arg->get());                                                             \
     }                                                                                                                  \
     auto args = std::shared_ptr<GDALRasterBandH[]>{handles};                                                           \
@@ -177,7 +178,7 @@ void Initialize(Local<Object> target) {
       Dataset::New(r->GetDataset(), nullptr, false);                                                                   \
       return RasterBand::New(r, r->GetDataset());                                                                      \
     };                                                                                                                 \
-    job.run(info, async, i);                                                                                           \
+    return job.run(info, async, i);                                                                                           \
   }
 
 /**
@@ -774,9 +775,9 @@ GDAL_ASYNCABLE_DEFINE(ifThenElse) {
   if (arg2_band) ds_uids.push_back(arg2_band->parent_uid);
   if (arg3_band) ds_uids.push_back(arg3_band->parent_uid);
   GDALAsyncableJob<GDALRasterBand *> job(ds_uids);
-  job.persist(arg1_band->handle());
-  if (arg2_band) job.persist(arg2_band->handle());
-  if (arg3_band) job.persist(arg3_band->handle());
+  job.persist(arg1_band->Value());
+  if (arg2_band) job.persist(arg2_band->Value());
+  if (arg3_band) job.persist(arg3_band->Value());
 
   GDALRasterBand *arg1 = arg1_band->get();
   if (arg2_band && arg3_band) {
@@ -808,7 +809,7 @@ GDAL_ASYNCABLE_DEFINE(ifThenElse) {
     Dataset::New(r->GetDataset(), nullptr, false);
     return RasterBand::New(r, r->GetDataset());
   };
-  job.run(info, async, 3);
+  return job.run(info, async, 3);
 }
 
 /**
@@ -845,12 +846,12 @@ GDAL_ASYNCABLE_DEFINE(asType) {
   NODE_ARG_STR(1, "Data Type", type_name);
   type = GDALGetDataTypeByName(type_name.c_str());
   if (type == GDT_Unknown) {
-    Nan::ThrowError("Invalid data type");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Invalid data type").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALAsyncableJob<GDALRasterBand *> job(arg_band->parent_uid);
-  job.persist(arg_band->handle());
+  job.persist(arg_band->Value());
   GDALRasterBand *arg = arg_band->get();
 
   job.main = [arg, type](const GDALExecutionProgress &) { return new GDALComputedRasterBand(arg->AsType(type)); };
@@ -859,7 +860,7 @@ GDAL_ASYNCABLE_DEFINE(asType) {
     Dataset::New(r->GetDataset(), nullptr, false);
     return RasterBand::New(r, r->GetDataset());
   };
-  job.run(info, async, 2);
+  return job.run(info, async, 2);
 }
 
 } // namespace Algebra

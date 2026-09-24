@@ -10,15 +10,17 @@
 
 namespace node_gdal {
 
-void Algorithms::Initialize(Local<Object> target) {
-  Nan__SetAsyncableMethod(target, "fillNodata", fillNodata);
-  Nan__SetAsyncableMethod(target, "contourGenerate", contourGenerate);
-  Nan__SetAsyncableMethod(target, "sieveFilter", sieveFilter);
-  Nan__SetAsyncableMethod(target, "checksumImage", checksumImage);
-  Nan__SetAsyncableMethod(target, "polygonize", polygonize);
-  Nan::SetMethod(target, "addPixelFunc", addPixelFunc);
-  Nan::SetMethod(target, "toPixelFunc", toPixelFunc);
-  Nan__SetAsyncableMethod(target, "_acquireLocks", _acquireLocks);
+void Algorithms::Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+
+  GDAL_SetAsyncableMethod(env, target, "fillNodata", fillNodata);
+  GDAL_SetAsyncableMethod(env, target, "contourGenerate", contourGenerate);
+  GDAL_SetAsyncableMethod(env, target, "sieveFilter", sieveFilter);
+  GDAL_SetAsyncableMethod(env, target, "checksumImage", checksumImage);
+  GDAL_SetAsyncableMethod(env, target, "polygonize", polygonize);
+  GDAL_SetMethod(env, target, "addPixelFunc", addPixelFunc);
+  GDAL_SetMethod(env, target, "toPixelFunc", toPixelFunc);
+  GDAL_SetAsyncableMethod(env, target, "_acquireLocks", _acquireLocks);
 }
 
 /**
@@ -59,7 +61,7 @@ void Algorithms::Initialize(Local<Object> target) {
  */
 
 GDAL_ASYNCABLE_DEFINE(Algorithms::fillNodata) {
-  Local<Object> obj;
+  Napi::Object obj;
   RasterBand *src;
   RasterBand *mask = NULL;
   double search_dist;
@@ -79,16 +81,16 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::fillNodata) {
   if (mask) ds_uids.push_back(mask->parent_uid);
 
   GDALAsyncableJob<CPLErr> job(ds_uids);
-  job.persist(src->handle());
-  if (mask) job.persist(mask->handle());
+  job.persist(src->Value());
+  if (mask) job.persist(mask->Value());
   job.main = [gdal_src, gdal_mask, search_dist, smooth_iterations](const GDALExecutionProgress &) {
     CPLErrorReset();
     CPLErr err = GDALFillNodata(gdal_src, gdal_mask, search_dist, 0, smooth_iterations, NULL, NULL, NULL);
     if (err) { throw CPLGetLastErrorMsg(); }
     return err;
   };
-  job.rval = [](CPLErr r, const GetFromPersistentFunc &) { return Nan::Undefined().As<Value>(); };
-  job.run(info, async, 1);
+  job.rval = [](CPLErr r, const GetFromPersistentFunc &) { return node_gdal::napi_env().Undefined().As<Napi::Value>(); };
+  return job.run(info, async, 1);
 }
 
 /**
@@ -153,8 +155,8 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::fillNodata) {
  * @return {Promise<void>}
  */
 GDAL_ASYNCABLE_DEFINE(Algorithms::contourGenerate) {
-  Local<Object> obj;
-  Local<Value> prop;
+  Napi::Object obj;
+  Napi::Value prop;
   RasterBand *src;
   Layer *dst;
   double interval = 100, base = 0;
@@ -164,7 +166,7 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::contourGenerate) {
   int use_nodata = 0;
   double nodata = 0;
   int id_field = -1, elev_field = -1;
-  Nan::Callback *progress_cb = nullptr;
+  Napi::FunctionReference *progress_cb = nullptr;
 
   NODE_ARG_OBJECT(0, "options", obj);
 
@@ -175,21 +177,21 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::contourGenerate) {
   NODE_DOUBLE_FROM_OBJ_OPT(obj, "interval", interval);
   NODE_DOUBLE_FROM_OBJ_OPT(obj, "offset", base);
   NODE_CB_FROM_OBJ_OPT(obj, "progress_cb", progress_cb);
-  if (Nan::HasOwnProperty(obj, Nan::New("fixedLevels").ToLocalChecked()).FromMaybe(false)) {
-    if (fixed_level_array.parse(Nan::Get(obj, Nan::New("fixedLevels").ToLocalChecked()).ToLocalChecked())) {
-      return; // error parsing double list
+  if (obj.As<Napi::Object>().HasOwnProperty(Napi::String::New(node_gdal::napi_env(), "fixedLevels"))) {
+    if (fixed_level_array.parse(obj.As<Napi::Object>().Get(Napi::String::New(node_gdal::napi_env(), "fixedLevels")))) {
+      return node_gdal::napi_env().Undefined(); // error parsing double list
     } else {
       fixed_levels = fixed_level_array.get();
       n_fixed_levels = fixed_level_array.length();
     }
   }
-  if (Nan::HasOwnProperty(obj, Nan::New("nodata").ToLocalChecked()).FromMaybe(false)) {
-    prop = Nan::Get(obj, Nan::New("nodata").ToLocalChecked()).ToLocalChecked();
-    if (prop->IsNumber()) {
+  if (obj.As<Napi::Object>().HasOwnProperty(Napi::String::New(node_gdal::napi_env(), "nodata"))) {
+    prop = obj.As<Napi::Object>().Get(Napi::String::New(node_gdal::napi_env(), "nodata"));
+    if (prop.IsNumber()) {
       use_nodata = 1;
-      nodata = Nan::To<double>(prop).ToChecked();
-    } else if (!prop->IsNull() && !prop->IsUndefined()) {
-      Nan::ThrowTypeError("nodata property must be a number");
+      nodata = prop.As<Napi::Number>().DoubleValue();
+    } else if (!prop.IsNull() && !prop.IsUndefined()) {
+      Napi::TypeError::New(node_gdal::napi_env(), "nodata property must be a number").ThrowAsJavaScriptException();
     }
   }
 
@@ -229,8 +231,8 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::contourGenerate) {
     if (err) { throw CPLGetLastErrorMsg(); }
     return err;
   };
-  job.rval = [](CPLErr r, const GetFromPersistentFunc &) { return Nan::Undefined().As<Value>(); };
-  job.run(info, async, 1);
+  job.rval = [](CPLErr r, const GetFromPersistentFunc &) { return node_gdal::napi_env().Undefined().As<Napi::Value>(); };
+  return job.run(info, async, 1);
 }
 
 /**
@@ -276,13 +278,13 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::contourGenerate) {
  * @return {Promise<void>}
  */
 GDAL_ASYNCABLE_DEFINE(Algorithms::sieveFilter) {
-  Local<Object> obj;
+  Napi::Object obj;
   RasterBand *src;
   RasterBand *dst;
   RasterBand *mask = NULL;
   int threshold;
   int connectedness = 4;
-  Nan::Callback *progress_cb = nullptr;
+  Napi::FunctionReference *progress_cb = nullptr;
 
   NODE_ARG_OBJECT(0, "options", obj);
 
@@ -294,8 +296,8 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::sieveFilter) {
   NODE_CB_FROM_OBJ_OPT(obj, "progress_cb", progress_cb);
 
   if (connectedness != 4 && connectedness != 8) {
-    Nan::ThrowError("connectedness option must be 4 or 8");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "connectedness option must be 4 or 8").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALRasterBand *gdal_src = src->get();
@@ -322,8 +324,8 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::sieveFilter) {
       if (err) { throw CPLGetLastErrorMsg(); }
       return err;
     };
-  job.rval = [](CPLErr r, const GetFromPersistentFunc &) { return Nan::Undefined().As<Value>(); };
-  job.run(info, async, 1);
+  job.rval = [](CPLErr r, const GetFromPersistentFunc &) { return node_gdal::napi_env().Undefined().As<Napi::Value>(); };
+  return job.run(info, async, 1);
 }
 
 /**
@@ -372,22 +374,22 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::checksumImage) {
   NODE_ARG_INT_OPT(4, "ySize", h);
 
   if (x < 0 || y < 0 || x >= bandw || y >= bandh) {
-    Nan::ThrowRangeError("offset invalid for given band");
-    return;
+    Napi::RangeError::New(node_gdal::napi_env(), "offset invalid for given band").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
   if (w < 0 || h < 0 || w > bandw || h > bandh) {
-    Nan::ThrowRangeError("x and y size must be smaller than band dimensions and greater than 0");
-    return;
+    Napi::RangeError::New(node_gdal::napi_env(), "x and y size must be smaller than band dimensions and greater than 0").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
   if (x + w - 1 >= bandw || y + h - 1 >= bandh) {
-    Nan::ThrowRangeError("given range is outside bounds of given band");
-    return;
+    Napi::RangeError::New(node_gdal::napi_env(), "given range is outside bounds of given band").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   long src_uid = src->parent_uid;
 
   GDALAsyncableJob<int> job(src_uid);
-  job.persist(src->handle());
+  job.persist(src->Value());
   job.main = [gdal_src, x, y, w, h](const GDALExecutionProgress &) {
     CPLErrorReset();
     int r = GDALChecksumImage(gdal_src, x, y, w, h);
@@ -398,8 +400,8 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::checksumImage) {
 #endif
     return r;
   };
-  job.rval = [](int r, const GetFromPersistentFunc &) { return Nan::New<Integer>(r); };
-  job.run(info, async, 5);
+  job.rval = [](int r, const GetFromPersistentFunc &) { return Napi::Number::New(node_gdal::napi_env(), r); };
+  return job.run(info, async, 5);
 }
 
 /**
@@ -454,14 +456,14 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::checksumImage) {
  * @return {Promise<void>}
  */
 GDAL_ASYNCABLE_DEFINE(Algorithms::polygonize) {
-  Local<Object> obj;
+  Napi::Object obj;
   RasterBand *src;
   RasterBand *mask = NULL;
   Layer *dst;
   int connectedness = 4;
   int pix_val_field = 0;
   char **papszOptions = NULL;
-  Nan::Callback *progress_cb = nullptr;
+  Napi::FunctionReference *progress_cb = nullptr;
 
   NODE_ARG_OBJECT(0, "options", obj);
 
@@ -475,8 +477,8 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::polygonize) {
   if (connectedness == 8) {
     papszOptions = CSLSetNameValue(papszOptions, "8CONNECTED", "8");
   } else if (connectedness != 4) {
-    Nan::ThrowError("connectedness must be 4 or 8");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "connectedness must be 4 or 8").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALRasterBand *gdal_src = src->get();
@@ -490,8 +492,8 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::polygonize) {
   job.progress = progress_cb;
 
   if (
-    Nan::HasOwnProperty(obj, Nan::New("useFloats").ToLocalChecked()).FromMaybe(false) &&
-    Nan::To<bool>(Nan::Get(obj, Nan::New("useFloats").ToLocalChecked()).ToLocalChecked()).ToChecked()) {
+    obj.As<Napi::Object>().HasOwnProperty(Napi::String::New(node_gdal::napi_env(), "useFloats")) &&
+    obj.As<Napi::Object>().Get(Napi::String::New(node_gdal::napi_env(), "useFloats")).As<Napi::Boolean>().Value()) {
     job.main =
       [gdal_src, gdal_mask, gdal_dst, pix_val_field, papszOptions, progress_cb](const GDALExecutionProgress &progress) {
         CPLErrorReset();
@@ -524,8 +526,8 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::polygonize) {
         return err;
       };
   }
-  job.rval = [](CPLErr r, const GetFromPersistentFunc &) { return Nan::Undefined().As<Value>(); };
-  job.run(info, async, 1);
+  job.rval = [](CPLErr r, const GetFromPersistentFunc &) { return node_gdal::napi_env().Undefined().As<Napi::Value>(); };
+  return job.run(info, async, 1);
 }
 
 // This is used for stress-testing the locking mechanism
@@ -544,8 +546,8 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::_acquireLocks) {
     for (i = 0; i < 1e4; i++) sum += i;
     return sum;
   };
-  job.rval = [](int, const GetFromPersistentFunc &) { return Nan::Undefined().As<Value>(); };
-  job.run(info, async, 3);
+  job.rval = [](int, const GetFromPersistentFunc &) { return node_gdal::napi_env().Undefined().As<Napi::Value>(); };
+  return job.run(info, async, 3);
 }
 
 /**
@@ -570,29 +572,40 @@ GDAL_ASYNCABLE_DEFINE(Algorithms::_acquireLocks) {
  * @param {string} name
  * @param {PixelFunction} pixelFn
  */
-NAN_METHOD(Algorithms::addPixelFunc) {
+NAPI_METHOD(Algorithms::addPixelFunc) {
+
   std::string name;
   NODE_ARG_STR(0, "name", name);
 
-  Local<Object> arg;
+  Napi::Object arg;
   NODE_ARG_OBJECT(1, "pixelFn", arg);
 
-  Nan::TypedArrayContents<uint64_t> magic(arg);
+  Napi::TypedArrayOf<uint64_t> magic = arg.As<Napi::TypedArrayOf<uint64_t>>();
 
-  if (magic.length() < 1 || **magic != NODE_GDAL_CAPI_MAGIC) {
-    Nan::ThrowTypeError("pixelFn must be a native code pixel function");
-    return;
+  if (magic.ElementLength() < 1 || *magic.Data() != NODE_GDAL_CAPI_MAGIC) {
+    Napi::TypeError::New(node_gdal::napi_env(), "pixelFn must be a native code pixel function").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
-  Nan::TypedArrayContents<uint8_t> data(arg);
+  Napi::TypedArrayOf<uint8_t> data = arg.As<Napi::TypedArrayOf<uint8_t>>();
 
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 5)
-  pixel_func *desc = reinterpret_cast<pixel_func *>(*data);
+  pixel_func *desc = reinterpret_cast<pixel_func *>(data.Data());
+
   CPLErr err = GDALAddDerivedBandPixelFuncWithArgs(name.c_str(), desc->fn, desc->metadata);
-  if (err != CE_None) { NODE_THROW_LAST_CPLERR; }
+
+  if (err != CE_None) {
+
+    NODE_THROW_LAST_CPLERR;
+
+  } else {
+
+  }
+
 #else
-  Nan::ThrowError("Custom pixel functions require GDAL >= 3.5");
+  Napi::Error::New(node_gdal::napi_env(), "Custom pixel functions require GDAL >= 3.5").ThrowAsJavaScriptException();
 #endif
+  return node_gdal::napi_env().Undefined();
 }
 
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 5)
@@ -605,14 +618,14 @@ struct pixelFnCall {
   GDALDataType inType;
   GDALDataType outType;
   std::map<std::string, std::string> args;
-  Nan::Utf8String *err;
+  std::string *err;
 };
 
 // This is the pixel function descriptor
 // The queue can be modified both by the main thread and the worker threads
 // (as this structure is stored in a vector, it must support realloc)
 struct pixelFn {
-  Nan::Callback *fn;
+  Napi::FunctionReference *fn;
   pixelFnCall call;
   uv_mutex_t callJS;
   uv_sem_t returnJS;
@@ -634,38 +647,41 @@ const char metadataTemplate[] =
 // This function is called by libuv on the main thread
 // The async_send in the function below is what triggers this call
 static void callJSpfn(uv_async_t *async) {
-  // Here V8 is accessible
-  Nan::HandleScope scope;
+  // Here V8 is accessible, but a plain libuv callback does not come with a
+  // handle scope the way a napi callback does
+  Napi::HandleScope scope(node_gdal::napi_env());
 
   pixelFn *fn = reinterpret_cast<pixelFn *>(async->data);
-  Local<Array> sources = Nan::New<Array>(fn->call.num);
+  Napi::Array sources = Napi::Array::New(node_gdal::napi_env(), fn->call.num);
   size_t len = fn->call.width * fn->call.height;
   for (size_t i = 0; i < fn->call.num; i++) {
-    Nan::Set(sources, i, TypedArray::New(fn->call.inType, fn->call.sources[i], len));
+    sources.Set( i, TypedArray::New(fn->call.inType, fn->call.sources[i], len));
   }
-  Local<Value> destination = TypedArray::New(fn->call.outType, fn->call.destination, len);
-  Local<Number> width = Nan::New<Number>(fn->call.width);
-  Local<Number> height = Nan::New<Number>(fn->call.height);
+  Napi::Value destination = TypedArray::New(fn->call.outType, fn->call.destination, len);
+  Napi::Number width = Napi::Number::New(node_gdal::napi_env(), fn->call.width);
+  Napi::Number height = Napi::Number::New(node_gdal::napi_env(), fn->call.height);
 
-  Local<Object> pfArgs = Nan::New<Object>();
+  Napi::Object pfArgs = Napi::Object::New(node_gdal::napi_env());
   if (fn->call.args.size() > 0) {
     for (auto const &el : fn->call.args) {
       char *end;
       double dval = std::strtod(el.second.c_str(), &end);
       if (*end == 0)
-        Nan::Set(pfArgs, Nan::New(el.first).ToLocalChecked(), Nan::New(dval));
+        pfArgs.Set( Napi::String::New(node_gdal::napi_env(), el.first), Napi::Number::New(node_gdal::napi_env(), dval));
       else
-        Nan::Set(pfArgs, Nan::New(el.first).ToLocalChecked(), Nan::New(el.second).ToLocalChecked());
+        pfArgs.Set( Napi::String::New(node_gdal::napi_env(), el.first), Napi::String::New(node_gdal::napi_env(), el.second));
     }
   }
 
-  Local<Value> args[] = {sources, destination, pfArgs, width, height};
+  std::vector<napi_value> args = {sources, destination, pfArgs, width, height};
 
   fn->call.err = nullptr;
-  Nan::TryCatch try_catch;
-  // async_hooks do not make any sense for pixel functions
-  Nan::Call(*fn->fn, 5, args);
-  if (try_catch.HasCaught()) fn->call.err = new Nan::Utf8String(try_catch.Message()->Get());
+  try {
+    // async_hooks do not make any sense for pixel functions
+    fn->fn->Value().Call(args);
+  } catch (const Napi::Error &e) {
+    fn->call.err = new std::string(e.Message());
+  }
 
   // unlock the worker thread (the function below)
   uv_sem_post(&fn->returnJS);
@@ -748,7 +764,7 @@ static CPLErr pixelFunc(
   uv_mutex_unlock(&pixelFuncs[id].callJS);
 
   if (pixelFuncs[id].call.err != nullptr) {
-    CPLError(CE_Failure, CPLE_AppDefined, "Pixel function error: %s", **pixelFuncs[id].call.err);
+    CPLError(CE_Failure, CPLE_AppDefined, "Pixel function error: %s", pixelFuncs[id].call.err->c_str());
     delete pixelFuncs[id].call.err;
     pixelFuncs[id].call.err = nullptr;
     return CE_Failure;
@@ -791,52 +807,61 @@ static CPLErr pixelFunc(
  * @param {(sources: TypedArray[], buffer: TypedArray, args: Record<string, string|number>, width: number, height: number) => void} pixelFn JavaScript pixel function
  * @returns {PixelFunction}
  */
-NAN_METHOD(Algorithms::toPixelFunc) {
+NAPI_METHOD(Algorithms::toPixelFunc) {
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 5)
-  Nan::Callback *pfn;
+  Napi::FunctionReference *pfn;
   NODE_ARG_CB(0, "pixelFn", pfn);
 
   size_t uid = pixelFuncs.size();
   pixelFuncs.push_back({pfn, {}, {}, {}, nullptr});
   int s = uv_mutex_init(&pixelFuncs[uid].callJS);
   if (s != 0) {
-    Nan::ThrowError("Failed creating a mutex");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Failed creating a mutex").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
   s = uv_sem_init(&pixelFuncs[uid].returnJS, 0);
   if (s != 0) {
-    Nan::ThrowError("Failed creating a semaphore");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Failed creating a semaphore").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
   pixelFuncs[uid].async = new uv_async_t;
   s = uv_async_init(uv_default_loop(), pixelFuncs[uid].async, callJSpfn);
   if (s != 0) {
-    Nan::ThrowError("Failed creating libuv async");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Failed creating libuv async").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
   uv_unref(reinterpret_cast<uv_handle_t *>(pixelFuncs[uid].async));
 
+  // `reserve` leaves the string empty, so `c_str()` terminates it at [0]: the
+  // length below and the copy would both be zero, while desc->metadata still
+  // pointed at the uninitialized tail of the array (GDAL then parsed garbage as
+  // XML). The size has to be real before anything reads the string.
   std::string metadata;
-  metadata.reserve(strlen(metadataTemplate) + 32);
-  snprintf(&metadata[0], metadata.capacity(), metadataTemplate, static_cast<unsigned>(uid));
-
-  Local<Value> r = node_gdal::TypedArray::New(GDT_Byte, sizeof(node_gdal::pixel_func) + strlen(metadata.c_str()) + 1);
-  if (r.IsEmpty() || !r->IsObject()) {
-    Nan::ThrowError("Failed creating TypedArray");
-    return;
+  metadata.resize(strlen(metadataTemplate) + 32);
+  int metadata_len = snprintf(&metadata[0], metadata.size(), metadataTemplate, static_cast<unsigned>(uid));
+  if (metadata_len < 0 || static_cast<size_t>(metadata_len) >= metadata.size()) {
+    Napi::Error::New(node_gdal::napi_env(), "Failed formatting the pixel function metadata").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
-  Nan::TypedArrayContents<GByte> contents(r);
-  node_gdal::pixel_func *desc = reinterpret_cast<node_gdal::pixel_func *>(*contents);
+  metadata.resize(metadata_len);
+
+  Napi::Value r = node_gdal::TypedArray::New(GDT_Byte, sizeof(node_gdal::pixel_func) + metadata.size() + 1);
+  if (r.IsEmpty() || !r.IsObject()) {
+    Napi::Error::New(node_gdal::napi_env(), "Failed creating TypedArray").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
+  }
+  Napi::TypedArrayOf<GByte> contents = r.As<Napi::TypedArrayOf<GByte>>();
+  node_gdal::pixel_func *desc = reinterpret_cast<node_gdal::pixel_func *>(contents.Data());
 
   desc->magic = NODE_GDAL_CAPI_MAGIC;
   desc->fn = pixelFunc;
   char *md = reinterpret_cast<char *>(desc) + sizeof(node_gdal::pixel_func);
-  memcpy(md, metadata.data(), strlen(metadata.c_str()));
+  memcpy(md, metadata.data(), metadata.size());
   desc->metadata = md;
 
-  info.GetReturnValue().Set(r);
+  return r;
 #else
-  Nan::ThrowError("Custom pixel functions require GDAL >= 3.5");
+  Napi::Error::New(node_gdal::napi_env(), "Custom pixel functions require GDAL >= 3.5").ThrowAsJavaScriptException();
 #endif
 }
 

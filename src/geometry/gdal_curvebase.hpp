@@ -1,65 +1,37 @@
 #ifndef __NODE_OGR_CURVEBASE_H__
 #define __NODE_OGR_CURVEBASE_H__
 
-// node
-#include <node.h>
-#include <node_object_wrap.h>
-
-// nan
-#include "../nan-wrapper.h"
-
 // ogr
 #include <ogrsf_frmts.h>
 
 #include "gdal_geometrybase.hpp"
 
-using namespace v8;
-using namespace node;
-
 namespace node_gdal {
 
 template <class T, class OGRT, class COLLECTIONT> class CurveBase : public GeometryBase<T, OGRT> {
     public:
-  using GeometryBase<T, OGRT>::GeometryBase;
-  static NAN_METHOD(New);
+  CurveBase(const Napi::CallbackInfo &info);
   using GeometryBase<T, OGRT>::New;
 
     protected:
-  static void SetPrivate(Nan::ADDON_REGISTER_FUNCTION_ARGS_TYPE, v8::Local<v8::Value>);
+  static void SetPrivate(Napi::Object, Napi::Value);
 };
 
-template <class T, class OGRT, class COLLECTIONT> NAN_METHOD((CurveBase<T, OGRT, COLLECTIONT>::New)) {
-  T *f;
-
-  if (!info.IsConstructCall()) {
-    Nan::ThrowError("Cannot call constructor as function, you need to use 'new' keyword");
-    return;
-  }
-
-  if (info[0]->IsExternal()) {
-    Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value(V8_TYPE_TAG);
-    f = static_cast<T *>(ptr);
-
-  } else {
-    if (info.Length() != 0) {
-      Nan::ThrowError("String constructor doesn't take any arguments");
-      return;
-    }
-    f = new T(new OGRT());
-  }
-
-  Local<Value> points = COLLECTIONT::New(info.This());
-  T::SetPrivate(info.This(), points);
-
-  f->Wrap(info.This());
-  info.GetReturnValue().Set(info.This());
+template <class T, class OGRT, class COLLECTIONT>
+CurveBase<T, OGRT, COLLECTIONT>::CurveBase(const Napi::CallbackInfo &info) : GeometryBase<T, OGRT>(info) {
+  // The points/rings collection is kept as a private (JS-invisible) property of
+  // the geometry object
+  Napi::Object this_obj = info.This().As<Napi::Object>();
+  Napi::Value points = COLLECTIONT::New(this_obj);
+  // T:: is required: an unqualified call would find CurveBase's own SetPrivate
+  // and store the collection under "points_", even for the subclasses (Polygon,
+  // CompoundCurve) that override it to use a different key
+  T::SetPrivate(this_obj, points);
 }
 
 template <class T, class OGRT, class COLLECTIONT>
-void CurveBase<T, OGRT, COLLECTIONT>::SetPrivate(
-  Nan::ADDON_REGISTER_FUNCTION_ARGS_TYPE _this, v8::Local<v8::Value> value) {
-  Nan::SetPrivate(_this, Nan::New("points_").ToLocalChecked(), value);
+void CurveBase<T, OGRT, COLLECTIONT>::SetPrivate(Napi::Object _this, Napi::Value value) {
+  GDAL_SET_PRIVATE(_this, "points_", value);
 };
 
 } // namespace node_gdal

@@ -15,36 +15,35 @@ IntegerList::~IntegerList() {
   if (list) delete[] list;
 }
 
-int IntegerList::parse(Local<Value> value) {
-  Nan::HandleScope scope;
+int IntegerList::parse(Napi::Value value) {
   unsigned int i;
-  Local<Array> arr;
+  Napi::Array arr;
 
-  if (value->IsNull() || value->IsUndefined()) return 0;
+  if (value.IsNull() || value.IsUndefined()) return 0;
 
-  if (value->IsArray()) {
-    arr = value.As<Array>();
-    len = arr->Length();
+  if (value.IsArray()) {
+    arr = value.As<Napi::Array>();
+    len = arr.Length();
     if (len == 0) return 0;
 
     list = new int[len];
     for (i = 0; i < len; ++i) {
-      Local<Value> element = Nan::Get(arr, i).ToLocalChecked();
-      if (element->IsNumber()) {
-        list[i] = Nan::To<int32_t>(element).ToChecked();
+      Napi::Value element = arr.As<Napi::Object>().Get(i);
+      if (element.IsNumber()) {
+        list[i] = element.As<Napi::Number>().Int32Value();
       } else {
         std::string err = std::string("Every element in the") + name + " array must be a number";
-        Nan::ThrowTypeError(err.c_str());
+        Napi::TypeError::New(node_gdal::napi_env(), err.c_str()).ThrowAsJavaScriptException();
         return 1;
       }
     }
-  } else if (value->IsNumber()) {
+  } else if (value.IsNumber()) {
     list = new int[1];
-    list[0] = Nan::To<int32_t>(value).ToChecked();
+    list[0] = value.As<Napi::Number>().Int32Value();
     len = 1;
   } else {
     std::string err = std::string(name) + "integer list must be an array or single integer";
-    Nan::ThrowTypeError(err.c_str());
+    Napi::TypeError::New(node_gdal::napi_env(), err.c_str()).ThrowAsJavaScriptException();
     return 1;
   }
   return 0;
@@ -61,36 +60,35 @@ DoubleList::~DoubleList() {
   if (list) delete[] list;
 }
 
-int DoubleList::parse(Local<Value> value) {
-  Nan::HandleScope scope;
+int DoubleList::parse(Napi::Value value) {
   unsigned int i;
-  Local<Array> arr;
+  Napi::Array arr;
 
-  if (value->IsNull() || value->IsUndefined()) return 0;
+  if (value.IsNull() || value.IsUndefined()) return 0;
 
-  if (value->IsArray()) {
-    arr = value.As<Array>();
-    len = arr->Length();
+  if (value.IsArray()) {
+    arr = value.As<Napi::Array>();
+    len = arr.Length();
     if (len == 0) return 0;
 
     list = new double[len];
     for (i = 0; i < len; ++i) {
-      Local<Value> element = Nan::Get(arr, i).ToLocalChecked();
-      if (element->IsNumber()) {
-        list[i] = Nan::To<double>(element).ToChecked();
+      Napi::Value element = arr.As<Napi::Object>().Get(i);
+      if (element.IsNumber()) {
+        list[i] = element.As<Napi::Number>().DoubleValue();
       } else {
         std::string err = std::string("Every element in the") + name + " array must be a number";
-        Nan::ThrowTypeError(err.c_str());
+        Napi::TypeError::New(node_gdal::napi_env(), err.c_str()).ThrowAsJavaScriptException();
         return 1;
       }
     }
-  } else if (value->IsNumber()) {
+  } else if (value.IsNumber()) {
     list = new double[1];
-    list[0] = Nan::To<double>(value).ToChecked();
+    list[0] = value.As<Napi::Number>().DoubleValue();
     len = 1;
   } else {
     std::string err = std::string(name) + "double list must be an array or single number";
-    Nan::ThrowTypeError(err.c_str());
+    Napi::TypeError::New(node_gdal::napi_env(), err.c_str()).ThrowAsJavaScriptException();
     return 1;
   }
   return 0;

@@ -2,11 +2,9 @@
 #define __NODE_GDAL_ATTRIBUTE_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "nan-wrapper.h"
+#include "gdal_common.hpp"
 
 // gdal
 #include <gdal_priv.h>
@@ -18,24 +16,22 @@
 
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
 
-using namespace v8;
-using namespace node;
-
 namespace node_gdal {
 
-class Attribute : public Nan::ObjectWrap {
+class Attribute : public GDALObject<Attribute> {
     public:
-  static Nan::Persistent<FunctionTemplate> constructor;
-  static void Initialize(Local<Object> target);
-  static NAN_METHOD(New);
-  static Local<Value> New(std::shared_ptr<GDALAttribute> group, GDALDataset *parent_ds);
-  static NAN_METHOD(toString);
-  static NAN_GETTER(typeGetter);
-  static NAN_GETTER(valueGetter);
-  static NAN_GETTER(uidGetter);
+  static Napi::FunctionReference constructor;
+  static void Initialize(Napi::Object target);
+  static Napi::Value New(std::shared_ptr<GDALAttribute> group, GDALDataset *parent_ds);
+  static NAPI_METHOD(toString);
+  static NAPI_GETTER(typeGetter);
+  static NAPI_GETTER(valueGetter);
+  static NAPI_GETTER(uidGetter);
 
-  Attribute();
-  Attribute(std::shared_ptr<GDALAttribute> group);
+  Attribute(const Napi::CallbackInfo &info);
+
+  // Must be accessible: ObjectWrap's finalizer deletes the instance itself
+  ~Attribute();
   inline std::shared_ptr<GDALAttribute> get() {
     return this_;
   }
@@ -49,7 +45,6 @@ class Attribute : public Nan::ObjectWrap {
   }
 
     private:
-  ~Attribute();
   std::shared_ptr<GDALAttribute> this_;
   GDALDataset *parent_ds;
 };

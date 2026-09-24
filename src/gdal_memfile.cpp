@@ -28,33 +28,47 @@ Memfile::~Memfile() {
   delete persistent;
 }
 
-void Memfile::weakCallback(const Nan::WeakCallbackInfo<Memfile> &file) {
-  Memfile *mem = file.GetParameter();
+// napi_finalize callback: the anonymous Memfile is owned by the buffer and is
+// destroyed together with it (the old binding used a weak callback for this)
+void Memfile::finalize(::napi_env, void *data, void *) {
+  Memfile *mem = static_cast<Memfile *>(data);
   memfile_collection.erase(mem->data);
   VSIUnlink(mem->filename.c_str());
+  // ~Memfile() would delete it too
   delete mem->persistent;
   mem->persistent = nullptr;
   delete mem;
 }
 
-void Memfile::Initialize(Local<Object> target) {
-  Local<Object> vsimem = Nan::New<Object>();
-  Nan::Set(target, Nan::New("vsimem").ToLocalChecked(), vsimem);
-  Nan::SetMethod(vsimem, "_anonymous", Memfile::vsimemAnonymous); // not a public API
-  Nan::SetMethod(vsimem, "set", Memfile::vsimemSet);
-  Nan::SetMethod(vsimem, "release", Memfile::vsimemRelease);
-  Nan::SetMethod(vsimem, "copy", Memfile::vsimemCopy);
+void Memfile::Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+
+  Napi::Object vsimem = Napi::Object::New(env);
+  target.Set("vsimem", vsimem);
+  GDAL_SetMethod(env, vsimem, "_anonymous", Memfile::vsimemAnonymous);
+  GDAL_SetMethod(env, vsimem, "set", Memfile::vsimemSet);
+  GDAL_SetMethod(env, vsimem, "release", Memfile::vsimemRelease);
+  GDAL_SetMethod(env, vsimem, "copy", Memfile::vsimemCopy);
+}
+
+static inline bool bufferHasData(const Napi::Object &buffer) {
+  return buffer.IsBuffer() && buffer.As<Napi::Buffer<uint8_t>>().Data() != nullptr;
+}
+static inline void *bufferData(const Napi::Object &buffer) {
+  return buffer.As<Napi::Buffer<uint8_t>>().Data();
+}
+static inline size_t bufferLength(const Napi::Object &buffer) {
+  return buffer.As<Napi::Buffer<uint8_t>>().Length();
 }
 
 // Anonymous buffers are handled by the GC
 // Whenever the JS buffer goes out of scope, the file is deleted
-Memfile *Memfile::get(Local<Object> buffer) {
-  if (!Buffer::HasInstance(buffer)) return nullptr;
-  void *data = Buffer::Data(buffer);
-  if (data == nullptr) return nullptr;
+Memfile *Memfile::get(Napi::Object buffer) {
+  if (!bufferHasData(buffer)) return nullptr;
+  void *data = bufferData(buffer);
   if (memfile_collection.count(data)) return memfile_collection.find(data)->second;
 
-  size_t len = Buffer::Length(buffer);
+  size_t len = bufferLength(buffer);
   Memfile *mem = nullptr;
   mem = new Memfile(data);
 
@@ -62,19 +76,18 @@ Memfile *Memfile::get(Local<Object> buffer) {
   if (vsi == nullptr) return nullptr;
   VSIFCloseL(vsi);
 
-  mem->persistent = new Nan::Persistent<Object>(buffer);
-  mem->persistent->SetWeak(mem, weakCallback, Nan::WeakCallbackType::kParameter);
+  napi_add_finalizer(node_gdal::napi_env(), buffer, mem, Memfile::finalize, nullptr, nullptr);
   memfile_collection[data] = mem;
   return mem;
 }
 
 // Named buffers are protected from the GC and are owned by Node
-Memfile *Memfile::get(Local<Object> buffer, const std::string &filename) {
-  if (!Buffer::HasInstance(buffer)) return nullptr;
-  void *data = node::Buffer::Data(buffer);
+Memfile *Memfile::get(Napi::Object buffer, const std::string &filename) {
+  if (!bufferHasData(buffer)) return nullptr;
+  void *data = bufferData(buffer);
   if (data == nullptr) { return nullptr; }
 
-  size_t len = node::Buffer::Length(buffer);
+  size_t len = bufferLength(buffer);
   Memfile *mem = nullptr;
   mem = new Memfile(data, filename);
 
@@ -82,18 +95,18 @@ Memfile *Memfile::get(Local<Object> buffer, const std::string &filename) {
   if (vsi == nullptr) return nullptr;
   VSIFCloseL(vsi);
 
-  mem->persistent = new Nan::Persistent<Object>(buffer);
+  mem->persistent = new Napi::Reference<Napi::Object>(Napi::Persistent(buffer));
   memfile_collection[data] = mem;
   return mem;
 }
 
 // GDAL buffers handled by GDAL and are not referenced by node-gdal-async
-bool Memfile::copy(Local<Object> buffer, const std::string &filename) {
-  if (!Buffer::HasInstance(buffer)) return false;
-  void *data = node::Buffer::Data(buffer);
+bool Memfile::copy(Napi::Object buffer, const std::string &filename) {
+  if (!bufferHasData(buffer)) return false;
+  void *data = bufferData(buffer);
   if (data == nullptr) return false;
 
-  size_t len = node::Buffer::Length(buffer);
+  size_t len = bufferLength(buffer);
 
   void *dataCopy = CPLMalloc(len);
   if (dataCopy == nullptr) return false;
@@ -108,7 +121,7 @@ bool Memfile::copy(Local<Object> buffer, const std::string &filename) {
 
   // If you malloc, you adjust external memory too (https://github.com/nodejs/node/issues/40936)
   Memfile::tracked_buffers.insert({dataCopy, len});
-  Nan::AdjustExternalMemory(len);
+  Napi::MemoryManagement::AdjustExternalMemory(node_gdal::napi_env(), len);
 
   VSIFCloseL(vsi);
   return true;
@@ -132,15 +145,16 @@ bool Memfile::copy(Local<Object> buffer, const std::string &filename) {
  * @param {Buffer} data A binary buffer containing the file data
  * @param {string} filename A file name beginning with `/vsimem/`
  */
-NAN_METHOD(Memfile::vsimemSet) {
-  Local<Object> buffer;
+NAPI_METHOD(Memfile::vsimemSet) {
+  Napi::Object buffer;
   std::string filename;
 
   NODE_ARG_OBJECT(0, "buffer", buffer);
   NODE_ARG_STR(1, "filename", filename);
 
   Memfile *memfile = Memfile::get(buffer, filename);
-  if (memfile == nullptr) Nan::ThrowError("Failed creating in-memory file");
+  if (memfile == nullptr) Napi::Error::New(node_gdal::napi_env(), "Failed creating in-memory file").ThrowAsJavaScriptException();
+  return node_gdal::napi_env().Undefined();
 }
 
 /**
@@ -158,14 +172,15 @@ NAN_METHOD(Memfile::vsimemSet) {
  * @param {Buffer} data A binary buffer containing the file data
  * @param {string} filename A file name beginning with `/vsimem/`
  */
-NAN_METHOD(Memfile::vsimemCopy) {
-  Local<Object> buffer;
+NAPI_METHOD(Memfile::vsimemCopy) {
+  Napi::Object buffer;
   std::string filename;
 
   NODE_ARG_OBJECT(0, "buffer", buffer);
   NODE_ARG_STR(1, "filename", filename);
 
-  if (!Memfile::copy(buffer, filename)) Nan::ThrowError("Failed creating in-memory file");
+  if (!Memfile::copy(buffer, filename)) Napi::Error::New(node_gdal::napi_env(), "Failed creating in-memory file").ThrowAsJavaScriptException();
+  return node_gdal::napi_env().Undefined();
 }
 
 /*
@@ -173,16 +188,17 @@ NAN_METHOD(Memfile::vsimemCopy) {
  * It is automatically deleted when the Buffer goes out of scope.
  * This is not a public method as it is not always safe.
  */
-NAN_METHOD(Memfile::vsimemAnonymous) {
-  Local<Object> buffer;
+NAPI_METHOD(Memfile::vsimemAnonymous) {
+  Napi::Object buffer;
 
   NODE_ARG_OBJECT(0, "buffer", buffer);
 
   Memfile *memfile = Memfile::get(buffer);
   if (memfile == nullptr)
-    Nan::ThrowError("Failed creating in-memory file");
+    Napi::Error::New(node_gdal::napi_env(), "Failed creating in-memory file").ThrowAsJavaScriptException();
   else
-    info.GetReturnValue().Set(Nan::New<String>(memfile->filename).ToLocalChecked());
+    return Napi::String::New(node_gdal::napi_env(), memfile->filename);
+  return node_gdal::napi_env().Undefined();
 }
 
 /**
@@ -206,7 +222,7 @@ NAN_METHOD(Memfile::vsimemAnonymous) {
  * @throws {Error}
  * @return {Buffer} A binary buffer containing all the data
  */
-NAN_METHOD(Memfile::vsimemRelease) {
+NAPI_METHOD(Memfile::vsimemRelease) {
   vsi_l_offset len;
   std::string filename;
   NODE_ARG_STR(0, "filename", filename);
@@ -215,7 +231,7 @@ NAN_METHOD(Memfile::vsimemRelease) {
   void *data = VSIGetMemFileBuffer(filename.c_str(), &len, false);
   if (data == nullptr) {
     NODE_THROW_LAST_CPLERR;
-    return;
+    return node_gdal::napi_env().Undefined();
   }
 
   // Two cases:
@@ -225,31 +241,29 @@ NAN_METHOD(Memfile::vsimemRelease) {
     Memfile *mem = memfile_collection.find(data)->second;
     memfile_collection.erase(mem->data);
     VSIUnlink(mem->filename.c_str());
-    info.GetReturnValue().Set(Nan::New(*mem->persistent));
-    delete mem;
+    // the pinned buffer is the file's contents
+    return mem->persistent->Value();
   } else {
     // the file has been created by GDAL and the buffer is owned by GDAL
     // -> a new Buffer is constructed and GDAL has to relinquish control
-    // The GC will call the lambda at some point to free the backing storage
+    // The GC will call the finalizer at some point to free the backing storage
     VSIGetMemFileBuffer(filename.c_str(), &len, true);
-    info.GetReturnValue().Set(Nan::NewBuffer(
-                                static_cast<char *>(data),
-                                static_cast<size_t>(len),
-                                [](char *data, void *) {
-                                  // If the returned internal buffer is tracked towards the heap
-                                  // signal the GC that we are releasing the amount we
-                                  // initially counted - even if by now this amount might be
-                                  // different
-                                  std::map<void *, size_t>::iterator b =
-                                    Memfile::tracked_buffers.find(static_cast<void *>(data));
-                                  if (b != Memfile::tracked_buffers.end()) {
-                                    Nan::AdjustExternalMemory(-(static_cast<int>(b->second)));
-                                    Memfile::tracked_buffers.erase(b);
-                                  }
-                                  CPLFree(data);
-                                },
-                                nullptr)
-                                .ToLocalChecked());
+    return Napi::Buffer<char>::New(
+      node_gdal::napi_env(),
+      static_cast<char *>(data),
+      static_cast<size_t>(len),
+      [](Napi::Env, char *data) {
+        // If the returned internal buffer is tracked towards the heap
+        // signal the GC that we are releasing the amount we
+        // initially counted - even if by now this amount might be
+        // different
+        std::map<void *, size_t>::iterator b = Memfile::tracked_buffers.find(static_cast<void *>(data));
+        if (b != Memfile::tracked_buffers.end()) {
+          Napi::MemoryManagement::AdjustExternalMemory(node_gdal::napi_env(), -(static_cast<int>(b->second)));
+          Memfile::tracked_buffers.erase(b);
+        }
+        CPLFree(data);
+      });
   }
 }
 

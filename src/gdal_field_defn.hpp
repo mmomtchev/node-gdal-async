@@ -2,45 +2,41 @@
 #define __NODE_OGR_FIELD_DEFN_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "nan-wrapper.h"
+#include "gdal_common.hpp"
 
 // ogr
 #include <ogrsf_frmts.h>
 
-using namespace v8;
-using namespace node;
-
 namespace node_gdal {
 
-class FieldDefn : public Nan::ObjectWrap {
+class FieldDefn : public GDALObject<FieldDefn> {
     public:
-  static Nan::Persistent<FunctionTemplate> constructor;
-  static void Initialize(Local<Object> target);
-  static NAN_METHOD(New);
-  static Local<Value> New(const OGRFieldDefn *def);
-  static Local<Value> New(OGRFieldDefn *def, bool owned);
-  static NAN_METHOD(toString);
+  static Napi::FunctionReference constructor;
+  static void Initialize(Napi::Object target);
+  static Napi::Value New(const OGRFieldDefn *def);
+  static Napi::Value New(OGRFieldDefn *def, bool owned);
+  static NAPI_METHOD(toString);
 
-  static NAN_GETTER(nameGetter);
-  static NAN_GETTER(typeGetter);
-  static NAN_GETTER(justificationGetter);
-  static NAN_GETTER(precisionGetter);
-  static NAN_GETTER(widthGetter);
-  static NAN_GETTER(ignoredGetter);
+  static NAPI_GETTER(nameGetter);
+  static NAPI_GETTER(typeGetter);
+  static NAPI_GETTER(justificationGetter);
+  static NAPI_GETTER(precisionGetter);
+  static NAPI_GETTER(widthGetter);
+  static NAPI_GETTER(ignoredGetter);
 
-  static NAN_SETTER(nameSetter);
-  static NAN_SETTER(typeSetter);
-  static NAN_SETTER(justificationSetter);
-  static NAN_SETTER(precisionSetter);
-  static NAN_SETTER(widthSetter);
-  static NAN_SETTER(ignoredSetter);
+  static NAPI_SETTER(nameSetter);
+  static NAPI_SETTER(typeSetter);
+  static NAPI_SETTER(justificationSetter);
+  static NAPI_SETTER(precisionSetter);
+  static NAPI_SETTER(widthSetter);
+  static NAPI_SETTER(ignoredSetter);
 
-  FieldDefn();
-  FieldDefn(OGRFieldDefn *def);
+  FieldDefn(const Napi::CallbackInfo &info);
+
+  // Must be accessible: ObjectWrap's finalizer deletes the instance itself
+  ~FieldDefn();
   inline OGRFieldDefn *get() {
     return this_;
   }
@@ -49,7 +45,6 @@ class FieldDefn : public Nan::ObjectWrap {
   }
 
     private:
-  ~FieldDefn();
   OGRFieldDefn *this_;
   bool owned_;
 };

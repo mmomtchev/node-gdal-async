@@ -2,19 +2,15 @@
 #define __GDAL_ALGEBRA_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "nan-wrapper.h"
+#include "gdal_common.hpp"
 
 // gdal
 #include <gdal_priv.h>
 
 #include "async.hpp"
 
-using namespace v8;
-using namespace node;
 
 // GDAL Raster Band Algebra
 // https://gdal.org/en/latest/user/band_algebra.html
@@ -24,7 +20,7 @@ namespace Algebra {
 
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 12)
 
-void Initialize(Local<Object> target);
+void Initialize(Napi::Object target);
 
 GDAL_ASYNCABLE_GLOBAL(abs);
 GDAL_ASYNCABLE_GLOBAL(sqrt);

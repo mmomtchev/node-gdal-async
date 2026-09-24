@@ -2,37 +2,32 @@
 #define __NODE_GDAL_DRIVERS_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "../nan-wrapper.h"
+#include "../gdal_common.hpp"
 
 // gdal
 #include <gdal_priv.h>
 
-using namespace v8;
-using namespace node;
-
 namespace node_gdal {
 
-class GDALDrivers : public Nan::ObjectWrap {
+class GDALDrivers : public GDALObject<GDALDrivers> {
     public:
-  static Nan::Persistent<FunctionTemplate> constructor;
+  static Napi::FunctionReference constructor;
 
-  static void Initialize(Local<Object> target);
-  static NAN_METHOD(New);
-  static Local<Value> New();
-  static NAN_METHOD(toString);
+  static void Initialize(Napi::Object target);
+  static Napi::Value New();
+  static NAPI_METHOD(toString);
 
-  static NAN_METHOD(get);
-  static NAN_METHOD(getNames);
-  static NAN_METHOD(count);
+  static NAPI_METHOD(get);
+  static NAPI_METHOD(getNames);
+  static NAPI_METHOD(count);
 
-  GDALDrivers();
+  GDALDrivers(const Napi::CallbackInfo &info);
 
-    private:
+  // Must be accessible: ObjectWrap's finalizer deletes the instance itself
   ~GDALDrivers();
+    private:
 };
 
 } // namespace node_gdal

@@ -2,17 +2,13 @@
 #define __NODE_TYPEDARRAY_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "../nan-wrapper.h"
+#include "../gdal_common.hpp"
 
 // gdal
 #include <gdal_priv.h>
 
-using namespace v8;
-using namespace node;
 
 namespace node_gdal {
 
@@ -51,10 +47,10 @@ namespace node_gdal {
 
 namespace TypedArray {
 
-Local<Value> New(GDALDataType type, int64_t length);
-Local<Value> New(GDALDataType type, void *data, int64_t length);
-GDALDataType Identify(Local<Object> array);
-void *Validate(Local<Object> obj, GDALDataType type, int64_t min_length);
+Napi::Value New(GDALDataType type, int64_t length);
+Napi::Value New(GDALDataType type, void *data, int64_t length);
+GDALDataType Identify(Napi::Object array);
+void *Validate(Napi::Object obj, GDALDataType type, int64_t min_length);
 bool ValidateLength(size_t length, int64_t min_length);
 } // namespace TypedArray
 

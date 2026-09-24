@@ -5,32 +5,38 @@
 
 namespace node_gdal {
 
-Nan::Persistent<FunctionTemplate> LayerFeatures::constructor;
+Napi::FunctionReference LayerFeatures::constructor;
 
-void LayerFeatures::Initialize(Local<Object> target) {
-  Nan::HandleScope scope;
+void LayerFeatures::Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+  SELF_CLASS(LayerFeatures);
 
-  Local<FunctionTemplate> lcons = Nan::New<FunctionTemplate>(LayerFeatures::New);
-  lcons->InstanceTemplate()->SetInternalFieldCount(1);
-  lcons->SetClassName(Nan::New("LayerFeatures").ToLocalChecked());
+  // NOTE: the descriptor macros carry their own trailing comma
+  Napi::Function lcons = GDALDefineClass<SELF>(env, "LayerFeatures",
+    {
+        METHOD(toString)
+        METHOD_ASYNCABLE(count)
+        METHOD_ASYNCABLE(add)
+        METHOD_ASYNCABLE(get)
+        METHOD_ASYNCABLE(set)
+        METHOD_ASYNCABLE(first)
+        METHOD_ASYNCABLE(next)
+        METHOD_ASYNCABLE(remove)
+        ATTR_DONT_ENUM(lcons, "layer", layerGetter, READ_ONLY_SETTER)
+    });
 
-  Nan::SetPrototypeMethod(lcons, "toString", toString);
-  Nan__SetPrototypeAsyncableMethod(lcons, "count", count);
-  Nan__SetPrototypeAsyncableMethod(lcons, "add", add);
-  Nan__SetPrototypeAsyncableMethod(lcons, "get", get);
-  Nan__SetPrototypeAsyncableMethod(lcons, "set", set);
-  Nan__SetPrototypeAsyncableMethod(lcons, "first", first);
-  Nan__SetPrototypeAsyncableMethod(lcons, "next", next);
-  Nan__SetPrototypeAsyncableMethod(lcons, "remove", remove);
+  target.Set("LayerFeatures", lcons);
 
-  ATTR_DONT_ENUM(lcons, "layer", layerGetter, READ_ONLY_SETTER);
-
-  Nan::Set(target, Nan::New("LayerFeatures").ToLocalChecked(), Nan::GetFunction(lcons).ToLocalChecked());
-
-  constructor.Reset(lcons);
+  constructor = Napi::Persistent(lcons);
+  constructor.SuppressDestruct();
 }
 
-LayerFeatures::LayerFeatures() : Nan::ObjectWrap() {
+LayerFeatures::LayerFeatures(const Napi::CallbackInfo &info) : GDALObject<LayerFeatures>(info) {
+  if (info.Length() < 1 || !info[0].IsObject()) {
+    Napi::Error::New(info.Env(), "Cannot create LayerFeatures directly").ThrowAsJavaScriptException();
+    return;
+  }
+  GDAL_SET_PRIVATE(info.This(), "parent_", info[0]);
 }
 
 LayerFeatures::~LayerFeatures() {
@@ -42,40 +48,17 @@ LayerFeatures::~LayerFeatures() {
  *
  * @class LayerFeatures
  */
-NAN_METHOD(LayerFeatures::New) {
 
-  if (!info.IsConstructCall()) {
-    Nan::ThrowError("Cannot call constructor as function, you need to use 'new' keyword");
-    return;
-  }
-  if (info[0]->IsExternal()) {
-    Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value(V8_TYPE_TAG);
-    LayerFeatures *f = static_cast<LayerFeatures *>(ptr);
-    f->Wrap(info.This());
-    info.GetReturnValue().Set(info.This());
-    return;
-  } else {
-    Nan::ThrowError("Cannot create LayerFeatures directly");
-    return;
-  }
+Napi::Value LayerFeatures::New(Napi::Value layer_obj) {
+
+  std::vector<napi_value> args = {layer_obj};
+  Napi::Object obj = LayerFeatures::constructor.Value().New(args);
+
+  return obj;
 }
 
-Local<Value> LayerFeatures::New(Local<Value> layer_obj) {
-  Nan::EscapableHandleScope scope;
-
-  LayerFeatures *wrapped = new LayerFeatures();
-
-  v8::Local<v8::Value> ext = Nan::New<External>(wrapped);
-  v8::Local<v8::Object> obj =
-    Nan::NewInstance(Nan::GetFunction(Nan::New(LayerFeatures::constructor)).ToLocalChecked(), 1, &ext).ToLocalChecked();
-  Nan::SetPrivate(obj, Nan::New("parent_").ToLocalChecked(), layer_obj);
-
-  return scope.Escape(obj);
-}
-
-NAN_METHOD(LayerFeatures::toString) {
-  info.GetReturnValue().Set(Nan::New("LayerFeatures").ToLocalChecked());
+NAPI_METHOD(LayerFeatures::toString) {
+  return Napi::String::New(node_gdal::napi_env(), "LayerFeatures");
 }
 
 /**
@@ -111,19 +94,19 @@ NAN_METHOD(LayerFeatures::toString) {
  */
 GDAL_ASYNCABLE_DEFINE(LayerFeatures::get) {
 
-  Local<Object> parent =
-    Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked()).ToLocalChecked().As<Object>();
-  Layer *layer = Nan::ObjectWrap::Unwrap<Layer>(parent);
+  Napi::Object parent =
+    GDAL_GET_PRIVATE(info.This(), "parent_").As<Napi::Object>();
+  Layer *layer = node_gdal::UnwrapWrapped<Layer>(parent);
   if (!layer->isAlive()) {
-    Nan::ThrowError("Layer object already destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Layer object already destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   int feature_id;
   NODE_ARG_INT(0, "feature id", feature_id);
   OGRLayer *gdal_layer = layer->get();
   GDALAsyncableJob<OGRFeature *> job(layer->parent_uid);
-  job.persist(layer->handle());
+  job.persist(layer->Value());
   job.main = [gdal_layer, feature_id](const GDALExecutionProgress &) {
     CPLErrorReset();
     OGRFeature *feature = gdal_layer->GetFeature(feature_id);
@@ -131,7 +114,7 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::get) {
     return feature;
   };
   job.rval = [](OGRFeature *feature, const GetFromPersistentFunc &) { return Feature::New(feature); };
-  job.run(info, async, 1);
+  return job.run(info, async, 1);
 }
 
 /**
@@ -157,24 +140,24 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::get) {
  */
 GDAL_ASYNCABLE_DEFINE(LayerFeatures::first) {
 
-  Local<Object> parent =
-    Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked()).ToLocalChecked().As<Object>();
-  Layer *layer = Nan::ObjectWrap::Unwrap<Layer>(parent);
+  Napi::Object parent =
+    GDAL_GET_PRIVATE(info.This(), "parent_").As<Napi::Object>();
+  Layer *layer = node_gdal::UnwrapWrapped<Layer>(parent);
   if (!layer->isAlive()) {
-    Nan::ThrowError("Layer object already destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Layer object already destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   OGRLayer *gdal_layer = layer->get();
   GDALAsyncableJob<OGRFeature *> job(layer->parent_uid);
-  job.persist(layer->handle());
+  job.persist(layer->Value());
   job.main = [gdal_layer](const GDALExecutionProgress &) {
     gdal_layer->ResetReading();
     OGRFeature *feature = gdal_layer->GetNextFeature();
     return feature;
   };
   job.rval = [](OGRFeature *feature, const GetFromPersistentFunc &) { return Feature::New(feature); };
-  job.run(info, async, 0);
+  return job.run(info, async, 0);
 }
 
 /**
@@ -206,23 +189,23 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::first) {
  */
 GDAL_ASYNCABLE_DEFINE(LayerFeatures::next) {
 
-  Local<Object> parent =
-    Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked()).ToLocalChecked().As<Object>();
-  Layer *layer = Nan::ObjectWrap::Unwrap<Layer>(parent);
+  Napi::Object parent =
+    GDAL_GET_PRIVATE(info.This(), "parent_").As<Napi::Object>();
+  Layer *layer = node_gdal::UnwrapWrapped<Layer>(parent);
   if (!layer->isAlive()) {
-    Nan::ThrowError("Layer object already destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Layer object already destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   OGRLayer *gdal_layer = layer->get();
   GDALAsyncableJob<OGRFeature *> job(layer->parent_uid);
-  job.persist(layer->handle());
+  job.persist(layer->Value());
   job.main = [gdal_layer](const GDALExecutionProgress &) {
     OGRFeature *feature = gdal_layer->GetNextFeature();
     return feature;
   };
   job.rval = [](OGRFeature *feature, const GetFromPersistentFunc &) { return Feature::New(feature); };
-  job.run(info, async, 0);
+  return job.run(info, async, 0);
 }
 
 /**
@@ -266,12 +249,12 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::next) {
 
 GDAL_ASYNCABLE_DEFINE(LayerFeatures::add) {
 
-  Local<Object> parent =
-    Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked()).ToLocalChecked().As<Object>();
-  Layer *layer = Nan::ObjectWrap::Unwrap<Layer>(parent);
+  Napi::Object parent =
+    GDAL_GET_PRIVATE(info.This(), "parent_").As<Napi::Object>();
+  Layer *layer = node_gdal::UnwrapWrapped<Layer>(parent);
   if (!layer->isAlive()) {
-    Nan::ThrowError("Layer object already destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Layer object already destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   Feature *f;
@@ -280,14 +263,14 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::add) {
   OGRLayer *gdal_layer = layer->get();
   OGRFeature *gdal_f = f->get();
   GDALAsyncableJob<int> job(layer->parent_uid);
-  job.persist(layer->handle());
+  job.persist(layer->Value());
   job.main = [gdal_layer, gdal_f](const GDALExecutionProgress &) {
     int err = gdal_layer->CreateFeature(gdal_f);
     if (err != CE_None) throw getOGRErrMsg(err);
     return err;
   };
-  job.rval = [](int, const GetFromPersistentFunc &) { return Nan::Undefined(); };
-  job.run(info, async, 1);
+  job.rval = [](int, const GetFromPersistentFunc &) { return node_gdal::napi_env().Undefined(); };
+  return job.run(info, async, 1);
 }
 
 /**
@@ -314,20 +297,20 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::add) {
 
 GDAL_ASYNCABLE_DEFINE(LayerFeatures::count) {
 
-  Local<Object> parent =
-    Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked()).ToLocalChecked().As<Object>();
-  Layer *layer = Nan::ObjectWrap::Unwrap<Layer>(parent);
+  Napi::Object parent =
+    GDAL_GET_PRIVATE(info.This(), "parent_").As<Napi::Object>();
+  Layer *layer = node_gdal::UnwrapWrapped<Layer>(parent);
   if (!layer->isAlive()) {
-    Nan::ThrowError("Layer object already destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Layer object already destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
-  Local<Object> ds;
+  Napi::Object ds;
   if (object_store.has(layer->getParent())) {
     ds = object_store.get(layer->getParent());
   } else {
-    Nan::ThrowError("Dataset object already destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object already destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   int force = 1;
@@ -335,13 +318,13 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::count) {
 
   OGRLayer *gdal_layer = layer->get();
   GDALAsyncableJob<GIntBig> job(layer->parent_uid);
-  job.persist(layer->handle());
+  job.persist(layer->Value());
   job.main = [gdal_layer, force](const GDALExecutionProgress &) {
     GIntBig count = gdal_layer->GetFeatureCount(force);
     return count;
   };
-  job.rval = [](GIntBig count, const GetFromPersistentFunc &) { return Nan::New<Number>(count); };
-  job.run(info, async, 1);
+  job.rval = [](GIntBig count, const GetFromPersistentFunc &) { return Napi::Number::New(node_gdal::napi_env(), count); };
+  return job.run(info, async, 1);
 }
 
 /**
@@ -380,60 +363,60 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::count) {
  */
 GDAL_ASYNCABLE_DEFINE(LayerFeatures::set) {
 
-  Local<Object> parent =
-    Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked()).ToLocalChecked().As<Object>();
-  Layer *layer = Nan::ObjectWrap::Unwrap<Layer>(parent);
+  Napi::Object parent =
+    GDAL_GET_PRIVATE(info.This(), "parent_").As<Napi::Object>();
+  Layer *layer = node_gdal::UnwrapWrapped<Layer>(parent);
   if (!layer->isAlive()) {
-    Nan::ThrowError("Layer object already destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Layer object already destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
-  Local<Object> ds;
+  Napi::Object ds;
   if (object_store.has(layer->getParent())) { ds = object_store.get(layer->getParent()); }
   if (!layer->isAlive()) {
-    Nan::ThrowError("Dataset object already destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object already destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   int err;
   Feature *f;
 
-  Local<Object> feature;
-  if (info[0]->IsObject()) {
+  Napi::Object feature;
+  if (info[0].IsObject()) {
     NODE_ARG_WRAPPED(0, "feature", Feature, f);
-    feature = info[0].As<Object>();
-  } else if (info[0]->IsNumber()) {
+    feature = info[0].As<Napi::Object>();
+  } else if (info[0].IsNumber()) {
     int i = 0;
     NODE_ARG_INT(0, "feature id", i);
     NODE_ARG_WRAPPED(1, "feature", Feature, f);
-    feature = info[1].As<Object>();
+    feature = info[1].As<Napi::Object>();
     err = f->get()->SetFID(i);
     if (err) {
-      Nan::ThrowError("Error setting feature id");
-      return;
+      Napi::Error::New(node_gdal::napi_env(), "Error setting feature id").ThrowAsJavaScriptException();
+      return node_gdal::napi_env().Undefined();
     }
   } else {
-    Nan::ThrowError("Invalid arguments");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Invalid arguments").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   if (!f->isAlive()) {
-    Nan::ThrowError("Feature already destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Feature already destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   OGRLayer *gdal_layer = layer->get();
   OGRFeature *gdal_feature = f->get();
   GDALAsyncableJob<OGRErr> job(layer->parent_uid);
-  job.persist(layer->handle(), f->handle());
+  job.persist(layer->Value(), f->Value());
   job.main = [gdal_layer, gdal_feature](const GDALExecutionProgress &) {
     OGRErr err = gdal_layer->SetFeature(gdal_feature);
     if (err != CE_None) throw getOGRErrMsg(err);
     return err;
   };
 
-  job.rval = [](int, const GetFromPersistentFunc &) { return Nan::Undefined(); };
-  job.run(info, async, 2);
+  job.rval = [](int, const GetFromPersistentFunc &) { return node_gdal::napi_env().Undefined(); };
+  return job.run(info, async, 2);
 }
 
 /**
@@ -461,12 +444,12 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::set) {
 
 GDAL_ASYNCABLE_DEFINE(LayerFeatures::remove) {
 
-  Local<Object> parent =
-    Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked()).ToLocalChecked().As<Object>();
-  Layer *layer = Nan::ObjectWrap::Unwrap<Layer>(parent);
+  Napi::Object parent =
+    GDAL_GET_PRIVATE(info.This(), "parent_").As<Napi::Object>();
+  Layer *layer = node_gdal::UnwrapWrapped<Layer>(parent);
   if (!layer->isAlive()) {
-    Nan::ThrowError("Layer object already destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Layer object already destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   int i;
@@ -474,16 +457,16 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::remove) {
 
   OGRLayer *gdal_layer = layer->get();
   GDALAsyncableJob<int> job(layer->parent_uid);
-  job.persist(layer->handle());
+  job.persist(layer->Value());
   job.main = [gdal_layer, i](const GDALExecutionProgress &) {
     int err = gdal_layer->DeleteFeature(i);
     if (err) { throw getOGRErrMsg(err); }
     return err;
   };
-  job.rval = [](int, const GetFromPersistentFunc &) { return Nan::Undefined(); };
-  job.run(info, async, 1);
+  job.rval = [](int, const GetFromPersistentFunc &) { return node_gdal::napi_env().Undefined(); };
+  return job.run(info, async, 1);
 
-  return;
+  return node_gdal::napi_env().Undefined();
 }
 
 /**
@@ -495,8 +478,8 @@ GDAL_ASYNCABLE_DEFINE(LayerFeatures::remove) {
  * @memberof LayerFeatures
  * @type {Layer}
  */
-NAN_GETTER(LayerFeatures::layerGetter) {
-  info.GetReturnValue().Set(Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked()).ToLocalChecked());
+NAPI_GETTER(LayerFeatures::layerGetter) {
+  return GDAL_GET_PRIVATE(info.This(), "parent_");
 }
 
 } // namespace node_gdal

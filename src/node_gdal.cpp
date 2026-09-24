@@ -1,10 +1,5 @@
-// node
-#include <node.h>
-#include <node_buffer.h>
-#include <node_version.h>
-
-// nan
-#include "nan-wrapper.h"
+// gdal-async
+#include "gdal_common.hpp"
 
 // gdal
 #include <gdal.h>
@@ -76,99 +71,86 @@
 
 namespace node_gdal {
 
-using namespace node;
-using namespace v8;
-
 FILE *log_file = NULL;
 ObjectStore object_store;
 bool eventLoopWarn = true;
+::napi_env napi_env_storage = nullptr;
 
-static NAN_GETTER(LastErrorGetter) {
+// Set by the env cleanup hook, see async.hpp. This definition has to stay outside
+// the `extern "C"` block below - async.hpp declares it with C++ linkage, and
+// `extern "C"` would give this definition C linkage instead.
+bool gdalShuttingDown = false;
+
+static NAPI_GETTER(LastErrorGetter) {
 
   int errtype = CPLGetLastErrorType();
-  if (errtype == CE_None) {
-    info.GetReturnValue().Set(Nan::Null());
-    return;
-  }
+  if (errtype == CE_None) return info.Env().Null();
 
-  Local<Object> result = Nan::New<Object>();
-  Nan::Set(result, Nan::New("code").ToLocalChecked(), Nan::New(CPLGetLastErrorNo()));
-  Nan::Set(result, Nan::New("message").ToLocalChecked(), Nan::New(CPLGetLastErrorMsg()).ToLocalChecked());
-  Nan::Set(result, Nan::New("level").ToLocalChecked(), Nan::New(errtype));
-  info.GetReturnValue().Set(result);
+  Napi::Object result = Napi::Object::New(info.Env());
+  result.Set( Napi::String::New(info.Env(), "code"), Napi::Number::New(info.Env(), CPLGetLastErrorNo()));
+  result.Set( Napi::String::New(info.Env(), "message"), Napi::String::New(info.Env(), CPLGetLastErrorMsg()));
+  result.Set( Napi::String::New(info.Env(), "level"), Napi::Number::New(info.Env(), errtype));
+  return result;
 }
 
-static NAN_SETTER(LastErrorSetter) {
+static NAPI_SETTER(LastErrorSetter) {
 
-  if (value->IsNull()) {
+  if (value.IsNull()) {
     CPLErrorReset();
   } else {
-    Nan::ThrowError("'lastError' only supports being set to null");
+    Napi::Error::New(info.Env(), "'lastError' only supports being set to null").ThrowAsJavaScriptException();
     return;
   }
 }
 
-static NAN_GETTER(EventLoopWarningGetter) {
-  info.GetReturnValue().Set(Nan::New<Boolean>(eventLoopWarn));
+static NAPI_GETTER(EventLoopWarningGetter) {
+  return Napi::Boolean::New(info.Env(), eventLoopWarn);
 }
 
-static NAN_SETTER(EventLoopWarningSetter) {
-  if (!value->IsBoolean()) {
-    Nan::ThrowError("'eventLoopWarning' must be a boolean value");
+static NAPI_SETTER(EventLoopWarningSetter) {
+  if (!value.IsBoolean()) {
+    Napi::Error::New(info.Env(), "'eventLoopWarning' must be a boolean value").ThrowAsJavaScriptException();
     return;
   }
-  eventLoopWarn = Nan::To<bool>(value).ToChecked();
+  eventLoopWarn = value.As<Napi::Boolean>().Value();
 }
 
 extern "C" {
 
-static NAN_METHOD(QuietOutput) {
+static NAPI_METHOD(QuietOutput) {
   CPLSetErrorHandler(CPLQuietErrorHandler);
-  return;
+  return info.Env().Undefined();
 }
 
-static NAN_METHOD(VerboseOutput) {
+static NAPI_METHOD(VerboseOutput) {
   CPLSetErrorHandler(CPLDefaultErrorHandler);
-  return;
+  return info.Env().Undefined();
 }
 
-#ifdef ENABLE_LOGGING
-static NAN_GC_CALLBACK(beforeGC) {
-  LOG("%s", "Starting garbage collection");
-}
-
-static NAN_GC_CALLBACK(afterGC) {
-  LOG("%s", "Finished garbage collection");
-}
-#endif
-
-static NAN_METHOD(StartLogging) {
+static NAPI_METHOD(StartLogging) {
 
 #ifdef ENABLE_LOGGING
   std::string filename = "";
   NODE_ARG_STR(0, "filename", filename);
   if (filename.empty()) {
-    Nan::ThrowError("Invalid filename");
-    return;
+    Napi::Error::New(info.Env(), "Invalid filename").ThrowAsJavaScriptException();
+    return info.Env().Undefined();
   }
   if (log_file) fclose(log_file);
   log_file = fopen(filename.c_str(), "w");
   if (!log_file) {
-    Nan::ThrowError("Error creating log file");
-    return;
+    Napi::Error::New(info.Env(), "Error creating log file").ThrowAsJavaScriptException();
+    return info.Env().Undefined();
   }
 
-  Nan::AddGCPrologueCallback(beforeGC);
-  Nan::AddGCEpilogueCallback(afterGC);
-
 #else
-  Nan::ThrowError("Logging requires node-gdal be compiled with --enable_logging=true");
+  Napi::Error::New(info.Env(), "Logging requires node-gdal be compiled with --enable_logging=true").ThrowAsJavaScriptException();
 #endif
 
-  return;
+  return info.Env().Undefined();
 }
 
-static NAN_METHOD(StopLogging) {
+static NAPI_METHOD(StopLogging) {
 #ifdef ENABLE_LOGGING
   if (log_file) {
     fclose(log_file);
@@ -176,10 +158,10 @@ static NAN_METHOD(StopLogging) {
   }
 #endif
 
-  return;
+  return info.Env().Undefined();
 }
 
-static NAN_METHOD(Log) {
+static NAPI_METHOD(Log) {
   std::string msg;
   NODE_ARG_STR(0, "message", msg);
   msg = msg + "\n";
@@ -191,7 +173,7 @@ static NAN_METHOD(Log) {
   }
 #endif
 
-  return;
+  return info.Env().Undefined();
 }
 
 /*
@@ -219,18 +201,18 @@ GDAL_ASYNCABLE_DEFINE(gdal_open) {
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
       flags |= GDAL_OF_MULTIDIM_RASTER;
 #else
-      Nan::ThrowError("Multidimensional support requires GDAL 3.1");
+      Napi::Error::New(info.Env(), "Multidimensional support requires GDAL 3.1").ThrowAsJavaScriptException();
 #endif
     } else if (mode[i] == 't') {
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 10)
       flags |= GDAL_OF_THREAD_SAFE | GDAL_OF_RASTER;
 #else
-      Nan::ThrowError("Thread-safe read-only reading requires GDAL 3.10");
-      return;
+      Napi::Error::New(info.Env(), "Thread-safe read-only reading requires GDAL 3.10").ThrowAsJavaScriptException();
+      return info.Env().Undefined();
 #endif
     } else {
-      Nan::ThrowError("Invalid open mode. Must contain only \"r\" or \"r+\" and \"m\" or \"t\" ");
-      return;
+      Napi::Error::New(info.Env(), "Invalid open mode. Must contain only \"r\" or \"r+\" and \"m\" or \"t\" ").ThrowAsJavaScriptException();
+      return info.Env().Undefined();
     }
   }
   flags |= GDAL_OF_VERBOSE_ERROR;
@@ -242,38 +224,38 @@ GDAL_ASYNCABLE_DEFINE(gdal_open) {
     if (!ds) throw CPLGetLastErrorMsg();
     return ds;
   };
-  job.run(info, async, 2);
+  return job.run(info, async, 2);
 }
 
-static NAN_METHOD(setConfigOption) {
+static NAPI_METHOD(setConfigOption) {
 
   std::string name;
 
   NODE_ARG_STR(0, "name", name);
 
   if (info.Length() < 2) {
-    Nan::ThrowError("string or null value must be provided");
-    return;
+    Napi::Error::New(info.Env(), "string or null value must be provided").ThrowAsJavaScriptException();
+    return info.Env().Undefined();
   }
-  if (info[1]->IsString()) {
-    std::string val = *Nan::Utf8String(info[1]);
+  if (info[1].IsString()) {
+    std::string val = info[1].As<Napi::String>().Utf8Value();
     CPLSetConfigOption(name.c_str(), val.c_str());
-  } else if (info[1]->IsNull() || info[1]->IsUndefined()) {
+  } else if (info[1].IsNull() || info[1].IsUndefined()) {
     CPLSetConfigOption(name.c_str(), NULL);
   } else {
-    Nan::ThrowError("value must be a string or null");
-    return;
+    Napi::Error::New(info.Env(), "value must be a string or null").ThrowAsJavaScriptException();
+    return info.Env().Undefined();
   }
 
-  return;
+  return info.Env().Undefined();
 }
 
-static NAN_METHOD(getConfigOption) {
+static NAPI_METHOD(getConfigOption) {
 
   std::string name;
   NODE_ARG_STR(0, "name", name);
 
-  info.GetReturnValue().Set(SafeString::New(CPLGetConfigOption(name.c_str(), NULL)));
+  return SafeString::New(CPLGetConfigOption(name.c_str(), NULL));
 }
 
 /**
@@ -291,7 +273,7 @@ static NAN_METHOD(getConfigOption) {
  * @return {string} A string nndnn'nn.nn'"L where n is a number and L is either
  * N or E
  */
-static NAN_METHOD(decToDMS) {
+static NAPI_METHOD(decToDMS) {
 
   double angle;
   std::string axis;
@@ -302,11 +284,11 @@ static NAN_METHOD(decToDMS) {
 
   if (axis.length() > 0) { axis[0] = toupper(axis[0]); }
   if (axis != "Lat" && axis != "Long") {
-    Nan::ThrowError("Axis must be 'lat' or 'long'");
-    return;
+    Napi::Error::New(info.Env(), "Axis must be 'lat' or 'long'").ThrowAsJavaScriptException();
+    return info.Env().Undefined();
   }
 
-  info.GetReturnValue().Set(SafeString::New(GDALDecToDMS(angle, axis.c_str(), precision)));
+  return SafeString::New(GDALDecToDMS(angle, axis.c_str(), precision));
 }
 
 /**
@@ -316,7 +298,7 @@ static NAN_METHOD(decToDMS) {
  * @method setPROJSearchPaths
  * @param {string} path `c:\ProjData`
  */
-static NAN_METHOD(setPROJSearchPath) {
+static NAPI_METHOD(setPROJSearchPath) {
   std::string path;
 
   NODE_ARG_STR(0, "path", path);
@@ -325,41 +307,43 @@ static NAN_METHOD(setPROJSearchPath) {
   const char *const paths[] = {path.c_str(), nullptr};
   OSRSetPROJSearchPaths(paths);
 #endif
+
+  return info.Env().Undefined();
 }
 
-static NAN_METHOD(ThrowDummyCPLError) {
+static NAPI_METHOD(ThrowDummyCPLError) {
   CPLError(CE_Failure, CPLE_AppDefined, "Mock error");
-  return;
+  return info.Env().Undefined();
 }
 
-static NAN_METHOD(isAlive) {
+static NAPI_METHOD(isAlive) {
 
   long uid;
   NODE_ARG_INT(0, "uid", uid);
 
-  info.GetReturnValue().Set(Nan::New(object_store.isAlive(uid)));
+  return Napi::Boolean::New(info.Env(), object_store.isAlive(uid));
 }
 
 void Cleanup(void *) {
+  gdalShuttingDown = true;
   object_store.cleanup();
 }
 
-static void Init(Local<Object> target, Local<v8::Value>, void *) {
-  static bool initialized = false;
-  if (initialized) {
-    Nan::ThrowError("gdal-async does not yet support multiple instances per V8 isolate");
-    return;
-  }
-  initialized = true;
+Napi::Object Init(Napi::Env env, Napi::Object target) {
+  // Note: the CJS and the ESM loader can both register the addon in the same
+  // process. Each call gets its own empty exports object, so the registration
+  // has to run every time - a guard here would hand the second one back empty.
+  // everything that goes through the ambient node_gdal::napi_env() needs this
+  napi_env_storage = env;
   mainV8ThreadId = std::this_thread::get_id();
 
-  Nan__SetAsyncableMethod(target, "open", gdal_open);
-  Nan::SetMethod(target, "setConfigOption", setConfigOption);
-  Nan::SetMethod(target, "getConfigOption", getConfigOption);
-  Nan::SetMethod(target, "decToDMS", decToDMS);
-  Nan::SetMethod(target, "setPROJSearchPath", setPROJSearchPath);
-  Nan::SetMethod(target, "_triggerCPLError", ThrowDummyCPLError); // for tests
-  Nan::SetMethod(target, "_isAlive", isAlive);                    // for tests
+  GDAL_SetAsyncableMethod(env, target, "open", gdal_open);
+  GDAL_SetMethod(env, target, "setConfigOption", setConfigOption);
+  GDAL_SetMethod(env, target, "getConfigOption", getConfigOption);
+  GDAL_SetMethod(env, target, "decToDMS", decToDMS);
+  GDAL_SetMethod(env, target, "setPROJSearchPath", setPROJSearchPath);
+  GDAL_SetMethod(env, target, "_triggerCPLError", ThrowDummyCPLError); // for tests
+  GDAL_SetMethod(env, target, "_isAlive", isAlive);                    // for tests
 
   Warper::Initialize(target);
   Algorithms::Initialize(target);
@@ -433,7 +417,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @type {GDALDrivers}
    */
   GDALDrivers::Initialize(target); // calls GDALRegisterAll()
-  Nan::Set(target, Nan::New("drivers").ToLocalChecked(), GDALDrivers::New());
+  target.Set( Napi::String::New(env, "drivers"), GDALDrivers::New());
 
   /*
    * DMD Constants
@@ -445,46 +429,44 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @type {string}
    * @name DMD_LONGNAME
    */
-  Nan::Set(target, Nan::New("DMD_LONGNAME").ToLocalChecked(), Nan::New(GDAL_DMD_LONGNAME).ToLocalChecked());
+  target.Set( Napi::String::New(env, "DMD_LONGNAME"), Napi::String::New(env, GDAL_DMD_LONGNAME));
   /**
    * @final
    * @constant
    * @name DMD_MIMETYPE
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DMD_MIMETYPE").ToLocalChecked(), Nan::New(GDAL_DMD_MIMETYPE).ToLocalChecked());
+  target.Set( Napi::String::New(env, "DMD_MIMETYPE"), Napi::String::New(env, GDAL_DMD_MIMETYPE));
   /**
    * @final
    * @constant
    * @name DMD_HELPTOPIC
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DMD_HELPTOPIC").ToLocalChecked(), Nan::New(GDAL_DMD_HELPTOPIC).ToLocalChecked());
+  target.Set( Napi::String::New(env, "DMD_HELPTOPIC"), Napi::String::New(env, GDAL_DMD_HELPTOPIC));
   /**
    * @final
    * @constant
    * @name DMD_EXTENSION
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DMD_EXTENSION").ToLocalChecked(), Nan::New(GDAL_DMD_EXTENSION).ToLocalChecked());
+  target.Set( Napi::String::New(env, "DMD_EXTENSION"), Napi::String::New(env, GDAL_DMD_EXTENSION));
   /**
    * @final
    * @constant
    * @name DMD_CREATIONOPTIONLIST
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("DMD_CREATIONOPTIONLIST").ToLocalChecked(),
-    Nan::New(GDAL_DMD_CREATIONOPTIONLIST).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "DMD_CREATIONOPTIONLIST"),
+    Napi::String::New(env, GDAL_DMD_CREATIONOPTIONLIST));
   /**
    * @final
    * @constant
    * @name DMD_CREATIONDATATYPES
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("DMD_CREATIONDATATYPES").ToLocalChecked(), Nan::New(GDAL_DMD_CREATIONDATATYPES).ToLocalChecked());
+  target.Set( Napi::String::New(env, "DMD_CREATIONDATATYPES"), Napi::String::New(env, GDAL_DMD_CREATIONDATATYPES));
 
   /*
    * CE Error levels
@@ -498,7 +480,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name CE_None
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CE_None").ToLocalChecked(), Nan::New(CE_None));
+  target.Set( Napi::String::New(env, "CE_None"), Napi::Number::New(env, CE_None));
   /**
    * Error level: Debug
    *
@@ -507,7 +489,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name CE_Debug
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CE_Debug").ToLocalChecked(), Nan::New(CE_Debug));
+  target.Set( Napi::String::New(env, "CE_Debug"), Napi::Number::New(env, CE_Debug));
   /**
    * Error level: Warning
    *
@@ -516,7 +498,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name CE_Warning
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CE_Warning").ToLocalChecked(), Nan::New(CE_Warning));
+  target.Set( Napi::String::New(env, "CE_Warning"), Napi::Number::New(env, CE_Warning));
   /**
    * Error level: Failure
    *
@@ -525,7 +507,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name CE_Failure
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CE_Failure").ToLocalChecked(), Nan::New(CE_Failure));
+  target.Set( Napi::String::New(env, "CE_Failure"), Napi::Number::New(env, CE_Failure));
   /**
    * Error level: Fatal
    *
@@ -534,7 +516,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name CE_Fatal
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CE_Fatal").ToLocalChecked(), Nan::New(CE_Fatal));
+  target.Set( Napi::String::New(env, "CE_Fatal"), Napi::Number::New(env, CE_Fatal));
 
   /*
    * CPL Error codes
@@ -546,77 +528,77 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name CPLE_None
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CPLE_None").ToLocalChecked(), Nan::New(CPLE_None));
+  target.Set( Napi::String::New(env, "CPLE_None"), Napi::Number::New(env, CPLE_None));
   /**
    * @final
    * @constant
    * @name CPLE_AppDefined
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CPLE_AppDefined").ToLocalChecked(), Nan::New(CPLE_AppDefined));
+  target.Set( Napi::String::New(env, "CPLE_AppDefined"), Napi::Number::New(env, CPLE_AppDefined));
   /**
    * @final
    * @constant
    * @name CPLE_OutOfMemory
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CPLE_OutOfMemory").ToLocalChecked(), Nan::New(CPLE_OutOfMemory));
+  target.Set( Napi::String::New(env, "CPLE_OutOfMemory"), Napi::Number::New(env, CPLE_OutOfMemory));
   /**
    * @final
    * @constant
    * @name CPLE_FileIO
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CPLE_FileIO").ToLocalChecked(), Nan::New(CPLE_FileIO));
+  target.Set( Napi::String::New(env, "CPLE_FileIO"), Napi::Number::New(env, CPLE_FileIO));
   /**
    * @final
    * @constant
    * @name CPLE_OpenFailed
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CPLE_OpenFailed").ToLocalChecked(), Nan::New(CPLE_OpenFailed));
+  target.Set( Napi::String::New(env, "CPLE_OpenFailed"), Napi::Number::New(env, CPLE_OpenFailed));
   /**
    * @final
    * @constant
    * @name CPLE_IllegalArg
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CPLE_IllegalArg").ToLocalChecked(), Nan::New(CPLE_IllegalArg));
+  target.Set( Napi::String::New(env, "CPLE_IllegalArg"), Napi::Number::New(env, CPLE_IllegalArg));
   /**
    * @final
    * @constant
    * @name CPLE_NotSupported
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CPLE_NotSupported").ToLocalChecked(), Nan::New(CPLE_NotSupported));
+  target.Set( Napi::String::New(env, "CPLE_NotSupported"), Napi::Number::New(env, CPLE_NotSupported));
   /**
    * @final
    * @constant
    * @name CPLE_AssertionFailed
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CPLE_AssertionFailed").ToLocalChecked(), Nan::New(CPLE_AssertionFailed));
+  target.Set( Napi::String::New(env, "CPLE_AssertionFailed"), Napi::Number::New(env, CPLE_AssertionFailed));
   /**
    * @final
    * @constant
    * @name CPLE_NoWriteAccess
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CPLE_NoWriteAccess").ToLocalChecked(), Nan::New(CPLE_NoWriteAccess));
+  target.Set( Napi::String::New(env, "CPLE_NoWriteAccess"), Napi::Number::New(env, CPLE_NoWriteAccess));
   /**
    * @final
    * @constant
    * @name CPLE_UserInterrupt
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CPLE_UserInterrupt").ToLocalChecked(), Nan::New(CPLE_UserInterrupt));
+  target.Set( Napi::String::New(env, "CPLE_UserInterrupt"), Napi::Number::New(env, CPLE_UserInterrupt));
   /**
    * @final
    * @constant
    * @name CPLE_objectNull
    * @type {number}
    */
-  Nan::Set(target, Nan::New("CPLE_ObjectNull").ToLocalChecked(), Nan::New(CPLE_ObjectNull));
+  target.Set( Napi::String::New(env, "CPLE_ObjectNull"), Napi::Number::New(env, CPLE_ObjectNull));
 
   /*
    * Driver Dataset creation constants
@@ -628,21 +610,21 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DCAP_CREATE
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DCAP_CREATE").ToLocalChecked(), Nan::New(GDAL_DCAP_CREATE).ToLocalChecked());
+  target.Set( Napi::String::New(env, "DCAP_CREATE"), Napi::String::New(env, GDAL_DCAP_CREATE));
   /**
    * @final
    * @constant
    * @name DCAP_CREATECOPY
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DCAP_CREATECOPY").ToLocalChecked(), Nan::New(GDAL_DCAP_CREATECOPY).ToLocalChecked());
+  target.Set( Napi::String::New(env, "DCAP_CREATECOPY"), Napi::String::New(env, GDAL_DCAP_CREATECOPY));
   /**
    * @final
    * @constant
    * @name DCAP_VIRTUALIO
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DCAP_VIRTUALIO").ToLocalChecked(), Nan::New(GDAL_DCAP_VIRTUALIO).ToLocalChecked());
+  target.Set( Napi::String::New(env, "DCAP_VIRTUALIO"), Napi::String::New(env, GDAL_DCAP_VIRTUALIO));
 
   /*
    * OLC Constants
@@ -654,106 +636,105 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name OLCRandomRead
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCRandomRead").ToLocalChecked(), Nan::New(OLCRandomRead).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCRandomRead"), Napi::String::New(env, OLCRandomRead));
   /**
    * @final
    * @constant
    * @name OLCSequentialWrite
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCSequentialWrite").ToLocalChecked(), Nan::New(OLCSequentialWrite).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCSequentialWrite"), Napi::String::New(env, OLCSequentialWrite));
   /**
    * @final
    * @constant
    * @name OLCRandomWrite
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCRandomWrite").ToLocalChecked(), Nan::New(OLCRandomWrite).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCRandomWrite"), Napi::String::New(env, OLCRandomWrite));
   /**
    * @final
    * @constant
    * @name OLCFastSpatialFilter
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCFastSpatialFilter").ToLocalChecked(), Nan::New(OLCFastSpatialFilter).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCFastSpatialFilter"), Napi::String::New(env, OLCFastSpatialFilter));
   /**
    * @final
    * @constant
    * @name OLCFastFeatureCount
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCFastFeatureCount").ToLocalChecked(), Nan::New(OLCFastFeatureCount).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCFastFeatureCount"), Napi::String::New(env, OLCFastFeatureCount));
   /**
    * @final
    * @constant
    * @name OLCFastGetExtent
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCFastGetExtent").ToLocalChecked(), Nan::New(OLCFastGetExtent).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCFastGetExtent"), Napi::String::New(env, OLCFastGetExtent));
   /**
    * @final
    * @constant
    * @name OLCCreateField
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCCreateField").ToLocalChecked(), Nan::New(OLCCreateField).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCCreateField"), Napi::String::New(env, OLCCreateField));
   /**
    * @final
    * @constant
    * @name OLCDeleteField
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCDeleteField").ToLocalChecked(), Nan::New(OLCDeleteField).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCDeleteField"), Napi::String::New(env, OLCDeleteField));
   /**
    * @final
    * @constant
    * @name OLCReorderFields
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCReorderFields").ToLocalChecked(), Nan::New(OLCReorderFields).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCReorderFields"), Napi::String::New(env, OLCReorderFields));
   /**
    * @final
    * @constant
    * @name OLCAlterFieldDefn
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCAlterFieldDefn").ToLocalChecked(), Nan::New(OLCAlterFieldDefn).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCAlterFieldDefn"), Napi::String::New(env, OLCAlterFieldDefn));
   /**
    * @final
    * @constant
    * @name OLCTransactions
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCTransactions").ToLocalChecked(), Nan::New(OLCTransactions).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCTransactions"), Napi::String::New(env, OLCTransactions));
   /**
    * @final
    * @constant
    * @name OLCDeleteFeature
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCDeleteFeature").ToLocalChecked(), Nan::New(OLCDeleteFeature).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCDeleteFeature"), Napi::String::New(env, OLCDeleteFeature));
   /**
    * @final
    * @constant
    * @name OLCFastSetNextByIndex
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("OLCFastSetNextByIndex").ToLocalChecked(), Nan::New(OLCFastSetNextByIndex).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCFastSetNextByIndex"), Napi::String::New(env, OLCFastSetNextByIndex));
   /**
    * @final
    * @constant
    * @name OLCStringsAsUTF8
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCStringsAsUTF8").ToLocalChecked(), Nan::New(OLCStringsAsUTF8).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCStringsAsUTF8"), Napi::String::New(env, OLCStringsAsUTF8));
   /**
    * @final
    * @constant
    * @name OLCIgnoreFields
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCIgnoreFields").ToLocalChecked(), Nan::New(OLCIgnoreFields).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCIgnoreFields"), Napi::String::New(env, OLCIgnoreFields));
 
 #ifdef OLCCreateGeomField
   /**
@@ -762,7 +743,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name OLCCreateGeomField
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OLCCreateGeomField").ToLocalChecked(), Nan::New(OLCCreateGeomField).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OLCCreateGeomField"), Napi::String::New(env, OLCCreateGeomField));
 #endif
 #ifdef ODsCCreateGeomFieldAfterCreateLayer
 
@@ -776,24 +757,23 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name ODsCCreateLayer
    * @type {string}
    */
-  Nan::Set(target, Nan::New("ODsCCreateLayer").ToLocalChecked(), Nan::New(ODsCCreateLayer).ToLocalChecked());
+  target.Set( Napi::String::New(env, "ODsCCreateLayer"), Napi::String::New(env, ODsCCreateLayer));
   /**
    * @final
    * @constant
    * @name ODsCDeleteLayer
    * @type {string}
    */
-  Nan::Set(target, Nan::New("ODsCDeleteLayer").ToLocalChecked(), Nan::New(ODsCDeleteLayer).ToLocalChecked());
+  target.Set( Napi::String::New(env, "ODsCDeleteLayer"), Napi::String::New(env, ODsCDeleteLayer));
   /**
    * @final
    * @constant
    * @name ODsCCreateGeomFieldAfterCreateLayer
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("ODsCCreateGeomFieldAfterCreateLayer").ToLocalChecked(),
-    Nan::New(ODsCCreateGeomFieldAfterCreateLayer).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "ODsCCreateGeomFieldAfterCreateLayer"),
+    Napi::String::New(env, ODsCCreateGeomFieldAfterCreateLayer));
 #endif
   /**
    * @final
@@ -801,14 +781,14 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name ODrCCreateDataSource
    * @type {string}
    */
-  Nan::Set(target, Nan::New("ODrCCreateDataSource").ToLocalChecked(), Nan::New(ODrCCreateDataSource).ToLocalChecked());
+  target.Set( Napi::String::New(env, "ODrCCreateDataSource"), Napi::String::New(env, ODrCCreateDataSource));
   /**
    * @final
    * @constant
    * @name ODrCDeleteDataSource
    * @type {string}
    */
-  Nan::Set(target, Nan::New("ODrCDeleteDataSource").ToLocalChecked(), Nan::New(ODrCDeleteDataSource).ToLocalChecked());
+  target.Set( Napi::String::New(env, "ODrCDeleteDataSource"), Napi::String::New(env, ODrCDeleteDataSource));
 
   /*
    * open flags
@@ -861,7 +841,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_Unknown
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GDT_Unknown").ToLocalChecked(), Nan::Undefined());
+  target.Set( Napi::String::New(env, "GDT_Unknown"), env.Undefined());
   /**
    * Eight bit unsigned integer
    * @final
@@ -869,8 +849,8 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_Byte
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GDT_Byte").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Byte)).ToLocalChecked());
-  Nan::Set(target, Nan::New("GDT_UInt8").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Byte)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_Byte"), Napi::String::New(env, GDALGetDataTypeName(GDT_Byte)));
+  target.Set( Napi::String::New(env, "GDT_UInt8"), Napi::String::New(env, GDALGetDataTypeName(GDT_Byte)));
   /**
    * Sixteen bit unsigned integer
    * @final
@@ -878,7 +858,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_UInt16
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GDT_UInt16").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_UInt16)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_UInt16"), Napi::String::New(env, GDALGetDataTypeName(GDT_UInt16)));
   /**
    * Sixteen bit signed integer
    * @final
@@ -886,7 +866,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_Int16
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GDT_Int16").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Int16)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_Int16"), Napi::String::New(env, GDALGetDataTypeName(GDT_Int16)));
   /**
    * Thirty two bit unsigned integer
    * @final
@@ -894,7 +874,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_UInt32
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GDT_UInt32").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_UInt32)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_UInt32"), Napi::String::New(env, GDALGetDataTypeName(GDT_UInt32)));
   /**
    * Thirty two bit signed integer
    * @final
@@ -902,7 +882,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_Int32
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GDT_Int32").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Int32)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_Int32"), Napi::String::New(env, GDALGetDataTypeName(GDT_Int32)));
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 5)
   /**
    * Sixty four bit signed integer
@@ -911,7 +891,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_Int64
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GDT_Int64").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Int64)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_Int64"), Napi::String::New(env, GDALGetDataTypeName(GDT_Int64)));
   /**
    * Sixty four bit unsigned integer
    * @final
@@ -919,7 +899,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_UInt64
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GDT_UInt64").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_UInt64)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_UInt64"), Napi::String::New(env, GDALGetDataTypeName(GDT_UInt64)));
 #endif
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 11)
   /**
@@ -929,8 +909,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_Float16
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("GDT_Float16").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Float16)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_Float16"), Napi::String::New(env, GDALGetDataTypeName(GDT_Float16)));
 #endif
   /**
    * Thirty two bit floating point
@@ -939,8 +918,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_Float32
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("GDT_Float32").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Float32)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_Float32"), Napi::String::New(env, GDALGetDataTypeName(GDT_Float32)));
   /**
    * Sixty four bit floating point
    * @final
@@ -948,8 +926,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_Float64
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("GDT_Float64").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_Float64)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_Float64"), Napi::String::New(env, GDALGetDataTypeName(GDT_Float64)));
   /**
    * Complex Int16
    * @final
@@ -957,7 +934,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_CInt16
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GDT_CInt16").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_CInt16)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_CInt16"), Napi::String::New(env, GDALGetDataTypeName(GDT_CInt16)));
   /**
    * Complex Int32
    * @final
@@ -965,7 +942,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_CInt32
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GDT_CInt32").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_CInt32)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_CInt32"), Napi::String::New(env, GDALGetDataTypeName(GDT_CInt32)));
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 11)
   /**
    * Complex Float16
@@ -974,8 +951,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_CFloat16
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("GDT_CFloat16").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_CFloat16)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_CFloat16"), Napi::String::New(env, GDALGetDataTypeName(GDT_CFloat16)));
 #endif
   /**
    * Complex Float32
@@ -984,8 +960,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_CFloat32
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("GDT_CFloat32").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_CFloat32)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_CFloat32"), Napi::String::New(env, GDALGetDataTypeName(GDT_CFloat32)));
   /**
    * Complex Float64
    * @final
@@ -993,8 +968,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GDT_CFloat64
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("GDT_CFloat64").ToLocalChecked(), Nan::New(GDALGetDataTypeName(GDT_CFloat64)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "GDT_CFloat64"), Napi::String::New(env, GDALGetDataTypeName(GDT_CFloat64)));
 
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
   /**
@@ -1004,7 +978,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GEDTC_String
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GEDTC_String").ToLocalChecked(), Nan::New("String").ToLocalChecked());
+  target.Set( Napi::String::New(env, "GEDTC_String"), Napi::String::New(env, "String"));
 
   /**
    * String extended type for MDArrays (GDAL >= 3.1)
@@ -1013,7 +987,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GEDTC_Compound
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GEDTC_Compound").ToLocalChecked(), Nan::New("Compound").ToLocalChecked());
+  target.Set( Napi::String::New(env, "GEDTC_Compound"), Napi::String::New(env, "Compound"));
 #endif
 
   /*
@@ -1026,21 +1000,21 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name OJUndefined
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OJUndefined").ToLocalChecked(), Nan::Undefined());
+  target.Set( Napi::String::New(env, "OJUndefined"), env.Undefined());
   /**
    * @final
    * @constant
    * @name OJLeft
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OJLeft").ToLocalChecked(), Nan::New("Left").ToLocalChecked());
+  target.Set( Napi::String::New(env, "OJLeft"), Napi::String::New(env, "Left"));
   /**
    * @final
    * @constant
    * @name OJRight
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OJRight").ToLocalChecked(), Nan::New("Right").ToLocalChecked());
+  target.Set( Napi::String::New(env, "OJRight"), Napi::String::New(env, "Right"));
 
   /*
    * Color interpretation constants
@@ -1052,167 +1026,151 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GCI_Undefined
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GCI_Undefined").ToLocalChecked(), Nan::Undefined());
+  target.Set( Napi::String::New(env, "GCI_Undefined"), env.Undefined());
   /**
    * @final
    * @constant
    * @name GCI_GrayIndex
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_GrayIndex").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_GrayIndex)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_GrayIndex"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_GrayIndex)));
   /**
    * @final
    * @constant
    * @name GCI_PaletteIndex
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_PaletteIndex").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_PaletteIndex)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_PaletteIndex"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_PaletteIndex)));
   /**
    * @final
    * @constant
    * @name GCI_RedBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_RedBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_RedBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_RedBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_RedBand)));
   /**
    * @final
    * @constant
    * @name GCI_GreenBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_GreenBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_GreenBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_GreenBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_GreenBand)));
   /**
    * @final
    * @constant
    * @name GCI_BlueBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_BlueBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_BlueBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_BlueBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_BlueBand)));
   /**
    * @final
    * @constant
    * @name GCI_AlphaBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_AlphaBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_AlphaBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_AlphaBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_AlphaBand)));
   /**
    * @final
    * @constant
    * @name GCI_HueBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_HueBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_HueBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_HueBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_HueBand)));
   /**
    * @final
    * @constant
    * @name GCI_SaturationBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_SaturationBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_SaturationBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_SaturationBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_SaturationBand)));
   /**
    * @final
    * @constant
    * @name GCI_LightnessBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_LightnessBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_LightnessBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_LightnessBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_LightnessBand)));
   /**
    * @final
    * @constant
    * @name GCI_CyanBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_CyanBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_CyanBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_CyanBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_CyanBand)));
   /**
    * @final
    * @constant
    * @name GCI_MagentaBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_MagentaBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_MagentaBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_MagentaBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_MagentaBand)));
   /**
    * @final
    * @constant
    * @name GCI_YellowBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_YellowBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_YellowBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_YellowBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_YellowBand)));
   /**
    * @final
    * @constant
    * @name GCI_BlackBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_BlackBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_BlackBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_BlackBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_BlackBand)));
   /**
    * @final
    * @constant
    * @name GCI_YCbCr_YBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_YCbCr_YBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_YCbCr_YBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_YCbCr_YBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_YCbCr_YBand)));
   /**
    * @final
    * @constant
    * @name GCI_YCbCr_CbBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_YCbCr_CbBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_YCbCr_CbBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_YCbCr_CbBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_YCbCr_CbBand)));
   /**
    * @final
    * @constant
    * @name GCI_YCbCr_CrBand
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("GCI_YCbCr_CrBand").ToLocalChecked(),
-    Nan::New(GDALGetColorInterpretationName(GCI_YCbCr_CrBand)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "GCI_YCbCr_CrBand"),
+    Napi::String::New(env, GDALGetColorInterpretationName(GCI_YCbCr_CrBand)));
 
   /*
    * Palette types.
@@ -1225,7 +1183,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GPI_Gray
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GPI_Gray").ToLocalChecked(), Nan::New("Gray").ToLocalChecked());
+  target.Set( Napi::String::New(env, "GPI_Gray"), Napi::String::New(env, "Gray"));
 
   /**
    * RGBA, alpha in c4
@@ -1234,7 +1192,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GPI_RGB
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GPI_RGB").ToLocalChecked(), Nan::New("RGB").ToLocalChecked());
+  target.Set( Napi::String::New(env, "GPI_RGB"), Napi::String::New(env, "RGB"));
 
   /**
    * CMYK
@@ -1243,7 +1201,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GPI_CMYK
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GPI_CMYK").ToLocalChecked(), Nan::New("CMYK").ToLocalChecked());
+  target.Set( Napi::String::New(env, "GPI_CMYK"), Napi::String::New(env, "CMYK"));
 
   /**
    * HLS, c4 is not defined
@@ -1252,7 +1210,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GPI_HLS
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GPI_HLS").ToLocalChecked(), Nan::New("HLS").ToLocalChecked());
+  target.Set( Napi::String::New(env, "GPI_HLS"), Napi::String::New(env, "HLS"));
 
   /*
    * WKB Variants
@@ -1267,7 +1225,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name wkbVariantOgc
    * @type {string}
    */
-  Nan::Set(target, Nan::New("wkbVariantOgc").ToLocalChecked(), Nan::New("OGC").ToLocalChecked());
+  target.Set( Napi::String::New(env, "wkbVariantOgc"), Napi::String::New(env, "OGC"));
 
   /**
    * Old-style 99-402 extended dimension (Z) WKB types.
@@ -1278,7 +1236,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name wkbVariantOldOgc
    * @type {string}
    */
-  Nan::Set(target, Nan::New("wkbVariantOldOgc").ToLocalChecked(), Nan::New("OGC").ToLocalChecked());
+  target.Set( Napi::String::New(env, "wkbVariantOldOgc"), Napi::String::New(env, "OGC"));
 
   /**
    * SFSQL 1.2 and ISO SQL/MM Part 3 extended dimension (Z&M) WKB types.
@@ -1288,7 +1246,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name wkbVariantIso
    * @type {string}
    */
-  Nan::Set(target, Nan::New("wkbVariantIso").ToLocalChecked(), Nan::New("ISO").ToLocalChecked());
+  target.Set( Napi::String::New(env, "wkbVariantIso"), Napi::String::New(env, "ISO"));
 
   /*
    * WKB Byte Ordering
@@ -1300,14 +1258,14 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name wkbXDR
    * @type {string}
    */
-  Nan::Set(target, Nan::New("wkbXDR").ToLocalChecked(), Nan::New("MSB").ToLocalChecked());
+  target.Set( Napi::String::New(env, "wkbXDR"), Napi::String::New(env, "MSB"));
   /**
    * @final
    * @constant
    * @name wkbNDR
    * @type {string}
    */
-  Nan::Set(target, Nan::New("wkbNDR").ToLocalChecked(), Nan::New("LSB").ToLocalChecked());
+  target.Set( Napi::String::New(env, "wkbNDR"), Napi::String::New(env, "LSB"));
 
   /*
    * WKB Geometry Types
@@ -1331,7 +1289,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name wkb25DBit
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkb25DBit").ToLocalChecked(), Nan::New<Integer>(wkb25DBit));
+  target.Set( Napi::String::New(env, "wkb25DBit"), Napi::Number::New(env, wkb25DBit));
 
   int wkbLinearRing25D = wkbLinearRing | wkb25DBit;
 
@@ -1341,147 +1299,147 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name wkbUnknown
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbUnknown").ToLocalChecked(), Nan::New<Integer>(wkbUnknown));
+  target.Set( Napi::String::New(env, "wkbUnknown"), Napi::Number::New(env, wkbUnknown));
   /**
    * @final
    * @constant
    * @name wkbPoint
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbPoint").ToLocalChecked(), Nan::New<Integer>(wkbPoint));
+  target.Set( Napi::String::New(env, "wkbPoint"), Napi::Number::New(env, wkbPoint));
   /**
    * @final
    * @constant
    * @name wkbLineString
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbLineString").ToLocalChecked(), Nan::New<Integer>(wkbLineString));
+  target.Set( Napi::String::New(env, "wkbLineString"), Napi::Number::New(env, wkbLineString));
   /**
    * @final
    * @constant
    * @name wkbCircularString
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbCircularString").ToLocalChecked(), Nan::New<Integer>(wkbCircularString));
+  target.Set( Napi::String::New(env, "wkbCircularString"), Napi::Number::New(env, wkbCircularString));
   /**
    * @final
    * @constant
    * @name wkbCompoundCurve
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbCompoundCurve").ToLocalChecked(), Nan::New<Integer>(wkbCompoundCurve));
+  target.Set( Napi::String::New(env, "wkbCompoundCurve"), Napi::Number::New(env, wkbCompoundCurve));
   /**
    * @final
    * @constant
    * @name wkbMultiCurve
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbMultiCurve").ToLocalChecked(), Nan::New<Integer>(wkbMultiCurve));
+  target.Set( Napi::String::New(env, "wkbMultiCurve"), Napi::Number::New(env, wkbMultiCurve));
   /**
    * @final
    * @constant
    * @name wkbPolygon
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbPolygon").ToLocalChecked(), Nan::New<Integer>(wkbPolygon));
+  target.Set( Napi::String::New(env, "wkbPolygon"), Napi::Number::New(env, wkbPolygon));
   /**
    * @final
    * @constant
    * @name wkbMultiPoint
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbMultiPoint").ToLocalChecked(), Nan::New<Integer>(wkbMultiPoint));
+  target.Set( Napi::String::New(env, "wkbMultiPoint"), Napi::Number::New(env, wkbMultiPoint));
   /**
    * @final
    * @constant
    * @name wkbMultiLineString
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbMultiLineString").ToLocalChecked(), Nan::New<Integer>(wkbMultiLineString));
+  target.Set( Napi::String::New(env, "wkbMultiLineString"), Napi::Number::New(env, wkbMultiLineString));
   /**
    * @final
    * @constant
    * @name wkbMultiPolygon
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbMultiPolygon").ToLocalChecked(), Nan::New<Integer>(wkbMultiPolygon));
+  target.Set( Napi::String::New(env, "wkbMultiPolygon"), Napi::Number::New(env, wkbMultiPolygon));
   /**
    * @final
    * @constant
    * @name wkbGeometryCollection
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbGeometryCollection").ToLocalChecked(), Nan::New<Integer>(wkbGeometryCollection));
+  target.Set( Napi::String::New(env, "wkbGeometryCollection"), Napi::Number::New(env, wkbGeometryCollection));
   /**
    * @final
    * @constant
    * @name wkbNone
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbNone").ToLocalChecked(), Nan::New<Integer>(wkbNone));
+  target.Set( Napi::String::New(env, "wkbNone"), Napi::Number::New(env, wkbNone));
   /**
    * @final
    * @constant
    * @name wkbLinearRing
    * @type {string}
    */
-  Nan::Set(target, Nan::New("wkbLinearRing").ToLocalChecked(), Nan::New<Integer>(wkbLinearRing));
+  target.Set( Napi::String::New(env, "wkbLinearRing"), Napi::Number::New(env, wkbLinearRing));
   /**
    * @final
    * @constant
    * @name wkbPoint25D
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbPoint25D").ToLocalChecked(), Nan::New<Integer>(wkbPoint25D));
+  target.Set( Napi::String::New(env, "wkbPoint25D"), Napi::Number::New(env, wkbPoint25D));
   /**
    * @final
    * @constant
    * @name wkbLineString25D
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbLineString25D").ToLocalChecked(), Nan::New<Integer>(wkbLineString25D));
+  target.Set( Napi::String::New(env, "wkbLineString25D"), Napi::Number::New(env, wkbLineString25D));
   /**
    * @final
    * @constant
    * @name wkbPolygon25D
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbPolygon25D").ToLocalChecked(), Nan::New<Integer>(wkbPolygon25D));
+  target.Set( Napi::String::New(env, "wkbPolygon25D"), Napi::Number::New(env, wkbPolygon25D));
   /**
    * @final
    * @constant
    * @name wkbMultiPoint25D
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbMultiPoint25D").ToLocalChecked(), Nan::New<Integer>(wkbMultiPoint25D));
+  target.Set( Napi::String::New(env, "wkbMultiPoint25D"), Napi::Number::New(env, wkbMultiPoint25D));
   /**
    * @final
    * @constant
    * @name wkbMultiLineString25D
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbMultiLineString25D").ToLocalChecked(), Nan::New<Integer>(wkbMultiLineString25D));
+  target.Set( Napi::String::New(env, "wkbMultiLineString25D"), Napi::Number::New(env, wkbMultiLineString25D));
   /**
    * @final
    * @constant
    * @name wkbMultiPolygon25D
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbMultiPolygon25D").ToLocalChecked(), Nan::New<Integer>(wkbMultiPolygon25D));
+  target.Set( Napi::String::New(env, "wkbMultiPolygon25D"), Napi::Number::New(env, wkbMultiPolygon25D));
   /**
    * @final
    * @constant
    * @name wkbGeometryCollection25D
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbGeometryCollection25D").ToLocalChecked(), Nan::New<Integer>(wkbGeometryCollection25D));
+  target.Set( Napi::String::New(env, "wkbGeometryCollection25D"), Napi::Number::New(env, wkbGeometryCollection25D));
   /**
    * @final
    * @constant
    * @name wkbLinearRing25D
    * @type {number}
    */
-  Nan::Set(target, Nan::New("wkbLinearRing25D").ToLocalChecked(), Nan::New<Integer>(wkbLinearRing25D));
+  target.Set( Napi::String::New(env, "wkbLinearRing25D"), Napi::Number::New(env, wkbLinearRing25D));
 
   /*
    * Field types
@@ -1493,15 +1451,14 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name OFTInteger
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OFTInteger").ToLocalChecked(), Nan::New(getFieldTypeName(OFTInteger)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OFTInteger"), Napi::String::New(env, getFieldTypeName(OFTInteger)));
   /**
    * @final
    * @constant
    * @name OFTIntegerList
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("OFTIntegerList").ToLocalChecked(), Nan::New(getFieldTypeName(OFTIntegerList)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OFTIntegerList"), Napi::String::New(env, getFieldTypeName(OFTIntegerList)));
 
   /**
    * @final
@@ -1509,93 +1466,88 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name OFTInteger64
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("OFTInteger64").ToLocalChecked(), Nan::New(getFieldTypeName(OFTInteger64)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OFTInteger64"), Napi::String::New(env, getFieldTypeName(OFTInteger64)));
   /**
    * @final
    * @constant
    * @name OFTInteger64List
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("OFTInteger64List").ToLocalChecked(),
-    Nan::New(getFieldTypeName(OFTInteger64List)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "OFTInteger64List"),
+    Napi::String::New(env, getFieldTypeName(OFTInteger64List)));
   /**
    * @final
    * @constant
    * @name OFTReal
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OFTReal").ToLocalChecked(), Nan::New(getFieldTypeName(OFTReal)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OFTReal"), Napi::String::New(env, getFieldTypeName(OFTReal)));
   /**
    * @final
    * @constant
    * @name OFTRealList
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OFTRealList").ToLocalChecked(), Nan::New(getFieldTypeName(OFTRealList)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OFTRealList"), Napi::String::New(env, getFieldTypeName(OFTRealList)));
   /**
    * @final
    * @constant
    * @name OFTString
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OFTString").ToLocalChecked(), Nan::New(getFieldTypeName(OFTString)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OFTString"), Napi::String::New(env, getFieldTypeName(OFTString)));
   /**
    * @final
    * @constant
    * @name OFTStringList
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("OFTStringList").ToLocalChecked(), Nan::New(getFieldTypeName(OFTStringList)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OFTStringList"), Napi::String::New(env, getFieldTypeName(OFTStringList)));
   /**
    * @final
    * @constant
    * @name OFTWideString
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("OFTWideString").ToLocalChecked(), Nan::New(getFieldTypeName(OFTWideString)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OFTWideString"), Napi::String::New(env, getFieldTypeName(OFTWideString)));
   /**
    * @final
    * @constant
    * @name OFTWideStringList
    * @type {string}
    */
-  Nan::Set(
-    target,
-    Nan::New("OFTWideStringList").ToLocalChecked(),
-    Nan::New(getFieldTypeName(OFTWideStringList)).ToLocalChecked());
+  target.Set(
+    Napi::String::New(env, "OFTWideStringList"),
+    Napi::String::New(env, getFieldTypeName(OFTWideStringList)));
   /**
    * @final
    * @constant
    * @name OFTBinary
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OFTBinary").ToLocalChecked(), Nan::New(getFieldTypeName(OFTBinary)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OFTBinary"), Napi::String::New(env, getFieldTypeName(OFTBinary)));
   /**
    * @final
    * @constant
    * @name OFTDate
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OFTDate").ToLocalChecked(), Nan::New(getFieldTypeName(OFTDate)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OFTDate"), Napi::String::New(env, getFieldTypeName(OFTDate)));
   /**
    * @final
    * @constant
    * @name OFTTime
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OFTTime").ToLocalChecked(), Nan::New(getFieldTypeName(OFTTime)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OFTTime"), Napi::String::New(env, getFieldTypeName(OFTTime)));
   /**
    * @final
    * @constant
    * @name OFTDateTime
    * @type {string}
    */
-  Nan::Set(target, Nan::New("OFTDateTime").ToLocalChecked(), Nan::New(getFieldTypeName(OFTDateTime)).ToLocalChecked());
+  target.Set( Napi::String::New(env, "OFTDateTime"), Napi::String::New(env, getFieldTypeName(OFTDateTime)));
 
   /*
    * Resampling options that can be used with the gdal.reprojectImage() and gdal.RasterBandPixels.read methods.
@@ -1607,49 +1559,49 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name GRA_NearestNeighbor
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GRA_NearestNeighbor").ToLocalChecked(), Nan::New("NearestNeighbor").ToLocalChecked());
+  target.Set( Napi::String::New(env, "GRA_NearestNeighbor"), Napi::String::New(env, "NearestNeighbor"));
   /**
    * @final
    * @constant
    * @name GRA_Bilinear
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GRA_Bilinear").ToLocalChecked(), Nan::New("Bilinear").ToLocalChecked());
+  target.Set( Napi::String::New(env, "GRA_Bilinear"), Napi::String::New(env, "Bilinear"));
   /**
    * @final
    * @constant
    * @name GRA_Cubic
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GRA_Cubic").ToLocalChecked(), Nan::New("Cubic").ToLocalChecked());
+  target.Set( Napi::String::New(env, "GRA_Cubic"), Napi::String::New(env, "Cubic"));
   /**
    * @final
    * @constant
    * @name GRA_CubicSpline
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GRA_CubicSpline").ToLocalChecked(), Nan::New("CubicSpline").ToLocalChecked());
+  target.Set( Napi::String::New(env, "GRA_CubicSpline"), Napi::String::New(env, "CubicSpline"));
   /**
    * @final
    * @constant
    * @name GRA_Lanczos
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GRA_Lanczos").ToLocalChecked(), Nan::New("Lanczos").ToLocalChecked());
+  target.Set( Napi::String::New(env, "GRA_Lanczos"), Napi::String::New(env, "Lanczos"));
   /**
    * @final
    * @constant
    * @name GRA_Average
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GRA_Average").ToLocalChecked(), Nan::New("Average").ToLocalChecked());
+  target.Set( Napi::String::New(env, "GRA_Average"), Napi::String::New(env, "Average"));
   /**
    * @final
    * @constant
    * @name GRA_Mode
    * @type {string}
    */
-  Nan::Set(target, Nan::New("GRA_Mode").ToLocalChecked(), Nan::New("Mode").ToLocalChecked());
+  target.Set( Napi::String::New(env, "GRA_Mode"), Napi::String::New(env, "Mode"));
 
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
   /*
@@ -1662,8 +1614,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DIM_HORIZONTAL_X
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("DIM_HORIZONTAL_X").ToLocalChecked(), Nan::New(GDAL_DIM_TYPE_HORIZONTAL_X).ToLocalChecked());
+  target.Set( Napi::String::New(env, "DIM_HORIZONTAL_X"), Napi::String::New(env, GDAL_DIM_TYPE_HORIZONTAL_X));
 
   /**
    * @final
@@ -1671,8 +1622,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DIM_HORIZONTAL_Y
    * @type {string}
    */
-  Nan::Set(
-    target, Nan::New("DIM_HORIZONTAL_Y").ToLocalChecked(), Nan::New(GDAL_DIM_TYPE_HORIZONTAL_Y).ToLocalChecked());
+  target.Set( Napi::String::New(env, "DIM_HORIZONTAL_Y"), Napi::String::New(env, GDAL_DIM_TYPE_HORIZONTAL_Y));
 
   /**
    * @final
@@ -1680,7 +1630,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DIM_VERTICAL
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DIM_VERTICAL").ToLocalChecked(), Nan::New(GDAL_DIM_TYPE_VERTICAL).ToLocalChecked());
+  target.Set( Napi::String::New(env, "DIM_VERTICAL"), Napi::String::New(env, GDAL_DIM_TYPE_VERTICAL));
 
   /**
    * @final
@@ -1688,7 +1638,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DIM_TEMPORAL
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DIM_TEMPORAL").ToLocalChecked(), Nan::New(GDAL_DIM_TYPE_TEMPORAL).ToLocalChecked());
+  target.Set( Napi::String::New(env, "DIM_TEMPORAL"), Napi::String::New(env, GDAL_DIM_TYPE_TEMPORAL));
 
   /**
    * @final
@@ -1696,7 +1646,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DIM_PARAMETRIC
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DIM_PARAMETRIC").ToLocalChecked(), Nan::New(GDAL_DIM_TYPE_PARAMETRIC).ToLocalChecked());
+  target.Set( Napi::String::New(env, "DIM_PARAMETRIC"), Napi::String::New(env, GDAL_DIM_TYPE_PARAMETRIC));
 #endif
 
   /*
@@ -1709,7 +1659,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DIR_EAST
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DIR_EAST").ToLocalChecked(), Nan::New("EAST").ToLocalChecked());
+  target.Set( Napi::String::New(env, "DIR_EAST"), Napi::String::New(env, "EAST"));
 
   /**
    * @final
@@ -1717,7 +1667,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DIR_WEST
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DIR_WEST").ToLocalChecked(), Nan::New("WEST").ToLocalChecked());
+  target.Set( Napi::String::New(env, "DIR_WEST"), Napi::String::New(env, "WEST"));
 
   /**
    * @final
@@ -1725,7 +1675,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DIR_SOUTH
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DIR_SOUTH").ToLocalChecked(), Nan::New("SOUTH").ToLocalChecked());
+  target.Set( Napi::String::New(env, "DIR_SOUTH"), Napi::String::New(env, "SOUTH"));
 
   /**
    * @final
@@ -1733,7 +1683,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DIR_NORTH
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DIR_NORTH").ToLocalChecked(), Nan::New("NORTH").ToLocalChecked());
+  target.Set( Napi::String::New(env, "DIR_NORTH"), Napi::String::New(env, "NORTH"));
 
   /**
    * @final
@@ -1741,7 +1691,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DIR_UP
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DIR_UP").ToLocalChecked(), Nan::New("UP").ToLocalChecked());
+  target.Set( Napi::String::New(env, "DIR_UP"), Napi::String::New(env, "UP"));
 
   /**
    * @final
@@ -1749,7 +1699,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DIR_DOWN
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DIR_DOWN").ToLocalChecked(), Nan::New("DOWN").ToLocalChecked());
+  target.Set( Napi::String::New(env, "DIR_DOWN"), Napi::String::New(env, "DOWN"));
 
   /**
    * @final
@@ -1757,7 +1707,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DIR_FUTURE
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DIR_FUTURE").ToLocalChecked(), Nan::New("FUTURE").ToLocalChecked());
+  target.Set( Napi::String::New(env, "DIR_FUTURE"), Napi::String::New(env, "FUTURE"));
 
   /**
    * @final
@@ -1765,7 +1715,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @name DIR_PAST
    * @type {string}
    */
-  Nan::Set(target, Nan::New("DIR_PAST").ToLocalChecked(), Nan::New("PAST").ToLocalChecked());
+  target.Set( Napi::String::New(env, "DIR_PAST"), Napi::String::New(env, "PAST"));
 
   /**
    * GDAL version (not the binding version)
@@ -1773,7 +1723,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @final
    * @constant {string} version
    */
-  Nan::Set(target, Nan::New("version").ToLocalChecked(), Nan::New(GDAL_RELEASE_NAME).ToLocalChecked());
+  target.Set( Napi::String::New(env, "version"), Napi::String::New(env, GDAL_RELEASE_NAME));
 
   /**
    * GDAL library - system library (false) or bundled (true)
@@ -1782,9 +1732,9 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @constant {boolean} bundled
    */
 #ifdef BUNDLED_GDAL
-  Nan::Set(target, Nan::New("bundled").ToLocalChecked(), Nan::New(true));
+  target.Set( Napi::String::New(env, "bundled"), Napi::Boolean::New(env, true));
 #else
-  Nan::Set(target, Nan::New("bundled").ToLocalChecked(), Nan::New(false));
+  target.Set( Napi::String::New(env, "bundled"), Napi::Boolean::New(env, false));
 #endif
 
   /**
@@ -1794,7 +1744,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    *
    * @var {object} lastError
    */
-  Nan::SetAccessor(target, Nan::New<v8::String>("lastError").ToLocalChecked(), LastErrorGetter, LastErrorSetter);
+  GDAL_DEFINE_ACCESSOR(target, "lastError", LastErrorGetter, LastErrorSetter);
 
   /**
    * Should a warning be emitted to stderr when a synchronous operation
@@ -1804,14 +1754,13 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    *
    * @var {boolean} eventLoopWarning
    */
-  Nan::SetAccessor(
-    target, Nan::New<v8::String>("eventLoopWarning").ToLocalChecked(), EventLoopWarningGetter, EventLoopWarningSetter);
+  GDAL_DEFINE_ACCESSOR(target, "eventLoopWarning", EventLoopWarningGetter, EventLoopWarningSetter);
 
-  // Local<Object> versions = Nan::New<Object>();
-  // Nan::Set(versions, Nan::New("node").ToLocalChecked(),
-  // Nan::New(NODE_VERSION+1)); Nan::Set(versions,
-  // Nan::New("v8").ToLocalChecked(), Nan::New(V8::GetVersion()));
-  // Nan::Set(target, Nan::New("versions").ToLocalChecked(), versions);
+  // Napi::Object versions = Napi::Object::New(env);
+  // versions.Set( Napi::String::New(env, "node"),
+  // Napi::Number::New(env, NODE_VERSION+1)); versions.Set(
+  // Napi::String::New(env, "v8"), Napi::Number::New(env, V8::GetVersion()));
+  // target.Set( Napi::String::New(env, "versions"), versions);
 
   /**
    * Disables all output.
@@ -1819,7 +1768,7 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @static
    * @method quiet
    */
-  Nan::SetMethod(target, "quiet", QuietOutput);
+  GDAL_SetMethod(env, target, "quiet", QuietOutput);
 
   /**
    * Displays extra debugging information from GDAL.
@@ -1827,27 +1776,39 @@ static void Init(Local<Object> target, Local<v8::Value>, void *) {
    * @static
    * @method verbose
    */
-  Nan::SetMethod(target, "verbose", VerboseOutput);
+  GDAL_SetMethod(env, target, "verbose", VerboseOutput);
 
-  Nan::SetMethod(target, "startLogging", StartLogging);
-  Nan::SetMethod(target, "stopLogging", StopLogging);
-  Nan::SetMethod(target, "log", Log);
+  GDAL_SetMethod(env, target, "startLogging", StartLogging);
+  GDAL_SetMethod(env, target, "stopLogging", StopLogging);
+  GDAL_SetMethod(env, target, "log", Log);
 
-  Local<Object> supports = Nan::New<Object>();
-  Nan::Set(target, Nan::New("supports").ToLocalChecked(), supports);
+  Napi::Object supports = Napi::Object::New(env);
+  target.Set( Napi::String::New(env, "supports"), supports);
 
-  NODE_DEFINE_CONSTANT(target, CPLE_OpenFailed);
-  NODE_DEFINE_CONSTANT(target, CPLE_IllegalArg);
-  NODE_DEFINE_CONSTANT(target, CPLE_NotSupported);
-  NODE_DEFINE_CONSTANT(target, CPLE_AssertionFailed);
-  NODE_DEFINE_CONSTANT(target, CPLE_NoWriteAccess);
-  NODE_DEFINE_CONSTANT(target, CPLE_UserInterrupt);
+  target.Set(Napi::String::New(env, "CPLE_OpenFailed"), Napi::Number::New(env, CPLE_OpenFailed));
+  target.Set(Napi::String::New(env, "CPLE_IllegalArg"), Napi::Number::New(env, CPLE_IllegalArg));
+  target.Set(Napi::String::New(env, "CPLE_NotSupported"), Napi::Number::New(env, CPLE_NotSupported));
+  target.Set(Napi::String::New(env, "CPLE_AssertionFailed"), Napi::Number::New(env, CPLE_AssertionFailed));
+  target.Set(Napi::String::New(env, "CPLE_NoWriteAccess"), Napi::Number::New(env, CPLE_NoWriteAccess));
+  target.Set(Napi::String::New(env, "CPLE_UserInterrupt"), Napi::Number::New(env, CPLE_UserInterrupt));
+  napi_add_env_cleanup_hook(env, Cleanup, nullptr);
 
-  auto *env = GetCurrentEnvironment(Nan::GetCurrentContext());
-  AtExit(env, Cleanup, nullptr);
+  return target;
 }
 }
 
 } // namespace node_gdal
 
-NODE_MODULE(NODE_GYP_MODULE_NAME, node_gdal::Init);
+// NODE_API_MODULE concatenates the registration function into an identifier
+// (__napi_##regfunc), so it has to be a plain name - not node_gdal::Init
+static Napi::Object GDALInit(Napi::Env env, Napi::Object target) {
+  try {
+    node_gdal::Init(env, target);
+  } catch (const Napi::Error &) {
+    // Init completes its work; a failing N-API call follows it. Swallowing it
+    // here is what keeps the module loadable - see the note in the header.
+  }
+  return target;
+}
+
+NODE_API_MODULE(NODE_GYP_MODULE_NAME, GDALInit)

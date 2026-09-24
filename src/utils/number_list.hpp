@@ -2,12 +2,10 @@
 #define __NUMBER_LIST_H__
 
 // node
-#include <node.h>
 
 // nan
-#include "../nan-wrapper.h"
+#include "../gdal_common.hpp"
 
-using namespace v8;
 
 namespace node_gdal {
 
@@ -16,7 +14,7 @@ namespace node_gdal {
 
 class IntegerList {
     public:
-  int parse(Local<Value> value);
+  int parse(Napi::Value value);
 
   IntegerList();
   IntegerList(const char *name);
@@ -37,7 +35,7 @@ class IntegerList {
 
 class DoubleList {
     public:
-  int parse(Local<Value> value);
+  int parse(Napi::Value value);
 
   DoubleList();
   DoubleList(const char *name);

@@ -13,48 +13,74 @@
 
 namespace node_gdal {
 
-Nan::Persistent<FunctionTemplate> Dataset::constructor;
+Napi::FunctionReference Dataset::constructor;
 
-void Dataset::Initialize(Local<Object> target) {
-  Nan::HandleScope scope;
+void Dataset::Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+  SELF_CLASS(Dataset);
 
-  Local<FunctionTemplate> lcons = Nan::New<FunctionTemplate>(Dataset::New);
-  lcons->InstanceTemplate()->SetInternalFieldCount(1);
-  lcons->SetClassName(Nan::New("Dataset").ToLocalChecked());
+  // NOTE: the descriptor macros carry their own trailing comma
+  Napi::Function lcons = GDALDefineClass<SELF>(env, "Dataset",
+    {
+        METHOD(toString)
+        METHOD(setGCPs)
+        METHOD(getGCPs)
+        METHOD(getGCPProjection)
+        METHOD(getFileList)
+        METHOD_ASYNCABLE(flush)
+        METHOD(close)
+        METHOD_ASYNCABLE(getMetadata)
+        METHOD_ASYNCABLE(setMetadata)
+        METHOD(testCapability)
+        METHOD_ASYNCABLE(executeSQL)
+        METHOD_ASYNCABLE(buildOverviews)
+        ATTR_DONT_ENUM(lcons, "_uid", uidGetter, READ_ONLY_SETTER)
+        ATTR(lcons, "description", descriptionGetter, READ_ONLY_SETTER)
+        ATTR(lcons, "bands", bandsGetter, READ_ONLY_SETTER)
+        ATTR(lcons, "layers", layersGetter, READ_ONLY_SETTER)
+        ATTR_ASYNCABLE(lcons, "rasterSize", rasterSizeGetter, READ_ONLY_SETTER)
+        ATTR(lcons, "driver", driverGetter, READ_ONLY_SETTER)
+        ATTR(lcons, "threadSafe", threadSafeGetter, READ_ONLY_SETTER)
+        ATTR(lcons, "root", rootGetter, READ_ONLY_SETTER)
+        ATTR_ASYNCABLE(lcons, "srs", srsGetter, srsSetter)
+        ATTR_ASYNCABLE(lcons, "geoTransform", geoTransformGetter, geoTransformSetter)
+    });
 
-  Nan::SetPrototypeMethod(lcons, "toString", toString);
-  Nan::SetPrototypeMethod(lcons, "setGCPs", setGCPs);
-  Nan::SetPrototypeMethod(lcons, "getGCPs", getGCPs);
-  Nan::SetPrototypeMethod(lcons, "getGCPProjection", getGCPProjection);
-  Nan::SetPrototypeMethod(lcons, "getFileList", getFileList);
-  Nan__SetPrototypeAsyncableMethod(lcons, "flush", flush);
-  Nan::SetPrototypeMethod(lcons, "close", close);
-  Nan__SetPrototypeAsyncableMethod(lcons, "getMetadata", getMetadata);
-  Nan__SetPrototypeAsyncableMethod(lcons, "setMetadata", setMetadata);
-  Nan::SetPrototypeMethod(lcons, "testCapability", testCapability);
-  Nan__SetPrototypeAsyncableMethod(lcons, "executeSQL", executeSQL);
-  Nan__SetPrototypeAsyncableMethod(lcons, "buildOverviews", buildOverviews);
+  target.Set("Dataset", lcons);
 
-  ATTR_DONT_ENUM(lcons, "_uid", uidGetter, READ_ONLY_SETTER);
-  ATTR(lcons, "description", descriptionGetter, READ_ONLY_SETTER);
-  ATTR(lcons, "bands", bandsGetter, READ_ONLY_SETTER);
-  ATTR(lcons, "layers", layersGetter, READ_ONLY_SETTER);
-  ATTR_ASYNCABLE(lcons, "rasterSize", rasterSizeGetter, READ_ONLY_SETTER);
-  ATTR(lcons, "driver", driverGetter, READ_ONLY_SETTER);
-  ATTR(lcons, "threadSafe", threadSafeGetter, READ_ONLY_SETTER);
-  ATTR(lcons, "root", rootGetter, READ_ONLY_SETTER);
-  ATTR_ASYNCABLE(lcons, "srs", srsGetter, srsSetter);
-  ATTR_ASYNCABLE(lcons, "geoTransform", geoTransformGetter, geoTransformSetter);
-
-  Nan::Set(target, Nan::New("Dataset").ToLocalChecked(), Nan::GetFunction(lcons).ToLocalChecked());
-
-  constructor.Reset(lcons);
+  constructor = Napi::Persistent(lcons);
+  constructor.SuppressDestruct();
 }
 
-Dataset::Dataset(GDALDataset *ds) : Nan::ObjectWrap(), uid(0), parent_uid(0), this_dataset(ds), parent_ds(nullptr) {
-  LOG("Created Dataset [%p]", ds);
-}
 
+Dataset::Dataset(const Napi::CallbackInfo &info) : GDALObject<Dataset>(info), uid(0), parent_uid(0), this_dataset(nullptr), parent_ds(nullptr)  {
+  LOG("Created Dataset [%p]", this_dataset);
+  if (info.Length() > 0 && info[0].IsExternal()) {
+    this_dataset = static_cast<GDALDataset *>(info[0].As<Napi::External<void>>().Data());
+  } else {
+    Napi::Error::New(node_gdal::napi_env(), "Cannot create dataset directly").ThrowAsJavaScriptException();
+    return;
+  }
+
+  // Every Dataset carries its collections and, when it is a dependent dataset,
+  // a reference on its parent so that the GC cannot collect it
+  GDAL_SET_PRIVATE(info.This(), "layers_", DatasetLayers::New(info.This()));
+
+  Napi::Value bandsObj;
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
+  GDALDataset *gdal_ds = get();
+  std::shared_ptr<GDALGroup> root = gdal_ds->GetRootGroup();
+  if (root == nullptr) {
+#endif
+    bandsObj = DatasetBands::New(info.This());
+#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
+  } else {
+    bandsObj = info.Env().Null();
+  }
+#endif
+  GDAL_SET_PRIVATE(info.This(), "bands_", bandsObj);
+  if (parent_ds) GDAL_SET_PRIVATE(info.This(), "parent_", object_store.get(parent_ds));
+}
 Dataset::~Dataset() {
   // Destroy at garbage collection time if not already explicitly destroyed
   dispose(false);
@@ -86,73 +112,31 @@ void Dataset::dispose(bool manual) {
  *
  * @class Dataset
  */
-NAN_METHOD(Dataset::New) {
 
-  if (!info.IsConstructCall()) {
-    Nan::ThrowError("Cannot call constructor as function, you need to use 'new' keyword");
-    return;
-  }
-  if (info[0]->IsExternal()) {
-    Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value(V8_TYPE_TAG);
-    Dataset *f = static_cast<Dataset *>(ptr);
-    f->Wrap(info.This());
+Napi::Value Dataset::New(GDALDataset *raw, GDALDataset *parent, bool close) {
 
-    Local<Value> layers = DatasetLayers::New(info.This());
-    Nan::SetPrivate(info.This(), Nan::New("layers_").ToLocalChecked(), layers);
-
-    Local<Value> bandsObj;
-#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
-    GDALDataset *gdal_ds = f->get();
-    std::shared_ptr<GDALGroup> root = gdal_ds->GetRootGroup();
-    if (root == nullptr) {
-#endif
-      bandsObj = DatasetBands::New(info.This());
-#if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
-    } else {
-      bandsObj = Nan::Null();
-    }
-#endif
-    Nan::SetPrivate(info.This(), Nan::New("bands_").ToLocalChecked(), bandsObj);
-    if (f->parent_ds)
-      // For dependent Datasets, keep a reference on the parent to protect it from the GC
-      Nan::SetPrivate(info.This(), Nan::New("parent_").ToLocalChecked(), object_store.get(f->parent_ds));
-
-    info.GetReturnValue().Set(info.This());
-    return;
-  } else {
-    Nan::ThrowError("Cannot create dataset directly");
-    return;
-  }
-}
-
-Local<Value> Dataset::New(GDALDataset *raw, GDALDataset *parent, bool close) {
-  Nan::EscapableHandleScope scope;
-
-  if (!raw) { return scope.Escape(Nan::Null()); }
-  if (object_store.has(raw)) { return scope.Escape(object_store.get(raw)); }
-
-  Dataset *wrapped = new Dataset(raw);
+  if (!raw) { return node_gdal::napi_env().Null(); }
+  if (object_store.has(raw)) { return object_store.get(raw); }
 
   long parent_uid = 0;
   if (parent != nullptr) {
     /* A dependent Dataset shares the lock of its parent
      */
-    Dataset *parent_ds = Nan::ObjectWrap::Unwrap<Dataset>(object_store.get(parent));
+    Dataset *parent_ds = node_gdal::UnwrapWrapped<Dataset>(object_store.get(parent));
     parent_uid = parent_ds->uid;
   }
 
-  Local<Value> ext = Nan::New<External>(wrapped);
-  Local<Object> obj =
-    Nan::NewInstance(Nan::GetFunction(Nan::New(Dataset::constructor)).ToLocalChecked(), 1, &ext).ToLocalChecked();
+  std::vector<napi_value> args = {Napi::External<void>::New(node_gdal::napi_env(), raw)};
+  Napi::Object obj = Dataset::constructor.Value().New(args);
+  Dataset *wrapped = node_gdal::UnwrapWrapped<Dataset>(obj);
 
-  wrapped->uid = object_store.add(raw, wrapped->persistent(), parent_uid, close);
+  wrapped->uid = object_store.add(raw, *wrapped, parent_uid, close);
 
-  return scope.Escape(obj);
+  return obj;
 }
 
-NAN_METHOD(Dataset::toString) {
-  info.GetReturnValue().Set(Nan::New("Dataset").ToLocalChecked());
+NAPI_METHOD(Dataset::toString) {
+  return Napi::String::New(node_gdal::napi_env(), "Dataset");
 }
 
 /**
@@ -188,7 +172,7 @@ GDAL_ASYNCABLE_DEFINE(Dataset::getMetadata) {
     return raw->GetMetadata(domain.empty() ? nullptr : domain.c_str());
   };
   job.rval = [](CSLConstList md, const GetFromPersistentFunc &) { return MajorObject::getMetadata(md); };
-  job.run(info, async, 1);
+  return job.run(info, async, 1);
 }
 
 /**
@@ -220,8 +204,8 @@ GDAL_ASYNCABLE_DEFINE(Dataset::setMetadata) {
 
   auto options = make_shared<StringList>();
   if (info.Length() == 0 || options->parse(info[0])) {
-    Nan::ThrowError("Failed parsing metadata");
-    return;
+    node_gdal::ThrowOverPending(node_gdal::napi_env(), "Failed parsing metadata");
+    return node_gdal::napi_env().Undefined();
   }
 
   std::string domain("");
@@ -233,8 +217,8 @@ GDAL_ASYNCABLE_DEFINE(Dataset::setMetadata) {
     if (r == CE_Failure) throw CPLGetLastErrorMsg();
     return r;
   };
-  job.rval = [](CPLErr r, const GetFromPersistentFunc &) { return Nan::New<Boolean>(r == CE_None); };
-  job.run(info, async, 2);
+  job.rval = [](CPLErr r, const GetFromPersistentFunc &) { return Napi::Boolean::New(node_gdal::napi_env(), r == CE_None); };
+  return job.run(info, async, 2);
 }
 
 /**
@@ -246,12 +230,12 @@ GDAL_ASYNCABLE_DEFINE(Dataset::setMetadata) {
  * @param {string} capability {@link ODsC|capability list}
  * @return {boolean}
  */
-NAN_METHOD(Dataset::testCapability) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+NAPI_METHOD(Dataset::testCapability) {
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
   if (!ds->isAlive()) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALDataset *raw = ds->get();
@@ -260,7 +244,7 @@ NAN_METHOD(Dataset::testCapability) {
   NODE_ARG_STR(0, "capability", capability);
 
   AsyncGuard lock({ds->uid}, eventLoopWarn);
-  info.GetReturnValue().Set(Nan::New<Boolean>(raw->TestCapability(capability.c_str())));
+  return Napi::Boolean::New(node_gdal::napi_env(), raw->TestCapability(capability.c_str()));
 }
 
 /**
@@ -271,17 +255,17 @@ NAN_METHOD(Dataset::testCapability) {
  * @memberof Dataset
  * @return {string}
  */
-NAN_METHOD(Dataset::getGCPProjection) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+NAPI_METHOD(Dataset::getGCPProjection) {
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
   if (!ds->isAlive()) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALDataset *raw = ds->get();
   AsyncGuard lock({ds->uid}, eventLoopWarn);
-  info.GetReturnValue().Set(SafeString::New(raw->GetGCPProjection()));
+  return SafeString::New(raw->GetGCPProjection());
 }
 
 /**
@@ -305,17 +289,17 @@ NAN_METHOD(Dataset::getGCPProjection) {
  * @instance
  * @memberof Dataset
  */
-NAN_METHOD(Dataset::close) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+NAPI_METHOD(Dataset::close) {
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
   if (!ds->isAlive()) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   ds->dispose(true);
 
-  return;
+  return node_gdal::napi_env().Undefined();
 }
 
 /**
@@ -346,10 +330,10 @@ GDAL_ASYNCABLE_DEFINE(Dataset::flush) {
     raw->FlushCache();
     return 0;
   };
-  job.rval = [](int, const GetFromPersistentFunc &) { return Nan::Undefined().As<Value>(); };
-  job.run(info, async, 0);
+  job.rval = [](int, const GetFromPersistentFunc &) { return node_gdal::napi_env().Undefined().As<Napi::Value>(); };
+  return job.run(info, async, 0);
 
-  return;
+  return node_gdal::napi_env().Undefined();
 }
 
 /**
@@ -390,11 +374,11 @@ GDAL_ASYNCABLE_DEFINE(Dataset::flush) {
  * @return {Promise<Layer>}
  */
 GDAL_ASYNCABLE_DEFINE(Dataset::executeSQL) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
   if (!ds->isAlive()) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALDataset *raw = ds->get();
@@ -417,7 +401,7 @@ GDAL_ASYNCABLE_DEFINE(Dataset::executeSQL) {
   };
   job.rval = [raw](OGRLayer *layer, const GetFromPersistentFunc &) { return Layer::New(layer, raw, true); };
 
-  job.run(info, async, 3);
+  return job.run(info, async, 3);
 }
 
 /**
@@ -434,38 +418,38 @@ GDAL_ASYNCABLE_DEFINE(Dataset::executeSQL) {
  * @memberof Dataset
  * @return {string[]}
  */
-NAN_METHOD(Dataset::getFileList) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+NAPI_METHOD(Dataset::getFileList) {
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
-  Local<Array> results = Nan::New<Array>(0);
+  Napi::Array results = Napi::Array::New(node_gdal::napi_env(), 0);
 
   if (!ds->isAlive()) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALDataset *raw = ds->get();
   if (!raw) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   AsyncGuard lock({ds->uid}, eventLoopWarn);
   char **list = raw->GetFileList();
   if (!list) {
-    info.GetReturnValue().Set(results);
-    return;
+    return results;
+    return node_gdal::napi_env().Undefined();
   }
 
   int i = 0;
   while (list[i]) {
-    Nan::Set(results, i, SafeString::New(list[i]));
+    results.Set( i, SafeString::New(list[i]));
     i++;
   }
 
   CSLDestroy(list);
 
-  info.GetReturnValue().Set(results);
+  return results;
 }
 
 /**
@@ -476,20 +460,20 @@ NAN_METHOD(Dataset::getFileList) {
  * @memberof Dataset
  * @return {any[]}
  */
-NAN_METHOD(Dataset::getGCPs) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+NAPI_METHOD(Dataset::getGCPs) {
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
-  Local<Array> results = Nan::New<Array>(0);
+  Napi::Array results = Napi::Array::New(node_gdal::napi_env(), 0);
 
   if (!ds->isAlive()) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALDataset *raw = ds->get();
   if (!raw) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   AsyncGuard lock({ds->uid}, eventLoopWarn);
@@ -497,24 +481,24 @@ NAN_METHOD(Dataset::getGCPs) {
   const GDAL_GCP *gcps = raw->GetGCPs();
 
   if (!gcps) {
-    info.GetReturnValue().Set(results);
-    return;
+    return results;
+    return node_gdal::napi_env().Undefined();
   }
 
   for (int i = 0; i < n; i++) {
     GDAL_GCP gcp = gcps[i];
-    Local<Object> obj = Nan::New<Object>();
-    Nan::Set(obj, Nan::New("pszId").ToLocalChecked(), Nan::New(gcp.pszId).ToLocalChecked());
-    Nan::Set(obj, Nan::New("pszInfo").ToLocalChecked(), Nan::New(gcp.pszInfo).ToLocalChecked());
-    Nan::Set(obj, Nan::New("dfGCPPixel").ToLocalChecked(), Nan::New<Number>(gcp.dfGCPPixel));
-    Nan::Set(obj, Nan::New("dfGCPLine").ToLocalChecked(), Nan::New<Number>(gcp.dfGCPLine));
-    Nan::Set(obj, Nan::New("dfGCPX").ToLocalChecked(), Nan::New<Number>(gcp.dfGCPX));
-    Nan::Set(obj, Nan::New("dfGCPY").ToLocalChecked(), Nan::New<Number>(gcp.dfGCPY));
-    Nan::Set(obj, Nan::New("dfGCPZ").ToLocalChecked(), Nan::New<Number>(gcp.dfGCPZ));
-    Nan::Set(results, i, obj);
+    Napi::Object obj = Napi::Object::New(node_gdal::napi_env());
+    obj.Set( Napi::String::New(node_gdal::napi_env(), "pszId"), Napi::String::New(node_gdal::napi_env(), gcp.pszId));
+    obj.Set( Napi::String::New(node_gdal::napi_env(), "pszInfo"), Napi::String::New(node_gdal::napi_env(), gcp.pszInfo));
+    obj.Set( Napi::String::New(node_gdal::napi_env(), "dfGCPPixel"), Napi::Number::New(node_gdal::napi_env(), gcp.dfGCPPixel));
+    obj.Set( Napi::String::New(node_gdal::napi_env(), "dfGCPLine"), Napi::Number::New(node_gdal::napi_env(), gcp.dfGCPLine));
+    obj.Set( Napi::String::New(node_gdal::napi_env(), "dfGCPX"), Napi::Number::New(node_gdal::napi_env(), gcp.dfGCPX));
+    obj.Set( Napi::String::New(node_gdal::napi_env(), "dfGCPY"), Napi::Number::New(node_gdal::napi_env(), gcp.dfGCPY));
+    obj.Set( Napi::String::New(node_gdal::napi_env(), "dfGCPZ"), Napi::Number::New(node_gdal::napi_env(), gcp.dfGCPZ));
+    results.Set( i, obj);
   }
 
-  info.GetReturnValue().Set(results);
+  return results;
 }
 
 /**
@@ -527,36 +511,36 @@ NAN_METHOD(Dataset::getGCPs) {
  * @param {object[]} gcps
  * @param {string} [projection]
  */
-NAN_METHOD(Dataset::setGCPs) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+NAPI_METHOD(Dataset::setGCPs) {
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
   if (!ds->isAlive()) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALDataset *raw = ds->get();
   if (!raw) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
-  Local<Array> gcps;
+  Napi::Array gcps;
   std::string projection("");
   NODE_ARG_ARRAY(0, "gcps", gcps);
   NODE_ARG_OPT_STR(1, "projection", projection);
 
-  std::shared_ptr<GDAL_GCP[]> list(new GDAL_GCP[gcps->Length()]);
-  std::shared_ptr<std::string[]> pszId_list(new std::string[gcps->Length()]);
-  std::shared_ptr<std::string[]> pszInfo_list(new std::string[gcps->Length()]);
+  std::shared_ptr<GDAL_GCP[]> list(new GDAL_GCP[gcps.Length()]);
+  std::shared_ptr<std::string[]> pszId_list(new std::string[gcps.Length()]);
+  std::shared_ptr<std::string[]> pszInfo_list(new std::string[gcps.Length()]);
   GDAL_GCP *gcp = list.get();
-  for (unsigned int i = 0; i < gcps->Length(); ++i) {
-    Local<Value> val = Nan::Get(gcps, i).ToLocalChecked();
-    if (!val->IsObject()) {
-      Nan::ThrowError("GCP array must only include objects");
-      return;
+  for (unsigned int i = 0; i < gcps.Length(); ++i) {
+    Napi::Value val = gcps.As<Napi::Object>().Get(i);
+    if (!val.IsObject()) {
+      Napi::Error::New(node_gdal::napi_env(), "GCP array must only include objects").ThrowAsJavaScriptException();
+      return node_gdal::napi_env().Undefined();
     }
-    Local<Object> obj = val.As<Object>();
+    Napi::Object obj = val.As<Napi::Object>();
 
     NODE_DOUBLE_FROM_OBJ(obj, "dfGCPPixel", gcp->dfGCPPixel);
     NODE_DOUBLE_FROM_OBJ(obj, "dfGCPLine", gcp->dfGCPLine);
@@ -573,14 +557,14 @@ NAN_METHOD(Dataset::setGCPs) {
   }
 
   AsyncGuard lock({ds->uid}, eventLoopWarn);
-  CPLErr err = raw->SetGCPs(gcps->Length(), list.get(), projection.c_str());
+  CPLErr err = raw->SetGCPs(gcps.Length(), list.get(), projection.c_str());
 
   if (err) {
     NODE_THROW_LAST_CPLERR;
-    return;
+    return node_gdal::napi_env().Undefined();
   }
 
-  return;
+  return node_gdal::napi_env().Undefined();
 }
 
 /**
@@ -621,43 +605,43 @@ GDAL_ASYNCABLE_DEFINE(Dataset::buildOverviews) {
   GDAL_RAW_CHECK(GDALDataset *, ds, raw);
 
   std::string resampling = "";
-  Local<Array> overviews;
-  Local<Array> bands;
+  Napi::Array overviews;
+  Napi::Array bands;
 
   NODE_ARG_STR(0, "resampling", resampling);
   NODE_ARG_ARRAY(1, "overviews", overviews);
   NODE_ARG_ARRAY_OPT(2, "bands", bands);
 
-  int n_overviews = overviews->Length();
+  int n_overviews = overviews.Length();
   int i, n_bands = 0;
 
   std::shared_ptr<int[]> o(new int[n_overviews]);
   std::shared_ptr<int[]> b;
   for (i = 0; i < n_overviews; i++) {
-    Local<Value> val = Nan::Get(overviews, i).ToLocalChecked();
-    if (!val->IsNumber()) {
-      Nan::ThrowError("overviews array must only contain numbers");
-      return;
+    Napi::Value val = overviews.As<Napi::Object>().Get(i);
+    if (!val.IsNumber()) {
+      Napi::Error::New(node_gdal::napi_env(), "overviews array must only contain numbers").ThrowAsJavaScriptException();
+      return node_gdal::napi_env().Undefined();
     }
-    o.get()[i] = Nan::To<int32_t>(val).ToChecked();
+    o.get()[i] = val.As<Napi::Number>().Int32Value();
   }
 
   if (!bands.IsEmpty()) {
-    n_bands = bands->Length();
+    n_bands = bands.Length();
     b = std::shared_ptr<int[]>(new int[n_bands]);
     for (i = 0; i < n_bands; i++) {
-      Local<Value> val = Nan::Get(bands, i).ToLocalChecked();
-      if (!val->IsNumber()) {
-        Nan::ThrowError("band array must only contain numbers");
-        return;
+      Napi::Value val = bands.As<Napi::Object>().Get(i);
+      if (!val.IsNumber()) {
+        Napi::Error::New(node_gdal::napi_env(), "band array must only contain numbers").ThrowAsJavaScriptException();
+        return node_gdal::napi_env().Undefined();
       }
-      b.get()[i] = Nan::To<int32_t>(val).ToChecked();
+      b.get()[i] = val.As<Napi::Number>().Int32Value();
     }
   }
 
   GDALAsyncableJob<CPLErr> job(ds->uid);
 
-  Nan::Callback *progress_cb;
+  Napi::FunctionReference *progress_cb;
   NODE_PROGRESS_CB_OPT(3, progress_cb, job);
   job.progress = progress_cb;
   // Alas one cannot capture-move a unique_ptr and assign the lambda to a variable
@@ -682,9 +666,9 @@ GDAL_ASYNCABLE_DEFINE(Dataset::buildOverviews) {
     if (err != CE_None) { throw CPLGetLastErrorMsg(); }
     return err;
   };
-  job.rval = [](CPLErr, const GetFromPersistentFunc &) { return Nan::Undefined().As<Value>(); };
+  job.rval = [](CPLErr, const GetFromPersistentFunc &) { return node_gdal::napi_env().Undefined().As<Napi::Value>(); };
 
-  job.run(info, async, 4);
+  return job.run(info, async, 4);
 }
 
 /**
@@ -695,21 +679,21 @@ GDAL_ASYNCABLE_DEFINE(Dataset::buildOverviews) {
  * @memberof Dataset
  * @type {string}
  */
-NAN_GETTER(Dataset::descriptionGetter) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+NAPI_GETTER(Dataset::descriptionGetter) {
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
   if (!ds->isAlive()) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALDataset *raw = ds->get();
   if (!raw) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
   AsyncGuard lock({ds->uid}, eventLoopWarn);
-  info.GetReturnValue().Set(SafeString::New(raw->GetDescription()));
+  return SafeString::New(raw->GetDescription());
 }
 
 /**
@@ -735,7 +719,7 @@ NAN_GETTER(Dataset::descriptionGetter) {
  * @type {Promise<xyz>}
  */
 GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::rasterSizeGetter) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
   struct xy {
     int x, y;
     bool null;
@@ -743,7 +727,7 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::rasterSizeGetter) {
 
   if (!ds->isAlive()) {
     THROW_OR_REJECT("Dataset object has already been destroyed")
-    return;
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALDataset *raw = ds->get();
@@ -766,15 +750,14 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::rasterSizeGetter) {
   };
 
   job.rval = [](xy xy, const GetFromPersistentFunc &) {
-    Nan::EscapableHandleScope scope;
-    if (xy.null) return Nan::Null().As<Value>();
-    Local<Object> result = Nan::New<Object>();
-    Nan::Set(result, Nan::New("x").ToLocalChecked(), Nan::New<Integer>(xy.x));
-    Nan::Set(result, Nan::New("y").ToLocalChecked(), Nan::New<Integer>(xy.y));
-    return scope.Escape(result.As<Value>());
+    if (xy.null) return node_gdal::napi_env().Null().As<Napi::Value>();
+    Napi::Object result = Napi::Object::New(node_gdal::napi_env());
+    result.Set( Napi::String::New(node_gdal::napi_env(), "x"), Napi::Number::New(node_gdal::napi_env(), xy.x));
+    result.Set( Napi::String::New(node_gdal::napi_env(), "y"), Napi::Number::New(node_gdal::napi_env(), xy.y));
+    return result.As<Napi::Value>();
   };
 
-  job.run(info, async);
+  return job.run(info, async);
 }
 
 /**
@@ -801,11 +784,11 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::rasterSizeGetter) {
  * @type {Promise<SpatialReference|null>}
  */
 GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::srsGetter) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
   if (!ds->isAlive()) {
     THROW_OR_REJECT("Dataset object has already been destroyed");
-    return;
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALDataset *raw = ds->get();
@@ -829,9 +812,9 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::srsGetter) {
     if (srs != nullptr)
       return SpatialReference::New(srs, true);
     else
-      return Nan::Null().As<Value>();
+      return node_gdal::napi_env().Null().As<Napi::Value>();
   };
-  job.run(info, async);
+  return job.run(info, async);
 }
 
 /**
@@ -870,11 +853,11 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::srsGetter) {
  * @type {Promise<number[]|null>}
  */
 GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::geoTransformGetter) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
   if (!ds->isAlive()) {
     THROW_OR_REJECT("Dataset object has already been destroyed");
-    return;
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALDataset *raw = ds->get();
@@ -889,20 +872,20 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::geoTransformGetter) {
     return transform;
   };
 
-  job.rval = [](std::shared_ptr<double[]> transform, const GetFromPersistentFunc &) {
-    if (transform == nullptr) return Nan::Null().As<v8::Value>();
-    Local<Array> result = Nan::New<Array>(6);
-    Nan::Set(result, 0, Nan::New<Number>(transform.get()[0]));
-    Nan::Set(result, 1, Nan::New<Number>(transform.get()[1]));
-    Nan::Set(result, 2, Nan::New<Number>(transform.get()[2]));
-    Nan::Set(result, 3, Nan::New<Number>(transform.get()[3]));
-    Nan::Set(result, 4, Nan::New<Number>(transform.get()[4]));
-    Nan::Set(result, 5, Nan::New<Number>(transform.get()[5]));
+  job.rval = [](std::shared_ptr<double[]> transform, const GetFromPersistentFunc &) -> Napi::Value {
+    if (transform == nullptr) return node_gdal::napi_env().Null();
+    Napi::Array result = Napi::Array::New(node_gdal::napi_env(), 6);
+    result.Set(static_cast<uint32_t>(0), Napi::Number::New(node_gdal::napi_env(), transform.get()[0]));
+    result.Set(static_cast<uint32_t>(1), Napi::Number::New(node_gdal::napi_env(), transform.get()[1]));
+    result.Set(static_cast<uint32_t>(2), Napi::Number::New(node_gdal::napi_env(), transform.get()[2]));
+    result.Set(static_cast<uint32_t>(3), Napi::Number::New(node_gdal::napi_env(), transform.get()[3]));
+    result.Set(static_cast<uint32_t>(4), Napi::Number::New(node_gdal::napi_env(), transform.get()[4]));
+    result.Set(static_cast<uint32_t>(5), Napi::Number::New(node_gdal::napi_env(), transform.get()[5]));
 
-    return result.As<v8::Value>();
+    return result;
   };
 
-  job.run(info, async);
+  return job.run(info, async);
 }
 
 /**
@@ -913,16 +896,17 @@ GDAL_ASYNCABLE_GETTER_DEFINE(Dataset::geoTransformGetter) {
  * @memberof Dataset
  * @type {Driver}
  */
-NAN_GETTER(Dataset::driverGetter) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+NAPI_GETTER(Dataset::driverGetter) {
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
   if (!ds->isAlive()) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALDataset *raw = ds->get();
-  if (raw->GetDriver() != nullptr) { info.GetReturnValue().Set(Driver::New(raw->GetDriver())); }
+  if (raw->GetDriver() != nullptr) { return Driver::New(raw->GetDriver()); }
+  return node_gdal::napi_env().Undefined();
 }
 
 /**
@@ -933,27 +917,28 @@ NAN_GETTER(Dataset::driverGetter) {
  * @memberof Dataset
  * @type {boolean}
  */
-NAN_GETTER(Dataset::threadSafeGetter) {
+NAPI_GETTER(Dataset::threadSafeGetter) {
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 10)
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
   if (!ds->isAlive()) {
-    Nan::ThrowError("Dataset object has already been destroyed");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALDataset *raw = ds->get();
-  if (raw->GetDriver() != nullptr) { info.GetReturnValue().Set(Nan::New<Boolean>(raw->IsThreadSafe(GDAL_OF_RASTER))); }
+  if (raw->GetDriver() != nullptr) { return Napi::Boolean::New(node_gdal::napi_env(), raw->IsThreadSafe(GDAL_OF_RASTER)); }
+  return node_gdal::napi_env().Undefined();
 #else
-  info.GetReturnValue().Set(Nan::New<Boolean>(false));
+  return Napi::Boolean::New(node_gdal::napi_env(), false);
 #endif
 }
 
-NAN_SETTER(Dataset::srsSetter) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+NAPI_SETTER(Dataset::srsSetter) {
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
   if (!ds->isAlive()) {
-    Nan::ThrowError("Dataset object has already been destroyed");
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
     return;
   }
 
@@ -961,19 +946,19 @@ NAN_SETTER(Dataset::srsSetter) {
   std::string wkt("");
   if (IS_WRAPPED(value, SpatialReference)) {
 
-    SpatialReference *srs_obj = Nan::ObjectWrap::Unwrap<SpatialReference>(value.As<Object>());
+    SpatialReference *srs_obj = node_gdal::UnwrapWrapped<SpatialReference>(value.As<Napi::Object>());
     OGRSpatialReference *srs = srs_obj->get();
     // Get wkt from OGRSpatialReference
     char *str;
     if (srs->exportToWkt(&str)) {
-      Nan::ThrowError("Error exporting srs to wkt");
+      Napi::Error::New(node_gdal::napi_env(), "Error exporting srs to wkt").ThrowAsJavaScriptException();
       return;
     }
     wkt = str; // copy string
     CPLFree(str);
 
-  } else if (!value->IsNull() && !value->IsUndefined()) {
-    Nan::ThrowError("srs must be SpatialReference object");
+  } else if (!value.IsNull() && !value.IsUndefined()) {
+    Napi::Error::New(node_gdal::napi_env(), "srs must be SpatialReference object").ThrowAsJavaScriptException();
     return;
   }
 
@@ -983,35 +968,35 @@ NAN_SETTER(Dataset::srsSetter) {
   if (err) { NODE_THROW_LAST_CPLERR; }
 }
 
-NAN_SETTER(Dataset::geoTransformSetter) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
+NAPI_SETTER(Dataset::geoTransformSetter) {
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
 
   if (!ds->isAlive()) {
-    Nan::ThrowError("Dataset object has already been destroyed");
+    Napi::Error::New(node_gdal::napi_env(), "Dataset object has already been destroyed").ThrowAsJavaScriptException();
     return;
   }
 
   GDALDataset *raw = ds->get();
 
-  if (!value->IsArray()) {
-    Nan::ThrowError("Transform must be an array");
+  if (!value.IsArray()) {
+    Napi::Error::New(node_gdal::napi_env(), "Transform must be an array").ThrowAsJavaScriptException();
     return;
   }
-  Local<Array> transform = value.As<Array>();
+  Napi::Array transform = value.As<Napi::Array>();
 
-  if (transform->Length() != 6) {
-    Nan::ThrowError("Transform array must have 6 elements");
+  if (transform.Length() != 6) {
+    Napi::Error::New(node_gdal::napi_env(), "Transform array must have 6 elements").ThrowAsJavaScriptException();
     return;
   }
 
   double buffer[6];
   for (int i = 0; i < 6; i++) {
-    Local<Value> val = Nan::Get(transform, i).ToLocalChecked();
-    if (!val->IsNumber()) {
-      Nan::ThrowError("Transform array must only contain numbers");
+    Napi::Value val = transform.As<Napi::Object>().Get(i);
+    if (!val.IsNumber()) {
+      Napi::Error::New(node_gdal::napi_env(), "Transform array must only contain numbers").ThrowAsJavaScriptException();
       return;
     }
-    buffer[i] = Nan::To<double>(val).ToChecked();
+    buffer[i] = val.As<Napi::Number>().DoubleValue();
   }
 
   AsyncGuard lock({ds->uid}, eventLoopWarn);
@@ -1028,8 +1013,8 @@ NAN_SETTER(Dataset::geoTransformSetter) {
  * @memberof Dataset
  * @type {DatasetBands}
  */
-NAN_GETTER(Dataset::bandsGetter) {
-  info.GetReturnValue().Set(Nan::GetPrivate(info.This(), Nan::New("bands_").ToLocalChecked()).ToLocalChecked());
+NAPI_GETTER(Dataset::bandsGetter) {
+  return GDAL_GET_PRIVATE(info.This(), "bands_");
 }
 
 /**
@@ -1040,8 +1025,8 @@ NAN_GETTER(Dataset::bandsGetter) {
  * @memberof Dataset
  * @type {DatasetLayers}
  */
-NAN_GETTER(Dataset::layersGetter) {
-  info.GetReturnValue().Set(Nan::GetPrivate(info.This(), Nan::New("layers_").ToLocalChecked()).ToLocalChecked());
+NAPI_GETTER(Dataset::layersGetter) {
+  return GDAL_GET_PRIVATE(info.This(), "layers_");
 }
 
 /**
@@ -1052,9 +1037,9 @@ NAN_GETTER(Dataset::layersGetter) {
  * @memberof Dataset
  * @type {Group}
  */
-NAN_GETTER(Dataset::rootGetter) {
-  Local<Value> rootObj = Nan::GetPrivate(info.This(), Nan::New("root_").ToLocalChecked()).ToLocalChecked();
-  if (rootObj->IsUndefined()) {
+NAPI_GETTER(Dataset::rootGetter) {
+  Napi::Value rootObj = GDAL_GET_PRIVATE(info.This(), "root_");
+  if (rootObj.IsUndefined()) {
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
     NODE_UNWRAP_CHECK(Dataset, info.This(), ds);
     GDAL_RAW_CHECK(GDALDataset *, ds, gdal_ds);
@@ -1062,20 +1047,20 @@ NAN_GETTER(Dataset::rootGetter) {
     std::shared_ptr<GDALGroup> root = gdal_ds->GetRootGroup();
     if (root == nullptr) {
 #endif
-      rootObj = Nan::Null();
+      rootObj = node_gdal::napi_env().Null();
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
     } else {
-      rootObj = Group::New(root, info.This());
+      rootObj = Group::New(root, info.This().As<Napi::Object>());
     }
 #endif
-    Nan::SetPrivate(info.This(), Nan::New("root_").ToLocalChecked(), rootObj);
+    GDAL_SET_PRIVATE(info.This(), "root_", rootObj);
   }
-  info.GetReturnValue().Set(rootObj);
+  return rootObj;
 }
 
-NAN_GETTER(Dataset::uidGetter) {
-  Dataset *ds = Nan::ObjectWrap::Unwrap<Dataset>(info.This());
-  info.GetReturnValue().Set(Nan::New((int)ds->uid));
+NAPI_GETTER(Dataset::uidGetter) {
+  Dataset *ds = node_gdal::UnwrapWrapped<Dataset>(info.This().As<Napi::Object>());
+  return Napi::Number::New(node_gdal::napi_env(), (int)ds->uid);
 }
 
 } // namespace node_gdal

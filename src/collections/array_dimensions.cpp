@@ -10,7 +10,7 @@ namespace node_gdal {
 
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
 
-Nan::Persistent<FunctionTemplate> ArrayDimensions::constructor;
+Napi::FunctionReference ArrayDimensions::constructor;
 
 std::shared_ptr<GDALDimension> ArrayDimensions::__get(std::shared_ptr<GDALMDArray> parent, std::string const &name) {
   std::vector<std::shared_ptr<GDALDimension>> dims = parent->GetDimensions();

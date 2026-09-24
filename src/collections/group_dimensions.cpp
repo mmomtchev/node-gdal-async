@@ -10,7 +10,7 @@ namespace node_gdal {
 
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
 
-Nan::Persistent<FunctionTemplate> GroupDimensions::constructor;
+Napi::FunctionReference GroupDimensions::constructor;
 
 std::shared_ptr<GDALDimension> GroupDimensions::__get(std::shared_ptr<GDALGroup> parent, std::string const &name) {
   std::vector<std::shared_ptr<GDALDimension>> dims = parent->GetDimensions();

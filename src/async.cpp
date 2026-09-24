@@ -27,9 +27,9 @@ int ProgressTrampoline(double dfComplete, const char *pszMessage, void *pProgres
 }
 
 // From async.hpp:
-// typedef Nan::AsyncProgressWorkerBase<GDALProgressInfo> GDALAsyncProgressWorker;
+// typedef Napi::AsyncProgressQueueWorker<GDALProgressInfo> GDALAsyncProgressWorker;
 // typedef GDALAsyncProgressWorker::ExecutionProgress GDALAsyncExecutionProgress;
-// GDALAsyncExecutionProgress is an instance of a NAN templated class, in this case
+// GDALAsyncExecutionProgress is an instance of a node-addon-api templated class, in this case
 // the AsyncWorker is the final owner of the progress_callback
 GDALExecutionProgress::GDALExecutionProgress(const GDALAsyncExecutionProgress *async) : async(async), sync(nullptr) {
 }
@@ -46,8 +46,8 @@ void GDALExecutionProgress::Send(GDALProgressInfo *info) const {
   auto infoHolder = std::unique_ptr<GDALProgressInfo>(info);
   // async mode -> we are in an aux thread, we can't go back to JS
   // we must enqueue a job on the event loop and wait for the JS world to stop
-  // the enqueuing is in Nan::AsyncWorker, then once the JS world is not running
-  // AsyncWorker::HandleProgressCallback will get invoked on the main thread
+  // the enqueuing is in the async worker, then once the JS world is not running
+  // AsyncWorker::OnProgress will get invoked on the main thread
   if (async) async->Send(info, 1);
   // sync mode -> the JS world is not running, we can go back directly
   // this code is below
@@ -55,18 +55,25 @@ void GDALExecutionProgress::Send(GDALProgressInfo *info) const {
 }
 
 // This is the sync execution context, it is the final owner of the progress_callback
-GDALSyncExecutionProgress::GDALSyncExecutionProgress(Nan::Callback *cb) : progress_callback(cb) {};
+GDALSyncExecutionProgress::GDALSyncExecutionProgress(Napi::FunctionReference *cb) : progress_callback(cb) {};
 GDALSyncExecutionProgress::~GDALSyncExecutionProgress() {
-  delete progress_callback;
+  if (progress_callback != nullptr) {
+    // The reference destructor is suppressed by the argument macros
+    progress_callback->Reset();
+    delete progress_callback;
+  }
 };
 
 // Going back to JS in sync mode
 void GDALSyncExecutionProgress::Send(GDALProgressInfo *info) const {
-  Nan::HandleScope scope;
-  v8::Local<v8::Value> argv[] = {Nan::New<Number>(info->complete), SafeString::New(info->message)};
-  Nan::TryCatch try_catch;
-  Nan::Call(progress_callback->GetFunction(), Nan::GetCurrentContext()->Global(), 2, argv);
-  if (try_catch.HasCaught()) throw "sync progress callback exception";
+  std::vector<napi_value> argv;
+  argv.push_back(Napi::Number::New(node_gdal::napi_env(), info->complete));
+  argv.push_back(SafeString::New(node_gdal::napi_env(), info->message));
+  try {
+    progress_callback->Value().Call(argv);
+  } catch (const Napi::Error &) {
+    throw "sync progress callback exception";
+  }
 }
 
 } // namespace node_gdal

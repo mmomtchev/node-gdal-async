@@ -1,17 +1,7 @@
 #ifndef __NODE_OGR_GEOMETRYBASE_H__
 #define __NODE_OGR_GEOMETRYBASE_H__
 
-// node
-#include <node.h>
-#include <node_object_wrap.h>
-
-// nan
-#include "../nan-wrapper.h"
-
 #include "../gdal_common.hpp"
-
-using namespace v8;
-using namespace node;
 
 namespace node_gdal {
 
@@ -56,22 +46,36 @@ namespace node_gdal {
  *
  * The full GDAL OGRGeometry class hierarchy
  * https://gdal.org/doxygen/classOGRGeometry.html
+ *
+ * Every concrete class passes itself as T, which is exactly what
+ * Napi::ObjectWrap needs, so the CRTP maps onto it one to one.
  */
 
 #define UPDATE_AMOUNT_OF_GEOMETRY_MEMORY(geom)                                                                         \
   {                                                                                                                    \
     int new_size = geom->this_->WkbSize();                                                                             \
-    if (geom->owned_) Nan::AdjustExternalMemory(new_size - geom->size_);                                               \
+    if (geom->owned_) Napi::MemoryManagement::AdjustExternalMemory(geom->Env(), new_size - geom->size_);               \
     geom->size_ = new_size;                                                                                            \
   }
 
-template <class T, class OGRT> class GeometryBase : public Nan::ObjectWrap {
-    public:
-  static Local<Value> New(OGRT *geom);
-  static Local<Value> New(OGRT *geom, bool owned);
+// OGRSimpleCurve and OGRGeometry are abstract (Geometry/SimpleCurve only exist
+// so that the concrete classes can be `instanceof` them) - nothing to construct
+template <typename OGRT> inline OGRT *MakeGeometry() {
+  return new OGRT();
+}
+template <> inline OGRSimpleCurve *MakeGeometry<OGRSimpleCurve>() {
+  return nullptr;
+}
+template <> inline OGRGeometry *MakeGeometry<OGRGeometry>() {
+  return nullptr;
+}
 
-  GeometryBase();
-  GeometryBase(OGRT *geom);
+template <class T, class OGRT> class GeometryBase : public GDALObject<T> {
+    public:
+  static Napi::Value New(OGRT *geom);
+  static Napi::Value New(OGRT *geom, bool owned);
+
+  GeometryBase(const Napi::CallbackInfo &info);
   inline OGRT *get() {
     return this_;
   }
@@ -87,15 +91,14 @@ template <class T, class OGRT> class GeometryBase : public Nan::ObjectWrap {
   uv_sem_t *async_lock;
 };
 
-template <class T, class OGRT> Local<Value> GeometryBase<T, OGRT>::New(OGRT *geom) {
-  Nan::EscapableHandleScope scope;
-  return scope.Escape(T::New(geom, true));
+template <class T, class OGRT> Napi::Value GeometryBase<T, OGRT>::New(OGRT *geom) {
+  return T::New(geom, true);
 }
 
-template <class T, class OGRT> Local<Value> GeometryBase<T, OGRT>::New(OGRT *geom, bool owned) {
-  Nan::EscapableHandleScope scope;
+template <class T, class OGRT> Napi::Value GeometryBase<T, OGRT>::New(OGRT *geom, bool owned) {
+  Napi::Env env = node_gdal::napi_env();
 
-  if (!geom) { return scope.Escape(Nan::Null()); }
+  if (!geom) { return env.Null(); }
 
   // make a copy of geometry owned by a feature
   // + no need to track when a feature is destroyed
@@ -105,31 +108,34 @@ template <class T, class OGRT> Local<Value> GeometryBase<T, OGRT>::New(OGRT *geo
 
   if (!owned) { geom = static_cast<OGRT *>(geom->clone()); }
 
-  T *wrapped = new T(geom);
+  // node-addon-api allocates the wrapper itself, so the External carries the OGR
+  // object and not the pre-built wrapper - unlike the old binding
+  std::vector<napi_value> args = {Napi::External<OGRT>::New(env, geom)};
+  Napi::Object obj = T::constructor.Value().New(args);
+
+  T *wrapped = node_gdal::UnwrapWrapped<T>(obj);
   wrapped->owned_ = true;
 
   UPDATE_AMOUNT_OF_GEOMETRY_MEMORY(wrapped);
 
-  Local<Value> ext = Nan::New<External>(wrapped);
-  Local<Object> obj =
-    Nan::NewInstance(Nan::GetFunction(Nan::New(T::constructor)).ToLocalChecked(), 1, &ext).ToLocalChecked();
-
-  return scope.Escape(obj);
+  return obj;
 }
 
 template <class T, class OGRT>
-GeometryBase<T, OGRT>::GeometryBase(OGRT *geom) : Nan::ObjectWrap(), this_(geom), owned_(true), size_(0) {
-  LOG("Created Geometry %s [%p]", typeid(T).name(), geom);
+GeometryBase<T, OGRT>::GeometryBase(const Napi::CallbackInfo &info)
+  : GDALObject<T>(info), this_(nullptr), owned_(true), size_(0) {
   // The async locks must live outside the V8 memory management,
   // otherwise they won't be accessible from the async threads
   async_lock = new uv_sem_t;
   uv_sem_init(async_lock, 1);
-}
 
-template <class T, class OGRT>
-GeometryBase<T, OGRT>::GeometryBase() : Nan::ObjectWrap(), this_(NULL), owned_(true), size_(0) {
-  async_lock = new uv_sem_t;
-  uv_sem_init(async_lock, 1);
+  if (info.Length() > 0 && info[0].IsExternal()) {
+    this_ = info[0].As<Napi::External<OGRT>>().Data();
+  } else {
+    // Constructed from JS: the derived class interprets its own arguments
+    this_ = MakeGeometry<OGRT>();
+  }
+  LOG("Created Geometry %s [%p]", typeid(T).name(), this_);
 }
 
 template <class T, class OGRT> GeometryBase<T, OGRT>::~GeometryBase() {
@@ -137,7 +143,7 @@ template <class T, class OGRT> GeometryBase<T, OGRT>::~GeometryBase() {
     LOG("Disposing Geometry %s [%p] (%s)", typeid(T).name(), this_, owned_ ? "owned" : "unowned");
     if (owned_) {
       OGRGeometryFactory::destroyGeometry(this_);
-      Nan::AdjustExternalMemory(-size_);
+      Napi::MemoryManagement::AdjustExternalMemory(node_gdal::napi_env(), -size_);
     }
     LOG("Disposed Geometry [%p]", this_)
     this_ = NULL;

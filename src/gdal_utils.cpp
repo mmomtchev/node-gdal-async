@@ -2,6 +2,7 @@
 #include "gdal_common.hpp"
 #include "gdal_dataset.hpp"
 #include "gdal_spatial_reference.hpp"
+#include "utils/string_list.hpp"
 
 #if GDAL_VERSION_MAJOR > 2 || (GDAL_VERSION_MAJOR == 2 && GDAL_VERSION_MINOR >= 3)
 #define GDALDatasetToHandle(x) GDALDataset::ToHandle(x)
@@ -13,14 +14,16 @@
 
 namespace node_gdal {
 
-void Utils::Initialize(Local<Object> target) {
-  Nan__SetAsyncableMethod(target, "info", info);
-  Nan__SetAsyncableMethod(target, "translate", translate);
-  Nan__SetAsyncableMethod(target, "vectorTranslate", vectorTranslate);
-  Nan__SetAsyncableMethod(target, "warp", warp);
-  Nan__SetAsyncableMethod(target, "buildVRT", buildvrt);
-  Nan__SetAsyncableMethod(target, "rasterize", rasterize);
-  Nan__SetAsyncableMethod(target, "dem", dem);
+void Utils::Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+
+  GDAL_SetAsyncableMethod(env, target, "info", info);
+  GDAL_SetAsyncableMethod(env, target, "translate", translate);
+  GDAL_SetAsyncableMethod(env, target, "vectorTranslate", vectorTranslate);
+  GDAL_SetAsyncableMethod(env, target, "warp", warp);
+  GDAL_SetAsyncableMethod(env, target, "buildVRT", buildvrt);
+  GDAL_SetAsyncableMethod(env, target, "rasterize", rasterize);
+  GDAL_SetAsyncableMethod(env, target, "dem", dem);
 }
 
 /**
@@ -74,20 +77,20 @@ GDAL_ASYNCABLE_DEFINE(Utils::translate) {
   std::string dst;
   NODE_ARG_STR(0, "dst", dst);
 
-  Local<Object> src;
+  Napi::Object src;
   NODE_ARG_OBJECT(1, "src", src);
   NODE_UNWRAP_CHECK(Dataset, src, ds);
   GDAL_RAW_CHECK(GDALDataset *, ds, raw);
 
-  Local<Array> args;
+  Napi::Array args;
   NODE_ARG_ARRAY_OPT(2, "args", args);
   if (!args.IsEmpty())
-    for (unsigned i = 0; i < args->Length(); ++i) {
-      aosOptions->AddString(*Nan::Utf8String(Nan::Get(args, i).ToLocalChecked()));
+    for (unsigned i = 0; i < args.Length(); ++i) {
+      aosOptions->AddString(node_gdal::Stringify(args.As<Napi::Object>().Get(i)));
     }
 
-  Local<Object> options;
-  Nan::Callback *progress_cb = nullptr;
+  Napi::Object options;
+  Napi::FunctionReference *progress_cb = nullptr;
   NODE_ARG_OBJECT_OPT(3, "options", options);
   if (!options.IsEmpty()) NODE_CB_FROM_OBJ_OPT(options, "progress_cb", progress_cb);
 
@@ -106,7 +109,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::translate) {
   };
   job.rval = [](GDALDataset *ds, const GetFromPersistentFunc &) { return Dataset::New(ds); };
 
-  job.run(info, async, 4);
+  return job.run(info, async, 4);
 }
 
 /**
@@ -152,36 +155,36 @@ GDAL_ASYNCABLE_DEFINE(Utils::vectorTranslate) {
   std::string dst_filename("");
   Dataset *dst_ds = nullptr;
   if (info.Length() < 1) {
-    Nan::ThrowError("\"dst\" must be given");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "\"dst\" must be given").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALDataset *dst_raw = nullptr;
-  if (info[0]->IsString()) {
+  if (info[0].IsString()) {
     NODE_ARG_STR(0, "dst", dst_filename);
-  } else if (info[0]->IsObject()) {
+  } else if (info[0].IsObject()) {
     NODE_ARG_WRAPPED(0, "dst", Dataset, dst_ds);
     GDAL_RAW_CHECK(GDALDataset *, dst_ds, _dst_raw);
     dst_raw = _dst_raw;
   } else {
-    Nan::ThrowError("\"dst\" must be an object or a gdal.Dataset");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "\"dst\" must be an object or a gdal.Dataset").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
-  Local<Object> src;
+  Napi::Object src;
   NODE_ARG_OBJECT(1, "src", src);
   NODE_UNWRAP_CHECK(Dataset, src, ds);
   GDAL_RAW_CHECK(GDALDataset *, ds, src_raw);
 
-  Local<Array> args;
+  Napi::Array args;
   NODE_ARG_ARRAY_OPT(2, "args", args);
   if (!args.IsEmpty())
-    for (unsigned i = 0; i < args->Length(); ++i) {
-      aosOptions->AddString(*Nan::Utf8String(Nan::Get(args, i).ToLocalChecked()));
+    for (unsigned i = 0; i < args.Length(); ++i) {
+      aosOptions->AddString(node_gdal::Stringify(args.As<Napi::Object>().Get(i)));
     }
 
-  Local<Object> options;
-  Nan::Callback *progress_cb = nullptr;
+  Napi::Object options;
+  Napi::FunctionReference *progress_cb = nullptr;
   NODE_ARG_OBJECT_OPT(3, "options", options);
   if (!options.IsEmpty()) NODE_CB_FROM_OBJ_OPT(options, "progress_cb", progress_cb);
 
@@ -208,7 +211,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::vectorTranslate) {
   };
   job.rval = [](GDALDataset *ds, const GetFromPersistentFunc &) { return Dataset::New(ds); };
 
-  job.run(info, async, 4);
+  return job.run(info, async, 4);
 }
 
 /**
@@ -245,16 +248,16 @@ GDAL_ASYNCABLE_DEFINE(Utils::vectorTranslate) {
 GDAL_ASYNCABLE_DEFINE(Utils::info) {
   auto aosOptions = std::make_shared<CPLStringList>();
 
-  Local<Object> src;
+  Napi::Object src;
   NODE_ARG_OBJECT(0, "src", src);
   NODE_UNWRAP_CHECK(Dataset, src, ds);
   GDAL_RAW_CHECK(GDALDataset *, ds, raw);
 
-  Local<Array> args;
+  Napi::Array args;
   NODE_ARG_ARRAY_OPT(1, "args", args);
   if (!args.IsEmpty())
-    for (unsigned i = 0; i < args->Length(); ++i) {
-      aosOptions->AddString(*Nan::Utf8String(Nan::Get(args, i).ToLocalChecked()));
+    for (unsigned i = 0; i < args.Length(); ++i) {
+      aosOptions->AddString(node_gdal::Stringify(args.As<Napi::Object>().Get(i)));
     }
 
   GDALAsyncableJob<std::string> job(ds->uid);
@@ -271,7 +274,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::info) {
   };
   job.rval = [](std::string s, const GetFromPersistentFunc &) { return SafeString::New(s.c_str()); };
 
-  job.run(info, async, 2);
+  return job.run(info, async, 2);
 }
 
 /**
@@ -318,7 +321,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::warp) {
   std::vector<long> uids;
 
   std::string dst_path("");
-  Local<Object> dst_ds;
+  Napi::Object dst_ds;
 
   NODE_ARG_OPT_STR(0, "dst_path", dst_path);
 
@@ -332,38 +335,38 @@ GDAL_ASYNCABLE_DEFINE(Utils::warp) {
   }
 
   if (dst_path.length() == 0 && gdal_dst_ds == nullptr) {
-    Nan::ThrowError("Either \"dst_path\" or \"dst_ds\" must be given");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "Either \"dst_path\" or \"dst_ds\" must be given").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
-  Local<Array> src_ds;
+  Napi::Array src_ds;
   NODE_ARG_ARRAY(2, "src_ds", src_ds);
-  if (src_ds->Length() < 1) {
-    Nan::ThrowError("\"src_ds\" must contain at least one element");
-    return;
+  if (src_ds.Length() < 1) {
+    Napi::Error::New(node_gdal::napi_env(), "\"src_ds\" must contain at least one element").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
-  auto gdal_src_ds = std::shared_ptr<GDALDatasetH[]>(new GDALDatasetH[src_ds->Length()]);
-  for (unsigned i = 0; i < src_ds->Length(); ++i) {
-    NODE_UNWRAP_CHECK(Dataset, Nan::Get(src_ds, i).ToLocalChecked().As<Object>(), ds);
+  auto gdal_src_ds = std::shared_ptr<GDALDatasetH[]>(new GDALDatasetH[src_ds.Length()]);
+  for (unsigned i = 0; i < src_ds.Length(); ++i) {
+    NODE_UNWRAP_CHECK(Dataset, src_ds.As<Napi::Object>().Get(i).As<Napi::Object>(), ds);
     GDAL_RAW_CHECK(GDALDataset *, ds, raw);
     gdal_src_ds.get()[i] = GDALDatasetToHandle(raw);
     uids.push_back(ds->uid);
   }
 
-  Local<Array> args;
+  Napi::Array args;
   NODE_ARG_ARRAY_OPT(3, "args", args);
   if (!args.IsEmpty())
-    for (unsigned i = 0; i < args->Length(); ++i) {
-      aosOptions->AddString(*Nan::Utf8String(Nan::Get(args, i).ToLocalChecked()));
+    for (unsigned i = 0; i < args.Length(); ++i) {
+      aosOptions->AddString(node_gdal::Stringify(args.As<Napi::Object>().Get(i)));
     }
 
-  Local<Object> options;
-  Nan::Callback *progress_cb = nullptr;
+  Napi::Object options;
+  Napi::FunctionReference *progress_cb = nullptr;
   NODE_ARG_OBJECT_OPT(4, "options", options);
   if (!options.IsEmpty()) NODE_CB_FROM_OBJ_OPT(options, "progress_cb", progress_cb);
 
   GDALAsyncableJob<GDALDataset *> job(uids);
-  int src_count = src_ds->Length();
+  int src_count = src_ds.Length();
   job.progress = progress_cb;
   job.main =
     [dst_path, gdal_dst_ds, src_count, gdal_src_ds, aosOptions, progress_cb](const GDALExecutionProgress &progress) {
@@ -384,7 +387,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::warp) {
     };
   job.rval = [](GDALDataset *ds, const GetFromPersistentFunc &) { return Dataset::New(ds); };
 
-  job.run(info, async, 5);
+  return job.run(info, async, 5);
 }
 
 /**
@@ -443,29 +446,29 @@ GDAL_ASYNCABLE_DEFINE(Utils::buildvrt) {
 
   NODE_ARG_STR(0, "dst_path", dst_path);
 
-  Local<Array> src_ds;
+  Napi::Array src_ds;
   NODE_ARG_ARRAY(1, "src_ds", src_ds);
-  if (src_ds->Length() < 1) {
-    Nan::ThrowError("\"src_ds\" must contain at least one element");
-    return;
+  if (src_ds.Length() < 1) {
+    Napi::Error::New(node_gdal::napi_env(), "\"src_ds\" must contain at least one element").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   std::shared_ptr<CPLStringList> aosSrcDs = nullptr;
   std::shared_ptr<GDALDatasetH[]> gdalSrcDs = nullptr;
-  if (Nan::Get(src_ds, 0).ToLocalChecked()->IsString()) {
+  if (src_ds.As<Napi::Object>().Get(static_cast<uint32_t>(0)).IsString()) {
     aosSrcDs = std::make_shared<CPLStringList>();
-    for (unsigned i = 0; i < src_ds->Length(); ++i) {
-      if (!Nan::Get(src_ds, i).ToLocalChecked()->IsString()) {
-        Nan::ThrowError("All \"src_ds\" elements must have the same type");
-        return;
+    for (unsigned i = 0; i < src_ds.Length(); ++i) {
+      if (!src_ds.As<Napi::Object>().Get(i).IsString()) {
+        Napi::Error::New(node_gdal::napi_env(), "All \"src_ds\" elements must have the same type").ThrowAsJavaScriptException();
+        return node_gdal::napi_env().Undefined();
       }
-      aosSrcDs->AddString(*Nan::Utf8String(Nan::Get(src_ds, i).ToLocalChecked()));
+      aosSrcDs->AddString(node_gdal::Stringify(src_ds.As<Napi::Object>().Get(i)));
     }
     uids.push_back(0);
   } else {
-    gdalSrcDs = std::shared_ptr<GDALDatasetH[]>(new GDALDatasetH[src_ds->Length()]);
-    for (unsigned i = 0; i < src_ds->Length(); ++i) {
-      Local<Value> v = Nan::Get(src_ds, i).ToLocalChecked();
+    gdalSrcDs = std::shared_ptr<GDALDatasetH[]>(new GDALDatasetH[src_ds.Length()]);
+    for (unsigned i = 0; i < src_ds.Length(); ++i) {
+      Napi::Value v = src_ds.As<Napi::Object>().Get(i);
       NODE_UNWRAP_CHECK(Dataset, v, ds);
       GDAL_RAW_CHECK(GDALDataset *, ds, raw);
       gdalSrcDs.get()[i] = GDALDatasetToHandle(raw);
@@ -473,20 +476,20 @@ GDAL_ASYNCABLE_DEFINE(Utils::buildvrt) {
     }
   }
 
-  Local<Array> args;
+  Napi::Array args;
   NODE_ARG_ARRAY_OPT(2, "args", args);
   if (!args.IsEmpty())
-    for (unsigned i = 0; i < args->Length(); ++i) {
-      aosOptions->AddString(*Nan::Utf8String(Nan::Get(args, i).ToLocalChecked()));
+    for (unsigned i = 0; i < args.Length(); ++i) {
+      aosOptions->AddString(node_gdal::Stringify(args.As<Napi::Object>().Get(i)));
     }
 
-  Local<Object> options;
-  Nan::Callback *progress_cb = nullptr;
+  Napi::Object options;
+  Napi::FunctionReference *progress_cb = nullptr;
   NODE_ARG_OBJECT_OPT(3, "options", options);
   if (!options.IsEmpty()) NODE_CB_FROM_OBJ_OPT(options, "progress_cb", progress_cb);
 
   GDALAsyncableJob<GDALDataset *> job(uids);
-  int src_count = src_ds->Length();
+  int src_count = src_ds.Length();
   job.progress = progress_cb;
   job.main =
     [dst_path, src_count, gdalSrcDs, aosSrcDs, aosOptions, progress_cb](const GDALExecutionProgress &progress) {
@@ -509,7 +512,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::buildvrt) {
     };
   job.rval = [](GDALDataset *ds, const GetFromPersistentFunc &) { return Dataset::New(ds); };
 
-  job.run(info, async, 4);
+  return job.run(info, async, 4);
 }
 
 /**
@@ -563,35 +566,35 @@ GDAL_ASYNCABLE_DEFINE(Utils::rasterize) {
   auto aosOptions = std::make_shared<CPLStringList>();
 
   std::string dst_path("");
-  Local<Object> dst_ds;
+  Napi::Object dst_ds;
 
   GDALDataset *dst_raw = nullptr;
-  if (info.Length() > 1 && info[0]->IsString()) {
+  if (info.Length() > 1 && info[0].IsString()) {
     NODE_ARG_STR(0, "dst", dst_path);
-  } else if (info.Length() > 1 && info[0]->IsObject()) {
+  } else if (info.Length() > 1 && info[0].IsObject()) {
     NODE_ARG_OBJECT(0, "dst", dst_ds);
     NODE_UNWRAP_CHECK(Dataset, dst_ds, dst_obj);
     GDAL_RAW_CHECK(GDALDataset *, dst_obj, _dst_raw);
     dst_raw = _dst_raw;
   } else {
-    Nan::ThrowError("dst must be given");
-    return;
+    Napi::Error::New(node_gdal::napi_env(), "dst must be given").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
-  Local<Object> src;
+  Napi::Object src;
   NODE_ARG_OBJECT(1, "src", src);
   NODE_UNWRAP_CHECK(Dataset, src, ds);
   GDAL_RAW_CHECK(GDALDataset *, ds, src_raw);
 
-  Local<Array> args;
+  Napi::Array args;
   NODE_ARG_ARRAY_OPT(2, "args", args);
   if (!args.IsEmpty())
-    for (unsigned i = 0; i < args->Length(); ++i) {
-      aosOptions->AddString(*Nan::Utf8String(Nan::Get(args, i).ToLocalChecked()));
+    for (unsigned i = 0; i < args.Length(); ++i) {
+      aosOptions->AddString(node_gdal::Stringify(args.As<Napi::Object>().Get(i)));
     }
 
-  Local<Object> options;
-  Nan::Callback *progress_cb = nullptr;
+  Napi::Object options;
+  Napi::FunctionReference *progress_cb = nullptr;
   NODE_ARG_OBJECT_OPT(3, "options", options);
   if (!options.IsEmpty()) NODE_CB_FROM_OBJ_OPT(options, "progress_cb", progress_cb);
 
@@ -616,7 +619,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::rasterize) {
   };
   job.rval = [](GDALDataset *ds, const GetFromPersistentFunc &) { return Dataset::New(ds); };
 
-  job.run(info, async, 4);
+  return job.run(info, async, 4);
 }
 
 /**
@@ -666,7 +669,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::dem) {
   std::string dst_path;
   NODE_ARG_STR(0, "dst_path", dst_path);
 
-  Local<Object> src;
+  Napi::Object src;
   NODE_ARG_OBJECT(1, "src", src);
   NODE_UNWRAP_CHECK(Dataset, src, ds);
   GDAL_RAW_CHECK(GDALDataset *, ds, raw);
@@ -674,19 +677,19 @@ GDAL_ASYNCABLE_DEFINE(Utils::dem) {
   std::string mode;
   NODE_ARG_STR(2, "mode", mode);
 
-  Local<Array> args;
+  Napi::Array args;
   NODE_ARG_ARRAY_OPT(3, "args", args);
   if (!args.IsEmpty()) {
-    for (unsigned i = 0; i < args->Length(); ++i) {
-      aosOptions->AddString(*Nan::Utf8String(Nan::Get(args, i).ToLocalChecked()));
+    for (unsigned i = 0; i < args.Length(); ++i) {
+      aosOptions->AddString(node_gdal::Stringify(args.As<Napi::Object>().Get(i)));
     }
   }
 
   std::string colorFilename = "";
   NODE_ARG_OPT_STR(4, "colorFilename", colorFilename);
 
-  Local<Object> options;
-  Nan::Callback *progress_cb = nullptr;
+  Napi::Object options;
+  Napi::FunctionReference *progress_cb = nullptr;
   NODE_ARG_OBJECT_OPT(5, "options", options);
   if (!options.IsEmpty()) NODE_CB_FROM_OBJ_OPT(options, "progress_cb", progress_cb);
 
@@ -711,7 +714,7 @@ GDAL_ASYNCABLE_DEFINE(Utils::dem) {
   };
   job.rval = [](GDALDataset *ds, const GetFromPersistentFunc &) { return Dataset::New(ds); };
 
-  job.run(info, async, 6);
+  return job.run(info, async, 6);
 }
 
 } // namespace node_gdal

@@ -2,11 +2,9 @@
 #define __NODE_OGR_COORDINATETRANSFORMATION_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "nan-wrapper.h"
+#include "gdal_common.hpp"
 
 // ogr
 #include <ogrsf_frmts.h>
@@ -14,24 +12,22 @@
 // gdal
 #include <gdalwarper.h>
 
-using namespace v8;
-using namespace node;
-
 namespace node_gdal {
 
 class GeoTransformTransformer;
 
-class CoordinateTransformation : public Nan::ObjectWrap {
+class CoordinateTransformation : public GDALObject<CoordinateTransformation> {
     public:
-  static Nan::Persistent<FunctionTemplate> constructor;
-  static void Initialize(Local<Object> target);
-  static NAN_METHOD(New);
-  static Local<Value> New(OGRCoordinateTransformation *transform);
-  static NAN_METHOD(toString);
-  static NAN_METHOD(transformPoint);
+  static Napi::FunctionReference constructor;
+  static void Initialize(Napi::Object target);
+  static Napi::Value New(OGRCoordinateTransformation *transform);
+  static NAPI_METHOD(toString);
+  static NAPI_METHOD(transformPoint);
 
-  CoordinateTransformation();
-  CoordinateTransformation(OGRCoordinateTransformation *srs);
+  CoordinateTransformation(const Napi::CallbackInfo &info);
+
+  // Must be accessible: ObjectWrap's finalizer deletes the instance itself
+  ~CoordinateTransformation();
   inline OGRCoordinateTransformation *get() {
     return this_;
   }
@@ -40,7 +36,6 @@ class CoordinateTransformation : public Nan::ObjectWrap {
   }
 
     private:
-  ~CoordinateTransformation();
   OGRCoordinateTransformation *this_;
 };
 

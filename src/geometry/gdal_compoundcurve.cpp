@@ -9,27 +9,30 @@
 
 namespace node_gdal {
 
-Nan::Persistent<FunctionTemplate> CompoundCurve::constructor;
+Napi::FunctionReference CompoundCurve::constructor;
 
-void CompoundCurve::Initialize(Local<Object> target) {
-  Nan::HandleScope scope;
+void CompoundCurve::Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+  SELF_CLASS(CompoundCurve);
 
-  Local<FunctionTemplate> lcons = Nan::New<FunctionTemplate>(CompoundCurve::New);
-  lcons->Inherit(Nan::New(Geometry::constructor));
-  lcons->InstanceTemplate()->SetInternalFieldCount(1);
-  lcons->SetClassName(Nan::New("CompoundCurve").ToLocalChecked());
+  // NOTE: the descriptor macros carry their own trailing comma
+  Napi::Function lcons = GDALDefineClass<SELF>(env, "CompoundCurve",
+    {
+        METHOD(toString)
+        ATTR(lcons, "curves", curvesGetter, READ_ONLY_SETTER)
+    });
 
-  Nan::SetPrototypeMethod(lcons, "toString", toString);
+  // lcons->Inherit() has no DefineClass equivalent
+  node_gdal::Inherit(lcons, Geometry::constructor.Value());
 
-  ATTR(lcons, "curves", curvesGetter, READ_ONLY_SETTER);
+  target.Set("CompoundCurve", lcons);
 
-  Nan::Set(target, Nan::New("CompoundCurve").ToLocalChecked(), Nan::GetFunction(lcons).ToLocalChecked());
-
-  constructor.Reset(lcons);
+  constructor = Napi::Persistent(lcons);
+  constructor.SuppressDestruct();
 }
 
-void CompoundCurve::SetPrivate(Nan::ADDON_REGISTER_FUNCTION_ARGS_TYPE _this, v8::Local<v8::Value> value) {
-  Nan::SetPrivate(_this, Nan::New("curves_").ToLocalChecked(), value);
+void CompoundCurve::SetPrivate(Napi::Object _this, Napi::Value value) {
+  GDAL_SET_PRIVATE(_this, "curves_", value);
 };
 
 /**
@@ -46,8 +49,8 @@ void CompoundCurve::SetPrivate(Nan::ADDON_REGISTER_FUNCTION_ARGS_TYPE _this, v8:
  * @extends Geometry
  */
 
-NAN_METHOD(CompoundCurve::toString) {
-  info.GetReturnValue().Set(Nan::New("CompoundCurve").ToLocalChecked());
+NAPI_METHOD(CompoundCurve::toString) {
+  return Napi::String::New(node_gdal::napi_env(), "CompoundCurve");
 }
 
 /**
@@ -59,8 +62,8 @@ NAN_METHOD(CompoundCurve::toString) {
  * @memberof CompoundCurve
  * @type {CompoundCurveCurves}
  */
-NAN_GETTER(CompoundCurve::curvesGetter) {
-  info.GetReturnValue().Set(Nan::GetPrivate(info.This(), Nan::New("curves_").ToLocalChecked()).ToLocalChecked());
+NAPI_GETTER(CompoundCurve::curvesGetter) {
+  return GDAL_GET_PRIVATE(info.This(), "curves_");
 }
 
 } // namespace node_gdal

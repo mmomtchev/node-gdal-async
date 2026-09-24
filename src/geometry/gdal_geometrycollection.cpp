@@ -8,7 +8,7 @@
 
 namespace node_gdal {
 
-Nan::Persistent<FunctionTemplate> GeometryCollection::constructor;
+Napi::FunctionReference GeometryCollection::constructor;
 
 /**
  * A collection of 1 or more geometry objects.
@@ -17,27 +17,30 @@ Nan::Persistent<FunctionTemplate> GeometryCollection::constructor;
  * @class GeometryCollection
  * @extends Geometry
  */
-void GeometryCollection::Initialize(Local<Object> target) {
-  Nan::HandleScope scope;
+void GeometryCollection::Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+  SELF_CLASS(GeometryCollection);
 
-  Local<FunctionTemplate> lcons = Nan::New<FunctionTemplate>(GeometryCollection::New);
-  lcons->Inherit(Nan::New(Geometry::constructor));
-  lcons->InstanceTemplate()->SetInternalFieldCount(1);
-  lcons->SetClassName(Nan::New("GeometryCollection").ToLocalChecked());
+  // NOTE: the descriptor macros carry their own trailing comma
+  Napi::Function lcons = GDALDefineClass<SELF>(env, "GeometryCollection",
+    {
+        METHOD(toString)
+        METHOD(getArea)
+        METHOD(getLength)
+        ATTR(lcons, "children", childrenGetter, READ_ONLY_SETTER)
+    });
 
-  Nan::SetPrototypeMethod(lcons, "toString", toString);
-  Nan::SetPrototypeMethod(lcons, "getArea", getArea);
-  Nan::SetPrototypeMethod(lcons, "getLength", getLength);
+  // lcons->Inherit() has no DefineClass equivalent
+  node_gdal::Inherit(lcons, Geometry::constructor.Value());
 
-  ATTR(lcons, "children", childrenGetter, READ_ONLY_SETTER);
+  target.Set("GeometryCollection", lcons);
 
-  Nan::Set(target, Nan::New("GeometryCollection").ToLocalChecked(), Nan::GetFunction(lcons).ToLocalChecked());
-
-  constructor.Reset(lcons);
+  constructor = Napi::Persistent(lcons);
+  constructor.SuppressDestruct();
 }
 
-NAN_METHOD(GeometryCollection::toString) {
-  info.GetReturnValue().Set(Nan::New("GeometryCollection").ToLocalChecked());
+NAPI_METHOD(GeometryCollection::toString) {
+  return Napi::String::New(node_gdal::napi_env(), "GeometryCollection");
 }
 
 /**
@@ -69,8 +72,8 @@ NODE_WRAPPED_METHOD_WITH_RESULT(GeometryCollection, getLength, Number, get_Lengt
  * @memberof GeometryCollection
  * @type {GeometryCollectionChildren}
  */
-NAN_GETTER(GeometryCollection::childrenGetter) {
-  info.GetReturnValue().Set(Nan::GetPrivate(info.This(), Nan::New("children_").ToLocalChecked()).ToLocalChecked());
+NAPI_GETTER(GeometryCollection::childrenGetter) {
+  return GDAL_GET_PRIVATE(info.This(), "children_");
 }
 
 } // namespace node_gdal

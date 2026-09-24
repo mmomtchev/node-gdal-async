@@ -2,42 +2,38 @@
 #define __NODE_OGR_FEATURE_DEFN_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "nan-wrapper.h"
+#include "gdal_common.hpp"
 
 // ogr
 #include <ogrsf_frmts.h>
 
-using namespace v8;
-using namespace node;
-
 namespace node_gdal {
 
-class FeatureDefn : public Nan::ObjectWrap {
+class FeatureDefn : public GDALObject<FeatureDefn> {
     public:
-  static Nan::Persistent<FunctionTemplate> constructor;
-  static void Initialize(Local<Object> target);
-  static NAN_METHOD(New);
-  static Local<Value> New(const OGRFeatureDefn *def);
-  static Local<Value> New(OGRFeatureDefn *def, bool owned);
-  static NAN_METHOD(toString);
-  static NAN_METHOD(clone);
+  static Napi::FunctionReference constructor;
+  static void Initialize(Napi::Object target);
+  static Napi::Value New(const OGRFeatureDefn *def);
+  static Napi::Value New(OGRFeatureDefn *def, bool owned);
+  static NAPI_METHOD(toString);
+  static NAPI_METHOD(clone);
 
-  static NAN_GETTER(fieldsGetter);
-  static NAN_GETTER(nameGetter);
-  static NAN_GETTER(geomTypeGetter);
-  static NAN_GETTER(geomIgnoredGetter);
-  static NAN_GETTER(styleIgnoredGetter);
+  static NAPI_GETTER(fieldsGetter);
+  static NAPI_GETTER(nameGetter);
+  static NAPI_GETTER(geomTypeGetter);
+  static NAPI_GETTER(geomIgnoredGetter);
+  static NAPI_GETTER(styleIgnoredGetter);
 
-  static NAN_SETTER(geomTypeSetter);
-  static NAN_SETTER(geomIgnoredSetter);
-  static NAN_SETTER(styleIgnoredSetter);
+  static NAPI_SETTER(geomTypeSetter);
+  static NAPI_SETTER(geomIgnoredSetter);
+  static NAPI_SETTER(styleIgnoredSetter);
 
-  FeatureDefn();
-  FeatureDefn(OGRFeatureDefn *def);
+  FeatureDefn(const Napi::CallbackInfo &info);
+
+  // Must be accessible: ObjectWrap's finalizer deletes the instance itself
+  ~FeatureDefn();
   inline OGRFeatureDefn *get() {
     return this_;
   }
@@ -46,7 +42,6 @@ class FeatureDefn : public Nan::ObjectWrap {
   }
 
     private:
-  ~FeatureDefn();
   OGRFeatureDefn *this_;
   bool owned_;
 };

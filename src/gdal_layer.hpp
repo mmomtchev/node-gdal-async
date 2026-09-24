@@ -2,50 +2,46 @@
 #define __NODE_OGR_LAYER_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "nan-wrapper.h"
+#include "gdal_common.hpp"
 
 // ogr
 #include <ogrsf_frmts.h>
 
 #include "gdal_dataset.hpp"
 
-using namespace v8;
-using namespace node;
-
 namespace node_gdal {
 
-class Layer : public Nan::ObjectWrap {
+class Layer : public GDALObject<Layer> {
     public:
-  static Nan::Persistent<FunctionTemplate> constructor;
-  static void Initialize(Local<Object> target);
-  static NAN_METHOD(New);
-  static Local<Value> New(OGRLayer *raw, GDALDataset *raw_parent);
-  static Local<Value> New(OGRLayer *raw, GDALDataset *raw_parent, bool result_set);
-  static NAN_METHOD(toString);
-  static NAN_METHOD(getExtent);
-  static NAN_METHOD(setAttributeFilter);
-  static NAN_METHOD(setSpatialFilter);
-  static NAN_METHOD(getSpatialFilter);
-  static NAN_METHOD(testCapability);
+  static Napi::FunctionReference constructor;
+  static void Initialize(Napi::Object target);
+  static Napi::Value New(OGRLayer *raw, GDALDataset *raw_parent);
+  static Napi::Value New(OGRLayer *raw, GDALDataset *raw_parent, bool result_set);
+  static NAPI_METHOD(toString);
+  static NAPI_METHOD(getExtent);
+  static NAPI_METHOD(setAttributeFilter);
+  static NAPI_METHOD(setSpatialFilter);
+  static NAPI_METHOD(getSpatialFilter);
+  static NAPI_METHOD(testCapability);
   GDAL_ASYNCABLE_DECLARE(syncToDisk);
 
-  static NAN_SETTER(dsSetter);
-  static NAN_GETTER(dsGetter);
-  static NAN_GETTER(srsGetter);
-  static NAN_GETTER(featuresGetter);
-  static NAN_GETTER(fieldsGetter);
-  static NAN_GETTER(nameGetter);
-  static NAN_GETTER(fidColumnGetter);
-  static NAN_GETTER(geomColumnGetter);
-  static NAN_GETTER(geomTypeGetter);
-  static NAN_GETTER(uidGetter);
+  static NAPI_SETTER(dsSetter);
+  static NAPI_GETTER(dsGetter);
+  static NAPI_GETTER(srsGetter);
+  static NAPI_GETTER(featuresGetter);
+  static NAPI_GETTER(fieldsGetter);
+  static NAPI_GETTER(nameGetter);
+  static NAPI_GETTER(fidColumnGetter);
+  static NAPI_GETTER(geomColumnGetter);
+  static NAPI_GETTER(geomTypeGetter);
+  static NAPI_GETTER(uidGetter);
 
-  Layer();
-  Layer(OGRLayer *ds);
+  Layer(const Napi::CallbackInfo &info);
+
+  // Must be accessible: ObjectWrap's finalizer deletes the instance itself
+  ~Layer();
   inline OGRLayer *get() {
     return this_;
   }
@@ -60,7 +56,6 @@ class Layer : public Nan::ObjectWrap {
   long parent_uid;
 
     private:
-  ~Layer();
   OGRLayer *this_;
   GDALDataset *parent_ds;
 };

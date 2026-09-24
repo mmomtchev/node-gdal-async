@@ -6,10 +6,9 @@
 
 namespace node_gdal {
 
-Local<Object> MajorObject::getMetadata(CSLConstList metadata) {
-  Nan::EscapableHandleScope scope;
+Napi::Object MajorObject::getMetadata(CSLConstList metadata) {
 
-  Local<Object> result = Nan::New<Object>();
+  Napi::Object result = Napi::Object::New(node_gdal::napi_env());
 
   if (metadata) {
     int i = 0;
@@ -19,13 +18,13 @@ Local<Object> MajorObject::getMetadata(CSLConstList metadata) {
       if (i_equal != std::string::npos) {
         std::string key = pair.substr(0, i_equal);
         std::string val = pair.substr(i_equal + 1);
-        Nan::Set(result, Nan::New(key.c_str()).ToLocalChecked(), Nan::New(val.c_str()).ToLocalChecked());
+        result.Set( Napi::String::New(node_gdal::napi_env(), key.c_str()), Napi::String::New(node_gdal::napi_env(), val.c_str()));
       }
       i++;
     }
   }
 
-  return scope.Escape(result);
+  return result;
 }
 
 } // namespace node_gdal

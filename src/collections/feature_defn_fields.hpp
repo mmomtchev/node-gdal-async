@@ -2,48 +2,43 @@
 #define __NODE_GDAL_FIELD_DEFN_COLLECTION_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "../nan-wrapper.h"
+#include "../gdal_common.hpp"
 
 // gdal
 #include <gdal_priv.h>
-
-using namespace v8;
-using namespace node;
 
 // FeatureDefn.fields : FeatureDefnFields
 
 namespace node_gdal {
 
-class FeatureDefnFields : public Nan::ObjectWrap {
+class FeatureDefnFields : public GDALObject<FeatureDefnFields> {
     public:
-  static Nan::Persistent<FunctionTemplate> constructor;
+  static Napi::FunctionReference constructor;
 
-  static void Initialize(Local<Object> target);
-  static NAN_METHOD(New);
-  static Local<Value> New(Local<Value> layer_obj);
-  static NAN_METHOD(toString);
+  static void Initialize(Napi::Object target);
+  static Napi::Value New(Napi::Value layer_obj);
+  static NAPI_METHOD(toString);
 
-  static NAN_METHOD(get);
-  static NAN_METHOD(getNames);
-  static NAN_METHOD(count);
-  static NAN_METHOD(add);
-  static NAN_METHOD(remove);
-  static NAN_METHOD(indexOf);
-  static NAN_METHOD(reorder);
+  static NAPI_METHOD(get);
+  static NAPI_METHOD(getNames);
+  static NAPI_METHOD(count);
+  static NAPI_METHOD(add);
+  static NAPI_METHOD(remove);
+  static NAPI_METHOD(indexOf);
+  static NAPI_METHOD(reorder);
 
   // - implement in the future -
-  // static NAN_METHOD(alter);
+  // static NAPI_METHOD(alter);
 
-  static NAN_GETTER(featureDefnGetter);
+  static NAPI_GETTER(featureDefnGetter);
 
-  FeatureDefnFields();
+  FeatureDefnFields(const Napi::CallbackInfo &info);
 
-    private:
+  // Must be accessible: ObjectWrap's finalizer deletes the instance itself
   ~FeatureDefnFields();
+    private:
 };
 
 } // namespace node_gdal

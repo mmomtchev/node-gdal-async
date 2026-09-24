@@ -2,11 +2,10 @@
 #ifndef __OBJ_STORE_H__
 #define __OBJ_STORE_H__
 
-// node
-#include <node.h>
+#include <uv.h>
 
-// nan
-#include "../nan-wrapper.h"
+// napi
+#include "../napi-wrapper.h"
 
 // gdal
 #include <gdal_priv.h>
@@ -17,7 +16,6 @@
 #include <list>
 #include <map>
 
-using namespace v8;
 using namespace std;
 
 namespace node_gdal {
@@ -26,31 +24,31 @@ typedef shared_ptr<uv_sem_t> AsyncLock;
 
 template <typename GDALPTR> struct ObjectStoreItem {
   long uid;
-  Nan::Persistent<v8::Object> &obj;
+  Napi::Reference<Napi::Object> &obj;
   GDALPTR ptr;
   shared_ptr<ObjectStoreItem<GDALDataset *>> parent;
-  ObjectStoreItem(Nan::Persistent<Object> &obj);
+  ObjectStoreItem(Napi::Reference<Napi::Object> &obj);
 };
 
 template <> struct ObjectStoreItem<OGRLayer *> {
   long uid;
-  Nan::Persistent<v8::Object> &obj;
+  Napi::Reference<Napi::Object> &obj;
   OGRLayer *ptr;
   shared_ptr<ObjectStoreItem<GDALDataset *>> parent;
   bool is_result_set;
-  ObjectStoreItem(Nan::Persistent<Object> &obj);
+  ObjectStoreItem(Napi::Reference<Napi::Object> &obj);
 };
 
 template <> struct ObjectStoreItem<GDALDataset *> {
   long uid;
-  Nan::Persistent<v8::Object> &obj;
+  Napi::Reference<Napi::Object> &obj;
   GDALDataset *ptr;
   shared_ptr<ObjectStoreItem<GDALDataset *>> parent;
   list<long> children;
   AsyncLock async_lock;
   // Does the dataset need to be closed
   bool close;
-  ObjectStoreItem(Nan::Persistent<Object> &obj);
+  ObjectStoreItem(Napi::Reference<Napi::Object> &obj);
 };
 
 struct uv_sem_deleter {
@@ -59,9 +57,9 @@ struct uv_sem_deleter {
 
 class ObjectStore {
     public:
-  template <typename GDALPTR> long add(GDALPTR ptr, Nan::Persistent<Object> &obj, long parent_uid);
-  long add(OGRLayer *ptr, Nan::Persistent<Object> &obj, long parent_uid, bool is_result_set);
-  long add(GDALDataset *ptr, Nan::Persistent<Object> &obj, long parent_uid, bool close);
+  template <typename GDALPTR> long add(GDALPTR ptr, Napi::Reference<Napi::Object> &obj, long parent_uid);
+  long add(OGRLayer *ptr, Napi::Reference<Napi::Object> &obj, long parent_uid, bool is_result_set);
+  long add(GDALDataset *ptr, Napi::Reference<Napi::Object> &obj, long parent_uid, bool close);
 
   void dispose(long uid, bool manual = false);
   bool isAlive(long uid);
@@ -86,8 +84,8 @@ class ObjectStore {
   vector<AsyncLock> tryLockDatasets(vector<long> uids, bool &result);
 
   template <typename GDALPTR> bool has(GDALPTR ptr);
-  template <typename GDALPTR> Local<Object> get(GDALPTR ptr);
-  template <typename GDALPTR> Local<Object> get(long uid);
+  template <typename GDALPTR> Napi::Object get(GDALPTR ptr);
+  template <typename GDALPTR> Napi::Object get(long uid);
 
   void cleanup();
 

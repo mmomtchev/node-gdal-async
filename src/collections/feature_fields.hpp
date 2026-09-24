@@ -2,52 +2,47 @@
 #define __NODE_GDAL_FIELD_COLLECTION_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "../nan-wrapper.h"
+#include "../gdal_common.hpp"
 
 // gdal
 #include <gdal_priv.h>
 
-using namespace v8;
-using namespace node;
-
 namespace node_gdal {
 
-class FeatureFields : public Nan::ObjectWrap {
+class FeatureFields : public GDALObject<FeatureFields> {
     public:
-  static Nan::Persistent<FunctionTemplate> constructor;
+  static Napi::FunctionReference constructor;
 
-  static void Initialize(Local<Object> target);
-  static NAN_METHOD(New);
-  static Local<Value> New(Local<Value> layer_obj);
-  static NAN_METHOD(toString);
-  static NAN_METHOD(toArray);
-  static NAN_METHOD(toObject);
+  static void Initialize(Napi::Object target);
+  static Napi::Value New(Napi::Value layer_obj);
+  static NAPI_METHOD(toString);
+  static NAPI_METHOD(toArray);
+  static NAPI_METHOD(toObject);
 
-  static NAN_METHOD(get);
-  static NAN_METHOD(getNames);
-  static NAN_METHOD(set);
-  static NAN_METHOD(reset);
-  static NAN_METHOD(count);
-  static NAN_METHOD(indexOf);
+  static NAPI_METHOD(get);
+  static NAPI_METHOD(getNames);
+  static NAPI_METHOD(set);
+  static NAPI_METHOD(reset);
+  static NAPI_METHOD(count);
+  static NAPI_METHOD(indexOf);
 
-  static Local<Value> get(OGRFeature *f, int field_index);
-  static Local<Value> getFieldAsIntegerList(OGRFeature *feature, int field_index);
-  static Local<Value> getFieldAsInteger64List(OGRFeature *feature, int field_index);
-  static Local<Value> getFieldAsDoubleList(OGRFeature *feature, int field_index);
-  static Local<Value> getFieldAsStringList(OGRFeature *feature, int field_index);
-  static Local<Value> getFieldAsBinary(OGRFeature *feature, int field_index);
-  static Local<Value> getFieldAsDateTime(OGRFeature *feature, int field_index);
+  static Napi::Value get(OGRFeature *f, int field_index);
+  static Napi::Value getFieldAsIntegerList(OGRFeature *feature, int field_index);
+  static Napi::Value getFieldAsInteger64List(OGRFeature *feature, int field_index);
+  static Napi::Value getFieldAsDoubleList(OGRFeature *feature, int field_index);
+  static Napi::Value getFieldAsStringList(OGRFeature *feature, int field_index);
+  static Napi::Value getFieldAsBinary(OGRFeature *feature, int field_index);
+  static Napi::Value getFieldAsDateTime(OGRFeature *feature, int field_index);
 
-  static NAN_GETTER(featureGetter);
+  static NAPI_GETTER(featureGetter);
 
-  FeatureFields();
+  FeatureFields(const Napi::CallbackInfo &info);
 
-    private:
+  // Must be accessible: ObjectWrap's finalizer deletes the instance itself
   ~FeatureFields();
+    private:
 };
 
 } // namespace node_gdal

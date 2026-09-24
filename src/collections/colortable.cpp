@@ -7,32 +7,62 @@
 
 namespace node_gdal {
 
-Nan::Persistent<FunctionTemplate> ColorTable::constructor;
+Napi::FunctionReference ColorTable::constructor;
 
-void ColorTable::Initialize(Local<Object> target) {
-  Nan::HandleScope scope;
+void ColorTable::Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+  SELF_CLASS(ColorTable);
 
-  Local<FunctionTemplate> lcons = Nan::New<FunctionTemplate>(ColorTable::New);
-  lcons->InstanceTemplate()->SetInternalFieldCount(1);
-  lcons->SetClassName(Nan::New("ColorTable").ToLocalChecked());
+  // NOTE: the descriptor macros carry their own trailing comma
+  Napi::Function lcons = GDALDefineClass<SELF>(env, "ColorTable",
+    {
+        METHOD(toString)
+        METHOD(isSame)
+        METHOD(clone)
+        METHOD(count)
+        METHOD(get)
+        METHOD(set)
+        METHOD(ramp)
+        ATTR(lcons, "interpretation", interpretationGetter, READ_ONLY_SETTER)
+        ATTR_DONT_ENUM(lcons, "band", bandGetter, READ_ONLY_SETTER)
+    });
 
-  Nan::SetPrototypeMethod(lcons, "toString", toString);
-  Nan::SetPrototypeMethod(lcons, "isSame", isSame);
-  Nan::SetPrototypeMethod(lcons, "clone", clone);
-  Nan::SetPrototypeMethod(lcons, "count", count);
-  Nan::SetPrototypeMethod(lcons, "get", get);
-  Nan::SetPrototypeMethod(lcons, "set", set);
-  Nan::SetPrototypeMethod(lcons, "ramp", ramp);
-  ATTR(lcons, "interpretation", interpretationGetter, READ_ONLY_SETTER);
+  target.Set("ColorTable", lcons);
 
-  ATTR_DONT_ENUM(lcons, "band", bandGetter, READ_ONLY_SETTER);
-
-  Nan::Set(target, Nan::New("ColorTable").ToLocalChecked(), Nan::GetFunction(lcons).ToLocalChecked());
-
-  constructor.Reset(lcons);
+  constructor = Napi::Persistent(lcons);
+  constructor.SuppressDestruct();
 }
 
-ColorTable::ColorTable(GDALColorTable *raw, long parent_uid) : Nan::ObjectWrap(), parent_uid(parent_uid), this_(raw) {
+
+ColorTable::ColorTable(const Napi::CallbackInfo &info) : GDALObject<ColorTable>(info), parent_uid(0), this_(nullptr) {
+  if (info.Length() > 0 && info[0].IsExternal()) {
+    this_ = static_cast<GDALColorTable *>(info[0].As<Napi::External<void>>().Data());
+    // the factory passes the owning dataset's uid as the second argument
+    if (info.Length() > 1 && info[1].IsNumber()) parent_uid = info[1].As<Napi::Number>().Int64Value();
+  } else {
+    // Constructed from JS: ColorTable(palette interpretation)
+    if (info.Length() < 1 || !info[0].IsString()) {
+      Napi::Error::New(info.Env(), "palette interpretation must be given").ThrowAsJavaScriptException();
+      return;
+    }
+    std::string pi = info[0].As<Napi::String>().Utf8Value();
+    GDALPaletteInterp gpi;
+    if (pi == "Gray")
+      gpi = GPI_Gray;
+    else if (pi == "RGB")
+      gpi = GPI_RGB;
+    else if (pi == "CMYK")
+      gpi = GPI_CMYK;
+    else if (pi == "HLS")
+      gpi = GPI_HLS;
+    else {
+      Napi::RangeError::New(info.Env(), "Invalid palette interpretation").ThrowAsJavaScriptException();
+      return;
+    }
+    this_ = new GDALColorTable(gpi);
+  }
+
+  uid = object_store.add(this_, *this, parent_uid);
 }
 
 ColorTable::~ColorTable() {
@@ -59,84 +89,42 @@ void ColorTable::dispose() {
  * @class ColorTable
  * @param {string} interpretation palette interpretation
  */
-NAN_METHOD(ColorTable::New) {
-  ColorTable *f;
-
-  if (!info.IsConstructCall()) {
-    Nan::ThrowError("Cannot call constructor as function, you need to use 'new' keyword");
-    return;
-  }
-  if (info[0]->IsExternal()) {
-    Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value(V8_TYPE_TAG);
-    f = static_cast<ColorTable *>(ptr);
-  } else {
-    std::string pi;
-    NODE_ARG_STR(0, "palette interpretation", pi);
-    GDALPaletteInterp gpi;
-    if (pi == "Gray")
-      gpi = GPI_Gray;
-    else if (pi == "RGB")
-      gpi = GPI_RGB;
-    else if (pi == "CMYK")
-      gpi = GPI_CMYK;
-    else if (pi == "HLS")
-      gpi = GPI_HLS;
-    else {
-      Nan::ThrowRangeError("Invalid palette interpretation");
-      return;
-    }
-    f = new ColorTable(new GDALColorTable(gpi), 0);
-  }
-
-  f->Wrap(info.This());
-  f->uid = object_store.add(f->get(), f->persistent(), f->parent_uid);
-  info.GetReturnValue().Set(info.This());
-  return;
-}
 
 /*
  * Create a color table owned by a gdal.RasterBand
  */
-Local<Value> ColorTable::New(GDALColorTable *raw, Local<Value> parent) {
-  Nan::EscapableHandleScope scope;
+Napi::Value ColorTable::New(GDALColorTable *raw, Napi::Value parent) {
 
-  if (!raw) { return scope.Escape(Nan::Null()); }
-  if (object_store.has(raw)) { return scope.Escape(object_store.get(raw)); }
+  if (!raw) { return node_gdal::napi_env().Null(); }
+  if (object_store.has(raw)) { return object_store.get(raw); }
 
-  RasterBand *band = Nan::ObjectWrap::Unwrap<RasterBand>(parent.As<Object>());
+  RasterBand *band = node_gdal::UnwrapWrapped<RasterBand>(parent.As<Napi::Object>());
 
-  ColorTable *wrapped = new ColorTable(raw, band->parent_uid);
+  std::vector<napi_value> args = {
+    Napi::External<void>::New(node_gdal::napi_env(), raw), Napi::Number::New(node_gdal::napi_env(), band->parent_uid)};
+  Napi::Object obj = ColorTable::constructor.Value().New(args);
+  GDAL_SET_PRIVATE(obj, "parent_", parent);
 
-  v8::Local<v8::Value> ext = Nan::New<External>(wrapped);
-  v8::Local<v8::Object> obj =
-    Nan::NewInstance(Nan::GetFunction(Nan::New(ColorTable::constructor)).ToLocalChecked(), 1, &ext).ToLocalChecked();
-
-  Nan::SetPrivate(obj, Nan::New("parent_").ToLocalChecked(), parent);
-
-  return scope.Escape(obj);
+  return obj;
 }
 
 /*
  * Create a standalone color table.
  */
-Local<Value> ColorTable::New(GDALColorTable *raw) {
-  Nan::EscapableHandleScope scope;
+Napi::Value ColorTable::New(GDALColorTable *raw) {
 
-  if (!raw) { return scope.Escape(Nan::Null()); }
-  if (object_store.has(raw)) { return scope.Escape(object_store.get(raw)); }
+  if (!raw) { return node_gdal::napi_env().Null(); }
+  if (object_store.has(raw)) { return object_store.get(raw); }
 
-  ColorTable *wrapped = new ColorTable(raw, 0);
+  std::vector<napi_value> args = {
+    Napi::External<void>::New(node_gdal::napi_env(), raw), Napi::Number::New(node_gdal::napi_env(), 0)};
+  Napi::Object obj = ColorTable::constructor.Value().New(args);
 
-  v8::Local<v8::Value> ext = Nan::New<External>(wrapped);
-  v8::Local<v8::Object> obj =
-    Nan::NewInstance(Nan::GetFunction(Nan::New(ColorTable::constructor)).ToLocalChecked(), 1, &ext).ToLocalChecked();
-
-  return scope.Escape(obj);
+  return obj;
 }
 
-NAN_METHOD(ColorTable::toString) {
-  info.GetReturnValue().Set(Nan::New("ColorTable").ToLocalChecked());
+NAPI_METHOD(ColorTable::toString) {
+  return Napi::String::New(node_gdal::napi_env(), "ColorTable");
 }
 
 /**
@@ -157,9 +145,9 @@ NAN_METHOD(ColorTable::toString) {
  * @memberof ColorTable
  * @return {ColorTable}
  */
-NAN_METHOD(ColorTable::clone) {
-  ColorTable *ct = Nan::ObjectWrap::Unwrap<ColorTable>(info.This());
-  info.GetReturnValue().Set(ColorTable::New(ct->this_->Clone()));
+NAPI_METHOD(ColorTable::clone) {
+  ColorTable *ct = node_gdal::UnwrapWrapped<ColorTable>(info.This().As<Napi::Object>());
+  return ColorTable::New(ct->this_->Clone());
 }
 
 /**
@@ -172,7 +160,7 @@ NAN_METHOD(ColorTable::clone) {
  * @throws {Error}
  * @return {boolean}
  */
-NAN_METHOD(ColorTable::isSame) {
+NAPI_METHOD(ColorTable::isSame) {
 
   NODE_UNWRAP_CHECK(ColorTable, info.This(), self);
   GDAL_RAW_CHECK(GDALColorTable *, self, raw);
@@ -182,7 +170,7 @@ NAN_METHOD(ColorTable::isSame) {
   GDAL_RAW_CHECK(GDALColorTable *, other, raw_other);
 
   CPLErrorReset();
-  info.GetReturnValue().Set(Nan::New<Boolean>(raw->IsSame(raw_other)));
+  return Napi::Boolean::New(node_gdal::napi_env(), raw->IsSame(raw_other));
 }
 
 /**
@@ -195,7 +183,7 @@ NAN_METHOD(ColorTable::isSame) {
  * @throws {Error}
  * @return {Color}
  */
-NAN_METHOD(ColorTable::get) {
+NAPI_METHOD(ColorTable::get) {
 
   int index;
   NODE_ARG_INT(0, "index", index);
@@ -203,9 +191,9 @@ NAN_METHOD(ColorTable::get) {
   NODE_UNWRAP_CHECK(ColorTable, info.This(), self);
   GDAL_RAW_CHECK(GDALColorTable *, self, raw);
 
-  MaybeLocal<Value> parentMaybe = Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked());
-  if (!parentMaybe.IsEmpty() && !parentMaybe.ToLocalChecked()->IsNullOrUndefined()) {
-    Local<Object> parent = parentMaybe.ToLocalChecked().As<Object>();
+  Napi::Value parentMaybe = GDAL_GET_PRIVATE(info.This(), "parent_");
+  if (!parentMaybe.IsEmpty() && !parentMaybe.IsUndefined() && !parentMaybe.IsNull()) {
+    Napi::Object parent = parentMaybe.As<Napi::Object>();
     NODE_UNWRAP_CHECK(RasterBand, parent, band);
   }
 
@@ -213,15 +201,15 @@ NAN_METHOD(ColorTable::get) {
   const GDALColorEntry *color = raw->GetColorEntry(index);
   if (color == nullptr) {
     NODE_THROW_LAST_CPLERR;
-    return;
+    return node_gdal::napi_env().Undefined();
   }
 
-  Local<Object> result = Nan::New<Object>();
-  Nan::Set(result, Nan::New("c1").ToLocalChecked(), Nan::New<Number>(color->c1));
-  Nan::Set(result, Nan::New("c2").ToLocalChecked(), Nan::New<Number>(color->c2));
-  Nan::Set(result, Nan::New("c3").ToLocalChecked(), Nan::New<Number>(color->c3));
-  Nan::Set(result, Nan::New("c4").ToLocalChecked(), Nan::New<Number>(color->c4));
-  info.GetReturnValue().Set(result);
+  Napi::Object result = Napi::Object::New(node_gdal::napi_env());
+  result.Set( Napi::String::New(node_gdal::napi_env(), "c1"), Napi::Number::New(node_gdal::napi_env(), color->c1));
+  result.Set( Napi::String::New(node_gdal::napi_env(), "c2"), Napi::Number::New(node_gdal::napi_env(), color->c2));
+  result.Set( Napi::String::New(node_gdal::napi_env(), "c3"), Napi::Number::New(node_gdal::napi_env(), color->c3));
+  result.Set( Napi::String::New(node_gdal::napi_env(), "c4"), Napi::Number::New(node_gdal::napi_env(), color->c4));
+  return result;
 }
 
 #define NODE_COLOR_FROM_OBJ(obj, color)                                                                                \
@@ -242,21 +230,21 @@ NAN_METHOD(ColorTable::get) {
  * @return {void}
  */
 
-NAN_METHOD(ColorTable::set) {
+NAPI_METHOD(ColorTable::set) {
 
   int index;
   NODE_ARG_INT(0, "index", index);
 
-  Local<Object> color_obj;
+  Napi::Object color_obj;
   NODE_ARG_OBJECT(1, "color", color_obj);
 
   NODE_UNWRAP_CHECK(ColorTable, info.This(), self);
   GDAL_RAW_CHECK(GDALColorTable *, self, raw);
 
-  MaybeLocal<Value> parentMaybe = Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked());
-  if (!parentMaybe.IsEmpty() && !parentMaybe.ToLocalChecked()->IsNullOrUndefined()) {
-    Nan::ThrowError("RasterBand color tables are read-only, create a new one to modify it");
-    return;
+  Napi::Value parentMaybe = GDAL_GET_PRIVATE(info.This(), "parent_");
+  if (!parentMaybe.IsEmpty() && !parentMaybe.IsUndefined() && !parentMaybe.IsNull()) {
+    Napi::Error::New(node_gdal::napi_env(), "RasterBand color tables are read-only, create a new one to modify it").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   GDALColorEntry color;
@@ -264,6 +252,7 @@ NAN_METHOD(ColorTable::set) {
 
   CPLErrorReset();
   raw->SetColorEntry(index, &color);
+  return node_gdal::napi_env().Undefined();
 }
 
 /**
@@ -280,17 +269,17 @@ NAN_METHOD(ColorTable::set) {
  * @return {number} total number of color entries
  */
 
-NAN_METHOD(ColorTable::ramp) {
+NAPI_METHOD(ColorTable::ramp) {
 
   int start_index, end_index;
   NODE_ARG_INT(0, "start_index", start_index);
   NODE_ARG_INT(2, "end_index", end_index);
   if (start_index < 0 || end_index < 0 || end_index < start_index) {
-    Nan::ThrowRangeError("Invalid color interval");
-    return;
+    Napi::RangeError::New(node_gdal::napi_env(), "Invalid color interval").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
-  Local<Object> start_color_obj, end_color_obj;
+  Napi::Object start_color_obj, end_color_obj;
   NODE_ARG_OBJECT(1, "start_color", start_color_obj);
   NODE_ARG_OBJECT(3, "start_color", end_color_obj);
 
@@ -301,19 +290,19 @@ NAN_METHOD(ColorTable::ramp) {
   NODE_COLOR_FROM_OBJ(start_color_obj, start_color);
   NODE_COLOR_FROM_OBJ(end_color_obj, end_color);
 
-  MaybeLocal<Value> parentMaybe = Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked());
-  if (!parentMaybe.IsEmpty() && !parentMaybe.ToLocalChecked()->IsNullOrUndefined()) {
-    Nan::ThrowError("RasterBand color tables are read-only, create a new one to modify it");
-    return;
+  Napi::Value parentMaybe = GDAL_GET_PRIVATE(info.This(), "parent_");
+  if (!parentMaybe.IsEmpty() && !parentMaybe.IsUndefined() && !parentMaybe.IsNull()) {
+    Napi::Error::New(node_gdal::napi_env(), "RasterBand color tables are read-only, create a new one to modify it").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   int r = raw->CreateColorRamp(start_index, &start_color, end_index, &end_color);
   if (r == -1) {
     NODE_THROW_LAST_CPLERR;
-    return;
+    return node_gdal::napi_env().Undefined();
   }
 
-  info.GetReturnValue().Set(Nan::New<Number>(r));
+  return Napi::Number::New(node_gdal::napi_env(), r);
 }
 
 /**
@@ -324,19 +313,19 @@ NAN_METHOD(ColorTable::ramp) {
  * @memberof ColorTable
  * @return {number}
  */
-NAN_METHOD(ColorTable::count) {
+NAPI_METHOD(ColorTable::count) {
 
   NODE_UNWRAP_CHECK(ColorTable, info.This(), self);
   GDAL_RAW_CHECK(GDALColorTable *, self, raw);
 
-  MaybeLocal<Value> parentMaybe = Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked());
-  if (!parentMaybe.IsEmpty() && !parentMaybe.ToLocalChecked()->IsNullOrUndefined()) {
-    Local<Object> parent = parentMaybe.ToLocalChecked().As<Object>();
+  Napi::Value parentMaybe = GDAL_GET_PRIVATE(info.This(), "parent_");
+  if (!parentMaybe.IsEmpty() && !parentMaybe.IsUndefined() && !parentMaybe.IsNull()) {
+    Napi::Object parent = parentMaybe.As<Napi::Object>();
     NODE_UNWRAP_CHECK(RasterBand, parent, band);
   }
 
   CPLErrorReset();
-  info.GetReturnValue().Set(raw->GetColorEntryCount());
+  return Napi::Number::New(node_gdal::napi_env(), raw->GetColorEntryCount());
 }
 
 /**
@@ -349,14 +338,14 @@ NAN_METHOD(ColorTable::count) {
  * @memberof ColorTable
  * @type {string}
  */
-NAN_GETTER(ColorTable::interpretationGetter) {
+NAPI_GETTER(ColorTable::interpretationGetter) {
 
   NODE_UNWRAP_CHECK(ColorTable, info.This(), self);
   GDAL_RAW_CHECK(GDALColorTable *, self, raw);
 
-  MaybeLocal<Value> parentMaybe = Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked());
-  if (!parentMaybe.IsEmpty() && !parentMaybe.ToLocalChecked()->IsNullOrUndefined()) {
-    Local<Object> parent = parentMaybe.ToLocalChecked().As<Object>();
+  Napi::Value parentMaybe = GDAL_GET_PRIVATE(info.This(), "parent_");
+  if (!parentMaybe.IsEmpty() && !parentMaybe.IsUndefined() && !parentMaybe.IsNull()) {
+    Napi::Object parent = parentMaybe.As<Napi::Object>();
     NODE_UNWRAP_CHECK(RasterBand, parent, band);
   }
 
@@ -370,7 +359,7 @@ NAN_GETTER(ColorTable::interpretationGetter) {
     case GPI_HLS: r = "HLS"; break;
     default: r = "invalid"; break;
   }
-  info.GetReturnValue().Set(SafeString::New(r.c_str()));
+  return SafeString::New(r.c_str());
 }
 
 /**
@@ -383,11 +372,12 @@ NAN_GETTER(ColorTable::interpretationGetter) {
  * @memberof ColorTable
  * @type {RasterBand|undefined}
  */
-NAN_GETTER(ColorTable::bandGetter) {
-  MaybeLocal<Value> parentMaybe = Nan::GetPrivate(info.This(), Nan::New("parent_").ToLocalChecked());
-  if (!parentMaybe.IsEmpty() && !parentMaybe.ToLocalChecked()->IsNullOrUndefined()) {
-    info.GetReturnValue().Set(parentMaybe.ToLocalChecked());
+NAPI_GETTER(ColorTable::bandGetter) {
+  Napi::Value parentMaybe = GDAL_GET_PRIVATE(info.This(), "parent_");
+  if (!parentMaybe.IsEmpty() && !parentMaybe.IsUndefined() && !parentMaybe.IsNull()) {
+    return parentMaybe;
   }
+  return node_gdal::napi_env().Undefined();
 }
 
 } // namespace node_gdal

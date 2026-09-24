@@ -2,30 +2,24 @@
 #define __NODE_GDAL_FEATURE_COLLECTION_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "../nan-wrapper.h"
+#include "../gdal_common.hpp"
 
 // gdal
 #include <gdal_priv.h>
 
 #include "../async.hpp"
 
-using namespace v8;
-using namespace node;
-
 namespace node_gdal {
 
-class LayerFeatures : public Nan::ObjectWrap {
+class LayerFeatures : public GDALObject<LayerFeatures> {
     public:
-  static Nan::Persistent<FunctionTemplate> constructor;
+  static Napi::FunctionReference constructor;
 
-  static void Initialize(Local<Object> target);
-  static NAN_METHOD(New);
-  static Local<Value> New(Local<Value> layer_obj);
-  static NAN_METHOD(toString);
+  static void Initialize(Napi::Object target);
+  static Napi::Value New(Napi::Value layer_obj);
+  static NAPI_METHOD(toString);
 
   GDAL_ASYNCABLE_DECLARE(get);
   GDAL_ASYNCABLE_DECLARE(first);
@@ -35,12 +29,13 @@ class LayerFeatures : public Nan::ObjectWrap {
   GDAL_ASYNCABLE_DECLARE(set);
   GDAL_ASYNCABLE_DECLARE(remove);
 
-  static NAN_GETTER(layerGetter);
+  static NAPI_GETTER(layerGetter);
 
-  LayerFeatures();
+  LayerFeatures(const Napi::CallbackInfo &info);
 
-    private:
+  // Must be accessible: ObjectWrap's finalizer deletes the instance itself
   ~LayerFeatures();
+    private:
 };
 
 } // namespace node_gdal

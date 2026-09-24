@@ -8,35 +8,47 @@
 
 namespace node_gdal {
 
-Nan::Persistent<FunctionTemplate> Driver::constructor;
+Napi::FunctionReference Driver::constructor;
 
-void Driver::Initialize(Local<Object> target) {
-  Nan::HandleScope scope;
+void Driver::Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+  SELF_CLASS(Driver);
 
-  Local<FunctionTemplate> lcons = Nan::New<FunctionTemplate>(Driver::New);
-  lcons->InstanceTemplate()->SetInternalFieldCount(1);
-  lcons->SetClassName(Nan::New("Driver").ToLocalChecked());
+  // NOTE: the descriptor macros carry their own trailing comma
+  Napi::Function lcons = GDALDefineClass<SELF>(env, "Driver",
+    {
+      METHOD(toString)
+      METHOD_ASYNCABLE(open)
+      METHOD_ASYNCABLE(create)
+      METHOD_ASYNCABLE(createCopy)
+      METHOD(deleteDataset)
+      METHOD(rename)
+      METHOD(copyFiles)
+      METHOD(getMetadata)
+      ATTR(lcons, "description", descriptionGetter, READ_ONLY_SETTER)
+    });
 
-  Nan::SetPrototypeMethod(lcons, "toString", toString);
-  Nan__SetPrototypeAsyncableMethod(lcons, "open", open);
-  Nan__SetPrototypeAsyncableMethod(lcons, "create", create);
-  Nan__SetPrototypeAsyncableMethod(lcons, "createCopy", createCopy);
-  Nan::SetPrototypeMethod(lcons, "deleteDataset", deleteDataset);
-  Nan::SetPrototypeMethod(lcons, "rename", rename);
-  Nan::SetPrototypeMethod(lcons, "copyFiles", copyFiles);
-  Nan::SetPrototypeMethod(lcons, "getMetadata", getMetadata);
+  target.Set("Driver", lcons);
 
-  ATTR(lcons, "description", descriptionGetter, READ_ONLY_SETTER);
-
-  Nan::Set(target, Nan::New("Driver").ToLocalChecked(), Nan::GetFunction(lcons).ToLocalChecked());
-
-  constructor.Reset(lcons);
+  constructor = Napi::Persistent(lcons);
+  constructor.SuppressDestruct();
 }
 
-Driver::Driver(GDALDriver *driver) : Nan::ObjectWrap(), this_gdaldriver(driver) {
-  LOG("Created GDAL Driver [%p]", driver);
-}
-Driver::Driver() : Nan::ObjectWrap(), this_gdaldriver(0) {
+Driver::Driver(const Napi::CallbackInfo &info)
+  : GDALObject<Driver>(info), this_gdaldriver(nullptr), uid(0) {
+  if (!info.IsConstructCall()) {
+    Napi::Error::New(info.Env(), "Cannot call constructor as function, you need to use 'new' keyword")
+      .ThrowAsJavaScriptException();
+    return;
+  }
+
+  if (!info[0].IsExternal()) {
+    Napi::Error::New(info.Env(), "Cannot create Driver directly").ThrowAsJavaScriptException();
+    return;
+  }
+
+  this_gdaldriver = info[0].As<Napi::External<GDALDriver>>().Data();
+  LOG("Created GDAL Driver [%p]", this_gdaldriver);
 }
 
 Driver::~Driver() {
@@ -63,47 +75,25 @@ void Driver::dispose() {
  *
  * @class Driver
  */
-NAN_METHOD(Driver::New) {
+Napi::Value Driver::New(GDALDriver *driver) {
+  Napi::Env env = node_gdal::napi_env();
 
-  if (!info.IsConstructCall()) {
-    Nan::ThrowError("Cannot call constructor as function, you need to use 'new' keyword");
-    return;
-  }
+  if (!driver) { return env.Null(); }
+  if (object_store.has(driver)) { return object_store.get(driver); }
 
-  if (info[0]->IsExternal()) {
-    Local<External> ext = info[0].As<External>();
-    void *ptr = ext->Value(V8_TYPE_TAG);
-    Driver *f = static_cast<Driver *>(ptr);
-    f->Wrap(info.This());
-
-    info.GetReturnValue().Set(info.This());
-    return;
-  } else {
-    Nan::ThrowError("Cannot create Driver directly");
-    return;
-  }
-}
-
-Local<Value> Driver::New(GDALDriver *driver) {
-  Nan::EscapableHandleScope scope;
-
-  if (!driver) { return scope.Escape(Nan::Null()); }
-  if (object_store.has(driver)) { return scope.Escape(object_store.get(driver)); }
-
-  Driver *wrapped = new Driver(driver);
-  Local<Value> ext = Nan::New<External>(wrapped);
-  Local<Object> obj =
-    Nan::NewInstance(Nan::GetFunction(Nan::New(Driver::constructor)).ToLocalChecked(), 1, &ext).ToLocalChecked();
+  std::vector<napi_value> args = {Napi::External<GDALDriver>::New(env, driver)};
+  Napi::Object obj = constructor.Value().New(args);
+  Driver *wrapped = node_gdal::UnwrapWrapped<Driver>(obj);
 
   // LOG("ADDING DRIVER TO CACHE [%p]", driver);
-  wrapped->uid = object_store.add(driver, wrapped->persistent(), 0);
+  wrapped->uid = object_store.add(driver, *wrapped, 0);
   // LOG("DONE ADDING DRIVER TO CACHE [%p]", driver);
 
-  return scope.Escape(obj);
+  return obj;
 }
 
-NAN_METHOD(Driver::toString) {
-  info.GetReturnValue().Set(Nan::New("Driver").ToLocalChecked());
+NAPI_METHOD(Driver::toString) {
+  return Napi::String::New(info.Env(), "Driver");
 }
 
 /**
@@ -114,10 +104,10 @@ NAN_METHOD(Driver::toString) {
  * @memberof Driver
  * @type {string}
  */
-NAN_GETTER(Driver::descriptionGetter) {
-  Driver *driver = Nan::ObjectWrap::Unwrap<Driver>(info.This());
+NAPI_GETTER(Driver::descriptionGetter) {
+  Driver *driver = node_gdal::UnwrapWrapped<Driver>(info.This().As<Napi::Object>());
 
-  info.GetReturnValue().Set(SafeString::New(driver->getGDALDriver()->GetDescription()));
+  return SafeString::New(driver->getGDALDriver()->GetDescription());
 }
 
 /**
@@ -127,19 +117,19 @@ NAN_GETTER(Driver::descriptionGetter) {
  * @memberof Driver
  * @param {string} filename
  */
-NAN_METHOD(Driver::deleteDataset) {
+NAPI_METHOD(Driver::deleteDataset) {
 
   std::string name("");
   NODE_ARG_STR(0, "dataset name", name);
 
-  Driver *driver = Nan::ObjectWrap::Unwrap<Driver>(info.This());
+  Driver *driver = node_gdal::UnwrapWrapped<Driver>(info.This().As<Napi::Object>());
 
   CPLErr err = driver->getGDALDriver()->Delete(name.c_str());
   if (err) {
     NODE_THROW_LAST_CPLERR;
-    return;
+    return info.Env().Undefined();
   }
-  return;
+  return info.Env().Undefined();
 }
 
 // This is shared across all Driver functions
@@ -188,7 +178,7 @@ auto DatasetRval = [](GDALDataset *ds, const GetFromPersistentFunc &) { return D
  * @return {Promise<Dataset>}
  */
 GDAL_ASYNCABLE_DEFINE(Driver::create) {
-  Driver *driver = Nan::ObjectWrap::Unwrap<Driver>(info.This());
+  Driver *driver = node_gdal::UnwrapWrapped<Driver>(info.This().As<Napi::Object>());
 
   std::string filename;
   unsigned int x_size = 0, y_size = 0, n_bands = 0;
@@ -200,8 +190,8 @@ GDAL_ASYNCABLE_DEFINE(Driver::create) {
 
   if (info.Length() < 3) {
     if (info.Length() > 1 && options->parse(info[1])) {
-      Nan::ThrowError("Failed parsing options");
-      return; // error parsing string list
+      node_gdal::ThrowOverPending(info.Env(), "Failed parsing options");
+      return info.Env().Undefined(); // error parsing string list
     }
   } else {
     NODE_ARG_INT(1, "x size", x_size);
@@ -209,8 +199,8 @@ GDAL_ASYNCABLE_DEFINE(Driver::create) {
     NODE_ARG_INT_OPT(3, "number of bands", n_bands);
     NODE_ARG_OPT_STR(4, "data type", type_name);
     if (info.Length() > 5 && options->parse(info[5])) {
-      Nan::ThrowError("Failed parsing options");
-      return; // error parsing string list
+      node_gdal::ThrowOverPending(info.Env(), "Failed parsing options");
+      return info.Env().Undefined(); // error parsing string list
     }
     if (!type_name.empty()) { type = GDALGetDataTypeByName(type_name.c_str()); }
   }
@@ -222,7 +212,7 @@ GDAL_ASYNCABLE_DEFINE(Driver::create) {
   // Very careful here
   // we can't reference automatic variables, thus the *options object
   GDALAsyncableJob<GDALDataset *> job(0);
-  job.persist(driver->handle());
+  job.persist(driver->Value());
   job.main = [raw, filename, x_size, y_size, n_bands, type, options](const GDALExecutionProgress &) {
     std::unique_ptr<StringList> options_ptr(options);
     CPLErrorReset();
@@ -232,7 +222,7 @@ GDAL_ASYNCABLE_DEFINE(Driver::create) {
   };
   job.rval = DatasetRval;
 
-  job.run(info, async, 6);
+  return job.run(info, async, 6);
 }
 
 /**
@@ -273,11 +263,11 @@ GDAL_ASYNCABLE_DEFINE(Driver::create) {
  * @return {Promise<Dataset>}
  */
 GDAL_ASYNCABLE_DEFINE(Driver::createCopy) {
-  Driver *driver = Nan::ObjectWrap::Unwrap<Driver>(info.This());
+  Driver *driver = node_gdal::UnwrapWrapped<Driver>(info.This().As<Napi::Object>());
 
   if (!driver->isAlive()) {
-    Nan::ThrowError("Driver object has already been destroyed");
-    return;
+    Napi::Error::New(info.Env(), "Driver object has already been destroyed").ThrowAsJavaScriptException();
+    return info.Env().Undefined();
   }
 
   std::string filename;
@@ -288,27 +278,27 @@ GDAL_ASYNCABLE_DEFINE(Driver::createCopy) {
 
   // NODE_ARG_STR(1, "source dataset", src_dataset)
   if (info.Length() < 2) {
-    Nan::ThrowError("source dataset must be provided");
-    return;
+    Napi::Error::New(info.Env(), "source dataset must be provided").ThrowAsJavaScriptException();
+    return info.Env().Undefined();
   }
   if (IS_WRAPPED(info[1], Dataset)) {
-    src_dataset = Nan::ObjectWrap::Unwrap<Dataset>(info[1].As<Object>());
+    src_dataset = node_gdal::UnwrapWrapped<Dataset>(info[1].As<Napi::Object>());
   } else {
-    Nan::ThrowError("source dataset must be a Dataset object");
-    return;
+    Napi::Error::New(info.Env(), "source dataset must be a Dataset object").ThrowAsJavaScriptException();
+    return info.Env().Undefined();
   }
 
   options = new StringList;
   if (info.Length() > 2 && options->parse(info[2])) {
-    Nan::ThrowError("Failed parsing options");
-    return; // error parsing string list
+    node_gdal::ThrowOverPending(info.Env(), "Failed parsing options");
+    return info.Env().Undefined(); // error parsing string list
   }
 
   bool strict = false;
   NODE_ARG_BOOL_OPT(3, "strict", strict);
 
-  Local<Object> jsoptions;
-  Nan::Callback *progress_cb = nullptr;
+  Napi::Object jsoptions;
+  Napi::FunctionReference *progress_cb = nullptr;
   NODE_ARG_OBJECT_OPT(4, "jsoptions", jsoptions);
   if (!jsoptions.IsEmpty()) NODE_CB_FROM_OBJ_OPT(jsoptions, "progress_cb", progress_cb);
 
@@ -316,7 +306,7 @@ GDAL_ASYNCABLE_DEFINE(Driver::createCopy) {
   GDALDataset *raw_ds = src_dataset->get();
   GDALAsyncableJob<GDALDataset *> job(src_dataset->uid);
   job.rval = DatasetRval;
-  job.persist(driver->handle());
+  job.persist(driver->Value());
   job.progress = progress_cb;
 
   job.main = [raw, filename, raw_ds, strict, options, progress_cb](const GDALExecutionProgress &progress) {
@@ -327,7 +317,7 @@ GDAL_ASYNCABLE_DEFINE(Driver::createCopy) {
     if (!ds) throw CPLGetLastErrorMsg();
     return ds;
   };
-  job.run(info, async, 5);
+  return job.run(info, async, 5);
 }
 
 /**
@@ -340,8 +330,8 @@ GDAL_ASYNCABLE_DEFINE(Driver::createCopy) {
  * @param {string} name_old New name for the dataset.
  * @param {string} name_new Old name of the dataset.
  */
-NAN_METHOD(Driver::copyFiles) {
-  Driver *driver = Nan::ObjectWrap::Unwrap<Driver>(info.This());
+NAPI_METHOD(Driver::copyFiles) {
+  Driver *driver = node_gdal::UnwrapWrapped<Driver>(info.This().As<Napi::Object>());
   std::string old_name;
   std::string new_name;
 
@@ -351,10 +341,10 @@ NAN_METHOD(Driver::copyFiles) {
   CPLErr err = driver->getGDALDriver()->CopyFiles(new_name.c_str(), old_name.c_str());
   if (err) {
     NODE_THROW_LAST_CPLERR;
-    return;
+    return info.Env().Undefined();
   }
 
-  return;
+  return info.Env().Undefined();
 }
 
 /**
@@ -367,8 +357,8 @@ NAN_METHOD(Driver::copyFiles) {
  * @param {string} new_name New name for the dataset.
  * @param {string} old_name Old name of the dataset.
  */
-NAN_METHOD(Driver::rename) {
-  Driver *driver = Nan::ObjectWrap::Unwrap<Driver>(info.This());
+NAPI_METHOD(Driver::rename) {
+  Driver *driver = node_gdal::UnwrapWrapped<Driver>(info.This().As<Napi::Object>());
   std::string old_name;
   std::string new_name;
 
@@ -378,10 +368,10 @@ NAN_METHOD(Driver::rename) {
   CPLErr err = driver->getGDALDriver()->Rename(new_name.c_str(), old_name.c_str());
   if (err) {
     NODE_THROW_LAST_CPLERR;
-    return;
+    return info.Env().Undefined();
   }
 
-  return;
+  return info.Env().Undefined();
 }
 
 /**
@@ -394,10 +384,10 @@ NAN_METHOD(Driver::rename) {
  * @param {string} [domain]
  * @return {any}
  */
-NAN_METHOD(Driver::getMetadata) {
-  Driver *driver = Nan::ObjectWrap::Unwrap<Driver>(info.This());
+NAPI_METHOD(Driver::getMetadata) {
+  Driver *driver = node_gdal::UnwrapWrapped<Driver>(info.This().As<Napi::Object>());
 
-  Local<Object> result;
+  Napi::Object result;
 
   std::string domain("");
   NODE_ARG_OPT_STR(0, "domain", domain);
@@ -405,7 +395,7 @@ NAN_METHOD(Driver::getMetadata) {
   GDALDriver *raw = driver->getGDALDriver();
   CSLConstList md = raw->GetMetadata(domain.empty() ? NULL : domain.c_str());
   result = MajorObject::getMetadata(md);
-  info.GetReturnValue().Set(result);
+  return result;
 }
 
 /**
@@ -437,7 +427,7 @@ NAN_METHOD(Driver::getMetadata) {
  * @return {Promise<Dataset>}
  */
 GDAL_ASYNCABLE_DEFINE(Driver::open) {
-  Driver *driver = Nan::ObjectWrap::Unwrap<Driver>(info.This());
+  Driver *driver = node_gdal::UnwrapWrapped<Driver>(info.This().As<Napi::Object>());
 
   std::string path;
   std::string mode = "r";
@@ -449,20 +439,20 @@ GDAL_ASYNCABLE_DEFINE(Driver::open) {
   if (mode == "r+") {
     access = GA_Update;
   } else if (mode != "r") {
-    Nan::ThrowError("Invalid open mode. Must be \"r\" or \"r+\"");
-    return;
+    Napi::Error::New(info.Env(), "Invalid open mode. Must be \"r\" or \"r+\"").ThrowAsJavaScriptException();
+    return info.Env().Undefined();
   }
 
   StringList *options = new StringList;
   if (info.Length() > 2 && options->parse(info[2])) {
-    Nan::ThrowError("Failed parsing options");
-    return; // error parsing string list
+    node_gdal::ThrowOverPending(info.Env(), "Failed parsing options");
+    return info.Env().Undefined(); // error parsing string list
   }
 
   GDALDriver *raw = driver->getGDALDriver();
 
   GDALAsyncableJob<GDALDataset *> job(0);
-  job.persist(driver->handle());
+  job.persist(driver->Value());
   job.main = [raw, path, access, options](const GDALExecutionProgress &) {
     std::unique_ptr<StringList> options_ptr(options);
     const char *driver_list[2] = {raw->GetDescription(), nullptr};
@@ -473,7 +463,7 @@ GDAL_ASYNCABLE_DEFINE(Driver::open) {
   };
   job.rval = DatasetRval;
 
-  job.run(info, async, 2);
+  return job.run(info, async, 2);
 }
 
 } // namespace node_gdal

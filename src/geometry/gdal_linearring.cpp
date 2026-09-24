@@ -9,29 +9,32 @@
 
 namespace node_gdal {
 
-Nan::Persistent<FunctionTemplate> LinearRing::constructor;
+Napi::FunctionReference LinearRing::constructor;
 
-void LinearRing::Initialize(Local<Object> target) {
-  Nan::HandleScope scope;
+void LinearRing::Initialize(Napi::Object target) {
+  Napi::Env env = target.Env();
+  SELF_CLASS(LinearRing);
 
-  Local<FunctionTemplate> lcons = Nan::New<FunctionTemplate>(LinearRing::New);
-  lcons->Inherit(Nan::New(LineString::constructor));
-  lcons->InstanceTemplate()->SetInternalFieldCount(1);
-  lcons->SetClassName(Nan::New("LinearRing").ToLocalChecked());
+  // NOTE: the descriptor macros carry their own trailing comma
+  Napi::Function lcons = GDALDefineClass<SELF>(env, "LinearRing",
+    {
+        METHOD(toString)
+        METHOD(getArea)
+        METHOD(addSubLineString)
+    });
 
-  Nan::SetPrototypeMethod(lcons, "toString", toString);
-  Nan::SetPrototypeMethod(lcons, "getArea", getArea);
-  Nan::SetPrototypeMethod(lcons, "addSubLineString", addSubLineString);
+  // lcons->Inherit() has no DefineClass equivalent
+  node_gdal::Inherit(lcons, LineString::constructor.Value());
 
-  Nan::Set(target, Nan::New("LinearRing").ToLocalChecked(), Nan::GetFunction(lcons).ToLocalChecked());
+  target.Set("LinearRing", lcons);
 
-  constructor.Reset(lcons);
+  constructor = Napi::Persistent(lcons);
+  constructor.SuppressDestruct();
 }
 
-Local<Value> LinearRing::New(OGRLinearRing *geom, bool owned) {
-  Nan::EscapableHandleScope scope;
+Napi::Value LinearRing::New(OGRLinearRing *geom, bool owned) {
 
-  if (!geom) { return scope.Escape(Nan::Null()); }
+  if (!geom) { return node_gdal::napi_env().Null(); }
 
   // make a copy of geometry owned by a feature
   // + no need to track when a feature is destroyed
@@ -41,14 +44,11 @@ Local<Value> LinearRing::New(OGRLinearRing *geom, bool owned) {
 
   if (!owned) { geom = static_cast<OGRLinearRing *>(geom->clone()); }
 
-  LinearRing *wrapped = new LinearRing(geom);
-  wrapped->owned_ = true;
+  std::vector<napi_value> args = {Napi::External<void>::New(node_gdal::napi_env(), geom)};
+  Napi::Object obj = LinearRing::constructor.Value().New(args);
+  LinearRing *wrapped = node_gdal::UnwrapWrapped<LinearRing>(obj);
 
-  Local<Value> ext = Nan::New<External>(wrapped);
-  Local<Object> obj =
-    Nan::NewInstance(Nan::GetFunction(Nan::New(LinearRing::constructor)).ToLocalChecked(), 1, &ext).ToLocalChecked();
-
-  return scope.Escape(obj);
+  return obj;
 }
 
 /**
@@ -59,8 +59,8 @@ Local<Value> LinearRing::New(OGRLinearRing *geom, bool owned) {
  * @extends LineString
  */
 
-NAN_METHOD(LinearRing::toString) {
-  info.GetReturnValue().Set(Nan::New("LinearRing").ToLocalChecked());
+NAPI_METHOD(LinearRing::toString) {
+  return Napi::String::New(node_gdal::napi_env(), "LinearRing");
 }
 
 /**
@@ -73,9 +73,9 @@ NAN_METHOD(LinearRing::toString) {
  */
 NODE_WRAPPED_METHOD_WITH_RESULT(LinearRing, getArea, Number, get_Area);
 
-NAN_METHOD(LinearRing::addSubLineString) {
+NAPI_METHOD(LinearRing::addSubLineString) {
 
-  LinearRing *geom = Nan::ObjectWrap::Unwrap<LinearRing>(info.This());
+  LinearRing *geom = node_gdal::UnwrapWrapped<LinearRing>(info.This().As<Napi::Object>());
   LineString *other;
   int start = 0;
   int end = -1;
@@ -87,13 +87,13 @@ NAN_METHOD(LinearRing::addSubLineString) {
   int n = other->get()->getNumPoints();
 
   if (start < 0 || end < -1 || start >= n || end >= n) {
-    Nan::ThrowRangeError("Invalid start or end index for LineString");
-    return;
+    Napi::RangeError::New(node_gdal::napi_env(), "Invalid start or end index for LineString").ThrowAsJavaScriptException();
+    return node_gdal::napi_env().Undefined();
   }
 
   geom->this_->addSubLineString(other->get(), start, end);
 
-  return;
+  return node_gdal::napi_env().Undefined();
 }
 
 } // namespace node_gdal

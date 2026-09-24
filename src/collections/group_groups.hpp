@@ -2,11 +2,9 @@
 #define __NODE_GDAL_GROUPS_COLLECTION_H__
 
 // node
-#include <node.h>
-#include <node_object_wrap.h>
 
 // nan
-#include "../nan-wrapper.h"
+#include "../gdal_common.hpp"
 
 // gdal
 #include <gdal_priv.h>
@@ -16,15 +14,14 @@
 
 #if GDAL_VERSION_MAJOR > 3 || (GDAL_VERSION_MAJOR == 3 && GDAL_VERSION_MINOR >= 1)
 
-using namespace v8;
-using namespace node;
 
 namespace node_gdal {
 
 class GroupGroups : public GroupCollection<GroupGroups, GDALGroup, GDALGroup, Group, Group> {
     public:
+  using GroupCollection<GroupGroups, GDALGroup, GDALGroup, Group, Group>::GroupCollection;
   static constexpr const char *_className = "GroupGroups";
-  static Nan::Persistent<FunctionTemplate> constructor;
+  static Napi::FunctionReference constructor;
   static std::shared_ptr<GDALGroup> __get(std::shared_ptr<GDALGroup> parent, std::string const &name);
   static std::shared_ptr<GDALGroup> __get(std::shared_ptr<GDALGroup> parent, size_t idx);
   static std::vector<std::string> __getNames(std::shared_ptr<GDALGroup> parent);
