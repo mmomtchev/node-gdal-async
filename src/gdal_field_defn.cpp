@@ -16,6 +16,7 @@ void FieldDefn::Initialize(Local<Object> target) {
 
   ATTR(lcons, "name", nameGetter, nameSetter);
   ATTR(lcons, "type", typeGetter, typeSetter);
+  ATTR(lcons, "subtype", subtypeGetter, subtypeSetter);
   ATTR(lcons, "justification", justificationGetter, justificationSetter);
   ATTR(lcons, "width", widthGetter, widthSetter);
   ATTR(lcons, "precision", precisionGetter, precisionSetter);
@@ -143,6 +144,25 @@ NAN_GETTER(FieldDefn::typeGetter) {
 }
 
 /**
+ * Data subtype (see {@link OFST|OFST constants}
+ *
+ * @kind member
+ * @name subtype
+ * @instance
+ * @memberof FieldDefn
+ * @type {string}
+ */
+NAN_GETTER(FieldDefn::subtypeGetter) {
+  FieldDefn *def = Nan::ObjectWrap::Unwrap<FieldDefn>(info.This());
+  OGRFieldSubType subtype = def->this_->GetSubType();
+  if (subtype == OFSTNone) {
+    info.GetReturnValue().Set(Nan::Undefined());
+    return;
+  }
+  info.GetReturnValue().Set(SafeString::New(getFieldSubTypeName(def->this_->GetSubType())));
+}
+
+/**
  * @kind member
  * @name ignored
  * @instance
@@ -223,6 +243,21 @@ NAN_SETTER(FieldDefn::typeSetter) {
     Nan::ThrowError("Unrecognized field type");
   } else {
     def->this_->SetType(OGRFieldType(type));
+  }
+}
+
+NAN_SETTER(FieldDefn::subtypeSetter) {
+  FieldDefn *def = Nan::ObjectWrap::Unwrap<FieldDefn>(info.This());
+  if (!value->IsString()) {
+    Nan::ThrowError("subtype must be a string");
+    return;
+  }
+  std::string name = *Nan::Utf8String(value);
+  int subtype = getFieldSubTypeByName(name.c_str());
+  if (subtype < 0) {
+    Nan::ThrowError("Unrecognized field subtype");
+  } else {
+    def->this_->SetSubType(OGRFieldSubType(subtype));
   }
 }
 

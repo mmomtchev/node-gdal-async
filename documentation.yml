@@ -227,6 +227,12 @@ toc:
           - OFTTime
           - OFTWideString
           - OFTWideStringList
+      - name: Feature Field Sub-Types
+        children:
+          - OFSTNone
+          - OFSTBoolean
+          - OFSTInt16
+          - OFSTFloat32
       - name: Justification
         children:
           - OJLeft
