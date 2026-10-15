@@ -2863,6 +2863,17 @@ GDALDatasetH GDALVectorTranslate(const char *pszDest, GDALDatasetH hDstDS,
             }
         }
 
+        // For CSV driver, automatically set *dataset* creation option GEOMETRY=AS_WKT
+        // if *layer* creation option is requested. This is required for the
+        // CSV driver to expose the ODsCCreateGeomFieldAfterCreateLayer capability
+        if (EQUAL(poDriver->GetDescription(), "CSV") &&
+            !aosDSCO.FetchNameValue("GEOMETRY") &&
+            EQUAL(psOptions->aosLCO.FetchNameValueDef("GEOMETRY", ""),
+                  "AS_WKT"))
+        {
+            aosDSCO.SetNameValue("GEOMETRY", "AS_WKT");
+        }
+
         /* --------------------------------------------------------------------
          */
         /*      Create the output data source. */
@@ -2949,7 +2960,7 @@ GDALDatasetH GDALVectorTranslate(const char *pszDest, GDALDatasetH hDstDS,
         CPL_TO_BOOL(poDS->TestCapability(ODsCRandomLayerRead));
     if (bRandomLayerReading && !poODS->TestCapability(ODsCRandomLayerWrite) &&
         psOptions->aosLayers.size() != 1 && psOptions->osSQLStatement.empty() &&
-        !psOptions->bQuiet)
+        poDS->GetLayerCount() > 1 && !psOptions->bQuiet)
     {
         CPLError(CE_Warning, CPLE_AppDefined,
                  "Input datasource uses random layer reading, but "
@@ -4508,7 +4519,17 @@ SetupTargetLayer::Setup(OGRLayer *poSrcLayer, const char *pszNewLayerName,
     /* -------------------------------------------------------------------- */
     /*      Get other info.                                                 */
     /* -------------------------------------------------------------------- */
+
+    // Capture errors from VRT layers such as WFS
+    // (see issue GH # https://github.com/OSGeo/gdal/issues/14826)
+    const auto errorCount{CPLGetErrorCounter()};
     const OGRFeatureDefn *poSrcFDefn = poSrcLayer->GetLayerDefn();
+    if (CPLGetErrorCounter() != errorCount)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "Error retrieving the source layer definition");
+        return nullptr;
+    }
 
     /* -------------------------------------------------------------------- */
     /*      Find requested geometry fields.                                 */

@@ -576,7 +576,7 @@ bool VSIDIRS3::IssueListDir()
         }
 
         struct curl_slist *headers =
-            VSICurlSetOptions(hCurlHandle, poHandleHelper->GetURL().c_str(),
+            VSICurlSetOptions(hCurlHandle, l_poHandlerHelper->GetURL().c_str(),
                               aosHTTPOptions.List());
 
         headers = l_poHandlerHelper->GetCurlHeaders("GET", headers);
@@ -4596,7 +4596,9 @@ bool IVSIS3LikeFSHandler::Sync(const char *pszSource, const char *pszTarget,
                 const vsi_l_offset nChunksLarge =
                     nMaxChunkSize == 0
                         ? 1
-                        : cpl::div_round_up(entry->nSize, nMaxChunkSize);
+                        : std::max<vsi_l_offset>(
+                              1,
+                              cpl::div_round_up(entry->nSize, nMaxChunkSize));
                 if (nChunksLarge >
                     1000)  // must also be below knMAX_PART_NUMBER for upload
                 {
@@ -4992,24 +4994,29 @@ bool IVSIS3LikeFSHandler::Sync(const char *pszSource, const char *pszTarget,
 
     struct JobQueue
     {
-        IVSIS3LikeFSHandler *poFS;
-        IVSIS3LikeFSHandlerWithMultipartUpload *poTargetFSMultipartHandler;
+        // Immutable variables
+        IVSIS3LikeFSHandler *const poFS;
+        IVSIS3LikeFSHandlerWithMultipartUpload *const
+            poTargetFSMultipartHandler;
         const std::vector<ChunkToCopy> &aoChunksToCopy;
         const std::vector<size_t> &anIndexToCopy;
-        std::map<std::string, MultiPartDef> &oMapMultiPartDefs;
-        volatile int iCurIdx = 0;
-        volatile bool ret = true;
-        volatile bool stop = false;
-        std::string osSourceDir{};
-        std::string osTargetDir{};
-        std::string osSource{};
-        std::string osTarget{};
-        std::mutex sMutex{};
-        uint64_t nTotalCopied = 0;
-        bool bSupportsParallelMultipartUpload = false;
-        size_t nMaxChunkSize = 0;
+        const std::string osSourceDir;
+        const std::string osTargetDir;
+        const std::string osSource;
+        const std::string osTarget;
+        const bool bSupportsParallelMultipartUpload;
+        const size_t nMaxChunkSize;
         const CPLHTTPRetryParameters &oRetryParameters;
         const CPLStringList &aosObjectCreationOptions;
+
+        // All variables below are modified in threads and their access must
+        // be protected by sMutex.
+        std::mutex sMutex{};
+        std::map<std::string, MultiPartDef> &oMapMultiPartDefs;
+        uint64_t nTotalCopied = 0;
+        int iCurIdx = 0;
+        bool ret = true;
+        bool stop = false;
 
         JobQueue(IVSIS3LikeFSHandler *poFSIn,
                  IVSIS3LikeFSHandlerWithMultipartUpload
@@ -5027,14 +5034,14 @@ bool IVSIS3LikeFSHandler::Sync(const char *pszSource, const char *pszTarget,
             : poFS(poFSIn),
               poTargetFSMultipartHandler(poTargetFSMultipartHandlerIn),
               aoChunksToCopy(aoChunksToCopyIn), anIndexToCopy(anIndexToCopyIn),
-              oMapMultiPartDefs(oMapMultiPartDefsIn),
               osSourceDir(osSourceDirIn), osTargetDir(osTargetDirIn),
               osSource(osSourceIn), osTarget(osTargetIn),
               bSupportsParallelMultipartUpload(
                   bSupportsParallelMultipartUploadIn),
               nMaxChunkSize(nMaxChunkSizeIn),
               oRetryParameters(oRetryParametersIn),
-              aosObjectCreationOptions(aosObjectCreationOptionsIn)
+              aosObjectCreationOptions(aosObjectCreationOptionsIn),
+              oMapMultiPartDefs(oMapMultiPartDefsIn)
         {
         }
 
@@ -5057,23 +5064,34 @@ bool IVSIS3LikeFSHandler::Sync(const char *pszSource, const char *pszTarget,
                     static_cast<ProgressData *>(pProgressDataIn);
                 const auto nInc = static_cast<uint64_t>(
                     (pct - pProgress->dfLastPct) * pProgress->nFileSize + 0.5);
-                pProgress->queue->sMutex.lock();
-                pProgress->queue->nTotalCopied += nInc;
-                pProgress->queue->sMutex.unlock();
+                {
+                    std::lock_guard oLock(pProgress->queue->sMutex);
+                    pProgress->queue->nTotalCopied += nInc;
+                }
                 pProgress->dfLastPct = pct;
                 return TRUE;
             }
         };
 
         JobQueue *queue = static_cast<JobQueue *>(pDataIn);
-        while (!queue->stop)
+        while (true)
         {
-            const int idx = CPLAtomicInc(&(queue->iCurIdx)) - 1;
-            if (static_cast<size_t>(idx) >= queue->anIndexToCopy.size())
+            auto [idx, bStop] = [queue]()
             {
-                queue->stop = true;
+                std::lock_guard oLock(queue->sMutex);
+                const int newIdx = queue->iCurIdx;
+                if (static_cast<size_t>(newIdx) >= queue->anIndexToCopy.size())
+                {
+                    queue->stop = true;
+                }
+                else
+                {
+                    ++queue->iCurIdx;
+                }
+                return std::pair(newIdx, queue->stop);
+            }();
+            if (bStop)
                 break;
-            }
             const auto &chunk =
                 queue->aoChunksToCopy[queue->anIndexToCopy[idx]];
             const std::string osSubSource(
@@ -5156,6 +5174,7 @@ bool IVSIS3LikeFSHandler::Sync(const char *pszSource, const char *pszTarget,
                 }
                 else
                 {
+                    std::lock_guard oLock(queue->sMutex);
                     queue->ret = false;
                     queue->stop = true;
                 }
@@ -5169,6 +5188,7 @@ bool IVSIS3LikeFSHandler::Sync(const char *pszSource, const char *pszTarget,
                         queue->aosObjectCreationOptions.List(),
                         ProgressData::progressFunc, &progressData) != 0)
                 {
+                    std::lock_guard oLock(queue->sMutex);
                     queue->ret = false;
                     queue->stop = true;
                 }
@@ -5190,6 +5210,7 @@ bool IVSIS3LikeFSHandler::Sync(const char *pszSource, const char *pszTarget,
             auto hThread = CPLCreateJoinableThread(threadFunc, &sJobQueue);
             if (!hThread)
             {
+                std::lock_guard oLock(sJobQueue.sMutex);
                 sJobQueue.ret = false;
                 sJobQueue.stop = true;
                 break;
@@ -5199,20 +5220,32 @@ bool IVSIS3LikeFSHandler::Sync(const char *pszSource, const char *pszTarget,
         if (pProgressFunc)
         {
             const uint64_t nTotalSizeDenom = std::max<uint64_t>(1, nTotalSize);
-            while (!sJobQueue.stop)
+            while (![&sJobQueue]()
+                   {
+                       std::lock_guard oLock(sJobQueue.sMutex);
+                       return sJobQueue.stop;
+                   }())
             {
                 CPLSleep(0.1);
-                sJobQueue.sMutex.lock();
-                const auto nTotalCopied = sJobQueue.nTotalCopied;
-                sJobQueue.sMutex.unlock();
+                const auto nTotalCopied = [&sJobQueue]()
+                {
+                    std::lock_guard oLock(sJobQueue.sMutex);
+                    return sJobQueue.nTotalCopied;
+                }();
                 if (!pProgressFunc(double(nTotalCopied) / nTotalSizeDenom, "",
                                    pProgressData))
                 {
+                    std::lock_guard oLock(sJobQueue.sMutex);
                     sJobQueue.ret = false;
                     sJobQueue.stop = true;
                 }
             }
-            if (sJobQueue.ret)
+            if (
+                [&sJobQueue]()
+                {
+                    std::lock_guard oLock(sJobQueue.sMutex);
+                    return sJobQueue.ret;
+                }())
             {
                 pProgressFunc(1.0, "", pProgressData);
             }

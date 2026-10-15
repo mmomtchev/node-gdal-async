@@ -4502,7 +4502,10 @@ CPLErr GDALRasterBand::GetHistogram(double dfMin, double dfMax, int nBuckets,
 
                 if (eDataType != GDT_Float16 && eDataType != GDT_Float32 &&
                     sNoDataValues.bGotNoDataValue &&
-                    ARE_REAL_EQUAL(dfValue, sNoDataValues.dfNoDataValue))
+                    (GDALDataTypeIsInteger(eDataType)
+                         ? dfValue == sNoDataValues.dfNoDataValue
+                         : ARE_REAL_EQUAL(dfValue,
+                                          sNoDataValues.dfNoDataValue)))
                     continue;
 
                 // Given that dfValue and dfMin are not NaN, and dfScale > 0 and
@@ -4771,7 +4774,10 @@ CPLErr GDALRasterBand::GetHistogram(double dfMin, double dfMax, int nBuckets,
 
                     if (eDataType != GDT_Float16 && eDataType != GDT_Float32 &&
                         sNoDataValues.bGotNoDataValue &&
-                        ARE_REAL_EQUAL(dfValue, sNoDataValues.dfNoDataValue))
+                        (GDALDataTypeIsInteger(eDataType)
+                             ? dfValue == sNoDataValues.dfNoDataValue
+                             : ARE_REAL_EQUAL(dfValue,
+                                              sNoDataValues.dfNoDataValue)))
                         continue;
 
                     // Given that dfValue and dfMin are not NaN, and dfScale > 0
@@ -6488,7 +6494,9 @@ static inline double GetPixelValue(GDALDataType eDataType, bool bSignedByte,
     }
 
     if (sNoDataValues.bGotNoDataValue &&
-        ARE_REAL_EQUAL(dfValue, sNoDataValues.dfNoDataValue))
+        (GDALDataTypeIsInteger(eDataType)
+             ? dfValue == sNoDataValues.dfNoDataValue
+             : ARE_REAL_EQUAL(dfValue, sNoDataValues.dfNoDataValue)))
     {
         bValid = false;
         return 0.0;
@@ -9983,7 +9991,8 @@ bool GDALRasterBand::HasConflictingMaskSources(
     const bool bHasBinaryMaskBand =
         ((const_cast<GDALRasterBand *>(this)->GetMaskFlags() &
           (GMF_ALL_VALID | GMF_NODATA | GMF_ALPHA)) == 0) &&
-        (!bHasExternalMask || poDS->oOvManager.GetMaskBand(nBand) != this);
+        (!bHasExternalMask ||
+         (poDS && poDS->oOvManager.GetMaskBand(nBand) != this));
     const bool bHasNoData = HasNoData();
     const bool bHasNODATA_VALUES =
         poDS && poDS->GetMetadataItem("NODATA_VALUES");

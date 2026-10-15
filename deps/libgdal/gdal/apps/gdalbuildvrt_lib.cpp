@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -450,7 +451,7 @@ static CPLString GetProjectionName(const char *pszProjection)
 }
 
 /************************************************************************/
-/*                           AnalyseRaster()                            */
+/*                         checkNoDataValues()                          */
 /************************************************************************/
 
 static void checkNoDataValues(const std::vector<BandProperty> &asProperties)
@@ -467,6 +468,10 @@ static void checkNoDataValues(const std::vector<BandProperty> &asProperties)
         }
     }
 }
+
+/************************************************************************/
+/*                           AnalyseRaster()                            */
+/************************************************************************/
 
 std::string VRTBuilder::AnalyseRaster(GDALDatasetH hDS,
                                       DatasetProperty *psDatasetProperties)
@@ -1176,6 +1181,20 @@ static void WriteAbsolutePath(VRTSimpleSource *poSource, const char *dsFileName)
 }
 
 /************************************************************************/
+/*                       IsTransientSrcDataset()                        */
+/************************************************************************/
+
+static bool IsTransientSrcDataset(const char *dsFileName, GDALDatasetH hDS)
+{
+    auto hDriver = GDALGetDatasetDriver(hDS);
+    return !hDriver || dsFileName[0] == '\0' ||  // could be a unnamed VRT file
+                                                 // Inner pipeline
+           (dsFileName[0] == '[' &&
+            dsFileName[strlen(dsFileName) - 1] == ']') ||
+           EQUAL(GDALGetDescription(hDriver), "MEM");
+}
+
+/************************************************************************/
 /*                         CreateVRTSeparate()                          */
 /************************************************************************/
 
@@ -1216,10 +1235,7 @@ void VRTBuilder::CreateVRTSeparate(VRTDataset *poVRTDS)
         GDALDatasetH hSourceDS;
         bool bDropRef = false;
         if (nSrcDSCount == nInputFiles &&
-            GDALGetDatasetDriver(pahSrcDS[i]) != nullptr &&
-            (dsFileName[0] == '\0' ||  // could be a unnamed VRT file
-             EQUAL(GDALGetDescription(GDALGetDatasetDriver(pahSrcDS[i])),
-                   "MEM")))
+            IsTransientSrcDataset(dsFileName, pahSrcDS[i]))
         {
             hSourceDS = pahSrcDS[i];
         }
@@ -1258,8 +1274,8 @@ void VRTBuilder::CreateVRTSeparate(VRTDataset *poVRTDS)
                                         ? panSelectedBandList[iBandToIter] - 1
                                         : iBandToIter;
             assert(nSrcBandIdx >= 0);
-            poVRTDS->AddBand(psDatasetProperties->aeBandType[nSrcBandIdx],
-                             nullptr);
+            const auto eBandType = psDatasetProperties->aeBandType[nSrcBandIdx];
+            poVRTDS->AddBand(eBandType, nullptr);
 
             VRTSourcedRasterBand *poVRTBand =
                 static_cast<VRTSourcedRasterBand *>(
@@ -1281,18 +1297,30 @@ void VRTBuilder::CreateVRTSeparate(VRTDataset *poVRTDS)
 
             if (bAllowVRTNoData)
             {
+                std::optional<double> noData;
                 if (nVRTNoDataCount > 0)
                 {
                     if (iBand - 1 < nVRTNoDataCount)
-                        poVRTBand->SetNoDataValue(padfVRTNoData[iBand - 1]);
+                        noData = padfVRTNoData[iBand - 1];
                     else
-                        poVRTBand->SetNoDataValue(
-                            padfVRTNoData[nVRTNoDataCount - 1]);
+                        noData = padfVRTNoData[nVRTNoDataCount - 1];
                 }
                 else if (psDatasetProperties->abHasNoData[nSrcBandIdx])
                 {
-                    poVRTBand->SetNoDataValue(
-                        psDatasetProperties->adfNoDataValues[nSrcBandIdx]);
+                    noData = psDatasetProperties->adfNoDataValues[nSrcBandIdx];
+                }
+                if (noData.has_value())
+                {
+                    if (GDALDataTypeIsInteger(eBandType) &&
+                        !GDALIsValueExactAs(*noData, eBandType))
+                    {
+                        CPLError(CE_Warning, CPLE_NotSupported,
+                                 "Band data type of %s cannot represent the "
+                                 "specified "
+                                 "NoData value of %g",
+                                 GDALGetDataTypeName(eBandType), *noData);
+                    }
+                    poVRTBand->SetNoDataValue(*noData);
                 }
             }
 
@@ -1488,10 +1516,7 @@ void VRTBuilder::CreateVRTNonSeparate(VRTDataset *poVRTDS)
         bool bDropRef = false;
 
         if (nSrcDSCount == nInputFiles &&
-            GDALGetDatasetDriver(pahSrcDS[i]) != nullptr &&
-            (dsFileName[0] == '\0' ||  // could be a unnamed VRT file
-             EQUAL(GDALGetDescription(GDALGetDatasetDriver(pahSrcDS[i])),
-                   "MEM")))
+            IsTransientSrcDataset(dsFileName, pahSrcDS[i]))
         {
             hSourceDS = pahSrcDS[i];
         }
