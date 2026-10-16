@@ -1420,6 +1420,34 @@ static GDALDataset *COGCreateCopy(const char *pszFilename, GDALDataset *poSrcDS,
 }
 
 /************************************************************************/
+/*                          COGProxyRasterBand                          */
+/************************************************************************/
+
+class COGProxyRasterBand final : public GDALProxyRasterBand
+{
+  public:
+    explicit COGProxyRasterBand(GDALRasterBand *poUnderlyingRasterBand)
+        : m_poUnderlyingBand(poUnderlyingRasterBand)
+    {
+        poUnderlyingRasterBand->GetBlockSize(&nBlockXSize, &nBlockYSize);
+    }
+
+  protected:
+    GDALRasterBand *RefUnderlyingRasterBand(bool /*bForceOpen*/) const override;
+
+  private:
+    GDALRasterBand *m_poUnderlyingBand = nullptr;
+
+    CPL_DISALLOW_COPY_ASSIGN(COGProxyRasterBand)
+};
+
+GDALRasterBand *
+COGProxyRasterBand::RefUnderlyingRasterBand(bool /*bForceOpen*/) const
+{
+    return m_poUnderlyingBand;
+}
+
+/************************************************************************/
 /*                           COGProxyDataset                            */
 /************************************************************************/
 
@@ -1435,11 +1463,10 @@ class COGProxyDataset final : public GDALProxyDataset
         eAccess = GA_Update;
         nRasterXSize = m_poGTiffTmpDS->GetRasterXSize();
         nRasterYSize = m_poGTiffTmpDS->GetRasterYSize();
-        nBands = m_poGTiffTmpDS->GetRasterCount();
-        papoBands = static_cast<GDALRasterBand **>(
-            CPLMalloc(sizeof(GDALRasterBand *) * nBands));
-        for (int i = 0; i < nBands; ++i)
-            papoBands[i] = m_poGTiffTmpDS->GetRasterBand(i + 1);
+        const int l_nBands = m_poGTiffTmpDS->GetRasterCount();
+        for (int i = 0; i < l_nBands; ++i)
+            SetBand(i + 1, std::make_unique<COGProxyRasterBand>(
+                               m_poGTiffTmpDS->GetRasterBand(i + 1)));
     }
 
     ~COGProxyDataset() override;
@@ -1505,10 +1532,6 @@ CPLErr COGProxyDataset::Close(GDALProgressFunc pfnProgress, void *pProgressData)
         eErr = GDAL::Combine(eErr, m_poGTiffTmpDS->Close());
         m_poGTiffTmpDS.reset();
 
-        CPLFree(papoBands);
-        papoBands = nullptr;
-        nBands = 0;
-
         eErr = GDAL::Combine(eErr, GDALDataset::Close());
     }
     return eErr;
@@ -1531,6 +1554,9 @@ static GDALDataset *COGCreate(const char *pszFilename, int nXSize, int nYSize,
         CSLFetchNameValueDef(papszOptions, "BLOCKSIZE", "512");
     aosOptions.SetNameValue("BLOCKXSIZE", pszBlockSize);
     aosOptions.SetNameValue("BLOCKYSIZE", pszBlockSize);
+
+    // doesn't hurt on the temporary file even if final file doesn't need it
+    aosOptions.SetNameValue("BIGTIFF", "YES");
 
     bool bHasLZW = false;
     bool bHasDEFLATE = false;

@@ -36,10 +36,9 @@ GDALRasterPolygonizeAlgorithm::GDALRasterPolygonizeAlgorithm(
               .SetStandaloneStep(standaloneStep)
               .SetAddUpsertArgument(false)
               .SetAddSkipErrorsArgument(false)
+              .SetOutputLayerNameAvailableInPipelineStep(true)
               .SetOutputFormatCreateCapability(GDAL_DCAP_CREATE))
 {
-    m_outputLayerName = "polygonize";
-
     AddProgressArg();
     if (standaloneStep)
     {
@@ -167,11 +166,15 @@ bool GDALRasterPolygonizeAlgorithm::RunStep(GDALPipelineStepRunContext &ctxt)
 
     std::string outputLayerName = poWriteStep->GetOutputLayerName();
     if (poDstDriver && EQUAL(poDstDriver->GetDescription(), "ESRI Shapefile") &&
-        EQUAL(CPLGetExtensionSafe(poDstDS->GetDescription()).c_str(), "shp") &&
+        (EQUAL(CPLGetExtensionSafe(poDstDS->GetDescription()).c_str(), "shp") ||
+         EQUAL(CPLGetExtensionSafe(poDstDS->GetDescription()).c_str(),
+               "shz")) &&
         poDstDS->GetLayerCount() <= 1)
     {
         outputLayerName = CPLGetBasenameSafe(poDstDS->GetDescription());
     }
+    if (outputLayerName.empty())
+        outputLayerName = "polygonize";
 
     auto poDstLayer = poDstDS->GetLayerByName(outputLayerName.c_str());
     if (poDstLayer)

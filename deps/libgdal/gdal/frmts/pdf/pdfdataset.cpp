@@ -183,6 +183,23 @@ class GDALPDFOutputDev final : public SplashOutputDev
     }
 
 #if POPPLER_MAJOR_VERSION > 26 ||                                              \
+    (POPPLER_MAJOR_VERSION == 26 && POPPLER_MINOR_VERSION > 5) ||              \
+    (POPPLER_MAJOR_VERSION == 26 && POPPLER_MINOR_VERSION == 5 &&              \
+     POPPLER_MICRO_VERSION > 0)
+    bool setSoftMaskFromImageMask(GfxState *state, Object *ref, Stream *str,
+                                  int width, int height, bool invert,
+                                  bool inlineImg,
+                                  std::array<double, 6> &baseMatrix) override
+    {
+        if (bEnableBitmap)
+            return SplashOutputDev::setSoftMaskFromImageMask(
+                state, ref, str, width, height, invert, inlineImg, baseMatrix);
+        else
+            str->close();
+        return true;
+    }
+#else
+#if POPPLER_MAJOR_VERSION > 26 ||                                              \
     (POPPLER_MAJOR_VERSION == 26 && POPPLER_MINOR_VERSION >= 2)
     void setSoftMaskFromImageMask(GfxState *state, Object *ref, Stream *str,
                                   int width, int height, bool invert,
@@ -200,6 +217,7 @@ class GDALPDFOutputDev final : public SplashOutputDev
         else
             str->close();
     }
+#endif
 
 #if POPPLER_MAJOR_VERSION > 26 ||                                              \
     (POPPLER_MAJOR_VERSION == 26 && POPPLER_MINOR_VERSION >= 2)
@@ -5193,7 +5211,14 @@ PDFDataset *PDFDataset::Open(GDALOpenInfo *poOpenInfo)
 #ifdef HAVE_POPPLER
     if (bUseLib.test(PDFLIB_POPPLER))
     {
+#if POPPLER_MAJOR_VERSION > 26 ||                                              \
+    (POPPLER_MAJOR_VERSION == 26 && POPPLER_MINOR_VERSION > 5) ||              \
+    (POPPLER_MAJOR_VERSION == 26 && POPPLER_MINOR_VERSION == 5 &&              \
+     POPPLER_MICRO_VERSION > 0)
+        const auto *psMediaBox = &(poPagePoppler->getMediaBox());
+#else
         const auto *psMediaBox = poPagePoppler->getMediaBox();
+#endif
         dfX1 = psMediaBox->x1;
         dfY1 = psMediaBox->y1;
         dfX2 = psMediaBox->x2;

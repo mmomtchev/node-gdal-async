@@ -140,6 +140,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT", // from cpl_http.cpp, cpl_vsil_curl.cpp
    "CPL_VSIL_CURL_CACHE_SIZE", // from cpl_vsil_curl.cpp
    "CPL_VSIL_CURL_CHUNK_SIZE", // from cpl_vsil_curl.cpp
+   "CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED", // from cpl_vsil_curl.cpp
    "CPL_VSIL_CURL_HONOR_CACHE_CONTROL", // from cpl_vsil_curl.cpp
    "CPL_VSIL_CURL_IGNORE_GLACIER_STORAGE", // from cpl_vsil_curl.cpp
    "CPL_VSIL_CURL_IGNORE_STORAGE_CLASSES", // from cpl_vsil_curl.cpp
@@ -659,7 +660,7 @@ constexpr static const char* const apszKnownConfigOptions[] =
    "MITAB_MAX_LINE_LENGTH", // from mitab_middatafile.cpp
    "MITAB_SET_TOWGS84_ON_KNOWN_DATUM", // from ogrmitabspatialref.cpp
    "MRF_ALL_OVERVIEW_LEVELS", // from marfa_dataset.cpp
-   "MRF_BYPASSCACHING", // from marfa_dataset.cpp
+   "MRF_ENABLE_CACHING", // from marfa_dataset.cpp
    "MSSQLSPATIAL_ALWAYS_OUTPUT_FID", // from ogrmssqlspatialdatasource.cpp
    "MSSQLSPATIAL_BCP_SIZE", // from ogrmssqlspatialdatasource.cpp
    "MSSQLSPATIAL_LIST_ALL_TABLES", // from ogrmssqlspatialdatasource.cpp

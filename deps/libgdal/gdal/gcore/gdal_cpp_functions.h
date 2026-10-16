@@ -226,6 +226,10 @@ GDALGetThreadSafeDataset(std::unique_ptr<GDALDataset> poDS, int nScopeFlags);
 GDALDataset CPL_DLL *GDALGetThreadSafeDataset(GDALDataset *poDS,
                                               int nScopeFlags);
 
+int GDALBandGetBestOverviewLevel(GDALRasterBand *poBand,
+                                 double dfTargetDownsamplingRatio,
+                                 double dfOversamplingThreshold);
+
 void GDALNullifyOpenDatasetsList();
 CPLMutex **GDALGetphDMMutex();
 CPLMutex **GDALGetphDLMutex();
@@ -245,7 +249,7 @@ CPLErr CPL_DLL EXIFExtractMetadata(char **&papszMetadata, void *fpL,
 
 int GDALValidateOpenOptions(GDALDriverH hDriver,
                             const char *const *papszOptionOptions);
-int GDALValidateOptions(const char *pszOptionList,
+int GDALValidateOptions(GDALDriverH hDriver, const char *pszOptionList,
                         const char *const *papszOptionsToValidate,
                         const char *pszErrorMessageOptionType,
                         const char *pszErrorMessageContainerName);

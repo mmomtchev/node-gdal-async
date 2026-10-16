@@ -72,6 +72,10 @@ class GDALVectorClipAlgorithmLayer final : public GDALVectorPipelineOutputLayer
     GDALVectorClipAlgorithmLayer(OGRLayer &oSrcLayer,
                                  std::unique_ptr<OGRGeometry> poClipGeom)
         : GDALVectorPipelineOutputLayer(oSrcLayer),
+          // Clone the SRS as the input geometry might use one that will be
+          // hard deleted.
+          m_poSRSClone(OGRSpatialReferenceRefCountedPtr::makeClone(
+              poClipGeom->getSpatialReference())),
           m_poClipGeom(std::move(poClipGeom)),
           m_eSrcLayerGeomType(oSrcLayer.GetGeomType()),
           m_eFlattenSrcLayerGeomType(wkbFlatten(m_eSrcLayerGeomType)),
@@ -79,6 +83,7 @@ class GDALVectorClipAlgorithmLayer final : public GDALVectorPipelineOutputLayer
               m_eFlattenSrcLayerGeomType, wkbGeometryCollection))),
           m_poFeatureDefn(oSrcLayer.GetLayerDefn()->Clone())
     {
+        m_poClipGeom->assignSpatialReference(m_poSRSClone.get());
         SetDescription(oSrcLayer.GetDescription());
         SetMetadata(oSrcLayer.GetMetadata());
         oSrcLayer.SetSpatialFilter(m_poClipGeom.get());
@@ -107,9 +112,27 @@ class GDALVectorClipAlgorithmLayer final : public GDALVectorPipelineOutputLayer
 
         poSrcFeature->SetFDefnUnsafe(m_poFeatureDefn.get());
 
+        auto eFeatGeomType = wkbFlatten(poIntersection->getGeometryType());
+
+        // Promote non-curve geometries to curve layer geometry type if needed.
+        if (OGR_GT_IsNonLinear(m_eFlattenSrcLayerGeomType) &&
+            !OGR_GT_IsNonLinear(eFeatGeomType))
+        {
+            poIntersection = OGRGeometryFactory::forceTo(
+                std::move(poIntersection), m_eSrcLayerGeomType);
+            eFeatGeomType = wkbFlatten(poIntersection->getGeometryType());
+            if (eFeatGeomType == m_eFlattenSrcLayerGeomType)
+            {
+                poSrcFeature->SetGeometry(std::move(poIntersection));
+                if (PassesFilters(poSrcFeature.get()))
+                {
+                    apoOutFeatures.push_back(std::move(poSrcFeature));
+                }
+                return;
+            }
+        }
+
         const auto eSrcGeomType = wkbFlatten(poGeom->getGeometryType());
-        const auto eFeatGeomType =
-            wkbFlatten(poIntersection->getGeometryType());
         if (eFeatGeomType != eSrcGeomType &&
             m_eFlattenSrcLayerGeomType != wkbUnknown &&
             m_eFlattenSrcLayerGeomType != eFeatGeomType)
@@ -127,7 +150,10 @@ class GDALVectorClipAlgorithmLayer final : public GDALVectorPipelineOutputLayer
                     auto poDstFeature =
                         std::unique_ptr<OGRFeature>(poSrcFeature->Clone());
                     poDstFeature->SetGeometry(poSubGeom);
-                    apoOutFeatures.push_back(std::move(poDstFeature));
+                    if (PassesFilters(poDstFeature.get()))
+                    {
+                        apoOutFeatures.push_back(std::move(poDstFeature));
+                    }
                 }
             }
             else if (OGR_GT_GetCollection(eFeatGeomType) ==
@@ -136,14 +162,20 @@ class GDALVectorClipAlgorithmLayer final : public GDALVectorPipelineOutputLayer
                 poIntersection = OGRGeometryFactory::forceTo(
                     std::move(poIntersection), m_eSrcLayerGeomType);
                 poSrcFeature->SetGeometry(std::move(poIntersection));
-                apoOutFeatures.push_back(std::move(poSrcFeature));
+                if (PassesFilters(poSrcFeature.get()))
+                {
+                    apoOutFeatures.push_back(std::move(poSrcFeature));
+                }
             }
             else if (m_eFlattenSrcLayerGeomType == wkbGeometryCollection)
             {
                 auto poGeomColl = std::make_unique<OGRGeometryCollection>();
                 poGeomColl->addGeometry(std::move(poIntersection));
                 poSrcFeature->SetGeometry(std::move(poGeomColl));
-                apoOutFeatures.push_back(std::move(poSrcFeature));
+                if (PassesFilters(poSrcFeature.get()))
+                {
+                    apoOutFeatures.push_back(std::move(poSrcFeature));
+                }
             }
             // else discard geometries of incompatible type with the
             // layer geometry type
@@ -151,7 +183,10 @@ class GDALVectorClipAlgorithmLayer final : public GDALVectorPipelineOutputLayer
         else
         {
             poSrcFeature->SetGeometry(std::move(poIntersection));
-            apoOutFeatures.push_back(std::move(poSrcFeature));
+            if (PassesFilters(poSrcFeature.get()))
+            {
+                apoOutFeatures.push_back(std::move(poSrcFeature));
+            }
         }
     }
 
@@ -164,6 +199,7 @@ class GDALVectorClipAlgorithmLayer final : public GDALVectorPipelineOutputLayer
     }
 
   private:
+    OGRSpatialReferenceRefCountedPtr const m_poSRSClone{};
     std::unique_ptr<OGRGeometry> const m_poClipGeom{};
     const OGRwkbGeometryType m_eSrcLayerGeomType;
     const OGRwkbGeometryType m_eFlattenSrcLayerGeomType;
