@@ -114,9 +114,9 @@ Local<Value> TypedArray::New(GDALDataType type, void *data, int64_t length) {
   size_t size = GDALGetDataTypeSizeBytes(type);
   if (size == 0) { throw "Invalid GDAL data type"; }
 
-  // make ArrayBuffer with external storage by creating a Node.js Buffer w/ an empty free callback
+  // make ArrayBuffer by creating a Node.js Buffer inside V8's sandbox
   Local<Object> buffer =
-    Nan::NewBuffer(reinterpret_cast<char *>(data), length * size, [](char *, void *) {}, nullptr).ToLocalChecked();
+    Nan::CopyBuffer(reinterpret_cast<char *>(data), length * size).ToLocalChecked();
 
   if (buffer.IsEmpty() || !buffer->IsObject()) { throw "Error getting creating Node.js Buffer"; }
 
