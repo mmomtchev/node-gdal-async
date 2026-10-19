@@ -17,7 +17,12 @@ namespace node_gdal {
 
 class Memfile {
   void *data;
-  Napi::Reference<Napi::Object> *persistent;
+  // Only the named files (Memfile::get with a filename) reference a Node object;
+  // the anonymous ones are owned by their buffer and never set this. It must
+  // start out null: both the destructor and the finalizer dereference it, and
+  // an anonymous memfile would otherwise read a garbage pointer (an access
+  // violation whenever the allocator does not hand back zeroed memory).
+  Napi::Reference<Napi::Object> *persistent = nullptr;
   // napi_finalize callback: :: because node_gdal::napi_env() shadows the type
   static void finalize(::napi_env env, void *data, void *hint);
 
