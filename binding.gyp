@@ -111,7 +111,7 @@
 			"sources": [ "<@(sources_node_gdal)" ],
 			"include_dirs": [
 				"include",
-				"<!(node -e \"require('node-addon-api').include\")",
+				"<!(node -p \"require('node-addon-api').include_dir\")",
 			],
 			"defines": [
 				"PLATFORM='<(OS)'",
