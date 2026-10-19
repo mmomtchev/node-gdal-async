@@ -30,6 +30,12 @@ void FeatureDefn::Initialize(Napi::Object target) {
   constructor.SuppressDestruct();
 }
 
+/**
+ * Definition of a feature class or feature layer.
+ *
+ * @constructor
+ * @class FeatureDefn
+ */
 FeatureDefn::FeatureDefn(const Napi::CallbackInfo &info) : GDALObject<FeatureDefn>(info), this_(nullptr), owned_(true) {
   if (info.Length() > 0 && info[0].IsExternal()) {
     this_ = static_cast<OGRFeatureDefn *>(info[0].As<Napi::External<void>>().Data());

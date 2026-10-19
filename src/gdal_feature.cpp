@@ -45,6 +45,29 @@ void Feature::Initialize(Napi::Object target) {
   constructor.SuppressDestruct();
 }
 
+/**
+ * A simple feature, including geometry and attributes. Its fields and geometry
+ * type is defined by the given definition.
+ *
+ * @example
+ * //create layer and specify geometry type
+ * var layer = dataset.layers.create('mylayer', null, gdal.Point);
+ *
+ * //setup fields for the given layer
+ * layer.fields.add(new gdal.FieldDefn('elevation', gdal.OFTInteger));
+ * layer.fields.add(new gdal.FieldDefn('name', gdal.OFTString));
+ *
+ * //create feature using layer definition and then add it to the layer
+ * var feature = new gdal.Feature(layer);
+ * feature.fields.set('elevation', 13775);
+ * feature.fields.set('name', 'Grand Teton');
+ * feature.setGeometry(new gdal.Point(43.741208, -110.802414));
+ * layer.features.add(feature);
+ *
+ * @constructor
+ * @class Feature
+ * @param {Layer|FeatureDefn} definition
+ */
 Feature::Feature(const Napi::CallbackInfo &info) : GDALObject<Feature>(info), this_(nullptr), owned_(true) {
   if (info.Length() > 0 && info[0].IsExternal()) {
     this_ = static_cast<OGRFeature *>(info[0].As<Napi::External<void>>().Data());
