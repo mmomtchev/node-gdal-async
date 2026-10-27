@@ -57,6 +57,14 @@ Pre-built binaries are provided for most recent Linux distributions, Windows 64 
 npm install gdal-async
 ```
 
+On recent Node.js versions with tightened security you will also have to explicitly run the install script which will download the native binary module for your platform:
+
+```
+npm install-scripts approve gdal-async
+```
+
+You have to run this command only once per project using `gdal-async` _before_ installing it.
+
 ### Linking with your own version of GDAL
 
 By default all dependencies are the latest versions and bundled out of the box, but if you would like to link against a custom GDAL library you will have to rebuild it when installing using the following flags:
