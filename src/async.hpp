@@ -345,10 +345,9 @@ GDALPromiseWorker<GDALType>::GDALPromiseWorker(
 
 template <class GDALType> void GDALPromiseWorker<GDALType>::HandleOKCallback() {
   Nan::HandleScope scope;
-#if defined(NODE_MAJOR_VERSION) && NODE_MAJOR_VERSION >= 26
+
   v8::Local<v8::Object> async_resource = Nan::New(Nan::AsyncWorker::persistentHandle);
-  node::CallbackScope callbackScope(v8::Isolate::GetCurrent(), async_resource, {0, 0});
-#endif
+  node::CallbackScope callbackScope(v8::Isolate::GetCurrent(), async_resource, *Nan::AsyncWorker::async_resource);
   auto context = Nan::GetCurrentContext();
   v8::Local<v8::Promise::Resolver> resolver = Nan::New(*resolver_handle);
   resolver->Resolve(context, this->ProduceRVal()).FromJust();
@@ -357,10 +356,8 @@ template <class GDALType> void GDALPromiseWorker<GDALType>::HandleOKCallback() {
 template <class GDALType> void GDALPromiseWorker<GDALType>::HandleErrorCallback() {
   Nan::HandleScope scope;
 
-#if defined(NODE_MAJOR_VERSION) && NODE_MAJOR_VERSION >= 26
   v8::Local<v8::Object> async_resource = Nan::New(Nan::AsyncWorker::persistentHandle);
-  node::CallbackScope callbackScope(v8::Isolate::GetCurrent(), async_resource, {0, 0});
-#endif
+  node::CallbackScope callbackScope(v8::Isolate::GetCurrent(), async_resource, *Nan::AsyncWorker::async_resource);
   auto context = Nan::GetCurrentContext();
   v8::Local<v8::Promise::Resolver> resolver = Nan::New(*resolver_handle);
   resolver->Reject(context, Nan::Error(this->ErrorMessage())).FromJust();

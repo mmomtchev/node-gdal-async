@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
  - GDAL 3.13.3
 
+### Changed
+ - [nodejs/nan#1024](https://github.com/nodejs/nan/issues/1024), full correctness when handling `Promise` return values with Node.js 26
+
 # [3.13.0] 2026-09-25
 
 ### Added
