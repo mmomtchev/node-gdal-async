@@ -1187,22 +1187,10 @@ GDAL_ASYNCABLE_DEFINE(Geometry::exportToWKB) {
     return data;
   };
 
-  Nan::AdjustExternalMemory(size);
-
   job.rval = [size](unsigned char *data, const GetFromPersistentFunc &) {
     Nan::EscapableHandleScope scope;
-    int *hint = new int{static_cast<int>(size)};
-    Local<Value> result = Nan::NewBuffer(
-                            reinterpret_cast<char *>(data),
-                            size,
-                            [](char *data, void *hint) {
-                              int *size = reinterpret_cast<int *>(hint);
-                              Nan::AdjustExternalMemory(-(*size));
-                              delete size;
-                              free(data);
-                            },
-                            hint)
-                            .ToLocalChecked();
+    Local<Value> result = Nan::CopyBuffer(reinterpret_cast<char *>(data), size).ToLocalChecked();
+    free(data);
     return scope.Escape(result);
   };
   job.run(info, async, 2);

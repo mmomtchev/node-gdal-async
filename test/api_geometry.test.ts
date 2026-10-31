@@ -135,8 +135,58 @@ describe('gdal.Geometry', () => {
       ) ]))
     })
   })
+  describe('toWKB()', () => {
+    it('should return valid Buffer for Point (MSB and LSB)', () => {
+      const point2d = new gdal.Point(1, 2)
+      const wkbMsb = point2d.toWKB('MSB')
+      const wkbLsb = point2d.toWKB('LSB')
+
+      assert.instanceOf(wkbMsb, Buffer)
+      assert.instanceOf(wkbLsb, Buffer)
+      assert.equal(wkbMsb.length, 21)
+      assert.equal(wkbLsb.length, 21)
+      assert.equal(wkbMsb.toString('hex'), '00000000013ff00000000000004000000000000000')
+      assert.equal(wkbLsb.toString('hex'), '0101000000000000000000f03f0000000000000040')
+
+      const restored = gdal.Geometry.fromWKB(wkbLsb) as gdal.Point
+      assert.equal(restored.wkbType, gdal.wkbPoint)
+      assert.equal(restored.x, 1)
+      assert.equal(restored.y, 2)
+    })
+    it('should return valid Buffer for LineString', () => {
+      const line = new gdal.LineString()
+      line.points.add(new gdal.Point(0, 0))
+      line.points.add(new gdal.Point(1, 1))
+      const wkb = line.toWKB('LSB')
+
+      assert.instanceOf(wkb, Buffer)
+      assert.equal(wkb.length, 41)
+      const restored = gdal.Geometry.fromWKB(wkb) as gdal.LineString
+      assert.equal(restored.wkbType, gdal.wkbLineString)
+      assert.equal(restored.points.count(), 2)
+      assert.equal(restored.points.get(0).x, 0)
+      assert.equal(restored.points.get(1).x, 1)
+    })
+    it('should return valid Buffer for Polygon', () => {
+      const poly = new gdal.Polygon()
+      const ring = new gdal.LinearRing()
+      ring.points.add(new gdal.Point(0, 0))
+      ring.points.add(new gdal.Point(1, 0))
+      ring.points.add(new gdal.Point(1, 1))
+      ring.points.add(new gdal.Point(0, 1))
+      ring.points.add(new gdal.Point(0, 0))
+      poly.rings.add(ring)
+      const wkb = poly.toWKB('LSB')
+
+      assert.instanceOf(wkb, Buffer)
+      const restored = gdal.Geometry.fromWKB(wkb) as gdal.Polygon
+      assert.equal(restored.wkbType, gdal.wkbPolygon)
+      assert.equal(restored.rings.count(), 1)
+      assert.equal(restored.rings.get(0).points.count(), 5)
+    })
+  })
   describe('toWKBAsync()', () => {
-    it('should return valid result', () => {
+    it('should return valid result for Point', () => {
       const point2d = new gdal.Point(1, 2)
       const wkb = point2d.toWKBAsync()
 
@@ -148,6 +198,34 @@ describe('gdal.Geometry', () => {
           expected = '0101000000000000000000f03f0000000000000040'
         }
         assert.equal(wkb.toString('hex'), expected)
+      }))
+    })
+    it('should return valid Buffer for LineString', () => {
+      const line = new gdal.LineString()
+      line.points.add(new gdal.Point(0, 0))
+      line.points.add(new gdal.Point(1, 1))
+      return assert.isFulfilled(line.toWKBAsync('LSB').then((wkb) => {
+        assert.instanceOf(wkb, Buffer)
+        assert.equal(wkb.length, 41)
+        const restored = gdal.Geometry.fromWKB(wkb) as gdal.LineString
+        assert.equal(restored.wkbType, gdal.wkbLineString)
+        assert.equal(restored.points.count(), 2)
+      }))
+    })
+    it('should return valid Buffer for Polygon', () => {
+      const poly = new gdal.Polygon()
+      const ring = new gdal.LinearRing()
+      ring.points.add(new gdal.Point(0, 0))
+      ring.points.add(new gdal.Point(1, 0))
+      ring.points.add(new gdal.Point(1, 1))
+      ring.points.add(new gdal.Point(0, 1))
+      ring.points.add(new gdal.Point(0, 0))
+      poly.rings.add(ring)
+      return assert.isFulfilled(poly.toWKBAsync('LSB').then((wkb) => {
+        assert.instanceOf(wkb, Buffer)
+        const restored = gdal.Geometry.fromWKB(wkb) as gdal.Polygon
+        assert.equal(restored.wkbType, gdal.wkbPolygon)
+        assert.equal(restored.rings.count(), 1)
       }))
     })
   })
